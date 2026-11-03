@@ -732,6 +732,12 @@
         const op = (spec && spec.opacityKeys) ? clampN(ev(spec.opacityKeys, q, 1), 0, 1) : clampN(f / 4, 0, 1);
         let rot = (spec && spec.angleKeys) ? (ev(spec.angleKeys, q, 0) * Math.PI) / 180 : 0;
         let jx = 0, jy = 0;
+        const hasWiggle = !!(spec && (spec.displace || spec.perturb)) || !!td.wiggle || presetName.includes('wiggle');
+        if (hasWiggle) {
+            jx = Math.sin(step * 1.7 + 0.5) * px * 0.025;
+            jy = Math.cos(step * 2.1 + 0.3) * px * 0.025;
+            rot += Math.sin(step * 1.3) * 0.005;
+        }
         const st = String(td.style || 'Bold').toLowerCase();
         let weight = '700';
         if (/black|heavy/.test(st)) weight = '900';
@@ -817,8 +823,13 @@
                         ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
                         : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
 
+                    let glitchDx = 0;
+                    if (isSlideIn && progress < 0.6) {
+                        glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2 : -1) * (1 - progress);
+                    }
+
                     c.save();
-                    c.translate(curX + tw * 0.5, ly + dySlide);
+                    c.translate(curX + tw * 0.5 + glitchDx, ly + dySlide);
                     if (wordScale !== 1) c.scale(wordScale, wordScale);
                     if (wordAlpha < 1) c.globalAlpha = (c.globalAlpha || 1) * wordAlpha;
 

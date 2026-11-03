@@ -1251,6 +1251,24 @@ function drawStage(S, a, idx) {
                 animRot += (evalSpline(spec.angleKeys, qFrame, 0) * Math.PI) / 180;
             }
 
+            const hasWiggle = !!(spec && (spec.displace || spec.perturb)) || !!td.wiggle || presetName.includes('wiggle');
+            if (isPlaying && hasWiggle) {
+                jx = Math.sin(stepIdx * 1.7 + 0.5) * fontPx * 0.025;
+                jy = Math.cos(stepIdx * 2.1 + 0.3) * fontPx * 0.025;
+                animRot += Math.sin(stepIdx * 1.3) * 0.005;
+            }
+
+            const hasBoil = hasWiggle;
+            if (hasBoil) {
+                const turbEl = $('saTurb' + S);
+                const dispEl = $('saDisp' + S);
+                if (turbEl) turbEl.setAttribute('seed', String(((stepIdx * 13) % 89) + 2));
+                if (dispEl) {
+                    const refr = Number(spec && spec.displace && spec.displace.refraction) || 1;
+                    dispEl.setAttribute('scale', Math.max(1.0, Math.min(2.5, fontPx * 0.018 * refr)).toFixed(2));
+                }
+            }
+
             const lineWidths = lines.map(l => g.measureText(l).width);
             const maxLineW = Math.max(24, ...lineWidths);
             const lineH = fontPx * clamp(Number(td.lineSpacing) || 1, 0.4, 2.5) * 1.16;
@@ -1343,8 +1361,13 @@ function drawStage(S, a, idx) {
                             ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
                             : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
 
+                        let glitchDx = 0;
+                        if (isSlideIn && progress < 0.6) {
+                            glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2.5 : -1.5) * (1 - progress);
+                        }
+
                         g.save();
-                        g.translate(curX + tw * 0.5, ly + dySlide);
+                        g.translate(curX + tw * 0.5 + glitchDx, ly + dySlide);
                         if (wordScale !== 1) g.scale(wordScale, wordScale);
                         if (wordAlpha < 1) g.globalAlpha = (g.globalAlpha || 1) * wordAlpha;
 
@@ -1369,6 +1392,9 @@ function drawStage(S, a, idx) {
                 const filters = [];
                 if (soft > 0) {
                     filters.push('blur(' + Math.min(24, soft * fontPx * 0.06).toFixed(1) + 'px)');
+                }
+                if (hasBoil) {
+                    filters.push('url(#saBoil' + S + ')');
                 }
                 if (filters.length) {
                     g.filter = filters.join(' ');

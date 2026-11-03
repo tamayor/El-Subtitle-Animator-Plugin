@@ -1115,7 +1115,7 @@ function drawStage(S, a, idx) {
     const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
     const isAdjustOpen = (S === 'U' && state.adjustOpen);
     const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
-    const canUseCaptured = !activeSubText && !isDesignDirty;
+    const canUseCaptured = !isDesignDirty;
 
     if (multiBox) {
         cv._gizmo = null;
@@ -2304,7 +2304,7 @@ function bindDblClickReset() {
             e.stopPropagation();
             try {
                 if (window.getSelection) window.getSelection().removeAllRanges();
-            } catch (err) {}
+            } catch (err) { }
         }
     });
 }
@@ -3110,7 +3110,7 @@ function renderTagFilter(key, boxId) {
 
     const btn = document.createElement('button');
     btn.className = 'tag-filter-btn' + (f.length ? ' active' : '');
-    
+
     // Label & count
     let label = 'Filter tags';
     if (f.length === 0) {
@@ -3953,7 +3953,7 @@ function initInspectorLayoutModes() {
     let savedMode = 'default';
     try {
         savedMode = localStorage.getItem('sa_inspector_layout_mode') || 'default';
-    } catch (e) {}
+    } catch (e) { }
     applyLayoutMode(savedMode, false);
 
     document.querySelectorAll('.layout-modes-bar').forEach(bar => {
@@ -3981,7 +3981,7 @@ function initInspectorLayoutModes() {
 
 async function applyLayoutMode(mode, triggerResize) {
     state.inspectorLayoutMode = mode;
-    try { localStorage.setItem('sa_inspector_layout_mode', mode); } catch (e) {}
+    try { localStorage.setItem('sa_inspector_layout_mode', mode); } catch (e) { }
 
     // Update buttons in both tabs
     document.querySelectorAll('.layout-mode-btn').forEach(b => {

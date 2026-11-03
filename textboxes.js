@@ -638,9 +638,9 @@
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
-        const sub = activeSubtitleText();
         const imgs = frames(a);
-        if (sub || !framesReady(imgs) || geometry(a, imgs).blank) {
+        if (!framesReady(imgs) || geometry(a, imgs).blank) {
+            const sub = activeSubtitleText();
             drawSynthetic(cv, a, t, sub);
             return;
         }
@@ -855,8 +855,12 @@
         if (typeof t === 'number' && Number.isInteger(t) && t >= 0) {
             const fps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
             const spanFrames = Math.max(1, Math.round((LOOP_MS / 1000) * fps));
-            const progress = (t % spanFrames) / spanFrames;
-            idx = Math.min(total - 1, Math.max(0, Math.floor(progress * total)));
+            const progress = t / spanFrames;
+            if (progress >= 1) {
+                idx = total - 1;
+            } else {
+                idx = Math.min(total - 1, Math.max(0, Math.floor(progress * total)));
+            }
         } else {
             idx = frameIndex(a, imgs, t);
         }
@@ -886,8 +890,7 @@
                 if (a) {
                     const curM = (state.tab === 'apply' && state.use) ? state.use : a;
                     const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    const sub = activeSubtitleText();
-                    if (!sub && hasRealFrames(a) && !isDirty) {
+                    if (hasRealFrames(a) && !isDirty) {
                         redrawStages();
                     } else if (typeof drawStage === 'function') {
                         drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));

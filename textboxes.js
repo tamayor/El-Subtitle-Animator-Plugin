@@ -638,9 +638,9 @@
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
+        const sub = activeSubtitleText();
         const imgs = frames(a);
-        if (!framesReady(imgs) || geometry(a, imgs).blank) {
-            const sub = activeSubtitleText();
+        if (sub || !framesReady(imgs) || geometry(a, imgs).blank) {
             drawSynthetic(cv, a, t, sub);
             return;
         }
@@ -748,12 +748,11 @@
         });
 
         let renderLines = lines;
-        if (spec && spec.follower && allWords.length > 0) {
+        if (spec && spec.follower && allWords.length > 1) {
             const maxAnimFrames = Math.floor(autoFrame(LOOP_MS) * 0.55);
             const baseDelay = Math.max(1, Math.min(5, Math.floor(maxAnimFrames / allWords.length)));
             const delay = Math.max(1, Math.min(baseDelay, Math.max(1, Math.round(Number(spec.follower.delay || 1) * 3))));
-            const count = Math.min(allWords.length, Math.max(0, Math.floor(f / delay)));
-            if (count === 0) { c.restore(); return; }
+            const count = Math.min(allWords.length, Math.max(1, Math.floor(f / delay)));
             const lineBuckets = lines.map(() => []);
             for (let i = 0; i < count; i++) {
                 const item = allWords[i];
@@ -887,7 +886,8 @@
                 if (a) {
                     const curM = (state.tab === 'apply' && state.use) ? state.use : a;
                     const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    if (hasRealFrames(a) && !isDirty) {
+                    const sub = activeSubtitleText();
+                    if (!sub && hasRealFrames(a) && !isDirty) {
                         redrawStages();
                     } else if (typeof drawStage === 'function') {
                         drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));

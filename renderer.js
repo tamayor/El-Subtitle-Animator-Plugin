@@ -1111,7 +1111,7 @@ function drawStage(S, a, idx) {
     const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
     const isAdjustOpen = (S === 'U' && state.adjustOpen);
     const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
-    const canUseCaptured = !isDesignDirty;
+    const canUseCaptured = !activeSubText && !isDesignDirty;
 
     if (multiBox) {
         cv._gizmo = null;
@@ -2096,7 +2096,7 @@ function runPreview(ctx, loop = false) {
             const sfx = currentSfxPath(curM);
             if (sfx) play(sfx, curM && curM.sfxVolume);
         }
-        const relFrame = (tf < g.textS || tf > g.textE) ? -1 : Math.max(0, Math.floor(tf - g.textS));
+        const relFrame = (tf < g.textS) ? -1 : Math.max(0, Math.floor(tf - g.textS));
         drawStage(ctx.s, curM, relFrame);
         state.preview.raf = requestAnimationFrame(frame);
     };

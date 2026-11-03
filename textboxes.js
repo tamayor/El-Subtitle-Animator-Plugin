@@ -658,9 +658,12 @@
     function frameIndex(a, imgs, t) {
         const total = imgs ? imgs.length : 0;
         if (total <= 1) return 0;
-        const progress = ((t % LOOP_MS) + LOOP_MS) % LOOP_MS / LOOP_MS;
-        const idx = Math.floor(progress * total);
-        return Math.min(total - 1, Math.max(0, idx));
+        const fps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
+        // 1x real-time playback: calculate the real timeline frame over the 3-second window
+        const elapsedMs = ((t % LOOP_MS) + LOOP_MS) % LOOP_MS;
+        const f = Math.floor((elapsedMs / 1000) * fps);
+        // Cut at first 3 seconds: do not compress. If animation is longer, cut after 3s; if shorter, hold last frame.
+        return Math.min(total - 1, f);
     }
 
     // Normalized text bounds over the whole animation, or null while the frames are not loaded.
@@ -683,7 +686,8 @@
     // Frame of the built-in animation loop at time t (timeline frames).
     function autoFrame(t) {
         const fps = (typeof fpsNow === 'function') ? fpsNow() : 25;
-        return Math.floor(((t % LOOP_MS) / 1000) * fps);
+        const elapsedMs = ((t % LOOP_MS) + LOOP_MS) % LOOP_MS;
+        return Math.floor((elapsedMs / 1000) * fps);
     }
 
     function wrapToLines(text) {
@@ -762,7 +766,7 @@
         });
 
         const rawDelay = Number(spec && spec.follower && spec.follower.delay) || 0.5;
-        const wordDelay = Math.max(2, Math.min(6, Math.round(rawDelay * 4)));
+        const wordDelay = isTyping ? 4 : Math.max(4, Math.min(12, Math.round(rawDelay <= 2 ? rawDelay * 10 : rawDelay)));
 
         const numLines = lines.length;
         let px = Math.round(H * (numLines > 1 ? 0.22 : 0.28));
@@ -896,15 +900,10 @@
         if (total <= 0) return null;
         let idx = 0;
         if (typeof t === 'number' && Number.isInteger(t) && t >= 0) {
-            const fps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
-            const spanFrames = Math.max(1, Math.round((LOOP_MS / 1000) * fps));
-            const progress = t / spanFrames;
-            if (progress >= 1) {
-                idx = total - 1;
-            } else {
-                idx = Math.min(total - 1, Math.max(0, Math.floor(progress * total)));
-            }
+            // Timeline frame number: play at 1x real speed, hold final frame if reached
+            idx = Math.min(total - 1, t);
         } else {
+            // Millisecond timestamp: play at 1x real speed, cut at 3 seconds
             idx = frameIndex(a, imgs, t);
         }
         return keyedImage(imgs[idx]);

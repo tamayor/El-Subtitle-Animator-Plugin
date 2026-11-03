@@ -1301,7 +1301,7 @@ function drawStage(S, a, idx) {
             });
 
             const rawDelay = Number(spec && spec.follower && spec.follower.delay) || 0.5;
-            const wordDelayFrames = Math.max(2, Math.min(6, Math.round(rawDelay * 4)));
+            const wordDelayFrames = isTyping ? 4 : Math.max(4, Math.min(12, Math.round(rawDelay <= 2 ? rawDelay * 10 : rawDelay)));
             const currentF = isPlaying ? ((qFrame !== null && qFrame !== undefined) ? qFrame : idx) : 999;
 
             // Render Shading Elements 8 down to 1 (Priority order: higher elements sit behind Element 1)

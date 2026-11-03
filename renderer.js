@@ -898,8 +898,14 @@ function previewImages(a) {
 }
 
 // Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.
+const keyedLRU = [];
+function keyedBounds(im) {
+    return im._kbounds || keyedImage(im)._bounds;
+}
 function keyedImage(im) {
     if (im._keyed) return im._keyed;
+    keyedLRU.push(im);
+    if (keyedLRU.length > 120) { const old = keyedLRU.shift(); if (old && old !== im) old._keyed = null; }
     const w = im.naturalWidth, h = im.naturalHeight;
     const oc = document.createElement('canvas');
     oc.width = w; oc.height = h;
@@ -940,6 +946,7 @@ function keyedImage(im) {
         oc._bounds = { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
     }
     im._keyed = oc;
+    im._kbounds = oc._bounds;
     return oc;
 }
 
@@ -1288,8 +1295,14 @@ function drawStage(S, a, idx) {
 
     const domRect = cv.getBoundingClientRect();
     const boxAr = (customH && domRect.width > 10 && domRect.height > 10) ? (domRect.width / domRect.height) : ar;
-    const targetW = boxAr >= 1 ? 640 : Math.max(200, Math.round(640 * boxAr));
-    const targetH = boxAr >= 1 ? Math.max(200, Math.round(640 / boxAr)) : 640;
+    // Canvas pixels = the viewer's real screen pixels (Retina included), never more than the timeline itself, so the
+    // frame is drawn 1:1 instead of being scaled up from a small canvas.
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = domRect.width > 10 ? domRect.width : 640;
+    const cssH = (customH && domRect.height > 10) ? domRect.height : cssW / boxAr;
+    const fit = Math.min(1, Math.max(tlW, tlH) / Math.max(cssW * dpr, cssH * dpr));
+    const targetW = Math.max(200, Math.round(cssW * dpr * fit));
+    const targetH = Math.max(120, Math.round(cssH * dpr * fit));
     if (cv.width !== targetW || cv.height !== targetH) {
         cv.width = targetW;
         cv.height = targetH;
@@ -1325,7 +1338,7 @@ function drawStage(S, a, idx) {
         g.fillRect(0, 0, cv.width, cv.height);
         if (bg && bg.complete && bg.naturalWidth) {
             g.save();
-            g.filter = 'blur(' + Math.round(18 * (cv.width / 640)) + 'px) brightness(0.32) saturate(0.7)';
+            g.filter = 'blur(' + Math.round(18 * (Math.min(cv.width, cv.height) / 360)) + 'px) brightness(0.32) saturate(0.7)';
             const over = 40;   // overdraw so the blur doesn't fade to transparent at the edges
             g.drawImage(bg, -over, -over, cv.width + over * 2, cv.height + over * 2);
             g.restore();

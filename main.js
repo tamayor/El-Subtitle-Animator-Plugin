@@ -987,7 +987,11 @@ async function capturePreview(animId, itemId, text, designKey, tempDir) {
     const dir = tempDir || path.join(PREV_DIR, animId);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim: 320, outDir: dir }, 120000);
+    // Viewer previews are taken at the timeline's own resolution (1:1 with what Resolve renders); the small
+    // background card renders stay light.
+    const fullDim = Math.max(meta.width || 1920, meta.height || 1080);
+    const maxDim = (tempDir && /__sub$/.test(tempDir)) ? 400 : fullDim;
+    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim, outDir: dir }, 240000);
     const count = (res && typeof res.count === 'number') ? res.count : ((res && res.frames) ? res.frames.length : 0);
     if (!count) throw new Error('No frames came back');
     if (res && res.frames && res.frames.length) {
@@ -1674,7 +1678,8 @@ async function findSelectedFusionItem() {
 // ------------------------------------------------------------------ playhead, live frame, sounds, always-on-top
 async function liveFrame(event, frame) {
     if (applying) return { ok: false, busy: true };
-    const res = await bridgeCall('live_frame', { frame, maxDim: 480 }, 8000);
+    // Full timeline resolution for the viewer's background frame.
+    const res = await bridgeCall('live_frame', { frame, maxDim: 8192 }, 15000);
     return Object.assign({ ok: true }, res);
 }
 

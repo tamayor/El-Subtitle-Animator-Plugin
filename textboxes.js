@@ -622,7 +622,7 @@
         const step = Math.max(1, Math.floor(imgs.length / 12));
         for (let i = 0; i < imgs.length; i += step) {
             const im = imgs[i];
-            const b = keyedImage(im)._bounds;          // finds where the text pixels are in this frame
+            const b = (typeof keyedBounds === 'function' ? keyedBounds(im) : keyedImage(im)._bounds);   // where the text pixels are
             if (!b || isDefaultBounds(b)) continue;
             any = true;
             minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
@@ -630,7 +630,7 @@
         }
         if (imgs.length > 1) {
             const lastIm = imgs[imgs.length - 1];
-            const b = keyedImage(lastIm)._bounds;
+            const b = (typeof keyedBounds === 'function' ? keyedBounds(lastIm) : keyedImage(lastIm)._bounds);
             if (b && !isDefaultBounds(b)) {
                 any = true;
                 minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);

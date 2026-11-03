@@ -1764,6 +1764,58 @@ body.tab-library {
     display: none !important;
 }
 
+/* Collapse mode expand trigger bar */
+.collapse-expand-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: all 0.15s ease;
+}
+
+.collapse-expand-bar:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--strawberry-border);
+    color: #e5ece7;
+}
+
+.collapse-expand-label {
+    color: var(--dim);
+    letter-spacing: 0.3px;
+    transition: color 0.15s ease;
+}
+
+.collapse-expand-bar:hover .collapse-expand-label {
+    color: var(--text);
+}
+
+.collapse-expand-chev {
+    font-size: 13px;
+    color: var(--dim);
+    transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.collapse-expand-bar:hover .collapse-expand-chev {
+    color: var(--strawberry);
+    transform: translateY(2px);
+}
+
+.inspector-grid.layout-collapse .collapse-expand-bar,
+body.inspector-collapse .collapse-expand-bar {
+    display: flex !important;
+}
+
 /* Explicit Default Mode: stacked */
 .inspector-grid.layout-default {
     display: flex !important;

@@ -499,7 +499,11 @@ const PREVIEW_HTML = (S) => `
     <button id="loop${S}" class="ghost loop-btn" title="Toggle continuous real-time looping preview (runs at timeline frame rate)">🔁 Live Loop</button>
     <button id="prevSfx${S}" class="ghost">▶ Sound only</button>
     ${S === 'C' ? '<button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button>' : ''}
-</div>`;
+</div>
+<button type="button" id="collapseExpandBtn${S}" class="collapse-expand-bar" title="Show Text & Alignment settings (switches to Default view)">
+    <span class="collapse-expand-label">Text | Alignment</span>
+    <span class="collapse-expand-chev">▾</span>
+</button>`;
 
 const CTX = {
     U: {
@@ -3961,6 +3965,17 @@ function initInspectorLayoutModes() {
                 await applyLayoutMode(mode, true);
             });
         });
+    });
+
+    ['U', 'C'].forEach(S => {
+        const expandBtn = $('collapseExpandBtn' + S);
+        if (expandBtn) {
+            expandBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await applyLayoutMode('default', true);
+            });
+        }
     });
 }
 

@@ -3461,3 +3461,99 @@ body.inspector-sidebar .tab-columns {
 .tag-row.drag-over-bottom {
     border-bottom: 2px solid var(--matcha) !important;
 }
+
+/* ---------------------------------------------------------------- rendering overlay (stage + preset cards) */
+.render-ov {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(8, 10, 9, 0.55);
+    backdrop-filter: blur(1.5px);
+    color: #eef5f0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    border-radius: inherit;
+    animation: render-ov-in 0.18s ease-out;
+}
+.render-ov.small { font-size: 10px; gap: 6px; }
+.render-spin {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(238, 245, 240, 0.25);
+    border-top-color: #eef5f0;
+    animation: render-spin 0.8s linear infinite;
+    flex: none;
+}
+.render-ov.small .render-spin { width: 12px; height: 12px; }
+@keyframes render-spin { to { transform: rotate(360deg); } }
+@keyframes render-ov-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------------------------------------------------------------- Text+ Layout (Inspector-style) */
+.td-layout { margin: 2px 0 6px; }
+.td-layout .ly-select { grid-column: 2 / 4; height: 24px; font-size: 11px; }
+.td-layout input:disabled, .td-layout select:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------------------------------------------------------------- Text & Shading Design tabs */
+.td-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 6px 0 8px;
+    padding: 2px;
+    background: #0e1210;
+    border: 1px solid #2a332d;
+    border-radius: 6px;
+}
+.td-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.td-tab:hover { color: var(--text); }
+.td-tab.on { color: #0b0d0c; background: var(--matcha); }
+.td-pane.hidden { display: none; }
+
+/* ---------------------------------------------------------------- drag-to-adjust numbers + no clipped text */
+input[type=number]:not(:focus):not(:disabled),
+.xform-num-cell:not(:focus-within) { cursor: ew-resize; }
+body.num-scrubbing, body.num-scrubbing * { cursor: ew-resize !important; user-select: none !important; }
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.td-tab { flex: 1 1 auto; overflow: visible; text-overflow: clip; padding: 5px 8px; }
+.td-tabs { flex-wrap: nowrap; }
+@media (max-width: 300px) { .td-tab { font-size: 10px; padding: 5px 4px; } }
+
+.td-layout .ly-select {
+    height: 26px;
+    padding: 0 26px 0 8px;
+    line-height: 24px;
+    font-size: 11px;
+}
+
+/* slider read-outs (Size 0.104, Opacity 1.00 …) can be dragged too */
+.val[id^="v"] {
+    cursor: ew-resize;
+    padding: 0 4px;
+    border-radius: 3px;
+    transition: background 0.12s ease;
+}
+.val[id^="v"]:hover { background: rgba(140, 207, 142, 0.14); color: var(--text); }
+
+label:has(> .val[id^="v"]) { cursor: ew-resize; }

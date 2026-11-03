@@ -218,6 +218,8 @@ function cloneTextDesign(td) {
     base.wiggle = !!copy.wiggle;
     base.animSpec = copy.animSpec || null;
     base.selectedElement = Number(copy.selectedElement) || 1;
+    base.layout = Object.assign({ type: 0, centerZ: 0, pivotX: 0.5, pivotY: 0.5, pivotZ: 0, size: 1, perspective: 1, animated: [] },
+        (copy.layout && typeof copy.layout === 'object') ? copy.layout : {});
     if (Array.isArray(copy.elements)) {
         base.elements = copy.elements.map((el, i) => {
             const def = base.elements[i] || {};
@@ -273,7 +275,13 @@ const TEXT_DESIGN_HTML = (S) => `
         <span class="meta">${S === 'U' ? 'On-the-go override' : 'Default design'}</span>
     </div>
 
-    <div class="td-subhead">Text</div>
+    <div id="tdTabs${S}" class="td-tabs" role="tablist">
+        <button type="button" class="td-tab on" data-tab="text">Text</button>
+        <button type="button" class="td-tab" data-tab="shading">Shading Elements</button>
+        <button type="button" class="td-tab" data-tab="layout">Layout</button>
+    </div>
+
+    <div class="td-pane" data-pane="text">
     <div class="row two">
         <div class="ctl">
             <label title="Double-click to reset to default (Poppins)">Font</label>
@@ -310,7 +318,54 @@ const TEXT_DESIGN_HTML = (S) => `
         </div>
     </div>
 
-    <div class="td-subhead">Shading Elements</div>
+    </div>
+
+    <div class="td-pane hidden" data-pane="layout">
+    <div class="td-layout">
+        <div class="xform-grid-row">
+            <label class="xform-lbl" for="lyType${S}" title="Double-click to reset to default (Point)">Type</label>
+            <select id="lyType${S}" class="ly-select" data-default="0">
+                <option value="0">Point</option>
+                <option value="1">Frame</option>
+                <option value="2">Circle</option>
+                <option value="3">Path</option>
+            </select>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" title="Where the text sits (same as dragging it on the preview). Double-click to reset to 0.5 / 0.5">Center</label>
+            <div class="xform-num-cell"><span class="xform-axis">X</span><input id="lyCx${S}" type="number" class="rv-num xform-num" step="0.001" value="0.5" data-default="0.5"></div>
+            <div class="xform-num-cell"><span class="xform-axis">Y</span><input id="lyCy${S}" type="number" class="rv-num xform-num" step="0.001" value="0.5" data-default="0.5"></div>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" for="lyCzN${S}" title="Double-click to reset to default (0.0)">Center Z</label>
+            <div class="xform-slider-cell"><input id="lyCz${S}" type="range" class="rv-slider" min="-1" max="1" step="0.01" value="0" data-default="0"></div>
+            <div class="xform-num-cell"><input id="lyCzN${S}" type="number" class="rv-num xform-num" step="0.01" value="0" data-default="0"></div>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" title="Double-click to reset to 0.5 / 0.5">Pivot</label>
+            <div class="xform-num-cell"><span class="xform-axis">X</span><input id="lyPx${S}" type="number" class="rv-num xform-num" step="0.001" value="0.5" data-default="0.5"></div>
+            <div class="xform-num-cell"><span class="xform-axis">Y</span><input id="lyPy${S}" type="number" class="rv-num xform-num" step="0.001" value="0.5" data-default="0.5"></div>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" for="lyPzN${S}" title="Double-click to reset to default (0.0)">Pivot Z</label>
+            <div class="xform-slider-cell"><input id="lyPz${S}" type="range" class="rv-slider" min="-1" max="1" step="0.01" value="0" data-default="0"></div>
+            <div class="xform-num-cell"><input id="lyPzN${S}" type="number" class="rv-num xform-num" step="0.01" value="0" data-default="0"></div>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" for="lySizeN${S}" title="Double-click to reset to default (1.0)">Size</label>
+            <div class="xform-slider-cell"><input id="lySize${S}" type="range" class="rv-slider" min="0" max="5" step="0.01" value="1" data-default="1"></div>
+            <div class="xform-num-cell"><input id="lySizeN${S}" type="number" class="rv-num xform-num" min="0" step="0.01" value="1" data-default="1"></div>
+        </div>
+        <div class="xform-grid-row">
+            <label class="xform-lbl" for="lyPerspN${S}" title="Double-click to reset to default (1.0)">Perspective</label>
+            <div class="xform-slider-cell"><input id="lyPersp${S}" type="range" class="rv-slider" min="0" max="5" step="0.01" value="1" data-default="1"></div>
+            <div class="xform-num-cell"><input id="lyPerspN${S}" type="number" class="rv-num xform-num" min="0" step="0.01" value="1" data-default="1"></div>
+        </div>
+    </div>
+
+    </div>
+
+    <div class="td-pane hidden" data-pane="shading">
     <div class="sh-row">
         <span class="sh-lbl">Select Element</span>
         <div id="shSel${S}" class="sh-tabs">
@@ -391,6 +446,7 @@ const TEXT_DESIGN_HTML = (S) => `
             <label title="Double-click to reset to default (0)">Offset X <input id="shOffsetX${S}" type="number" min="-1" max="1" step="0.01" value="0" data-default="0"></label>
             <label title="Double-click to reset to default (0)">Offset Y <input id="shOffsetY${S}" type="number" min="-1" max="1" step="0.01" value="0" data-default="0"></label>
         </div>
+    </div>
     </div>
 </div>`;
 
@@ -974,6 +1030,94 @@ function wrapToLines(text) {
     return String(text).split(/\r?\n/).filter(Boolean);
 }
 
+// ---------------------------------------------------------------- real Fusion preview with the live subtitle
+// Renders the preset in Fusion with the subtitle's own text (only the text changes, every node and keyframe stays as
+// the preset was built), then the stage plays those real first-3-seconds frames.
+const subPv = { key: null, timer: 0, running: false, failed: new Map(), done: new Set() };
+const designTouched = new Set();   // presets whose text design was edited in this session
+function normSub(t) { return String(t || '').replace(/\r\n/g, '\n').trim(); }
+function currentSubText() {
+    return (($('subText') && $('subText').value.trim()) || (state.live && state.live.subtitle && state.live.subtitle.text) || '');
+}
+// Stable fingerprint of a text design (sorted keys, no derived animation data), to tell whether frames match it.
+function designKeyOf(td) {
+    const norm = (v) => {
+        if (Array.isArray(v)) return v.map(norm);
+        if (v && typeof v === 'object') {
+            const o = {};
+            for (const k of Object.keys(v).sort()) {
+                if (k === 'animSpec' || k === 'selectedElement' || v[k] === undefined) continue;
+                o[k] = norm(v[k]);
+            }
+            return o;
+        }
+        return typeof v === 'number' ? Math.round(v * 1e5) / 1e5 : v;
+    };
+    try { return JSON.stringify(norm(td || null)); } catch (e) { return ''; }
+}
+function previewMatchesText(a, text) {
+    const want = normSub(text);
+    if (!want) return true;   // no subtitle: any real render is fine
+    return !!(a && a.preview && typeof a.preview.text === 'string' && normSub(a.preview.text) === want);
+}
+function previewMatchesDesign(a, m) {
+    if (!a || !a.preview) return false;
+    const dirty = !!((m && m.designDirty) || a.designDirty || designTouched.has(a.id));
+    const stored = a.preview.designKey;
+    if (!dirty && (stored === undefined || stored === null)) return true;   // older renders: the preset as saved
+    return stored === designKeyOf((m && m.textDesign) || a.textDesign);
+}
+function stageRendering(a) { return !!(a && window.SAThumbs && SAThumbs.isBusy && SAThumbs.isBusy(a.id)); }
+function syncStageOverlay(S, on) {
+    const box = $('stageBox' + S);
+    if (!box) return;
+    let o = box.querySelector(':scope > .render-ov');
+    if (on && !o && window.SAThumbs && SAThumbs.renderOverlay) {
+        o = SAThumbs.renderOverlay(false);
+        o.querySelector('.render-lbl').textContent = 'Rendering the real animation in Resolve…';
+        box.appendChild(o);
+    } else if (!on && o) o.remove();
+}
+function ensureRealPreview(a, m) {
+    if (!a || a.missing || !window.sa || !window.sa.makePreview) return;
+    const want = normSub(currentSubText());
+    const td = (m && m.textDesign) || a.textDesign || null;
+    const dKey = designKeyOf(td);
+    if (a.preview && previewMatchesText(a, want) && previewMatchesDesign(a, m)) return;
+    const key = a.id + '\u0000' + want + '\u0000' + dKey;
+    if (subPv.running || subPv.failed.has(key) || subPv.done.has(key)) return;
+    if (subPv.key === key && subPv.timer) return;
+    clearTimeout(subPv.timer);
+    subPv.key = key;
+    const frame0 = state.live && state.live.frame;
+    subPv.timer = setTimeout(async () => {
+        subPv.timer = 0;
+        // Wait while Resolve is playing / scrubbing, the panel is busy, or the design is still being changed.
+        const cur = state.tab === 'apply' ? selected() : libEntry(state.createId);
+        const curM = (state.tab === 'apply' && state.use) ? state.use : cur;
+        if ((state.live && state.live.frame !== frame0) || state.busy || state.drag || state.stageDrag || state.preview
+            || !cur || cur.id !== a.id || normSub(currentSubText()) !== want
+            || designKeyOf((curM && curM.textDesign) || cur.textDesign) !== dKey) { subPv.key = null; return; }
+        subPv.running = true;
+        if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, true);
+        setStatus('Rendering the real animation in Resolve…');
+        let res;
+        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, dKey); } catch (e) { res = { error: String(e && e.message || e) }; }
+        subPv.running = false;
+        subPv.key = null;
+        if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, false);
+        if (res && res.error) {
+            if (!/busy/i.test(res.error)) { subPv.failed.set(key, res.error); setStatus(res.error, 'bad'); }
+            return;
+        }
+        subPv.done.add(key);
+        if (res && res.lib) { state.lib = res.lib; syncUse(false); }
+        setStatus('Preview ready.', 'ok');
+        renderAll();
+        redrawStages();
+    }, 1200);
+}
+
 // idx: which frame to show, null = the last frame (the finished look), -1 = nothing
 function drawStage(S, a, idx) {
     const cv = $('stage' + S);
@@ -1115,7 +1259,14 @@ function drawStage(S, a, idx) {
     const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
     const isAdjustOpen = (S === 'U' && state.adjustOpen);
     const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
-    const canUseCaptured = !activeSubText && !isDesignDirty;
+    // Captured Fusion frames are the preset exactly as built (nodes + keyframes untouched), so they are used whenever
+    // they exist. With a live subtitle, Fusion re-renders the preset with that text in the background and the stage
+    // swaps to those frames when they are ready; the approximation below is only a last resort when no frames exist.
+    // Edited designs are rendered by Fusion too; until those frames arrive the last real render keeps playing
+    // (with a Rendering overlay) instead of switching to a hand-drawn imitation, which is what made it glitch.
+    const canUseCaptured = true;
+    ensureRealPreview(a, m);
+    syncStageOverlay(S, stageRendering(a));
 
     if (multiBox) {
         cv._gizmo = null;
@@ -1316,6 +1467,7 @@ function drawStage(S, a, idx) {
                 }
             };
 
+            const pt = (spec && spec.perturb) || null;
             const drawGlyphLine = (line, li, ox, oy, isStroke) => {
                 const ly = (li - (lines.length - 1) / 2) * lineH + oy;
                 const lineToks = lineWordInfo[li] || [];
@@ -2510,6 +2662,9 @@ function fillTextDesign(ctx) {
     if (lspEl && document.activeElement !== lspEl) lspEl.value = lsp;
     if ($('vTdLine' + S)) $('vTdLine' + S).textContent = lsp.toFixed(2);
 
+    fillLayout(S, td);
+    applyTdTab(S);
+
     const selIdx = clamp(Number(td.selectedElement) || 1, 1, 8);
     td.selectedElement = selIdx;
     const curEl = td.elements[selIdx - 1];
@@ -2601,6 +2756,113 @@ function fillTextDesign(ctx) {
     renderTdSummary(ctx);
 }
 
+// ---- Text / Shading Elements / Layout tabs of the Text & Shading Design panel
+const tdTabSel = { U: 'text', C: 'text' };
+function applyTdTab(S) {
+    const tabs = $('tdTabs' + S);
+    const panel = tabs ? tabs.closest('.td-panel') : null;
+    if (!panel) return;
+    const want = tdTabSel[S] || 'text';
+    panel.querySelectorAll('.td-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === want));
+    panel.querySelectorAll('.td-pane').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== want));
+}
+document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('.td-tab');
+    if (!b || !b.parentElement || !b.parentElement.id) return;
+    const S = b.parentElement.id.slice(-1);
+    tdTabSel[S] = b.dataset.tab;
+    applyTdTab(S);
+});
+
+// ---- Text+ Layout tab (Type, Center, Center Z, Pivot, Pivot Z, Size, Perspective)
+const LAYOUT_FIELDS = [
+    // [key, slider id, number id, Fusion input, decimals]
+    ['centerZ', 'lyCz', 'lyCzN', 'CenterZ', 2],
+    ['pivotZ', 'lyPz', 'lyPzN', 'PivotZ', 2],
+    ['size', 'lySize', 'lySizeN', 'LayoutSize', 2],
+    ['perspective', 'lyPersp', 'lyPerspN', 'Perspective', 2]
+];
+const ANIMATED_TIP = 'Animated in this preset: its keyframes are kept, so this value cannot be overridden here';
+function layoutOf(td) {
+    if (!td.layout || typeof td.layout !== 'object') td.layout = { type: 0, centerZ: 0, pivotX: 0.5, pivotY: 0.5, pivotZ: 0, size: 1, perspective: 1, animated: [] };
+    return td.layout;
+}
+function lockField(el, locked) {
+    if (!el) return;
+    el.disabled = !!locked;
+    if (locked) el.title = ANIMATED_TIP; else if (el.title === ANIMATED_TIP) el.title = '';
+}
+function setNum(el, v, dec) {
+    if (!el || document.activeElement === el) return;
+    el.value = Number(v).toFixed(dec);
+}
+function fillLayout(S, td) {
+    const L = layoutOf(td);
+    const anim = new Set(Array.isArray(L.animated) ? L.animated : []);
+    const ty = $('lyType' + S);
+    if (ty && document.activeElement !== ty) ty.value = String(Math.round(Number(L.type) || 0));
+    lockField(ty, anim.has('LayoutType'));
+    const pc = window.SABoxes ? SABoxes.primaryCenter(S) : null;
+    setNum($('lyCx' + S), pc ? pc.cx : 0.5, 3);
+    setNum($('lyCy' + S), pc ? pc.cy : 0.5, 3);
+    const cLocked = !pc || !pc.movable || anim.has('Center');
+    lockField($('lyCx' + S), cLocked);
+    lockField($('lyCy' + S), cLocked);
+    setNum($('lyPx' + S), L.pivotX, 3);
+    setNum($('lyPy' + S), L.pivotY, 3);
+    lockField($('lyPx' + S), anim.has('Pivot'));
+    lockField($('lyPy' + S), anim.has('Pivot'));
+    for (const [key, sid, nid, input, dec] of LAYOUT_FIELDS) {
+        const v = Number(L[key]);
+        const sl = $(sid + S);
+        if (sl && document.activeElement !== sl) sl.value = v;
+        setNum($(nid + S), v, dec);
+        lockField(sl, anim.has(input));
+        lockField($(nid + S), anim.has(input));
+    }
+}
+function bindLayout(ctx, commit) {
+    const S = ctx.s;
+    const L = () => { const m = ctx.model(); return (m && m.textDesign) ? layoutOf(m.textDesign) : null; };
+    const ty = $('lyType' + S);
+    if (ty) ty.addEventListener('change', () => { const l = L(); if (!l) return; l.type = Number(ty.value) || 0; commit(); });
+    for (const [key, sid, nid, , dec] of LAYOUT_FIELDS) {
+        const sl = $(sid + S), nm = $(nid + S);
+        if (sl) sl.addEventListener('input', () => {
+            const l = L(); if (!l) return;
+            l[key] = Number(sl.value);
+            if (nm) nm.value = l[key].toFixed(dec);
+            commit();
+        });
+        if (nm) nm.addEventListener('change', () => {
+            const l = L(); if (!l) return;
+            const v = Number(nm.value);
+            if (isNaN(v)) { nm.value = Number(l[key]).toFixed(dec); return; }
+            l[key] = v;
+            if (sl) sl.value = v;
+            commit();
+        });
+    }
+    for (const [axis, id] of [['pivotX', 'lyPx'], ['pivotY', 'lyPy']]) {
+        const el = $(id + S);
+        if (el) el.addEventListener('change', () => {
+            const l = L(); if (!l) return;
+            const v = Number(el.value);
+            if (isNaN(v)) { el.value = Number(l[axis]).toFixed(3); return; }
+            l[axis] = v;
+            commit();
+        });
+    }
+    for (const id of ['lyCx', 'lyCy']) {
+        const el = $(id + S);
+        if (el) el.addEventListener('change', () => {
+            const cx = Number($('lyCx' + S).value), cy = Number($('lyCy' + S).value);
+            if (isNaN(cx) || isNaN(cy) || !window.SABoxes) return;
+            SABoxes.setPrimaryCenter(S, cx, cy);
+        });
+    }
+}
+
 function bindTextDesign(ctx) {
     const S = ctx.s;
     const notifyMsg = (msg, kind) => {
@@ -2610,6 +2872,7 @@ function bindTextDesign(ctx) {
     const commit = () => {
         const m = ctx.model();
         if (!m) return;
+        designTouched.add(m.id);
         m.designDirty = true;
         m.adjusted = true;
         m.dirty = true;
@@ -2790,6 +3053,8 @@ function bindTextDesign(ctx) {
         if ($('vTdLine' + S)) $('vTdLine' + S).textContent = m.textDesign.lineSpacing.toFixed(2);
         commit();
     });
+
+    bindLayout(ctx, commit);
 
     for (const btn of $('shSel' + S).querySelectorAll('.sh-tab')) {
         btn.addEventListener('click', () => {
@@ -4040,6 +4305,25 @@ function initInspectorLayoutModes() {
     });
 }
 
+// On every launch: size the window to the width its content needs for the saved layout (collapse / default use the
+// single-column panel, sidebar the two-column one), then widen it if anything still overflows sideways.
+const PANEL_WIDTH = { collapse: 460, default: 460, sidebar: 1160 };
+async function fitWindowToContent() {
+    if (!window.sa || typeof window.sa.fitWidth !== 'function') return;
+    const mode = state.inspectorLayoutMode || 'default';
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) { /* ignore */ }
+    try {
+        await window.sa.fitWidth(PANEL_WIDTH[mode] || 460, mode);
+        await wait(180);
+        const de = document.documentElement;
+        const overflow = Math.ceil(de.scrollWidth - de.clientWidth);
+        if (overflow > 1) await window.sa.fitWidth(window.innerWidth + overflow, mode);
+    } catch (e) { console.warn('Could not fit the window width:', e); }
+    renderTimelines();
+    redrawStages();
+}
+
 async function applyLayoutMode(mode, triggerResize) {
     state.inspectorLayoutMode = mode;
     try { localStorage.setItem('sa_inspector_layout_mode', mode); } catch (e) { }
@@ -4096,6 +4380,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     takeLib(await window.sa.getLib());
     if (state.lib.animations.length) { state.selectedId = state.lib.animations[0].id; syncUse(true); }
     renderAll();
+    fitWindowToContent();
 
     $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
@@ -4203,3 +4488,64 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 window.addEventListener('beforeunload', () => { window.sa.cleanup(); });
 
+
+// ---------------------------------------------------------------- drag-to-adjust number fields (like Resolve)
+// Press and drag left/right anywhere on a number field to change it. Shift = 10x faster, Option/Alt = 10x finer.
+// A click without dragging puts the cursor in the field for typing.
+(function () {
+    let drag = null;
+    const decimalsOf = (n) => { const s = String(n); const i = s.indexOf('.'); return i < 0 ? 0 : s.length - i - 1; };
+    // The value read-out next to a slider (e.g. "Size 0.104") drives that slider: vTdSizeU -> tdSizeU.
+    function sliderForVal(span) {
+        if (!span || !span.id || span.id[0] !== 'v') return null;
+        const id = span.id.charAt(1).toLowerCase() + span.id.slice(2);
+        const el = document.getElementById(id);
+        return (el && el.matches('input[type=range]')) ? el : null;
+    }
+    function fieldFrom(target) {
+        if (!target || !target.closest) return null;
+        if (target.matches && target.matches('input[type=number]')) return target;
+        const cell = target.closest('.xform-num-cell');
+        if (cell) return cell.querySelector('input[type=number]');
+        // The value read-out, or the label holding it ("Size 0.140"), drives that slider.
+        const val = target.closest('.val') || (target.closest('label') && target.closest('label').querySelector('.val[id]'));
+        return val ? sliderForVal(val) : null;
+    }
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const inp = fieldFrom(e.target);
+        if (!inp || inp.disabled || inp.readOnly || document.activeElement === inp) return;
+        e.preventDefault();
+        const step = Number(inp.step) > 0 ? Number(inp.step) : 1;
+        const min = inp.min !== '' ? Number(inp.min) : -Infinity;
+        const max = inp.max !== '' ? Number(inp.max) : Infinity;
+        let perPx = step;
+        if (isFinite(min) && isFinite(max) && max > min) perPx = Math.max(inp.type === 'range' ? step / 4 : step, (max - min) / 400);
+        drag = { inp, x0: e.clientX, v0: Number(inp.value) || 0, step, min, max, perPx, dec: decimalsOf(inp.step || '1'), moved: false, id: e.pointerId };
+        try { (e.target).setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }, true);
+    document.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.x0;
+        if (!drag.moved && Math.abs(dx) < 3) return;
+        if (!drag.moved) { drag.moved = true; document.body.classList.add('num-scrubbing'); }
+        const mult = e.shiftKey ? 10 : (e.altKey ? 0.1 : 1);
+        let v = drag.v0 + dx * drag.perPx * mult;
+        v = Math.round(v / drag.step) * drag.step;
+        v = Math.max(drag.min, Math.min(drag.max, v));
+        const txt = v.toFixed(Math.max(drag.dec, e.altKey ? drag.dec + 1 : 0));
+        if (drag.inp.value === txt) return;
+        drag.inp.value = txt;
+        drag.inp.dispatchEvent(new Event('input', { bubbles: true }));
+        drag.inp.dispatchEvent(new Event('change', { bubbles: true }));
+    }, true);
+    const end = (e) => {
+        if (!drag || (e && e.pointerId !== drag.id)) return;
+        const d = drag;
+        drag = null;
+        document.body.classList.remove('num-scrubbing');
+        if (!d.moved && d.inp.type === 'number') { d.inp.focus(); try { d.inp.select(); } catch (err) { /* ignore */ } }
+    };
+    document.addEventListener('pointerup', end, true);
+    document.addEventListener('pointercancel', end, true);
+})();

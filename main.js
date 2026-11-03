@@ -265,7 +265,9 @@ function parseTextStyle(filePath, savedDesign) {
         wiggle: false,
         animSpec: null,
         selectedElement: 1,
-        elements: defaultShadingElements()
+        elements: defaultShadingElements(),
+        // Text+ Layout tab (Center X/Y is the text box position, edited through the boxes)
+        layout: { type: 0, centerZ: 0, pivotX: 0.5, pivotY: 0.5, pivotZ: 0, size: 1, perspective: 1, animated: [] }
     };
     const fileSoftnessSet = new Set();
     try {
@@ -295,6 +297,22 @@ function parseTextStyle(filePath, savedDesign) {
             if (trk !== null) def.tracking = trk;
             const lsp = num('LineSpacing');
             if (lsp !== null) def.lineSpacing = lsp;
+            // Layout tab. Inputs driven by a spline / path (keyframed) are listed as animated and never overridden.
+            const animatedIn = (key) => new RegExp('\\b' + key + '\\s*=\\s*Input\\s*\\{\\s*SourceOp').test(chunk);
+            const L = def.layout;
+            const lt = num('LayoutType');
+            if (lt !== null) L.type = Math.round(lt);
+            const cz = num('CenterZ');
+            if (cz !== null) L.centerZ = cz;
+            const pv = pt2('Pivot');
+            if (pv) { L.pivotX = pv[0]; L.pivotY = pv[1]; }
+            const pz = num('PivotZ');
+            if (pz !== null) L.pivotZ = pz;
+            const ls = num('LayoutSize');
+            if (ls !== null) L.size = ls;
+            const pp = num('Perspective');
+            if (pp !== null) L.perspective = pp;
+            L.animated = ['LayoutType', 'Center', 'CenterZ', 'Pivot', 'PivotZ', 'LayoutSize', 'Perspective'].filter(animatedIn);
             const selEl = num('SelectElement');
             if (selEl !== null && selEl >= 1 && selEl <= 8) def.selectedElement = Math.round(selEl);
 
@@ -352,6 +370,12 @@ function parseTextStyle(filePath, savedDesign) {
         if (savedDesign.tracking !== undefined) def.tracking = Number(savedDesign.tracking);
         if (savedDesign.lineSpacing !== undefined) def.lineSpacing = Number(savedDesign.lineSpacing);
         if (savedDesign.selectedElement) def.selectedElement = Number(savedDesign.selectedElement) || 1;
+        if (savedDesign.layout && typeof savedDesign.layout === 'object') {
+            for (const k of ['type', 'centerZ', 'pivotX', 'pivotY', 'pivotZ', 'size', 'perspective']) {
+                const v = Number(savedDesign.layout[k]);
+                if (savedDesign.layout[k] !== undefined && savedDesign.layout[k] !== null && !isNaN(v)) def.layout[k] = v;
+            }
+        }
         if (Array.isArray(savedDesign.elements)) {
             for (const sEl of savedDesign.elements) {
                 const idx = Number(sEl && sEl.index);
@@ -479,6 +503,15 @@ function designForFusion(compPath, wanted) {
         }
     }
     if (els.length) { out.elements = els; if (wanted.selectedElement) out.selectedElement = wanted.selectedElement; }
+    if (wanted.layout && typeof wanted.layout === 'object' && base.layout) {
+        const lay = {};
+        for (const k of ['type', 'centerZ', 'pivotX', 'pivotY', 'pivotZ', 'size', 'perspective']) {
+            const v = Number(wanted.layout[k]);
+            if (wanted.layout[k] === undefined || wanted.layout[k] === null || isNaN(v)) continue;
+            if (Math.abs(v - Number(base.layout[k])) > 1e-6) lay[k] = v;
+        }
+        if (Object.keys(lay).length) out.layout = lay;
+    }
     return Object.keys(out).length ? out : null;
 }
 
@@ -930,7 +963,8 @@ function wrap(fn) {
 }
 
 // Grabs real 25fps or 30fps frames from a clip on the timeline so the panel can preview the animation in a 3-second loop.
-async function capturePreview(animId, itemId) {
+// text: the exact text the frames were rendered with ('' = sample text, null = whatever the captured clip held).
+async function capturePreview(animId, itemId, text, designKey) {
     const project = await getProject();
     const tl = project && await project.GetCurrentTimeline();
     const meta = tl ? await timelineMeta(tl) : { fps: 25 };
@@ -947,7 +981,7 @@ async function capturePreview(animId, itemId) {
     }
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === animId);
-    if (a) { a.preview = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now() }; saveLib(lib); }
+    if (a) { a.preview = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null }; saveLib(lib); }
     return true;
 }
 
@@ -1416,7 +1450,8 @@ function previewData(event, id) {
 // timeline, the preset is loaded onto it, its frames are exported, and the clip is removed again.
 const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line'];
 
-async function makePreview(event, animId, customText) {
+// design / designKey (optional): the panel's current, maybe unsaved, text design to render with.
+async function makePreview(event, animId, customText, design, designKey) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
     let tl = null, item = null, origTC = null, leftover = false;
@@ -1449,7 +1484,7 @@ async function makePreview(event, animId, customText) {
         }
         if (!compName) { const names = (await item.GetFusionCompNameList()) || []; compName = names[names.length - 1]; }
 
-        const textDesign = designForFusion(compPath, anim.textDesign || null);
+        const textDesign = designForFusion(compPath, (design && typeof design === 'object') ? design : (anim.textDesign || null));
         const nodes = detectNodes(compPath).filter(n => !n.nested);
         const sampleText = (customText && typeof customText === 'string' && customText.trim()) ? customText.trim() : null;
         if (nodes.length) {
@@ -1461,7 +1496,7 @@ async function makePreview(event, animId, customText) {
         try {
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* only a safety refresh */ }
-        await capturePreview(animId, itemId);
+        await capturePreview(animId, itemId, sampleText || '', designKey);
         return { ok: true, lib: libForUI() };
     } catch (e) {
         return { error: String(e && e.message || e) };
@@ -1594,6 +1629,27 @@ function setOnTop(event, flag) {
 }
 
 let preSidebarBounds = null;
+
+// Sizes the window so its content area is exactly `contentWidth` wide (kept on screen); the height is left alone.
+// Called by the panel each time it opens, so the window always starts at the width its layout needs.
+async function fitWidth(event, contentWidth, mode) {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    const bounds = mainWindow.getBounds();
+    const [cw] = mainWindow.getContentSize();
+    const frameExtra = Math.max(0, bounds.width - cw);
+    const display = screen ? screen.getDisplayMatching(bounds) : null;
+    const wa = display ? display.workArea : { x: 0, y: 0, width: 1920, height: 1080 };
+    const minW = (mainWindow.getMinimumSize() || [380])[0] || 380;
+    const w = Math.round(Math.max(minW, Math.min(wa.width - 20, Number(contentWidth) + frameExtra)));
+    let x = bounds.x;
+    if (x + w > wa.x + wa.width) x = Math.max(wa.x + 10, wa.x + wa.width - w);
+    if (x < wa.x) x = wa.x + 10;
+    mainWindow.setBounds({ x: Math.round(x), y: Math.round(bounds.y), width: w, height: Math.round(bounds.height) }, false);
+    // Opening straight into the sidebar layout: remember the narrow width so leaving the sidebar restores it.
+    if (mode === 'sidebar') preSidebarBounds = { x: Math.round(x), y: Math.round(bounds.y), width: 460, height: Math.round(bounds.height) };
+    else preSidebarBounds = null;
+    return { ok: true, width: w };
+}
 
 async function setLayoutMode(event, mode) {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
@@ -1807,6 +1863,7 @@ app.whenReady().then(() => {
     ipcMain.handle('sfx:read', wrap(readSfx));
     ipcMain.handle('win:setOnTop', wrap(setOnTop));
     ipcMain.handle('win:setLayoutMode', wrap(setLayoutMode));
+    ipcMain.handle('win:fitWidth', wrap(fitWidth));
     ipcMain.handle('resolve:cleanup', cleanup);
     createWindow();
     checkResolveAlive();

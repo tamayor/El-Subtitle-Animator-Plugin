@@ -116,9 +116,39 @@ def hex_to_rgb(hex_str):
         return (1.0, 1.0, 1.0)
 
 
+def apply_layout(tool, lay):
+    """Text+ Layout tab values. An input that is keyframed / driven is left alone, so the animation is kept."""
+    if not isinstance(lay, dict):
+        return
+
+    def put(input_id, value):
+        try:
+            if is_driven(tool, input_id) is None:
+                tool.SetInput(input_id, value)
+        except Exception:
+            pass
+
+    if lay.get("type") is not None:
+        put("LayoutType", int(lay["type"]))
+    if lay.get("centerZ") is not None:
+        put("CenterZ", float(lay["centerZ"]))
+    if lay.get("pivotX") is not None or lay.get("pivotY") is not None:
+        cur = as_pt(get_in(tool, "Pivot")) or [0.5, 0.5]
+        px = float(lay["pivotX"]) if lay.get("pivotX") is not None else cur[0]
+        py = float(lay["pivotY"]) if lay.get("pivotY") is not None else cur[1]
+        put("Pivot", {1: px, 2: py, 3: 0.0})
+    if lay.get("pivotZ") is not None:
+        put("PivotZ", float(lay["pivotZ"]))
+    if lay.get("size") is not None:
+        put("LayoutSize", float(lay["size"]))
+    if lay.get("perspective") is not None:
+        put("Perspective", float(lay["perspective"]))
+
+
 def apply_text_design(tool, td):
     if not td or not isinstance(td, dict):
         return
+    apply_layout(tool, td.get("layout"))
     try:
         if td.get("font"):
             tool.SetInput("Font", str(td["font"]))

@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('sa', {
     replaceAnimationFile: (id, p, keep) => ipcRenderer.invoke('lib:replaceFile', id, p, keep),
     pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),
     previewData: (id) => ipcRenderer.invoke('lib:previewData', id),
-    makePreview: (id, customText) => ipcRenderer.invoke('lib:makePreview', id, customText),
+    makePreview: (id, customText, design, designKey) => ipcRenderer.invoke('lib:makePreview', id, customText, design, designKey),
     scanClip: () => ipcRenderer.invoke('act:scanClip'),
     apply: (req) => ipcRenderer.invoke('act:apply', req),
     updateLatest: (req) => ipcRenderer.invoke('act:updateLatest', req),
@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('sa', {
     readSfx: (p) => ipcRenderer.invoke('sfx:read', p),
     setOnTop: (flag) => ipcRenderer.invoke('win:setOnTop', !!flag),
     setLayoutMode: (mode) => ipcRenderer.invoke('win:setLayoutMode', mode),
+    fitWidth: (width, mode) => ipcRenderer.invoke('win:fitWidth', width, mode),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),
     // Real disk path of a file dropped onto the panel.
     pathForFile: (file) => {

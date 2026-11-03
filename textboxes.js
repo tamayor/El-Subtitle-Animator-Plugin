@@ -178,7 +178,6 @@
     // Draws the preset's real rendered animation (captured from Fusion) over the video frame, looping every 3 s at real 25 or 30 fps.
     function paint(g, a, m, vp, gx, frameIdx) {
         if (!window.SAThumbs) return false;
-        if (m && m.designDirty) return false;
         const tVal = (frameIdx !== null && frameIdx !== undefined && frameIdx >= 0) ? frameIdx : performance.now();
         const fr = SAThumbs.keyedFrame(a, tVal);
         if (!fr) return false;
@@ -549,7 +548,26 @@
         return 'Fusion has ' + countLine(nodes);
     }
 
-    window.SABoxes = { active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf };
+    // Layout "Center" of the first Text+ / template is the same Fusion input the stage boxes move.
+    function primaryCenter(S) {
+        const { m, a } = modelFor(S);
+        const nodes = nodesOf(a);
+        if (!m || !nodes.length || nodes[0].nested) return null;
+        const b = entry(m, a, nodes[0], 0);
+        return { cx: b.cx, cy: b.cy, movable: !!nodes[0].centerInput };
+    }
+    function setPrimaryCenter(S, cx, cy) {
+        const { m, a } = modelFor(S);
+        const nodes = nodesOf(a);
+        if (!m || !nodes.length || nodes[0].nested || !nodes[0].centerInput) return false;
+        const b = entry(m, a, nodes[0], 0);
+        if (typeof cx === 'number' && !isNaN(cx)) b.cx = Math.round(cx * 10000) / 10000;
+        if (typeof cy === 'number' && !isNaN(cy)) b.cy = Math.round(cy * 10000) / 10000;
+        changed(S);
+        return true;
+    }
+
+    window.SABoxes = { active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter };
 })();
 
 // ---------------------------------------------------------------- preset cards: a looping 3-second preview
@@ -640,7 +658,8 @@
         if (!a) return;
         const sub = activeSubtitleText();
         const imgs = frames(a);
-        if (sub || !framesReady(imgs) || geometry(a, imgs).blank) {
+        // Real Fusion frames always win: they are the preset's own nodes and keyframes, never re-animated here.
+        if (!framesReady(imgs) || geometry(a, imgs).blank) {
             drawSynthetic(cv, a, t, sub);
             return;
         }
@@ -971,8 +990,7 @@
                 if (a) {
                     const curM = (state.tab === 'apply' && state.use) ? state.use : a;
                     const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    const sub = activeSubtitleText();
-                    if (!sub && hasRealFrames(a) && !isDirty) {
+                    if (hasRealFrames(a)) {
                         redrawStages();
                     } else if (typeof drawStage === 'function') {
                         drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));
@@ -1016,12 +1034,11 @@
         cv.width = 208; cv.height = 116;
         cv.dataset.id = a.id;
         wrap.appendChild(cv);
-        if (!hasFrames && (busy.has(a.id) || failed.has(a.id) || a.missing)) {
+        if (busy.has(a.id)) wrap.appendChild(renderOverlay(true));
+        if (!hasFrames && !busy.has(a.id) && (failed.has(a.id) || a.missing)) {
             const e = document.createElement('div');
             e.className = 'thumb-badge';
-            if (busy.has(a.id)) {
-                e.textContent = 'Rendering…';
-            } else {
+            {
                 const b = document.createElement('button');
                 b.className = 'ghost';
                 b.textContent = a.missing ? 'File missing' : (failed.has(a.id) ? 'Retry' : 'Rendering\u2026');
@@ -1065,12 +1082,36 @@
         if (next) render(next.id);
     }, 2500);
 
+    // A "Rendering…" layer over a preview while Fusion renders it.
+    function renderOverlay(small) {
+        const o = document.createElement('div');
+        o.className = 'render-ov' + (small ? ' small' : '');
+        o.innerHTML = '<span class="render-spin"></span><span class="render-lbl">Rendering…</span>';
+        return o;
+    }
+    function syncOverlays() {
+        document.querySelectorAll('canvas.thumb').forEach((cv) => {
+            const wrap = cv.parentElement;
+            if (!wrap) return;
+            const cur = wrap.querySelector('.render-ov');
+            const on = busy.has(cv.dataset.id);
+            if (on && !cur) wrap.appendChild(renderOverlay(true));
+            else if (!on && cur) cur.remove();
+        });
+        if (typeof redrawStages === 'function') redrawStages();
+    }
+    function markBusy(id, on) {
+        if (on) busy.add(id); else busy.delete(id);
+        syncOverlays();
+    }
+    function isBusy(id) { return busy.has(id); }
+
     function drawAll(t) {
         const ts = (t !== undefined) ? t : performance.now();
         document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
     }
 
-    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames, drawAll, wrapToLines };
+    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames, drawAll, wrapToLines, markBusy, isBusy, renderOverlay };
     requestAnimationFrame(loop);
 })();
 

@@ -1250,23 +1250,6 @@ function drawStage(S, a, idx) {
             if (isPlaying && spec && spec.angleKeys) {
                 animRot += (evalSpline(spec.angleKeys, qFrame, 0) * Math.PI) / 180;
             }
-            const pt = (spec && spec.perturb) || (td.wiggle ? { xScale: 0.022, yScale: 0.022, strength: 0.04, wobble: 0.03, speed: 10 } : null);
-            if (isPlaying && pt && !hasFollower) {
-                jx = Math.sin(stepIdx * 2.3 + 0.7) * vw * (Number(pt.xScale) || 0.022) * 0.22;
-                jy = Math.cos(stepIdx * 2.9 + 0.4) * vh * (Number(pt.yScale) ?? 0.022) * 0.22;
-                animRot += Math.sin(stepIdx * 1.9) * 0.012;
-            }
-
-            const hasBoil = !!(spec && spec.displace) || !!td.wiggle;
-            if (hasBoil) {
-                const turbEl = $('saTurb' + S);
-                const dispEl = $('saDisp' + S);
-                if (turbEl) turbEl.setAttribute('seed', String(((stepIdx * 13) % 89) + 2));
-                if (dispEl) {
-                    const refr = Number(spec && spec.displace && spec.displace.refraction) || 1;
-                    dispEl.setAttribute('scale', (fontPx * 0.052 * refr).toFixed(2));
-                }
-            }
 
             const lineWidths = lines.map(l => g.measureText(l).width);
             const maxLineW = Math.max(24, ...lineWidths);
@@ -1360,24 +1343,8 @@ function drawStage(S, a, idx) {
                             ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
                             : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
 
-                        let dxW = 0, dyW = 0, rW = 0;
-                        if (pt) {
-                            const wSeed = stepIdx * 2.3 + li * 3.1 + wIdx * 1.9;
-                            dxW = Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.18;
-                            dyW = Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.18;
-                            if (spec && spec.follower && spec.follower.rot) {
-                                rW = Math.sin(wSeed * 0.85) * 0.012;
-                            }
-                        }
-
-                        let glitchDx = 0;
-                        if (isSlideIn && progress < 0.6) {
-                            glitchDx = (Math.sin(wordAge * 15.7) > 0.3 ? 3 : -2) * (1 - progress);
-                        }
-
                         g.save();
-                        g.translate(curX + tw * 0.5 + dxW + glitchDx, ly + dySlide + dyW);
-                        if (rW) g.rotate(rW);
+                        g.translate(curX + tw * 0.5, ly + dySlide);
                         if (wordScale !== 1) g.scale(wordScale, wordScale);
                         if (wordAlpha < 1) g.globalAlpha = (g.globalAlpha || 1) * wordAlpha;
 
@@ -1402,9 +1369,6 @@ function drawStage(S, a, idx) {
                 const filters = [];
                 if (soft > 0) {
                     filters.push('blur(' + Math.min(24, soft * fontPx * 0.06).toFixed(1) + 'px)');
-                }
-                if (hasBoil) {
-                    filters.push('url(#saBoil' + S + ')');
                 }
                 if (filters.length) {
                     g.filter = filters.join(' ');

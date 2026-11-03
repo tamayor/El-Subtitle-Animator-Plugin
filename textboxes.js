@@ -732,12 +732,6 @@
         const op = (spec && spec.opacityKeys) ? clampN(ev(spec.opacityKeys, q, 1), 0, 1) : clampN(f / 4, 0, 1);
         let rot = (spec && spec.angleKeys) ? (ev(spec.angleKeys, q, 0) * Math.PI) / 180 : 0;
         let jx = 0, jy = 0;
-        const pt = (spec && spec.perturb) || (td.wiggle ? { xScale: 0.022, yScale: 0.022 } : null);
-        if (pt) {
-            jx = Math.sin(step * 2.3 + 0.7) * W * (Number(pt.xScale) || 0.022) * 0.5;
-            jy = Math.cos(step * 2.9 + 0.4) * H * (Number(pt.yScale) || 0.022) * 0.5;
-            rot += Math.sin(step * 1.9) * 0.03;
-        }
         const st = String(td.style || 'Bold').toLowerCase();
         let weight = '700';
         if (/black|heavy/.test(st)) weight = '900';

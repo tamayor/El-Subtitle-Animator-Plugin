@@ -3857,3 +3857,61 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
 .val[id^="v"]:hover { background: rgba(140, 207, 142, 0.14); color: var(--text); }
 
 label:has(> .val[id^="v"]) { cursor: ew-resize; }
+
+/* ---- one Text Design per detected Text+ */
+.bx-design {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--bx) 45%, #2a332d);
+    background: color-mix(in srgb, var(--bx) 10%, #0e1210);
+    color: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+.bx-design:hover { background: color-mix(in srgb, var(--bx) 18%, #0e1210); }
+.bx-dnum {
+    min-width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    background: var(--bx);
+    color: #111;
+    font-size: 11px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+}
+.bx-dlbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.td-target {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0 4px;
+}
+.td-target.hidden { display: none; }
+.td-target-lbl { font-size: 11px; color: var(--dim); margin-right: 2px; }
+.td-target-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 3px 10px 3px 4px;
+    border-radius: 999px;
+    border: 1px solid #2a332d;
+    background: #0e1210;
+    color: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+.td-target-btn .bx-chip { flex: none; }
+.td-target-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-target-btn.on {
+    border-color: var(--bx);
+    background: color-mix(in srgb, var(--bx) 16%, #0e1210);
+}

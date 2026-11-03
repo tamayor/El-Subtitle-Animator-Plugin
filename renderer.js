@@ -279,6 +279,8 @@ const TEXT_DESIGN_HTML = (S) => `
         <span class="meta">${S === 'U' ? 'On-the-go override' : 'Default design'}</span>
     </div>
 
+    <div id="tdTarget${S}" class="td-target hidden"></div>
+
     <div id="tdTabs${S}" class="td-tabs" role="tablist">
         <button type="button" class="td-tab on" data-tab="text">Text</button>
         <button type="button" class="td-tab" data-tab="shading">Shading Elements</button>
@@ -1302,7 +1304,7 @@ function stageRendering(S, a) {
 function useView(a) {
     const u = state.use;
     if (!a || !u || u.id !== a.id || !u.tempPreview) return a;
-    if (!normSub(currentSubText()) && !(u.designRev > 0)) return a;   // nothing overridden: the preset as saved
+    if (!normSub(currentSubText()) && !(u.designRev > 0) && !boxOverrides(u, a)) return a;   // nothing overridden: the preset as saved
     return Object.assign({}, a, { preview: u.tempPreview.preview, previewFiles: u.tempPreview.previewFiles });
 }
 // Preset cards show the subtitle too. The selected preset's card mirrors the viewer (subtitle + Use tab changes);
@@ -1341,7 +1343,7 @@ function cardView(a) {
             running = true;
             if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, true);
             let res;
-            try { res = await window.sa.makePreview(next.id, want, null, '', 'sub'); } catch (e) { res = { error: String(e && e.message || e) }; }
+            try { res = await window.sa.makePreview(next.id, want, null, '', 'sub', boxRenderList(next, next, want, true)); } catch (e) { res = { error: String(e && e.message || e) }; }
             if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, false);
             running = false;
             if (res && res.error) { if (!/busy/i.test(res.error)) failed.add(next.id + '\u0000' + want); return; }
@@ -1350,14 +1352,27 @@ function cardView(a) {
     }, 700);
 })();
 
-// Use tab: one render per change of subtitle text or override design, into a temporary preview only.
+// Several Text+: each box's own text / position / Text Design is part of what has to be rendered.
+function boxOverrides(m, a) {
+    return !!(window.SABoxes && SABoxes.hasOverrides && SABoxes.hasOverrides(m, a, currentSubText()));
+}
+function boxRenderKey(m, a) {
+    return (window.SABoxes && SABoxes.renderKey) ? SABoxes.renderKey(m, a, currentSubText()) : '';
+}
+function boxRenderList(m, a, sub, withText) {
+    if (!window.SABoxes || !m || !a || SABoxes.nodesOf(a).length < 2) return null;
+    try { return JSON.parse(JSON.stringify(SABoxes.payload(m, a, sub, withText))); } catch (e) { return null; }
+}
+
+// Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
 function ensureUsePreview(a) {
     const u = state.use;
     if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
     const want = normSub(currentSubText());
     const rev = u.designRev || 0;
-    if (!want && rev === 0) return;
-    const reqKey = want + '\u0000' + rev;
+    const bkey = boxRenderKey(u, a);
+    if (!want && rev === 0 && !boxOverrides(u, a)) return;
+    const reqKey = want + '\u0000' + rev + '\u0000' + bkey;
     if (u.renderReq === reqKey || u.rendering) return;
     if (u._timerKey === reqKey && u._timer) return;
     clearTimeout(u._timer);
@@ -1366,13 +1381,13 @@ function ensureUsePreview(a) {
     u._timer = setTimeout(async () => {
         u._timer = 0; u._timerKey = null;
         if (state.use !== u || (state.live && state.live.frame !== frame0) || state.busy || state.drag || state.stageDrag || state.preview
-            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || state.tab !== 'apply') return;
+            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || state.tab !== 'apply') return;
         u.renderReq = reqKey;
         u.rendering = true;
         setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true)); } catch (e) { res = { error: String(e && e.message || e) }; }
         u.rendering = false;
         if (res && res.error) {
             if (/busy/i.test(res.error)) u.renderReq = null;      // try again shortly
@@ -1428,7 +1443,7 @@ function ensureRealPreview(a, m) {
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, true);
         setStatus('Rendering the real animation in Resolve…');
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td)); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td), false, boxRenderList(curM || cur, cur, '', false)); } catch (e) { res = { error: String(e && e.message || e) }; }
         subPv.running = false;
         subPv.key = null;
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, false);
@@ -1611,7 +1626,7 @@ function drawStage(S, a, idx) {
         g.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
         for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
         const bm = $('stageMsg' + S);
-        if (bm) bm.textContent = painted ? 'Drag a box to place that text, or the empty frame to move everything.' : 'No animation preview yet. Press Make preview on this preset in the list.';
+        if (bm) bm.textContent = painted ? 'Drag to move all the text together. Click a box to edit that Text+ in Text Design.' : 'No animation preview yet. Press Make preview on this preset in the list.';
         return;
     }
     if (window.SABoxes) SABoxes.hideLayer(S);
@@ -3020,6 +3035,15 @@ function syncGradientStopUI(S, curEl, stopIdx) {
     if (hexEl && document.activeElement !== hexEl) hexEl.value = col;
 }
 
+// The design the Text Design panel edits: the preset's own (first Text+), or the Text+ picked at the top of the
+// panel / in the text boxes (each detected Text+ has its own, numbered and named after it).
+function editTD(m, S) {
+    if (!m) return null;
+    if (!m.textDesign) m.textDesign = cloneTextDesign(libEntry(m.id) && libEntry(m.id).textDesign);
+    const own = (window.SABoxes && SABoxes.designFor) ? SABoxes.designFor(S, m) : null;
+    return own || m.textDesign;
+}
+
 function fillTextDesign(ctx) {
     const S = ctx.s, m = ctx.model();
     if (!m) return;
@@ -3028,7 +3052,8 @@ function fillTextDesign(ctx) {
         m.textDesign = cloneTextDesign(a && a.textDesign);
     }
     syncVarButtons(S, m);
-    const td = m.textDesign;
+    if (window.SABoxes && SABoxes.renderTarget) SABoxes.renderTarget(S);
+    const td = editTD(m, S);
     const fEl = $('tdFont' + S);
     if (fEl && document.activeElement !== fEl) fEl.value = td.font || 'Poppins';
     const stEl = $('tdStyle' + S);
@@ -3249,7 +3274,7 @@ function fillLayout(S, td) {
 }
 function bindLayout(ctx, commit) {
     const S = ctx.s;
-    const L = () => { const m = ctx.model(); return (m && m.textDesign) ? layoutOf(m.textDesign) : null; };
+    const L = () => { const m = ctx.model(); const td = editTD(m, S); return td ? layoutOf(td) : null; };
     const ty = $('lyType' + S);
     if (ty) ty.addEventListener('change', () => { const l = L(); if (!l) return; l.type = Number(ty.value) || 0; commit(); });
     for (const [key, sid, nid, , dec] of LAYOUT_FIELDS) {
@@ -3327,7 +3352,7 @@ function bindTextDesign(ctx) {
             SAThumbs.drawAll(performance.now());
         }
 
-        if (S === 'C') saveField(m.id, { textDesign: m.textDesign });
+        if (S === 'C') saveField(m.id, { textDesign: m.textDesign, boxes: m.boxes || {} });
 
         if (typeof triggerLiveSync === 'function') {
             triggerLiveSync(m, S);
@@ -3336,9 +3361,9 @@ function bindTextDesign(ctx) {
     const curEl = () => {
         const m = ctx.model();
         if (!m) return null;
-        if (!m.textDesign) m.textDesign = cloneTextDesign(libEntry(m.id) && libEntry(m.id).textDesign);
-        const idx = clamp(Number(m.textDesign.selectedElement) || 1, 1, 8);
-        return m.textDesign.elements[idx - 1];
+        const td = editTD(m, S);
+        const idx = clamp(Number(td.selectedElement) || 1, 1, 8);
+        return td.elements[idx - 1];
     };
 
     const varIn = $('tdVarName' + S);
@@ -3447,38 +3472,38 @@ function bindTextDesign(ctx) {
     }
 
     $('tdFont' + S).addEventListener('input', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
-        m.textDesign.font = $('tdFont' + S).value.trim() || 'Poppins';
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+        td.font = $('tdFont' + S).value.trim() || 'Poppins';
         commit();
     });
     $('tdStyle' + S).addEventListener('change', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
-        m.textDesign.style = $('tdStyle' + S).value;
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+        td.style = $('tdStyle' + S).value;
         commit();
     });
     $('tdColor' + S).addEventListener('input', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
         const c = $('tdColor' + S).value;
-        m.textDesign.elements[0].color = c;
-        m.textDesign.elements[0].modified = true;
+        td.elements[0].color = c;
+        td.elements[0].modified = true;
         commit();
     });
     $('tdSize' + S).addEventListener('input', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
-        m.textDesign.size = Number($('tdSize' + S).value);
-        if ($('vTdSize' + S)) $('vTdSize' + S).textContent = m.textDesign.size.toFixed(3);
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+        td.size = Number($('tdSize' + S).value);
+        if ($('vTdSize' + S)) $('vTdSize' + S).textContent = td.size.toFixed(3);
         commit();
     });
     $('tdTrack' + S).addEventListener('input', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
-        m.textDesign.tracking = Number($('tdTrack' + S).value);
-        if ($('vTdTrack' + S)) $('vTdTrack' + S).textContent = m.textDesign.tracking.toFixed(2);
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+        td.tracking = Number($('tdTrack' + S).value);
+        if ($('vTdTrack' + S)) $('vTdTrack' + S).textContent = td.tracking.toFixed(2);
         commit();
     });
     $('tdLine' + S).addEventListener('input', () => {
-        const m = ctx.model(); if (!m || !m.textDesign) return;
-        m.textDesign.lineSpacing = Number($('tdLine' + S).value);
-        if ($('vTdLine' + S)) $('vTdLine' + S).textContent = m.textDesign.lineSpacing.toFixed(2);
+        const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+        td.lineSpacing = Number($('tdLine' + S).value);
+        if ($('vTdLine' + S)) $('vTdLine' + S).textContent = td.lineSpacing.toFixed(2);
         commit();
     });
 
@@ -3486,8 +3511,8 @@ function bindTextDesign(ctx) {
 
     for (const btn of $('shSel' + S).querySelectorAll('.sh-tab')) {
         btn.addEventListener('click', () => {
-            const m = ctx.model(); if (!m || !m.textDesign) return;
-            m.textDesign.selectedElement = Number(btn.dataset.idx) || 1;
+            const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+            td.selectedElement = Number(btn.dataset.idx) || 1;
             fillTextDesign(ctx);
         });
     }
@@ -4196,12 +4221,13 @@ function renderTdSummary(ctx) {
     if (!el) return;
     const m = ctx.model();
     if (!m) { el.textContent = ''; return; }
-    const td = m.textDesign || (libEntry(m.id) && libEntry(m.id).textDesign);
+    const td = editTD(m, S) || (libEntry(m.id) && libEntry(m.id).textDesign);
     if (!td) { el.textContent = ''; return; }
     const font = td.font || 'Poppins';
     const style = td.style || 'Bold';
     const size = (Number(td.size) || 0.12).toFixed(3);
-    el.textContent = font + ' ' + style + ' · ' + size + (m.designDirty ? ' · edited' : '');
+    const who = (window.SABoxes && SABoxes.targetLabel) ? SABoxes.targetLabel(S) : '';
+    el.textContent = (who ? who + ' · ' : '') + font + ' ' + style + ' · ' + size + (m.designDirty ? ' · edited' : '');
 }
 
 function soundOf(a) {

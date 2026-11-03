@@ -255,7 +255,18 @@ function parseAnimSpec(raw, tpChunk) {
     return spec;
 }
 
-function parseTextStyle(filePath, savedDesign) {
+function textPlusChunk(raw, toolName) {
+    if (toolName) {
+        const esc = String(toolName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = new RegExp('(?:^|[\\s,{])' + esc + '\\s*=\\s*TextPlus\\s*\\{').exec(raw);
+        if (m) return extractBraceBlock(raw, m.index + m[0].indexOf(toolName));
+    }
+    const tpIdx = raw.indexOf('= TextPlus');
+    return tpIdx >= 0 ? extractBraceBlock(raw, tpIdx) : raw;
+}
+
+// toolName: read the design of that Text+ (a preset with several Text+ has one Text Design per Text+).
+function parseTextStyle(filePath, savedDesign, toolName) {
     const def = {
         font: 'Poppins',
         style: 'Bold',
@@ -273,8 +284,7 @@ function parseTextStyle(filePath, savedDesign) {
     try {
         if (filePath && fs.existsSync(filePath)) {
             const raw = fs.readFileSync(filePath, 'utf8');
-            const tpIdx = raw.indexOf('= TextPlus');
-            const chunk = tpIdx >= 0 ? extractBraceBlock(raw, tpIdx) : raw;
+            const chunk = textPlusChunk(raw, toolName);
             const num = (key) => {
                 const m = new RegExp('\\b' + key + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*(?:Number\\s*\\{\\s*Value\\s*=\\s*)?([\\d.\\-]+)').exec(chunk);
                 return m ? parseFloat(m[1]) : null;
@@ -485,9 +495,9 @@ function detectNodes(filePath) {
 
 // Only the Text+ design values you actually changed are sent to Fusion. Everything the preset file already says
 // (including animated sizes and shading) is left exactly as the preset made it.
-function designForFusion(compPath, wanted) {
+function designForFusion(compPath, wanted, toolName) {
     if (!wanted || typeof wanted !== 'object') return null;
-    const base = parseTextStyle(compPath && fs.existsSync(compPath) ? compPath : null, null);
+    const base = parseTextStyle(compPath && fs.existsSync(compPath) ? compPath : null, null, toolName);
     const out = {};
     for (const k of ['font', 'style', 'size', 'tracking', 'lineSpacing']) {
         if (wanted[k] === undefined || wanted[k] === null) continue;
@@ -527,6 +537,34 @@ function designForFusion(compPath, wanted) {
     return Object.keys(out).length ? out : null;
 }
 
+// The first Text+ of a preset uses the preset's Text Design; every other Text+ can carry its own (box.design),
+// which is turned into "only what differs from that Text+ in the file" here.
+function primaryTextPlus(nodes) {
+    const n = (nodes || []).find(x => x && x.kind === 'textplus' && !x.nested);
+    return n ? n.id : null;
+}
+function fusionBoxes(compPath, list) {
+    if (!Array.isArray(list)) return list;
+    return list.map(b => {
+        if (!b || !b.design || typeof b.design !== 'object' || b.kind !== 'textplus') return b ? Object.assign({}, b, { design: null }) : b;
+        return Object.assign({}, b, { design: designForFusion(compPath, b.design, b.tool) || {} });
+    });
+}
+const nodeDesignCache = new Map();
+function nodesWithDesign(animPath) {
+    let st;
+    try { st = fs.statSync(animPath); } catch (e) { return []; }
+    const key = animPath + ':' + st.mtimeMs;
+    if (nodeDesignCache.has(key)) return JSON.parse(JSON.stringify(nodeDesignCache.get(key)));
+    const nodes = detectNodes(animPath);
+    const first = primaryTextPlus(nodes);
+    const out = nodes.map(n => (n.kind === 'textplus' && !n.nested && n.id !== first)
+        ? Object.assign({}, n, { design: parseTextStyle(animPath, null, n.tool) })
+        : Object.assign({}, n, { primary: n.id === first }));
+    nodeDesignCache.set(key, out);
+    return JSON.parse(JSON.stringify(out));
+}
+
 function libForUI() {
     const lib = loadLib();
     return {
@@ -540,7 +578,7 @@ function libForUI() {
             const textDesign = parseTextStyle(exists ? animPath : null, a.textDesign);
             return Object.assign({}, a, {
                 missing: !exists,
-                nodes: exists ? detectNodes(animPath) : [],
+                nodes: exists ? nodesWithDesign(animPath) : [],
                 textDesign,
                 textStyle: textDesign,
                 previewFiles: a.preview ? Array.from({ length: a.preview.count }, (_, i) => path.join(PREV_DIR, a.id, 'p' + String(i).padStart(2, '0') + '.png')) : [],
@@ -857,7 +895,7 @@ async function apply(event, req) {
         let liveNodes = null;
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: req.boxList, textDesign });
+                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign });
                 liveNodes = r && r.nodes;
                 if (r && r.missing && r.missing.length) warnings.push('Not found in Fusion: ' + r.missing.join(', ') + '.');
                 if (r && r.fixedPosition && r.fixedPosition.length) warnings.push('Position not changed (animated or not published): ' + r.fixedPosition.join(', ') + '.');
@@ -1230,7 +1268,7 @@ async function updateLatest(event, req) {
                 const compName = names[names.length - 1] || null;
                 const textArg = (req.updateText && String(req.text || '').trim()) ? String(req.text).trim() : null;
                 if (Array.isArray(req.boxList) && req.boxList.length) {
-                    await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: req.boxList, textDesign: designForFusion(path.join(ANIM_DIR, a.file), a.textDesign || null) });
+                    await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(path.join(ANIM_DIR, a.file), req.boxList), textDesign: designForFusion(path.join(ANIM_DIR, a.file), a.textDesign || null) });
                 } else {
                     await bridgeCall('set_text', {
                         item: itemId,
@@ -1319,7 +1357,7 @@ async function syncLiveTransform(event, req) {
                 await bridgeCall('set_boxes', {
                     item: itemId,
                     comp: compName,
-                    boxes: req.boxList,
+                    boxes: fusionBoxes(cp, req.boxList),
                     textDesign: liveDesign
                 }, 4000);
             } else {
@@ -1499,9 +1537,9 @@ function frameStats(files) {
     return { frames: hashes.length, unique: new Set(hashes).size, runs: runs.map(r => r[0] + 'x' + r[1]).join(' ') };
 }
 
-async function makePreview(event, animId, customText, design, designKey, temp) {
+async function makePreview(event, animId, customText, design, designKey, temp, boxList) {
     const t0 = Date.now();
-    const r = await makePreviewInner(event, animId, customText, design, designKey, temp);
+    const r = await makePreviewInner(event, animId, customText, design, designKey, temp, boxList);
     try {
         const lib = loadLib();
         const a = lib.animations.find(x => x.id === animId);
@@ -1530,7 +1568,7 @@ function previewBackground(compPath, design) {
     } catch (e) { return 'black'; }
 }
 
-async function makePreviewInner(event, animId, customText, design, designKey, temp) {
+async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
     let tl = null, item = null, origTC = null, leftover = false;
@@ -1570,8 +1608,28 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         const nodes = detectNodes(compPath).filter(n => !n.nested);
         const sampleText = (customText && typeof customText === 'string' && customText.trim()) ? customText.trim() : null;
         if (nodes.length) {
-            const boxes = nodes.map((n, i) => ({ id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label, text: sampleText || SAMPLE_TEXTS[i % SAMPLE_TEXTS.length] }));
-            await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes, textDesign });
+            // Every Text+ gets its own text (subtitle, one line, custom text or the preset's own), its own position
+            // and its own Text Design, exactly as it will be on the timeline. The saved preview (not temp) keeps
+            // sample texts, but still shows each Text+'s own design.
+            const given = Array.isArray(boxList) ? boxList : [];
+            const multi = nodes.length > 1;
+            const boxes = nodes.map((n, i) => {
+                const g = given.find(x => x && x.id === n.id) || null;
+                const fallback = sampleText || SAMPLE_TEXTS[i % SAMPLE_TEXTS.length];
+                let text = fallback;
+                if (temp && g) {
+                    if (typeof g.text === 'string' && g.text.trim()) text = g.text;
+                    else if (g.text === null) text = null;      // "Keep preset's text"
+                }
+                return {
+                    id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label, text,
+                    cx: (multi && g && typeof g.cx === 'number') ? g.cx : null,
+                    cy: (multi && g && typeof g.cy === 'number') ? g.cy : null,
+                    size: (multi && g && typeof g.size === 'number') ? g.size : null,
+                    design: (g && g.design && typeof g.design === 'object') ? g.design : null
+                };
+            });
+            await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, boxes), textDesign });
         } else {
             await bridgeCall('set_text', { item: itemId, comp: compName, text: sampleText || SAMPLE_TEXTS[0], textDesign });
         }

@@ -18,6 +18,7 @@
     const lastKey = { U: '', C: '' };
     const keep = { value: true };              // keep text and positions when swapping the Fusion file
     const msgs = { U: '', C: '' };
+    const target = { U: null, C: null };       // which Text+ the Text Design panel edits (node id), per stage
 
     const q = (id) => document.getElementById(id);
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -63,6 +64,14 @@
     }
 
     // What gets sent to Fusion, one item per detected node.
+    // The first Text+ uses the preset's Text Design (m.textDesign); every other Text+ has its own (box.design).
+    function primaryId(a) {
+        const nodes = nodesOf(a);
+        const p = nodes.find(n => n.primary) || nodes.find(n => n.kind === 'textplus' && !n.nested);
+        return p ? p.id : null;
+    }
+    function ownsDesign(a, n) { return !!n && n.kind === 'textplus' && !n.nested && n.id !== primaryId(a); }
+
     function payload(m, a, sub, withText) {
         const nodes = nodesOf(a);
         if (!nodes.length || nodes[0].nested) return [];
@@ -74,7 +83,8 @@
                 text: withText === false ? null : resolveText(b, sub),
                 cx: (moved && n.centerInput) ? b.cx : null,
                 cy: (moved && n.centerInput) ? b.cy : null,
-                size: (n.kind === 'textplus' && !near(b.scale, 1)) ? Math.round(n.size * b.scale * 10000) / 10000 : null
+                size: (n.kind === 'textplus' && !near(b.scale, 1)) ? Math.round(n.size * b.scale * 10000) / 10000 : null,
+                design: (ownsDesign(a, n) && b.design) ? b.design : null
             };
         });
     }
@@ -216,58 +226,26 @@
         const t = document.createElement('div');
         t.className = 'bx-txt';
         el.append(tag, t);
-        el.title = n.centerInput ? 'Drag to place this text on its own. Scroll to resize.' : 'This template does not publish a position, so it cannot be moved on its own.';
+        el.title = 'Click to edit this Text+ in Text Design. Drag to move all the text together.';
 
+        // All Text+ sit in one container: dragging any box moves the whole group (the stage transform).
+        // A box only picks which Text+ the Text Design panel edits; its own placement is in Text Design > Layout.
         el.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
             e.preventDefault();
             e.stopPropagation();
             sel[S] = n.id;
-            const { m, a } = modelFor(S);
-            if (!m) return;
-            const b = entry(m, a, n, i);
-            if (n.centerInput) {
-                el.setPointerCapture(e.pointerId);
-                el._drag = { x0: e.clientX, y0: e.clientY, cx0: b.cx, cy0: b.cy };
+            setTarget(S, n.id);
+            const cv = q('stage' + S);
+            if (cv) {
+                try {
+                    cv.dispatchEvent(new PointerEvent('pointerdown', {
+                        bubbles: true, cancelable: true, button: 0, buttons: 1,
+                        clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: true
+                    }));
+                } catch (err) { /* ignore */ }
             }
-            highlightRow(S);
-            redrawStages();
         });
-        el.addEventListener('pointermove', (e) => {
-            const d = el._drag, G = geo[S];
-            if (!d || !G) return;
-            const { m, a } = modelFor(S);
-            if (!m) return;
-            const b = entry(m, a, n, i);
-            // screen pixels -> canvas pixels -> undo zoom, rotation and scale -> 0..1 frame units
-            const px = (e.clientX - d.x0) / G.f / G.zoom, py = (e.clientY - d.y0) / G.f / G.zoom;
-            const cos = Math.cos(-G.rot), sin = Math.sin(-G.rot);
-            const ux = (px * cos - py * sin) / G.scale, uy = (px * sin + py * cos) / G.scale;
-            let cx = d.cx0 + ux / G.vp.vw, cy = d.cy0 - uy / G.vp.vh;
-            if (!e.shiftKey) {
-                if (Math.abs(cx - 0.5) < 0.012) cx = 0.5;
-                if (Math.abs(cy - 0.5) < 0.012) cy = 0.5;
-            }
-            b.cx = Math.round(cx * 10000) / 10000;
-            b.cy = Math.round(cy * 10000) / 10000;
-            syncRow(S, n.id);
-            redrawStages();
-        });
-        const end = () => {
-            if (!el._drag) return;
-            el._drag = null;
-            changed(S);
-        };
-        el.addEventListener('pointerup', end);
-        el.addEventListener('pointercancel', end);
-        el.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const { m, a } = modelFor(S);
-            if (!m) return;
-            const b = entry(m, a, n, i);
-            b.scale = clamp(Math.round(b.scale * (e.deltaY < 0 ? 1.05 : 1 / 1.05) * 1000) / 1000, 0.1, 5);
-            syncRow(S, n.id);
-            changed(S);
-        }, { passive: false });
         return el;
     }
 
@@ -346,7 +324,7 @@
         }
         if (active(a)) {
             nodes.forEach((n, i) => host.appendChild(buildRow(S, m, a, n, i)));
-            host.appendChild(mk('div', 'hint', 'Drag a box on the viewer to place that text on its own. Scroll over a box to resize it.'));
+            host.appendChild(mk('div', 'hint', 'Drag on the viewer to move all the text together. Each Text+ has its own Text Design (font, colour, shading, and its own position under Layout).'));
         }
         const live = mk('div', 'bx-live' + (msgs[S] ? '' : ' hidden'));
         live.id = 'bxLive' + S;
@@ -364,14 +342,6 @@
 
         const top = mk('div', 'bx-top');
         top.append(mk('span', 'bx-chip', String(i + 1)), mk('span', 'bx-name', n.label), mk('span', 'bx-kind', n.kind === 'template' ? 'template' : 'Text+'));
-        const reset = mk('button', 'ghost bx-reset', 'Reset');
-        reset.title = 'Put this box back where the preset has it';
-        reset.addEventListener('click', () => {
-            b.cx = n.cx; b.cy = n.cy; b.scale = 1;
-            syncRow(S, n.id);
-            changed(S);
-        });
-        top.appendChild(reset);
         row.appendChild(top);
 
         const modeRow = mk('div', 'bx-mode');
@@ -399,17 +369,24 @@
         });
         row.appendChild(custom);
 
+        // Text Design for this Text+ (numbered and named like the box), instead of X / Y / Size here.
         const nums = mk('div', 'bx-nums');
-        if (n.centerInput) {
-            nums.append(
-                numField('X', 'bx-x', b.cx.toFixed(3), '0.01', (v) => { b.cx = v; changed(S); }),
-                numField('Y', 'bx-y', b.cy.toFixed(3), '0.01', (v) => { b.cy = v; changed(S); })
-            );
-        } else {
-            nums.appendChild(mk('span', 'hint', 'Position is fixed by the template'));
-        }
         if (n.kind === 'textplus') {
-            nums.appendChild(numField('Size ×', 'bx-s', b.scale.toFixed(2), '0.05', (v) => { if (v > 0) { b.scale = clamp(v, 0.1, 5); changed(S); } }));
+            const db = mk('button', 'bx-design', '');
+            db.type = 'button';
+            db.append(mk('span', 'bx-dnum', String(i + 1)), mk('span', 'bx-dlbl', 'Text Design · ' + nodeName(n)));
+            db.title = 'Edit the font, colour, shading and layout of ' + nodeName(n);
+            db.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setTarget(S, n.id);
+                if (S === 'U' && typeof setTdOpen === 'function') setTdOpen(true);
+                if (S === 'C' && typeof setCreateTdOpen === 'function') setCreateTdOpen(true);
+                const w = q('tdWrap' + S);
+                if (w && w.scrollIntoView) w.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            });
+            nums.appendChild(db);
+        } else {
+            nums.appendChild(mk('span', 'hint', 'Template: its design is set inside the template'));
         }
         row.appendChild(nums);
         return row;
@@ -548,26 +525,119 @@
         return 'Fusion has ' + countLine(nodes);
     }
 
-    // Layout "Center" of the first Text+ / template is the same Fusion input the stage boxes move.
+    function nodeName(n) { return String(n.label || n.id).replace(/^(Text\+|Template) · /, ''); }
+
+    // ------------------------------------------------------------ Text Design target (one design per Text+)
+    function designNodes(a) { return nodesOf(a).filter(n => n.kind === 'textplus' && !n.nested); }
+    function targetNode(S) {
+        const { a } = modelFor(S);
+        const list = designNodes(a);
+        if (!list.length) return null;
+        return list.find(n => n.id === target[S]) || list.find(n => n.id === primaryId(a)) || list[0];
+    }
+    function setTarget(S, id) {
+        if (target[S] === id) { highlightRow(S); redrawStages(); return; }
+        target[S] = id;
+        sel[S] = id;
+        highlightRow(S);
+        const ctx = CTX[S];
+        if (ctx && typeof fillTextDesign === 'function') fillTextDesign(ctx);
+        redrawStages();
+    }
+    // The design the Text Design panel edits right now, or null for the preset's own (first Text+) design.
+    function designFor(S, m) {
+        const { a } = modelFor(S);
+        if (!m || !a) return null;
+        const n = targetNode(S);
+        if (!n || !ownsDesign(a, n)) return null;
+        const nodes = nodesOf(a);
+        const b = entry(m, a, n, nodes.indexOf(n));
+        if (!b.design || typeof b.design !== 'object' || !Array.isArray(b.design.elements)) {
+            const src = n.design || (libEntry(m.id) && libEntry(m.id).textDesign) || m.textDesign;
+            b.design = (typeof cloneTextDesign === 'function') ? cloneTextDesign(src) : JSON.parse(JSON.stringify(src || {}));
+        }
+        return b.design;
+    }
+    // Numbered target buttons at the top of the Text Design panel, named after each detected Text+.
+    function renderTarget(S) {
+        const host = q('tdTarget' + S);
+        if (!host) return;
+        const { a } = modelFor(S);
+        const list = designNodes(a);
+        if (list.length < 2) { host.textContent = ''; host.classList.add('hidden'); host.dataset.key = ''; return; }
+        host.classList.remove('hidden');
+        const all = nodesOf(a);
+        const cur = targetNode(S);
+        const key = a.id + '|' + list.map(n => n.id).join(',');
+        if (host.dataset.key !== key) {
+            host.dataset.key = key;
+            host.textContent = '';
+            host.appendChild(mk('span', 'td-target-lbl', 'Text+'));
+            list.forEach((n) => {
+                const i = all.indexOf(n);
+                const btn = mk('button', 'td-target-btn');
+                btn.type = 'button';
+                btn.dataset.id = n.id;
+                btn.style.setProperty('--bx', COLORS[i % COLORS.length]);
+                btn.append(mk('span', 'bx-chip', String(i + 1)), mk('span', 'td-target-name', nodeName(n)));
+                btn.title = 'Edit the Text Design of ' + nodeName(n);
+                btn.addEventListener('click', () => setTarget(S, n.id));
+                host.appendChild(btn);
+            });
+        }
+        host.querySelectorAll('.td-target-btn').forEach(bt => bt.classList.toggle('on', !!cur && bt.dataset.id === cur.id));
+    }
+    function targetLabel(S) {
+        const { a } = modelFor(S);
+        if (designNodes(a).length < 2) return '';
+        const n = targetNode(S);
+        return n ? (nodesOf(a).indexOf(n) + 1) + ' · ' + nodeName(n) : '';
+    }
+
+    // Layout "Center" in Text Design is the position of the Text+ being edited there.
     function primaryCenter(S) {
         const { m, a } = modelFor(S);
         const nodes = nodesOf(a);
         if (!m || !nodes.length || nodes[0].nested) return null;
-        const b = entry(m, a, nodes[0], 0);
-        return { cx: b.cx, cy: b.cy, movable: !!nodes[0].centerInput };
+        const n = targetNode(S) || nodes[0];
+        const b = entry(m, a, n, nodes.indexOf(n));
+        return { cx: b.cx, cy: b.cy, movable: !!n.centerInput };
     }
     function setPrimaryCenter(S, cx, cy) {
         const { m, a } = modelFor(S);
         const nodes = nodesOf(a);
-        if (!m || !nodes.length || nodes[0].nested || !nodes[0].centerInput) return false;
-        const b = entry(m, a, nodes[0], 0);
+        if (!m || !nodes.length || nodes[0].nested) return false;
+        const n = targetNode(S) || nodes[0];
+        if (!n.centerInput) return false;
+        const b = entry(m, a, n, nodes.indexOf(n));
         if (typeof cx === 'number' && !isNaN(cx)) b.cx = Math.round(cx * 10000) / 10000;
         if (typeof cy === 'number' && !isNaN(cy)) b.cy = Math.round(cy * 10000) / 10000;
+        if (nodes.length > 1) {
+            if (S === 'U') m.designRev = (m.designRev || 0) + 1;
+            else if (typeof designRev !== 'undefined' && designRev.set) designRev.set(m.id, (designRev.get(m.id) || 0) + 1);
+        }
         changed(S);
         return true;
     }
 
-    window.SABoxes = { active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter };
+    // Anything besides the plain subtitle that a render has to show (custom / kept text, positions, own designs).
+    function renderKey(m, a, sub) {
+        const nodes = nodesOf(a);
+        if (!m || nodes.length < 2 || nodes[0].nested) return '';
+        const list = payload(m, a, sub, true);
+        const parts = list.map(x => [x.id, x.text === null ? '\u0001' : x.text, x.cx, x.cy, x.size,
+            x.design ? ((typeof designKeyOf === 'function') ? designKeyOf(x.design) : JSON.stringify(x.design)) : ''].join('\u0002'));
+        return parts.join('\u0003');
+    }
+    function hasOverrides(m, a, sub) {
+        const nodes = nodesOf(a);
+        if (!m || nodes.length < 2 || nodes[0].nested) return false;
+        return payload(m, a, sub, true).some((x, i) => (typeof x.text === 'string' && x.text.trim() && x.text !== sub)
+            || x.cx !== null || x.size !== null || !!x.design);
+    }
+
+    window.SABoxes = { active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
+        designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides };
 })();
 
 // ---------------------------------------------------------------- preset cards: a looping 3-second preview

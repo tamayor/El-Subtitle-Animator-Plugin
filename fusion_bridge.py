@@ -358,10 +358,20 @@ def set_node_text(tool, input_id, text, all_tools, first):
         driver.SetInput("Text", text)
         return
     if driver is None and first:
-        # Older helpers could not see connections: fall back to setting any follower in the comp.
+        # Older helpers could not see connections: fall back to setting any follower in the comp - except the
+        # followers that already drive another Text+, so each Text+ keeps its own text.
+        owned = set()
+        for t in all_tools:
+            try:
+                if attrs(t).get("TOOLS_RegID") == "TextPlus" and t is not tool:
+                    d = is_driven(t, "StyledText")
+                    if d is not None:
+                        owned.add(attrs(d).get("TOOLS_Name"))
+            except Exception:
+                pass
         hit = False
         for mod in all_tools:
-            if attrs(mod).get("TOOLS_RegID") in FOLLOWERS:
+            if attrs(mod).get("TOOLS_RegID") in FOLLOWERS and attrs(mod).get("TOOLS_Name") not in owned:
                 try:
                     mod.SetInput("Text", text)
                     hit = True
@@ -406,7 +416,11 @@ def op_set_boxes(a):
                     tool.SetInput("Size", float(b["size"]))
                 except Exception:
                     pass
-            if not design_done and a.get("textDesign"):
+            if isinstance(b.get("design"), dict):
+                # This Text+ has its own Text Design (its number in the Text Design panel).
+                apply_text_design(tool, b["design"])
+                design_done = True
+            elif not design_done and a.get("textDesign"):
                 apply_text_design(tool, a["textDesign"])
                 design_done = True
     wake_followers(comp)

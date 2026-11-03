@@ -1115,7 +1115,7 @@ function drawStage(S, a, idx) {
     const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
     const isAdjustOpen = (S === 'U' && state.adjustOpen);
     const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
-    const canUseCaptured = !isDesignDirty;
+    const canUseCaptured = !activeSubText && !isDesignDirty;
 
     if (multiBox) {
         cv._gizmo = null;
@@ -1222,10 +1222,17 @@ function drawStage(S, a, idx) {
             const qFrame = isPlaying ? Math.floor(idx / frameRepeat) * frameRepeat : null;
             const stepIdx = isPlaying ? Math.floor(idx / frameRepeat) : 0;
 
+            const presetName = String((a && a.name) || (m && m.name) || '').toLowerCase();
+            const isSlideDown = presetName.includes('slide down') || (spec && spec.follower && Number(spec.follower.slideY) > 0.005);
+            const isSlideIn = presetName.includes('slide in') || (spec && spec.follower && Number(spec.follower.slideY) < -0.005);
+            const isSlide = isSlideDown || isSlideIn;
+            const isTyping = presetName.includes('typing') || presetName.includes('typewriter');
+            const hasFollower = !!(spec && spec.follower) || isSlide || isTyping;
+
             const baseSize = Number(td.size) || 0.12;
             const animSize = (isPlaying && spec && spec.sizeKeys) ? evalSpline(spec.sizeKeys, qFrame, baseSize) : baseSize;
             let popScale = baseSize > 0.001 ? (animSize / baseSize) : 1;
-            if (isPlaying && (!spec || !spec.sizeKeys)) popScale *= introPop(idx);
+            if (isPlaying && (!spec || !spec.sizeKeys) && !hasFollower) popScale *= introPop(idx);
             const animOpacity = (isPlaying && spec && spec.opacityKeys) ? clamp(evalSpline(spec.opacityKeys, qFrame, 1), 0, 1) : (isPlaying ? clamp(idx / 4, 0, 1) : 1);
             const animTrack = (isPlaying && spec && spec.trackingKeys) ? evalSpline(spec.trackingKeys, qFrame, Number(td.tracking) || 1) : (Number(td.tracking) || 1);
             const erodeVal = (isPlaying && spec && spec.erode) ? evalSpline(spec.erode, qFrame, 0) : 0;
@@ -1244,7 +1251,6 @@ function drawStage(S, a, idx) {
                 animRot += (evalSpline(spec.angleKeys, qFrame, 0) * Math.PI) / 180;
             }
             const pt = (spec && spec.perturb) || (td.wiggle ? { xScale: 0.022, yScale: 0.022, strength: 0.04, wobble: 0.03, speed: 10 } : null);
-            const hasFollower = !!(spec && spec.follower);
             if (isPlaying && pt && !hasFollower) {
                 jx = Math.sin(stepIdx * 2.3 + 0.7) * vw * (Number(pt.xScale) || 0.022) * 0.22;
                 jy = Math.cos(stepIdx * 2.9 + 0.4) * vh * (Number(pt.yScale) ?? 0.022) * 0.22;
@@ -1283,6 +1289,21 @@ function drawStage(S, a, idx) {
             const syTotal = popScale * erodeScaleY;
             if (sxTotal !== 1 || syTotal !== 1) g.scale(sxTotal, syTotal);
 
+            // Compute global word index map so timing is sequential across multiple lines
+            let totalWords = 0;
+            const lineWordInfo = lines.map(line => {
+                const toks = String(line).split(/(\s+)/);
+                return toks.map(tok => {
+                    const isWord = !!tok.trim();
+                    const wIdx = isWord ? totalWords++ : -1;
+                    return { tok, isWord, wIdx };
+                });
+            });
+
+            const rawDelay = Number(spec && spec.follower && spec.follower.delay) || 0.5;
+            const wordDelayFrames = Math.max(2, Math.min(6, Math.round(rawDelay * 4)));
+            const currentF = isPlaying ? ((qFrame !== null && qFrame !== undefined) ? qFrame : idx) : 999;
+
             // Render Shading Elements 8 down to 1 (Priority order: higher elements sit behind Element 1)
             const drawRRect = (x, y, w, h, r) => {
                 const rad = Math.max(0, Math.min(r, Math.min(w, h) / 2));
@@ -1296,50 +1317,72 @@ function drawStage(S, a, idx) {
 
             const drawGlyphLine = (line, li, ox, oy, isStroke) => {
                 const ly = (li - (lines.length - 1) / 2) * lineH + oy;
-                const words = String(line).split(/(\s+)/);
-                if (!isPlaying || !hasFollower || words.length <= 1) {
-                    let wx = ox, wy = ly, wRot = 0;
-                    if (isPlaying && pt && hasFollower) {
+                const lineToks = lineWordInfo[li] || [];
+
+                if (!isPlaying || !hasFollower) {
+                    let wx = ox, wy = ly;
+                    if (isPlaying && pt) {
                         const seed = stepIdx * 2.3 + li * 1.7;
-                        wx += Math.cos(seed) * vw * (Number(pt.xScale) || 0) * 0.22;
-                        wy += Math.sin(seed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22;
-                        if (spec.follower.rot) wRot = Math.sin(stepIdx * 1.9 + li) * 0.012;
+                        wx += Math.cos(seed) * vw * (Number(pt.xScale) || 0) * 0.18;
+                        wy += Math.sin(seed) * vh * (Number(pt.yScale) ?? 0.02) * 0.18;
                     }
-                    if (wRot) {
-                        g.save();
-                        g.translate(wx, wy);
-                        g.rotate(wRot);
-                        if (isStroke) g.strokeText(line, 0, 0); else g.fillText(line, 0, 0);
-                        g.restore();
-                    } else {
-                        if (isStroke) g.strokeText(line, wx, wy); else g.fillText(line, wx, wy);
-                    }
+                    if (isStroke) g.strokeText(line, wx, wy); else g.fillText(line, wx, wy);
                     return;
                 }
+
                 const fullW = g.measureText(line).width;
                 let curX = ox - fullW * 0.5;
-                const delayFrames = Math.max(2, Number(spec.follower && spec.follower.delay) || 3);
-                let wordCount = 0;
-                words.forEach((tok) => {
+
+                lineToks.forEach(({ tok, isWord, wIdx }) => {
                     const tw = g.measureText(tok).width;
-                    if (tok.trim()) {
-                        const wordStart = wordCount * delayFrames;
-                        wordCount++;
-                        const currentF = (qFrame !== null && qFrame !== undefined) ? qFrame : ((typeof autoFrame === 'function') ? autoFrame(performance.now()) : 0);
-                        if (currentF >= wordStart) {
-                            const wordAge = currentF - wordStart;
-                            const wordPop = wordAge < 4 ? 0.9 + 0.1 * (wordAge / 4) : 1.0;
-                            const wSeed = stepIdx * 2.3 + li * 3.1 + wordCount * 1.9;
-                            const dxW = pt ? Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.22 : 0;
-                            const dyW = pt ? Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22 : 0;
-                            const rW = (spec.follower && spec.follower.rot) ? Math.sin(wSeed * 0.85) * 0.013 : 0;
-                            g.save();
-                            g.translate(curX + tw * 0.5 + dxW, ly + dyW);
-                            if (rW) g.rotate(rW);
-                            if (wordPop !== 1) g.scale(wordPop, wordPop);
-                            if (isStroke) g.strokeText(tok, 0, 0); else g.fillText(tok, 0, 0);
-                            g.restore();
+                    if (!isWord) {
+                        curX += tw;
+                        return;
+                    }
+
+                    const wordStart = wIdx * wordDelayFrames;
+                    const wordAge = currentF - wordStart;
+
+                    if (wordAge >= 0) {
+                        const animDur = isSlide ? 16 : 4;
+                        const progress = clamp(wordAge / animDur, 0, 1);
+                        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+                        let dySlide = 0;
+                        if (isSlideDown) {
+                            dySlide = -(1 - easeOut) * (fontPx * 0.85);
+                        } else if (isSlideIn) {
+                            dySlide = (1 - easeOut) * (fontPx * 1.0);
                         }
+
+                        const wordAlpha = clamp(wordAge / (isSlide ? 8 : 2), 0, 1);
+                        const wordScale = isTyping
+                            ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
+                            : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
+
+                        let dxW = 0, dyW = 0, rW = 0;
+                        if (pt) {
+                            const wSeed = stepIdx * 2.3 + li * 3.1 + wIdx * 1.9;
+                            dxW = Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.18;
+                            dyW = Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.18;
+                            if (spec && spec.follower && spec.follower.rot) {
+                                rW = Math.sin(wSeed * 0.85) * 0.012;
+                            }
+                        }
+
+                        let glitchDx = 0;
+                        if (isSlideIn && progress < 0.6) {
+                            glitchDx = (Math.sin(wordAge * 15.7) > 0.3 ? 3 : -2) * (1 - progress);
+                        }
+
+                        g.save();
+                        g.translate(curX + tw * 0.5 + dxW + glitchDx, ly + dySlide + dyW);
+                        if (rW) g.rotate(rW);
+                        if (wordScale !== 1) g.scale(wordScale, wordScale);
+                        if (wordAlpha < 1) g.globalAlpha = (g.globalAlpha || 1) * wordAlpha;
+
+                        if (isStroke) g.strokeText(tok, 0, 0); else g.fillText(tok, 0, 0);
+                        g.restore();
                     }
                     curX += tw;
                 });

@@ -197,8 +197,27 @@ function parseAnimSpec(raw, tpChunk) {
         spec.follower = {
             order: numF('Order', 0),
             delay: numF('Delay', 0),
-            rot: numF('TransformRotation', 0)
+            rot: numF('TransformRotation', 0),
+            slideY: 0,
+            slideX: 0
         };
+        const woMatch = /WordOffset\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
+        if (woMatch) {
+            const pIdx = raw.indexOf(woMatch[1] + ' = PolyPath');
+            if (pIdx >= 0) {
+                const pChunk = extractBraceBlock(raw, pIdx);
+                const pts = [];
+                const ptRe = /X\s*=\s*([-\d.]+),\s*Y\s*=\s*([-\d.]+)/g;
+                let pm;
+                while ((pm = ptRe.exec(pChunk)) !== null) {
+                    pts.push({ x: parseFloat(pm[1]), y: parseFloat(pm[2]) });
+                }
+                if (pts.length >= 2) {
+                    spec.follower.slideY = pts[0].y - pts[pts.length - 1].y;
+                    spec.follower.slideX = pts[0].x - pts[pts.length - 1].x;
+                }
+            }
+        }
     }
 
     if (tpChunk) {

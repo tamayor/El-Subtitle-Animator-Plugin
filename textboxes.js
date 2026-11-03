@@ -638,9 +638,9 @@
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
+        const sub = activeSubtitleText();
         const imgs = frames(a);
-        if (!framesReady(imgs) || geometry(a, imgs).blank) {
-            const sub = activeSubtitleText();
+        if (sub || !framesReady(imgs) || geometry(a, imgs).blank) {
             drawSynthetic(cv, a, t, sub);
             return;
         }
@@ -713,8 +713,18 @@
         const rep = Math.max(1, Number(spec && spec.frameRepeat) || (td.wiggle ? 4 : 1));
         const q = Math.floor(f / rep) * rep, step = Math.floor(f / rep);
         const ev = (typeof evalSpline === 'function') ? evalSpline : (k, x, d) => d;
+        const presetName = String((a && a.name) || (curModel && curModel.name) || '').toLowerCase();
+        const isSlideDown = presetName.includes('slide down') || (spec && spec.follower && Number(spec.follower.slideY) > 0.005);
+        const isSlideIn = presetName.includes('slide in') || (spec && spec.follower && Number(spec.follower.slideY) < -0.005);
+        const isSlide = isSlideDown || isSlideIn;
+        const isTyping = presetName.includes('typing') || presetName.includes('typewriter');
+        const hasFollower = !!(spec && spec.follower) || isSlide || isTyping;
+
         const baseSize = Number(td.size) || 0.12;
-        let s = (spec && spec.sizeKeys) ? ev(spec.sizeKeys, q, baseSize) / baseSize : ((typeof introPop === 'function') ? introPop(f) : 1);
+        let s = (spec && spec.sizeKeys) ? ev(spec.sizeKeys, q, baseSize) / baseSize : 1;
+        if (!hasFollower && (!spec || !spec.sizeKeys) && typeof introPop === 'function') {
+            s *= introPop(f);
+        }
         const op = (spec && spec.opacityKeys) ? clampN(ev(spec.opacityKeys, q, 1), 0, 1) : clampN(f / 4, 0, 1);
         let rot = (spec && spec.angleKeys) ? (ev(spec.angleKeys, q, 0) * Math.PI) / 180 : 0;
         let jx = 0, jy = 0;
@@ -741,25 +751,18 @@
         const lines = wrapToLines(rawText);
         if (!lines.length) { c.restore(); return; }
 
-        const allWords = [];
-        lines.forEach((line, li) => {
-            const ws = line.split(/\s+/).filter(Boolean);
-            ws.forEach(w => allWords.push({ word: w, lineIdx: li }));
+        let totalWords = 0;
+        const lineWordInfo = lines.map(line => {
+            const toks = String(line).split(/(\s+)/);
+            return toks.map(tok => {
+                const isWord = !!tok.trim();
+                const wIdx = isWord ? totalWords++ : -1;
+                return { tok, isWord, wIdx };
+            });
         });
 
-        let renderLines = lines;
-        if (spec && spec.follower && allWords.length > 1) {
-            const maxAnimFrames = Math.floor(autoFrame(LOOP_MS) * 0.55);
-            const baseDelay = Math.max(1, Math.min(5, Math.floor(maxAnimFrames / allWords.length)));
-            const delay = Math.max(1, Math.min(baseDelay, Math.max(1, Math.round(Number(spec.follower.delay || 1) * 3))));
-            const count = Math.min(allWords.length, Math.max(1, Math.floor(f / delay)));
-            const lineBuckets = lines.map(() => []);
-            for (let i = 0; i < count; i++) {
-                const item = allWords[i];
-                lineBuckets[item.lineIdx].push(item.word);
-            }
-            renderLines = lineBuckets.map(b => b.join(' '));
-        }
+        const rawDelay = Number(spec && spec.follower && spec.follower.delay) || 0.5;
+        const wordDelay = Math.max(2, Math.min(6, Math.round(rawDelay * 4)));
 
         const numLines = lines.length;
         let px = Math.round(H * (numLines > 1 ? 0.22 : 0.28));
@@ -778,7 +781,56 @@
 
         c.textAlign = 'center';
         c.textBaseline = 'middle';
-        const startY = -((renderLines.length - 1) / 2) * curLineH;
+        const startY = -((lines.length - 1) / 2) * curLineH;
+
+        const drawSyntheticLine = (li, ox, oy, isStroke) => {
+            const line = lines[li];
+            const ly = startY + li * curLineH + oy;
+            const fullW = c.measureText(line).width;
+            let curX = ox - fullW * 0.5;
+            const lineToks = lineWordInfo[li] || [];
+
+            if (!hasFollower) {
+                if (isStroke) c.strokeText(line, ox, ly);
+                else c.fillText(line, ox, ly);
+                return;
+            }
+
+            lineToks.forEach(({ tok, isWord, wIdx }) => {
+                const tw = c.measureText(tok).width;
+                if (!isWord) {
+                    curX += tw;
+                    return;
+                }
+                const wordStart = wIdx * wordDelay;
+                const wordAge = f - wordStart;
+
+                if (wordAge >= 0) {
+                    const animDur = isSlide ? 16 : 4;
+                    const progress = clampN(wordAge / animDur, 0, 1);
+                    const easeOut = 1 - Math.pow(1 - progress, 3);
+
+                    let dySlide = 0;
+                    if (isSlideDown) dySlide = -(1 - easeOut) * (px * 0.85);
+                    else if (isSlideIn) dySlide = (1 - easeOut) * (px * 1.0);
+
+                    const wordAlpha = clampN(wordAge / (isSlide ? 8 : 2), 0, 1);
+                    const wordScale = isTyping
+                        ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
+                        : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
+
+                    c.save();
+                    c.translate(curX + tw * 0.5, ly + dySlide);
+                    if (wordScale !== 1) c.scale(wordScale, wordScale);
+                    if (wordAlpha < 1) c.globalAlpha = (c.globalAlpha || 1) * wordAlpha;
+
+                    if (isStroke) c.strokeText(tok, 0, 0);
+                    else c.fillText(tok, 0, 0);
+                    c.restore();
+                }
+                curX += tw;
+            });
+        };
 
         c.save();
         c.translate(W / 2 + jx, H / 2 + jy);
@@ -799,8 +851,7 @@
             if (soft > 0) c.filter = 'blur(' + Math.min(8, soft * px * 0.06).toFixed(1) + 'px)';
             let col = el.color || '#ffffff';
             if (Number(el.type) === 2) {
-                const activeWidths = renderLines.map(l => l ? c.measureText(l).width : 0);
-                const maxW = Math.max(12, ...activeWidths);
+                const maxW = Math.max(12, maxFullLineW);
                 const gr = c.createLinearGradient(-maxW / 2, 0, maxW / 2, 0);
                 gr.addColorStop(0, el.color || '#ffffff');
                 gr.addColorStop(1, el.color2 || '#f07b8e');
@@ -808,11 +859,9 @@
             }
             const shape = Number(el.shape) || 0;
             if (shape === 2 || shape === 3) {
-                const activeWidths = renderLines.map(l => l ? c.measureText(l).width : 0);
-                const maxW = Math.max(12, ...activeWidths);
-                const activeLineCount = renderLines.filter(Boolean).length || 1;
+                const maxW = Math.max(12, maxFullLineW);
                 const bw = maxW + px * (0.48 + (Number(el.extendH) || 0) * 2.8);
-                const bh = (activeLineCount * curLineH) + px * (0.28 + (Number(el.extendV) || 0) * 2.2);
+                const bh = (numLines * curLineH) + px * (0.28 + (Number(el.extendV) || 0) * 2.2);
                 const r = clampN(Number(el.round) || 0, 0, 1) * Math.min(bw, bh) * 0.5;
                 c.beginPath();
                 if (typeof c.roundRect === 'function') c.roundRect(-bw / 2 + ox, -bh / 2 + oy, bw, bh, r);
@@ -823,23 +872,17 @@
                 c.strokeStyle = col;
                 c.lineJoin = 'round';
                 c.lineWidth = Math.max(1, (Number(el.thickness) || 0.02) * px * 5);
-                renderLines.forEach((l, li) => {
-                    if (l) c.strokeText(l, ox, startY + li * curLineH + oy);
-                });
+                lines.forEach((_, li) => drawSyntheticLine(li, ox, oy, true));
             } else {
                 c.fillStyle = col;
-                renderLines.forEach((l, li) => {
-                    if (l) c.fillText(l, ox, startY + li * curLineH + oy);
-                });
+                lines.forEach((_, li) => drawSyntheticLine(li, ox, oy, false));
             }
             c.restore();
         }
         if (!drew) {
             c.globalAlpha = op;
             c.fillStyle = '#ffffff';
-            renderLines.forEach((l, li) => {
-                if (l) c.fillText(l, 0, startY + li * curLineH);
-            });
+            lines.forEach((_, li) => drawSyntheticLine(li, 0, 0, false));
         }
         c.restore();
     }
@@ -890,7 +933,8 @@
                 if (a) {
                     const curM = (state.tab === 'apply' && state.use) ? state.use : a;
                     const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    if (hasRealFrames(a) && !isDirty) {
+                    const sub = activeSubtitleText();
+                    if (!sub && hasRealFrames(a) && !isDirty) {
                         redrawStages();
                     } else if (typeof drawStage === 'function') {
                         drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));

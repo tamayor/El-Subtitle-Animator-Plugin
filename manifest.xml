@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.el.subtitleanimator</Id>
+        <Name>El Subtitle Animator</Name>
+        <Version>1.0</Version>
+        <Description>Turn a subtitle into an animated Text+ with a sound effect.</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

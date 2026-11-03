@@ -1,0 +1,34 @@
+// Bridge between the panel (renderer.js) and the main process (main.js).
+const { contextBridge, ipcRenderer, webUtils } = require('electron/renderer');
+
+contextBridge.exposeInMainWorld('sa', {
+    poll: (force) => ipcRenderer.invoke('app:poll', !!force),
+    liveFrame: (frame) => ipcRenderer.invoke('app:liveFrame', frame),
+    openFolder: () => ipcRenderer.invoke('app:openFolder'),
+    getLib: () => ipcRenderer.invoke('lib:get'),
+    addAnimationFile: (p) => ipcRenderer.invoke('lib:addAnimationFile', p),
+    saveSelected: (name) => ipcRenderer.invoke('lib:saveSelected', name),
+    capturePreview: (id) => ipcRenderer.invoke('lib:capture', id),
+    createCombo: (req) => ipcRenderer.invoke('lib:create', req),
+    saveVariant: (req) => ipcRenderer.invoke('lib:saveVariant', req),
+    updateAnimation: (id, patch) => ipcRenderer.invoke('lib:update', id, patch),
+    removeAnimation: (id) => ipcRenderer.invoke('lib:remove', id),
+    setDefaultSfx: (p) => ipcRenderer.invoke('lib:setDefaultSfx', p),
+    setAnimationSfx: (id, p) => ipcRenderer.invoke('lib:setAnimationSfx', id, p),
+    replaceAnimationFile: (id, p, keep) => ipcRenderer.invoke('lib:replaceFile', id, p, keep),
+    pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),
+    previewData: (id) => ipcRenderer.invoke('lib:previewData', id),
+    makePreview: (id) => ipcRenderer.invoke('lib:makePreview', id),
+    scanClip: () => ipcRenderer.invoke('act:scanClip'),
+    apply: (req) => ipcRenderer.invoke('act:apply', req),
+    updateLatest: (req) => ipcRenderer.invoke('act:updateLatest', req),
+    syncLiveTransform: (req) => ipcRenderer.invoke('act:syncLiveTransform', req),
+    seek: (frame) => ipcRenderer.invoke('act:seek', frame),
+    readSfx: (p) => ipcRenderer.invoke('sfx:read', p),
+    setOnTop: (flag) => ipcRenderer.invoke('win:setOnTop', !!flag),
+    cleanup: () => ipcRenderer.invoke('resolve:cleanup'),
+    // Real disk path of a file dropped onto the panel.
+    pathForFile: (file) => {
+        try { return webUtils.getPathForFile(file); } catch (e) { return file.path || ''; }
+    }
+});

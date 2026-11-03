@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; media-src 'self' file:; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'">
+    <title>El Subtitle Animator</title>
+    <link rel="stylesheet" href="./css/styles.css">
+    <script src="./renderer.js" defer></script>
+    <script src="./textboxes.js" defer></script>
+</head>
+
+<body class="tab-apply">
+    <svg width="0" height="0" style="position:absolute;pointer-events:none;overflow:hidden" aria-hidden="true">
+        <defs>
+            <filter id="saBoilU" x="-20%" y="-20%" width="140%" height="140%">
+                <feTurbulence id="saTurbU" type="fractalNoise" baseFrequency="0.035 0.065" numOctaves="3" seed="1"
+                    result="noise" />
+                <feDisplacementMap id="saDispU" in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R"
+                    yChannelSelector="G" />
+            </filter>
+            <filter id="saBoilC" x="-20%" y="-20%" width="140%" height="140%">
+                <feTurbulence id="saTurbC" type="fractalNoise" baseFrequency="0.035 0.065" numOctaves="3" seed="1"
+                    result="noise" />
+                <feDisplacementMap id="saDispC" in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R"
+                    yChannelSelector="G" />
+            </filter>
+        </defs>
+    </svg>
+    <header>
+        <h1>El Subtitle Animator</h1>
+        <span id="conn" class="pill off">Connecting…</span>
+        <button id="pin" class="icon-btn on" title="Pinned above DaVinci Resolve (click to unpin)"
+            aria-label="Pin window">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+                <path
+                    d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 1 1-.707-.708l3.182-3.182L2.398 7.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z" />
+            </svg>
+        </button>
+        <button id="rescan" class="ghost" title="Re-read the subtitle track">Rescan</button>
+    </header>
+
+    <nav class="tabs">
+        <button id="tabBtnApply" class="tab on">Use</button>
+        <button id="tabBtnLibrary" class="tab">Library</button>
+        <button id="tabBtnCreate" class="tab">Create</button>
+    </nav>
+
+    <!-- ============================ USE: apply what you have already made ============================ -->
+    <div id="tabApply">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <section id="subCard">
+                    <div class="row between">
+                        <span class="label">Subtitle</span>
+                        <span id="subMeta" class="meta">–</span>
+                    </div>
+                    <textarea id="subText" rows="3"
+                        placeholder="Click a subtitle, or move the playhead onto one"></textarea>
+                    <div class="hint" id="subHint"></div>
+                </section>
+
+                <section>
+                    <div class="row between">
+                        <span class="label">
+                            Text Preset
+                        </span>
+                        <span class="row-end">
+                            <button id="makePrevAll" class="ghost hidden"
+                                title="Render a 3-second preview with sample text for each preset that has none">Make
+                                previews</button>
+                            <span class="meta" id="libCount"></span>
+                        </span>
+                    </div>
+                    <div id="animGrid" class="grid"></div>
+                </section>
+            </div>
+
+            <div class="tab-col-side">
+                <section id="settings" class="active-section hidden">
+                    <div class="sec-head">
+                        <span class="label">Selected</span>
+                        <span id="useTitle" class="active-badge"></span>
+                    </div>
+                    <div class="inspector-grid">
+                        <div class="inspector-pane stage-pane">
+                            <div id="previewU"></div>
+                        </div>
+                        <div class="inspector-pane drawers-pane">
+                            <div id="boxesU" class="bx-panel"></div>
+                            <div id="adjustWrapU" class="adjust-wrap">
+                                <button id="adjustToggle" class="adjust" aria-expanded="false">
+                                    <span class="chev">▸</span>
+                                    <span class="adj-title">Alignment</span>
+                                    <span id="adjustSummary" class="adj-sum"></span>
+                                </button>
+                                <div id="adjustBodyU" class="adjust-body hidden"></div>
+                            </div>
+                            <div id="tdWrapU" class="adjust-wrap">
+                                <button id="tdToggleU" class="adjust" aria-expanded="false">
+                                    <span class="chev">▸</span>
+                                    <span class="adj-title">Text Design</span>
+                                    <span id="tdSummaryU" class="adj-sum"></span>
+                                </button>
+                                <div id="tdBodyU" class="adjust-body hidden"></div>
+                            </div>
+                            <div id="saveBarWrapU"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================ LIBRARY: edit one saved preset ============================ -->
+    <div id="tabLibrary" class="hidden">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <section>
+                    <div class="row between">
+                        <span class="label">Your library</span>
+                        <button id="openFolder" class="ghost">Open folder</button>
+                    </div>
+                    <div id="libList"></div>
+                    <div class="hint">Click a preset to edit it here: its text boxes, alignment, Fusion file and sound.
+                        Drop a sound onto a row to change
+                        its sound.</div>
+                </section>
+            </div>
+
+            <div class="tab-col-side">
+                <section id="editor" class="active-section hidden">
+                    <div class="sec-head">
+                        <span class="label">Editing default settings</span>
+                        <span id="editTitle" class="active-badge"></span>
+                    </div>
+                    <input id="animName" type="text" placeholder="Name">
+                    <div class="inspector-grid">
+                        <div class="inspector-pane stage-pane">
+                            <div id="previewC"></div>
+                        </div>
+                        <div class="inspector-pane drawers-pane">
+                            <div id="filesC" class="bx-panel"></div>
+                            <div id="boxesC" class="bx-panel"></div>
+                            <div id="adjustWrapC" class="adjust-wrap open">
+                                <button id="adjustToggleC" class="adjust" aria-expanded="true">
+                                    <span class="chev">▾</span>
+                                    <span class="adj-title">Alignment</span>
+                                    <span id="adjustSummaryC" class="adj-sum"></span>
+                                </button>
+                                <div id="adjustBodyC" class="adjust-body"></div>
+                            </div>
+                            <div id="tdWrapC" class="adjust-wrap">
+                                <button id="tdToggleC" class="adjust" aria-expanded="false">
+                                    <span class="chev">▸</span>
+                                    <span class="adj-title">Text Design</span>
+                                    <span id="tdSummaryC" class="adj-sum"></span>
+                                </button>
+                                <div id="tdBodyC" class="adjust-body hidden"></div>
+                            </div>
+                            <div id="saveBarWrapC"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================ CREATE: make a new text + sound ============================ -->
+    <div id="tabCreate" class="hidden">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <section class="cr">
+                    <div class="cr-head">
+                        <span class="label">New text + sound effect</span>
+                        <span class="cr-sub">Pair a Fusion text animation with a sound, then save it to your
+                            library.</span>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">1</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Name</div>
+                            <input id="newName" type="text" placeholder="For example: Pop and whoosh"
+                                autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num" id="crNum2">2</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Text animation</div>
+                            <div class="cr-choices">
+                                <div id="animDrop" class="cr-tile drop" role="button" tabindex="0"
+                                    title="Drop a file here or click to browse">
+                                    <span class="cr-ico">⬇</span>
+                                    <span class="cr-tl">Fusion file</span>
+                                    <span class="cr-ts">Drop a <b>.comp</b> / <b>.setting</b> or click to browse</span>
+                                </div>
+                                <button id="useSelected" class="cr-tile thin" type="button"
+                                    title="Reads the Text+ clip selected on your Resolve timeline when you save">
+                                    <span class="cr-ico">▣</span>
+                                    <span class="cr-tl">From timeline</span>
+                                    <span class="cr-ts">Use the Text+ selected in Resolve</span>
+                                </button>
+                            </div>
+                            <div id="animPicked" class="picked hidden"></div>
+                        </div>
+                    </div>
+
+                    <div class="cr-step last">
+                        <div class="cr-num" id="crNum3">3</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Sound effect <span class="cr-opt">optional</span></div>
+                            <div id="newSfx" class="sfxrow drop cr-sfx"
+                                title="Drop a sound file here or click to browse">
+                                <button id="newSfxPlay" class="ghost cr-round" title="Preview">▶</button>
+                                <span class="cr-ico sm">♪</span>
+                                <span id="newSfxName" class="grow">Drop a sound file here</span>
+                                <button id="newSfxClear" class="ghost" title="Remove">×</button>
+                            </div>
+                            <div class="hint">Leave it empty to use the default sound.</div>
+                        </div>
+                    </div>
+
+                    <button id="saveCombo" class="primary cr-save">Save to library</button>
+                    <div id="createStatus" class="status"></div>
+                </section>
+
+                <section class="cr cr-def">
+                    <div class="cr-head">
+                        <span class="label">Default sound effect</span>
+                        <span class="cr-sub">Used by every preset that has no sound of its own.</span>
+                    </div>
+                    <div id="defSfx" class="sfxrow drop cr-sfx" title="Drop a sound file here or click to browse">
+                        <button id="defPlay" class="ghost cr-round" title="Preview">▶</button>
+                        <span class="cr-ico sm">♪</span>
+                        <span id="defName" class="grow">Drop a sound file here</span>
+                        <button id="defClear" class="ghost" title="Remove">×</button>
+                    </div>
+                </section>
+
+            </div>
+
+        </div>
+    </div>
+
+    <footer id="footerUse">
+        <div class="footer-inner">
+            <button id="create" class="primary" disabled>Add to timeline</button>
+            <div id="status" class="status"></div>
+        </div>
+    </footer>
+</body>
+
+</html>

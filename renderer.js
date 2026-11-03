@@ -1,0 +1,3171 @@
+// Subtitle Animator - panel logic (renderer process)
+const $ = (id) => document.getElementById(id);
+
+const state = {
+    lib: { animations: [], defaultSfx: null, alwaysOnTop: true },
+    selectedId: null,      // the item picked in the Use tab
+    createId: null,        // the item opened in the Create tab
+    use: null,             // working copy of the picked item's alignment (edits here are for one use only)
+    adjustOpen: false,     // is the alignment panel in the Use tab expanded
+    tdOpen: false,         // is the text design panel in the Use tab expanded
+    createAdjustOpen: true,// is the alignment panel in the Create tab expanded
+    createTdOpen: false,   // is the text design panel in the Create tab expanded
+    live: null,            // last poll result
+    shownKey: null,        // which subtitle the text box is currently showing
+    busy: false,
+    audio: null,
+    drag: null,            // active drag on an alignment timeline
+    stageDrag: null,       // active drag on a preview stage (positioning text)
+    stageHover: null,      // 'U' or 'C' when hovering a preview stage
+    zoomEnabled: { U: false, C: false }, // zoom preview disabled by default; toggled via button
+    liveSyncEnabled: { U: false, C: false }, // real-time live sync to DaVinci Resolve timeline clip
+    liveBg: { key: '', img: null, busy: false, pending: null, width: 1920, height: 1080 },
+    preview: null,         // running preview
+    waves: new Map(),      // sound path -> { peaks, seconds }
+    tab: 'apply',
+    draft: { animPath: null, fromSelection: false, sfxPath: null }   // what the Create tab is building
+};
+
+function setTab(t) {
+    stopPreview();
+    state.tab = t;
+    $('tabApply').classList.toggle('hidden', t !== 'apply');
+    $('tabLibrary').classList.toggle('hidden', t !== 'library');
+    $('tabCreate').classList.toggle('hidden', t !== 'create');
+    $('tabBtnApply').classList.toggle('on', t === 'apply');
+    $('tabBtnLibrary').classList.toggle('on', t === 'library');
+    $('tabBtnCreate').classList.toggle('on', t === 'create');
+    document.body.className = 'tab-' + t;
+    renderTimelines();
+    redrawStages();
+}
+
+function baseName(p) { return String(p || '').split('/').pop(); }
+
+// ---------------------------------------------------------------- helpers
+function setStatus(msg, kind) {
+    const el = $('status');
+    el.textContent = msg || '';
+    el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function libEntry(id) { return state.lib.animations.find(a => a.id === id) || null; }
+function selected() { return libEntry(state.selectedId); }
+function fpsNow() { return (state.live && state.live.fps) || 25; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+const sg = (n) => (n > 0 ? '+' : '') + n;
+
+function fileUrl(p) {
+    return 'file://' + p.split('/').map(encodeURIComponent).join('/');
+}
+
+function play(p) {
+    if (!p) return;
+    try {
+        if (state.audio) { state.audio.pause(); }
+        state.audio = new Audio(fileUrl(p));
+        const pr = state.audio.play();
+        if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
+    } catch (e) { setStatus('Could not play that sound', 'bad'); }
+}
+
+function debounce(fn, ms) {
+    let t;
+    return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+function takeLib(res) {
+    if (res && res.error) { setStatus(res.error, 'bad'); return false; }
+    if (res && res.lib) { state.lib = res.lib; syncUse(false); renderAll(); return true; }
+    return false;
+}
+
+// Make a region accept dropped files. handler(path) gets each file's real path.
+function dropZone(el, handler) {
+    el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('over'); });
+    el.addEventListener('dragleave', (e) => { e.stopPropagation(); el.classList.remove('over'); });
+    el.addEventListener('drop', async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        el.classList.remove('over');
+        for (const f of Array.from(e.dataTransfer.files)) {
+            const p = window.sa.pathForFile(f);
+            if (p) await handler(p);
+        }
+    });
+}
+
+// ---------------------------------------------------------------- waveforms
+// Peaks are computed once per sound; the bar on the timeline just draws them.
+async function loadWave(p) {
+    if (!p) return null;
+    if (state.waves.has(p)) return state.waves.get(p);
+    state.waves.set(p, null);                       // mark as loading
+    try {
+        const bytes = await window.sa.readSfx(p);
+        if (!(bytes instanceof Uint8Array)) throw new Error('unreadable');
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        ctx.close();
+        const channels = [];
+        for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
+        const len = buf.length;
+        const N = 240, step = Math.max(1, Math.floor(len / N));
+        const peaks = new Float32Array(N);
+        let maxPeak = 0;
+        for (let i = 0; i < N; i++) {
+            let m = 0;
+            const end = Math.min(len, (i + 1) * step);
+            for (const ch of channels) {
+                for (let j = i * step; j < end; j++) {
+                    const a = Math.abs(ch[j]);
+                    if (a > m) m = a;
+                }
+            }
+            peaks[i] = m;
+            if (m > maxPeak) maxPeak = m;
+        }
+        // Normalize and boost quieter sections so the waveform fills the bar height clearly.
+        if (maxPeak > 0) {
+            for (let i = 0; i < N; i++) {
+                peaks[i] = Math.pow(peaks[i] / maxPeak, 0.6);
+            }
+        }
+        const w = { peaks, seconds: buf.duration };
+        state.waves.set(p, w);
+        renderTimelines();
+        return w;
+    } catch (e) {
+        state.waves.set(p, { peaks: new Float32Array(0), seconds: 0.5 });
+        return null;
+    }
+}
+
+function currentSfxPath(a) {
+    if (!a || a.useSfx === false) return null;
+    if (a.sfxPath) return a.sfxPath;
+    return state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
+}
+
+function drawWave(canvas, wave) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    canvas.width = w; canvas.height = h;
+    const g = canvas.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    if (!wave || !wave.peaks.length) return;
+    g.fillStyle = '#9be29d';
+    const n = wave.peaks.length;
+    for (let x = 0; x < w; x++) {
+        const v = wave.peaks[Math.min(n - 1, Math.floor(x / w * n))];
+        const bar = Math.max(2 * dpr, v * h * 0.96);
+        g.fillRect(x, (h - bar) / 2, 1, bar);
+    }
+}
+
+// ---------------------------------------------------------------- the alignment block (used in both tabs)
+// The same block is mounted twice: in the Use tab (edits are for one use) and in the Create tab (edits are
+// the saved defaults). `ctx` says which one a function is working on.
+const FONT_OPTIONS = [
+    'Poppins', 'Open Sans', 'Montserrat', 'Inter', 'Bebas Neue', 'Impact',
+    'Helvetica Neue', 'Arial', 'Futura', 'SF Pro Display', 'Roboto', 'Oswald', 'Lato'
+];
+
+const STYLE_OPTIONS = [
+    'Regular', 'Light', 'Medium', 'SemiBold', 'Bold', 'ExtraBold', 'Black', 'Italic', 'Bold Italic'
+];
+
+function defaultElementsList() {
+    return [
+        { index: 1, name: 'White Solid Fill', enabled: true, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 2, name: 'Red Outline', enabled: false, opacity: 1.0, type: 0, shape: 1, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ff0000', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 3, name: 'Black Shadow', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#000000', color2: '#f07b8e', softness: 5.0, offsetX: 0.05, offsetY: -0.05 },
+        { index: 4, name: 'Blue Border', enabled: false, opacity: 1.0, type: 0, shape: 2, thickness: 0.02, level: 0, extendH: 0.176, extendV: 0.164, round: 0.197, color: '#0000ff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 5, name: 'Element 5', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 6, name: 'Element 6', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 7, name: 'Element 7', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 8, name: 'Element 8', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 }
+    ];
+}
+
+function cloneTextDesign(td) {
+    const base = {
+        font: 'Poppins',
+        style: 'Bold',
+        size: 0.12,
+        tracking: 1.0,
+        lineSpacing: 1.0,
+        wiggle: false,
+        animSpec: null,
+        selectedElement: 1,
+        elements: defaultElementsList()
+    };
+    if (!td || typeof td !== 'object') return base;
+    const copy = JSON.parse(JSON.stringify(td));
+    base.font = copy.font || base.font;
+    base.style = copy.style || base.style;
+    if (copy.size !== undefined) base.size = Number(copy.size) || base.size;
+    if (copy.tracking !== undefined) base.tracking = Number(copy.tracking);
+    if (copy.lineSpacing !== undefined) base.lineSpacing = Number(copy.lineSpacing);
+    base.wiggle = !!copy.wiggle;
+    base.animSpec = copy.animSpec || null;
+    base.selectedElement = Number(copy.selectedElement) || 1;
+    if (Array.isArray(copy.elements)) {
+        base.elements = copy.elements.map((el, i) => {
+            const def = base.elements[i] || {};
+            return Object.assign({}, def, el, {
+                type: el.type !== undefined ? Number(el.type) : (def.type || 0),
+                color2: el.color2 || def.color2 || '#f07b8e'
+            });
+        });
+    }
+    return base;
+}
+
+const ALIGN_HTML = (S) => `
+<div class="row between">
+    <span class="label">Alignment timeline</span>
+    <label class="check" title="When on, moving the text carries the sound with it, and links the clips on the Resolve timeline">
+        <input id="linked${S}" type="checkbox" checked> Link text + sound
+    </label>
+</div>
+<div id="tl${S}" class="tl"></div>
+<div class="hint">Drag the sound to line it up. Drag the text to move both (when linked), or its edges to change when it starts and ends.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
+<div class="row nums">
+    <label>Text start <input id="textOffset${S}" type="number" step="1" value="0"><span class="u">f</span></label>
+    <label>Sound start <input id="sfxOffset${S}" type="number" step="1" value="0"><span class="u">f</span></label>
+    <label>Text ends <input id="tail${S}" type="number" step="1" value="0"><span class="u">f</span></label>
+</div>
+
+<div class="row between sfxhead">
+    <label class="check"><input id="useSfx${S}" type="checkbox" checked> Sound effect</label>
+    <button type="button" id="sfxClear${S}" class="ghost sm-btn" title="Revert to default sound">Use default sound</button>
+</div>
+<div id="sfxDrop${S}" class="sfxrow drop" title="Drop a sound file here or click Choose">
+    <button type="button" id="sfxPlay${S}" class="ghost" title="Preview sound">▶</button>
+    <span id="sfxName${S}" class="grow">Drop a sound file here</span>
+    <button type="button" id="sfxPick${S}" class="ghost">Choose…</button>
+</div>
+<input type="file" id="sfxFileInput${S}" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
+<div class="ctl">
+    <label>Sound volume <span class="val" id="vSfxVolume${S}"></span></label>
+    <input id="sfxVolume${S}" type="range" min="-30" max="6" step="1" value="0">
+</div>
+<div class="row two">
+    <div class="ctl"><label>Text track</label><select id="textTrack${S}"></select></div>
+    <div class="ctl"><label>Sound track</label><select id="sfxTrack${S}"></select></div>
+</div>
+${S === 'U' ? '<div class="row"><button id="resetU" class="ghost">Reset to this item\'s default</button></div>' : ''}`;
+
+// ---- Resolve Inspector-style building blocks (label | control | value box)
+const TEXT_DESIGN_HTML = (S) => `
+<div class="td-panel">
+    <div class="td-header">
+        <span class="label">Text &amp; Shading Design</span>
+        <span class="meta">${S === 'U' ? 'On-the-go override' : 'Default design'}</span>
+    </div>
+
+    <div class="td-subhead">Text</div>
+    <div class="row two">
+        <div class="ctl">
+            <label>Font</label>
+            <input id="tdFont${S}" type="text" list="fontList${S}" placeholder="Poppins">
+            <datalist id="fontList${S}">
+                ${FONT_OPTIONS.map(f => `<option value="${f}"></option>`).join('')}
+            </datalist>
+        </div>
+        <div class="ctl">
+            <label>Style</label>
+            <select id="tdStyle${S}">
+                ${STYLE_OPTIONS.map(st => `<option value="${st}">${st}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="row td-color-size">
+        <label class="color-pick" title="Primary text fill color (Element 1)">
+            <span>Color</span>
+            <input id="tdColor${S}" type="color" value="#ffffff">
+        </label>
+        <div class="ctl grow">
+            <label>Size <span class="val" id="vTdSize${S}">0.120</span></label>
+            <input id="tdSize${S}" type="range" min="0.02" max="0.40" step="0.002" value="0.12">
+        </div>
+    </div>
+    <div class="row two">
+        <div class="ctl">
+            <label>Tracking <span class="val" id="vTdTrack${S}">1.00</span></label>
+            <input id="tdTrack${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00">
+        </div>
+        <div class="ctl">
+            <label>Line Spacing <span class="val" id="vTdLine${S}">1.00</span></label>
+            <input id="tdLine${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00">
+        </div>
+    </div>
+
+    <div class="td-subhead">Shading Elements</div>
+    <div class="sh-row">
+        <span class="sh-lbl">Select Element</span>
+        <div id="shSel${S}" class="sh-tabs">
+            ${[1, 2, 3, 4, 5, 6, 7, 8].map(i => `<button type="button" class="sh-tab" data-idx="${i}">${i}</button>`).join('')}
+        </div>
+    </div>
+    <div class="row between sh-name-row">
+        <input id="shName${S}" type="text" class="sh-name" placeholder="Element name">
+        <label class="check"><input id="shEnabled${S}" type="checkbox"> Enabled</label>
+    </div>
+
+    <div id="shProps${S}" class="sh-props">
+        <div class="sh-row">
+            <span class="sh-lbl">Appearance</span>
+            <div id="shShape${S}" class="sh-shapes">
+                <button type="button" class="sh-shape" data-shape="0" title="Text Fill"><b>A</b></button>
+                <button type="button" class="sh-shape" data-shape="1" title="Text Outline">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13.5 8 2.5l5 11M4.8 9.5h6.4"/></svg>
+                </button>
+                <button type="button" class="sh-shape" data-shape="2" title="Border Fill (Box)"><span class="ico-box-fill"></span></button>
+                <button type="button" class="sh-shape" data-shape="3" title="Border Outline"><span class="ico-box-out"></span></button>
+            </div>
+        </div>
+        <div class="sh-row">
+            <span class="sh-lbl">Type</span>
+            <div id="shType${S}" class="sh-types">
+                <button type="button" class="sh-type" data-type="0">Solid</button>
+                <button type="button" class="sh-type" data-type="1">Image</button>
+                <button type="button" class="sh-type" data-type="2">Gradient</button>
+            </div>
+        </div>
+        <div class="row td-color-size" id="shColorRow${S}">
+            <label class="color-pick">
+                <span id="shColorLbl${S}">Color</span>
+                <input id="shColor${S}" type="color" value="#ffffff">
+            </label>
+            <label class="color-pick hidden" id="shColor2Wrap${S}">
+                <span>End Color</span>
+                <input id="shColor2${S}" type="color" value="#f07b8e">
+            </label>
+            <div class="ctl grow">
+                <label>Opacity <span class="val" id="vShOpacity${S}">1.00</span></label>
+                <input id="shOpacity${S}" type="range" min="0" max="1" step="0.01" value="1">
+            </div>
+        </div>
+        <div class="row hidden" id="shImageRow${S}">
+            <div class="hint grow">Image fill uses Fusion Text+ texture input</div>
+        </div>
+        <div id="shThickWrap${S}" class="ctl">
+            <label>Thickness <span class="val" id="vShThickness${S}">0.020</span></label>
+            <input id="shThickness${S}" type="range" min="0" max="0.15" step="0.002" value="0.02">
+        </div>
+        <div id="shBorderWrap${S}" class="sh-border-box">
+            <div class="ctl">
+                <label>Level</label>
+                <select id="shLevel${S}">
+                    <option value="0">Text</option>
+                    <option value="1">Line</option>
+                    <option value="2">Word</option>
+                    <option value="3">Character</option>
+                </select>
+            </div>
+            <div class="ctl">
+                <label>Extend Horizontal <span class="val" id="vShExtendH${S}">0.000</span></label>
+                <input id="shExtendH${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0">
+            </div>
+            <div class="ctl">
+                <label>Extend Vertical <span class="val" id="vShExtendV${S}">0.000</span></label>
+                <input id="shExtendV${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0">
+            </div>
+            <div class="ctl">
+                <label>Round <span class="val" id="vShRound${S}">0.000</span></label>
+                <input id="shRound${S}" type="range" min="0" max="1.0" step="0.005" value="0">
+            </div>
+        </div>
+        <div class="row nums sh-soft-row">
+            <label>Softness <input id="shSoftness${S}" type="number" min="0" max="30" step="0.5" value="0"></label>
+            <label>Offset X <input id="shOffsetX${S}" type="number" min="-1" max="1" step="0.01" value="0"></label>
+            <label>Offset Y <input id="shOffsetY${S}" type="number" min="-1" max="1" step="0.01" value="0"></label>
+        </div>
+    </div>
+</div>`;
+
+const SAVE_BAR_HTML = (S) => `
+<div id="tdSaveBar${S}" class="td-save-bar hidden">
+    <div class="row td-var-row">
+        <span class="sh-lbl">New version name</span>
+        <input id="tdVarName${S}" type="text" class="sh-name" placeholder="Name v2">
+    </div>
+    <div class="row td-btn-row">
+        <button type="button" id="tdSaveVar${S}" class="td-btn-new" title="Save this alignment, Text+ design, and sound as a new preset in your library">+ Create v2</button>
+        <button type="button" id="tdUpdateLatest${S}" class="td-btn-upd" title="Update this preset and the latest Text+ subtitle clip on your timeline">Update latest</button>
+    </div>
+</div>`;
+
+const ADJUST_HTML = ALIGN_HTML;
+
+const PREVIEW_HTML = (S) => `
+<div id="stageBox${S}" class="stage-box">
+    <div id="stageTopOverlay${S}" class="stage-top-overlay">
+        <button type="button" id="stageResizeBtn${S}" class="stage-ov-btn" title="Toggle preview viewer height resizer">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+                <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
+            </svg>
+            <span id="stageResizeLbl${S}">Resize viewer</span>
+        </button>
+        <button type="button" id="stageSizeReset${S}" class="stage-ov-btn stage-ov-reset hidden" title="Reset viewer height to default aspect ratio">Reset size</button>
+    </div>
+    <canvas id="stage${S}" class="stage" width="640" height="360" title="Drag text to move, drag corners to resize, drag top handle to rotate"></canvas>
+    <div id="stageResize${S}" class="stage-resizer hidden" title="Drag to resize preview height (double-click to reset)"><span></span></div>
+</div>
+<div id="stageMsg${S}" class="stagemsg"></div>
+<div class="xform-section">
+    <div class="xform-header">
+        <span class="xform-title">Transform</span>
+        <div class="xform-hdr-actions">
+            ${S === 'U' ? `
+            <button type="button" id="liveSyncToggle${S}" class="ghost live-sync-btn" title="Live Sync: moves the subtitle on DaVinci Resolve's viewer in real time as you drag">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                    <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+                    <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+                </svg>
+                <span id="liveSyncLbl${S}">Live Sync</span>
+            </button>` : ''}
+            <button type="button" id="zoomToggle${S}" class="ghost zoom-toggle-btn" title="Enable scroll-wheel preview zoom (disabled by default)">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
+                    <path d="M6.5 4a.5.5 0 0 1 .5.5V6h1.5a.5.5 0 0 1 0 1H7v1.5a.5.5 0 0 1-1 0V7H4.5a.5.5 0 0 1 0-1H6V4.5a.5.5 0 0 1 .5-.5"/>
+                </svg>
+                <span id="zoomLbl${S}">Zoom</span>
+            </button>
+            <button type="button" id="resetPos${S}" class="ghost reset-xform-btn" title="Reset transform and preview zoom">Reset</button>
+        </div>
+    </div>
+
+    <!-- Zoom row -->
+    <div class="xform-grid-row">
+        <label class="xform-lbl" for="numScale${S}">Zoom</label>
+        <div class="xform-slider-cell">
+            <input id="scale${S}" type="range" class="rv-slider" min="0.050" max="4.000" step="0.005" value="1.000">
+        </div>
+        <div class="xform-num-cell">
+            <span class="xform-axis">X/Y</span>
+            <input id="numScale${S}" type="number" class="rv-num xform-num" min="0.01" max="10.0" step="0.001" value="1.000">
+        </div>
+    </div>
+
+    <!-- Position X row -->
+    <div class="xform-grid-row">
+        <label class="xform-lbl" for="numPosX${S}">Position X</label>
+        <div class="xform-slider-cell">
+            <input id="posX${S}" type="range" class="rv-slider" min="-960" max="960" step="0.5" value="0">
+        </div>
+        <div class="xform-num-cell">
+            <span class="xform-axis">X</span>
+            <input id="numPosX${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000">
+        </div>
+    </div>
+
+    <!-- Position Y row -->
+    <div class="xform-grid-row">
+        <label class="xform-lbl" for="numPosY${S}">Position Y</label>
+        <div class="xform-slider-cell">
+            <input id="posY${S}" type="range" class="rv-slider" min="-540" max="540" step="0.5" value="0">
+        </div>
+        <div class="xform-num-cell">
+            <span class="xform-axis">Y</span>
+            <input id="numPosY${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000">
+        </div>
+    </div>
+
+    <!-- Rotation Angle row -->
+    <div class="xform-grid-row">
+        <label class="xform-lbl" for="numRot${S}">Rotation Angle</label>
+        <div class="xform-slider-cell">
+            <input id="rot${S}" type="range" class="rv-slider" min="-180" max="180" step="0.1" value="0">
+        </div>
+        <div class="xform-num-cell">
+            <span class="xform-axis">°</span>
+            <input id="numRot${S}" type="number" class="rv-num xform-num" min="-360" max="360" step="0.001" value="0.000">
+        </div>
+    </div>
+</div>
+<div class="row actions">
+    <button id="prev${S}">▶ Preview</button>
+    <button id="loop${S}" class="ghost loop-btn" title="Toggle continuous real-time looping preview (runs at timeline frame rate)">🔁 Live Loop</button>
+    <button id="prevSfx${S}" class="ghost">▶ Sound only</button>
+    ${S === 'C' ? '<button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button>' : ''}
+</div>`;
+
+const CTX = {
+    U: {
+        s: 'U', scale: null,
+        model: () => state.use,
+        changed: (m) => {
+            if (state.use) {
+                state.use.dirty = true;
+                state.use.adjusted = true;
+            }
+            if (m) {
+                m.adjusted = true;
+                const patch = {
+                    posX: Number(m.posX) || 0,
+                    posY: Number(m.posY) || 0,
+                    scale: Number(m.scale) || 1,
+                    rotation: Number(m.rotation) || 0,
+                    linked: m.linked !== false,
+                    boxes: m.boxes || {}
+                };
+                const a = libEntry(m.id);
+                if (a) Object.assign(a, patch);
+                saveField(m.id, patch);
+                syncVarButtons('U', m);
+            }
+            renderUseSummary();
+        }
+    },
+    C: {
+        s: 'C', scale: null,
+        model: () => libEntry(state.createId),
+        changed: (m) => {
+            state.createAdjusted = true;
+            if (m) {
+                m.adjusted = true;
+                syncVarButtons('C', m);
+            }
+            saveField(m.id, {
+                textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail, linked: m.linked !== false,
+                sfxVolume: m.sfxVolume, useSfx: m.useSfx !== false, textTrack: m.textTrack, sfxTrack: m.sfxTrack,
+                posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
+                scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
+                textDesign: m.textDesign, boxes: m.boxes || {}
+            });
+        }
+    }
+};
+
+function ctxVisible(ctx) {
+    if (ctx.s === 'U') return state.tab === 'apply' && state.adjustOpen && !!state.use;
+    return state.tab === 'library' && state.createAdjustOpen !== false && !!libEntry(state.createId);
+}
+
+function renderTimelines() {
+    for (const c of [CTX.U, CTX.C]) if (ctxVisible(c)) renderTimeline(c);
+}
+
+// The Use tab works on a copy, so changes there never touch the saved default.
+function syncUse(force) {
+    const a = selected();
+    if (!a) { state.use = null; return; }
+    if (force || !state.use || state.use.id !== a.id || !state.use.dirty) {
+        state.use = {
+            id: a.id, name: a.name, dirty: false, adjusted: false, designDirty: false,
+            textOffset: a.textOffset, sfxOffset: a.sfxOffset, tail: a.tail, linked: a.linked !== false,
+            sfxVolume: a.sfxVolume, useSfx: a.useSfx !== false, textTrack: a.textTrack, sfxTrack: a.sfxTrack,
+            posX: Number(a.posX) || 0, posY: Number(a.posY) || 0,
+            scale: Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
+            textDesign: cloneTextDesign(a.textDesign),
+            boxes: window.SABoxes ? SABoxes.cloneBoxes(a) : {},
+            sfxPath: a.sfxPath
+        };
+    } else {
+        state.use.posX = Number(a.posX) || 0;
+        state.use.posY = Number(a.posY) || 0;
+        state.use.scale = Number(a.scale) || 1;
+        state.use.rotation = Number(a.rotation) || 0;
+        state.use.linked = a.linked !== false;
+        if (!state.use.textDesign) state.use.textDesign = cloneTextDesign(a.textDesign);
+    }
+}
+
+const saveField = debounce(async (id, patch) => {
+    const res = await window.sa.updateAnimation(id, patch);
+    // Do not swap the data under a drag in progress; the saved values are already what the user sees.
+    if (res && res.lib && !state.drag && !state.stageDrag) {
+        state.lib = res.lib;
+        syncUse(false);
+        if (state.createAdjusted && state.createId) {
+            const ca = libEntry(state.createId);
+            if (ca) { ca.adjusted = true; syncVarButtons('C', ca); }
+        }
+    }
+}, 250);
+
+// ---------------------------------------------------------------- alignment timeline
+// Frames on the timeline are relative to the subtitle's first frame (0 = where the subtitle starts).
+function subSpan() {
+    const L = state.live;
+    if (L && L.ok && L.subtitle) return { base: L.subtitle.start, dur: Math.max(1, L.subtitle.end - L.subtitle.start) };
+    if (L && L.ok) return { base: L.frame, dur: Math.round(L.fps * 3) };
+    return { base: 0, dur: 75 };
+}
+
+function geometry(m) {
+    const span = subSpan();
+    const fps = fpsNow();
+    const wave = loadWaveCached(m);
+    const sfxFrames = Math.max(2, Math.round(((wave && wave.seconds) || 0.5) * fps));
+    const textS = m.textOffset;
+    const textE = span.dur + m.tail;
+    const sfxS = textS + m.sfxOffset;
+    return { span, fps, sfxFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames };
+}
+
+function loadWaveCached(m) {
+    const p = currentSfxPath(m);
+    if (!p) return null;
+    const w = state.waves.get(p);
+    if (w === undefined) loadWave(p);
+    return w || null;
+}
+
+function windowFor(g) {
+    const lo = Math.min(0, g.textS, g.sfxS) - 12;
+    const hi = Math.max(g.span.dur, g.textE, g.sfxE) + 12;
+    return { lo, hi };
+}
+
+function rulerStep(ppf, fps) {
+    for (const s of [1, 2, 5, 10, Math.round(fps / 2), Math.round(fps), Math.round(fps * 2), Math.round(fps * 5), Math.round(fps * 10)]) {
+        if (s >= 1 && s * ppf >= 46) return s;
+    }
+    return Math.round(fps * 30);
+}
+
+function renderTimeline(ctx) {
+    const box = $('tl' + ctx.s);
+    const m = ctx.model();
+    if (!box || !m) { if (box) box.textContent = ''; return; }
+    const g = geometry(m);
+    const win = state.drag && state.drag.ctx === ctx ? state.drag.win : windowFor(g);
+    const W = box.clientWidth || 380;
+    const ppf = W / (win.hi - win.lo);
+    const X = (f) => (f - win.lo) * ppf;
+    ctx.scale = { lo: win.lo, ppf };
+    box.textContent = '';
+    const add = (cls, parent) => { const d = document.createElement('div'); d.className = cls; (parent || box).appendChild(d); return d; };
+
+    // ruler
+    const ruler = add('ruler');
+    const step = rulerStep(ppf, g.fps);
+    for (let f = Math.ceil(win.lo / step) * step; f <= win.hi; f += step) {
+        const t = add('tick', ruler);
+        t.style.left = X(f) + 'px';
+        const s = document.createElement('span');
+        s.textContent = (f / g.fps).toFixed(Math.abs(f) % g.fps === 0 ? 0 : 1) + 's';
+        t.appendChild(s);
+    }
+    if (ctx.s === 'U') {
+        ruler.addEventListener('pointerdown', (e) => {
+            const rect = box.getBoundingClientRect();
+            const rel = Math.round(win.lo + (e.clientX - rect.left) / ppf);
+            window.sa.seek(g.span.base + rel);
+        });
+    }
+
+    const laneT = add('lane text'); add('tag', laneT).textContent = 'Text';
+    const laneS = add('lane sfx'); add('tag', laneS).textContent = 'Sound';
+
+    // where the original subtitle sits, for reference
+    const ghost = add('ghost', laneT);
+    ghost.style.left = X(0) + 'px'; ghost.style.width = Math.max(2, g.span.dur * ppf) + 'px';
+
+    // text bar
+    const tb = add('bar text', laneT);
+    tb.style.left = X(g.textS) + 'px'; tb.style.width = Math.max(10, (g.textE - g.textS) * ppf) + 'px';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name || ''; tb.appendChild(nm);
+    const hl = add('handle l', tb), hr = add('handle r', tb);
+
+    // sound bar
+    const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : ''), laneS);
+    sb.style.left = X(g.sfxS) + 'px'; sb.style.width = Math.max(6, g.sfxFrames * ppf) + 'px';
+    const cv = document.createElement('canvas'); sb.appendChild(cv);
+    drawWave(cv, loadWaveCached(m));
+
+    // dashed link between the start of the text and the sound
+    if (m.linked !== false) {
+        const lk = add('link', box);
+        lk.style.left = X(g.textS) + 'px'; lk.style.top = '56px'; lk.style.height = '40px';
+    }
+
+    // live Resolve playhead (Use tab only) and the preview cursor
+    if (ctx.s === 'U' && state.live && state.live.ok) {
+        const rel = state.live.frame - g.span.base;
+        if (rel >= win.lo && rel <= win.hi) { const ph = add('ph'); ph.style.left = X(rel) + 'px'; }
+    }
+    add('pv');
+
+    const begin = (kind) => (e) => {
+        e.preventDefault(); e.stopPropagation();
+        stopPreview();
+        state.drag = { ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail } };
+    };
+    tb.addEventListener('pointerdown', begin('text'));
+    hl.addEventListener('pointerdown', begin('textStart'));
+    hr.addEventListener('pointerdown', begin('textEnd'));
+    sb.addEventListener('pointerdown', begin('sfx'));
+    syncNumbers(ctx);
+}
+
+function syncNumbers(ctx) {
+    const m = ctx.model(); if (!m) return;
+    for (const f of ['textOffset', 'sfxOffset', 'tail']) {
+        const el = $(f + ctx.s);
+        if (el && document.activeElement !== el) el.value = m[f];
+    }
+}
+
+function onDragMove(e) {
+    if (state.stageDrag) {
+        onStageDragMove(e);
+        return;
+    }
+    const d = state.drag;
+    if (!d) return;
+    const m = d.ctx.model();
+    if (!m) return;
+    const df = Math.round((e.clientX - d.x0) / d.ppf);
+    const o = d.a0;
+    const dur = subSpan().dur;
+    if (d.kind === 'sfx') {
+        // Sound aligns relative to the Text+ bar (0 = Text+ start).
+        let v = o.sfxOffset + df;
+        if (Math.abs(v) <= 1) v = 0;                                // snap to Text+ start
+        else if (Math.abs(o.textOffset + v) <= 1) v = -o.textOffset; // secondary snap to subtitle start
+        m.sfxOffset = clamp(v, -300, 300);
+    } else if (d.kind === 'text') {
+        // Moving the whole Text+ bar shifts both its start and end together so its duration is preserved.
+        let ts = o.textOffset + df;
+        if (Math.abs(ts) <= 1) ts = 0;
+        const delta = clamp(ts, -300, 300) - o.textOffset;
+        m.textOffset = o.textOffset + delta;
+        m.tail = clamp(o.tail + delta, -(dur - 5) - m.textOffset, 300);
+        m.sfxOffset = m.linked !== false ? o.sfxOffset : clamp(o.sfxOffset - delta, -300, 300);
+    } else if (d.kind === 'textStart') {
+        let ts = clamp(o.textOffset + df, -300, dur + o.tail - 5);       // move the start only; the end stays put
+        if (Math.abs(ts) <= 1) ts = 0;
+        m.textOffset = ts;
+        m.sfxOffset = m.linked !== false ? o.sfxOffset : clamp(o.sfxOffset - (ts - o.textOffset), -300, 300);
+    } else if (d.kind === 'textEnd') {
+        let t = clamp(o.tail + df, -(dur - 5) - o.textOffset, 300);
+        if (Math.abs(t) <= 1) t = 0;
+        m.tail = t;
+    }
+    renderTimeline(d.ctx);
+}
+
+function onDragEnd() {
+    if (state.stageDrag) {
+        onStageDragEnd();
+        return;
+    }
+    const d = state.drag;
+    state.drag = null;
+    if (d) {
+        const m = d.ctx.model();
+        if (m) d.ctx.changed(m);
+        renderTimeline(d.ctx);
+    }
+}
+
+// ---------------------------------------------------------------- preview (live timeline frame + overlay + placement)
+const imgCache = new Map();
+
+function redrawStages() {
+    if (state.preview) return;
+    if (state.tab === 'apply') {
+        const a = selected();
+        if (a) drawStage('U', a, null);
+    } else if (state.tab === 'library') {
+        const a = libEntry(state.createId);
+        if (a) drawStage('C', a, null);
+    }
+}
+
+async function refreshLiveBg() {
+    const L = state.live;
+    if (!L || !L.ok) return;
+    if (L.width && L.height) {
+        state.liveBg.width = L.width;
+        state.liveBg.height = L.height;
+    }
+    const key = L.timeline + ':' + L.frame;
+    if (state.liveBg.key === key) return;
+    if (state.liveBg.busy) {
+        state.liveBg.pending = { key, frame: L.frame };
+        return;
+    }
+    state.liveBg.busy = true;
+    state.liveBg.key = key;
+    try {
+        const res = await window.sa.liveFrame(L.frame);
+        if (res && res.ok && res.data) {
+            if (res.width && res.height) {
+                state.liveBg.width = res.width;
+                state.liveBg.height = res.height;
+            }
+            const im = new Image();
+            im.onload = () => {
+                state.liveBg.img = im;
+                redrawStages();
+            };
+            im.src = 'data:image/jpeg;base64,' + res.data;
+        }
+    } catch (e) { /* ignore */ }
+    state.liveBg.busy = false;
+    if (state.liveBg.pending && state.liveBg.pending.key !== state.liveBg.key) {
+        const next = state.liveBg.pending;
+        state.liveBg.pending = null;
+        if (state.live && state.live.ok && state.live.frame === next.frame) refreshLiveBg();
+    }
+}
+
+function previewImages(a) {
+    if (!a || !a.preview || !a.previewFiles || !a.previewFiles.length) return null;
+    const key = a.id + ':' + a.preview.count + ':' + (a.preview.stamp || 0);
+    let list = imgCache.get(key);
+    if (!list) {
+        list = a.previewFiles.map(p => { const i = new Image(); i.src = fileUrl(p) + '?v=' + (a.preview.stamp || 0); return i; });
+        imgCache.set(key, list);
+    }
+    return list;
+}
+
+// Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.
+function keyedImage(im) {
+    if (im._keyed) return im._keyed;
+    const w = im.naturalWidth, h = im.naturalHeight;
+    const oc = document.createElement('canvas');
+    oc.width = w; oc.height = h;
+    const og = oc.getContext('2d');
+    og.drawImage(im, 0, 0);
+    try {
+        const id = og.getImageData(0, 0, w, h);
+        const d = id.data;
+        let minX = w, minY = h, maxX = 0, maxY = 0, found = false;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const p = (y * w + x) * 4;
+                const m = Math.max(d[p], d[p + 1], d[p + 2]);
+                if (m <= 4) {
+                    d[p + 3] = 0;
+                } else {
+                    if (m < 28) d[p + 3] = Math.round(((m - 4) / 24) * d[p + 3]);
+                    if (m > 12) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        found = true;
+                    }
+                }
+            }
+        }
+        og.putImageData(id, 0, 0);
+        oc._bounds = found
+            ? { x: minX / w, y: minY / h, w: Math.max(0.08, (maxX - minX) / w), h: Math.max(0.05, (maxY - minY) / h) }
+            : { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+    } catch (e) {
+        oc._bounds = { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+    }
+    im._keyed = oc;
+    return oc;
+}
+
+function syncXformUI(S, posX, posY, scale, rotation) {
+    const pxEl = $('posX' + S);
+    const pyEl = $('posY' + S);
+    const scEl = $('scale' + S);
+    const rotEl = $('rot' + S);
+    const numPxEl = $('numPosX' + S);
+    const numPyEl = $('numPosY' + S);
+    const numScEl = $('numScale' + S);
+    const numRotEl = $('numRot' + S);
+
+    const tlW = (state.liveBg && state.liveBg.width) || 1920;
+    const tlH = (state.liveBg && state.liveBg.height) || 1080;
+
+    let px = Number(posX) || 0;
+    let py = Number(posY) || 0;
+    if (Math.abs(px) <= 1.0 && Math.abs(py) <= 1.0 && (px !== 0 || py !== 0)) {
+        px = Math.round(px * tlW * 10) / 10;
+        py = Math.round(-py * tlH * 10) / 10;
+    }
+    const sc = Number(scale) || 1.0;
+    const rot = Number(rotation) || 0;
+
+    const maxPan = Math.round(tlW / 2);
+    const maxTilt = Math.round(tlH / 2);
+
+    if (pxEl) {
+        pxEl.min = -maxPan;
+        pxEl.max = maxPan;
+        if (document.activeElement !== pxEl) pxEl.value = clamp(px, -maxPan, maxPan);
+    }
+    if (pyEl) {
+        pyEl.min = -maxTilt;
+        pyEl.max = maxTilt;
+        if (document.activeElement !== pyEl) pyEl.value = clamp(py, -maxTilt, maxTilt);
+    }
+    if (scEl && document.activeElement !== scEl) scEl.value = clamp(sc, 0.1, 3.0);
+    if (rotEl && document.activeElement !== rotEl) rotEl.value = clamp(rot, -180, 180);
+
+    if (numPxEl && document.activeElement !== numPxEl) numPxEl.value = px.toFixed(3);
+    if (numPyEl && document.activeElement !== numPyEl) numPyEl.value = py.toFixed(3);
+    if (numScEl && document.activeElement !== numScEl) numScEl.value = sc.toFixed(3);
+    if (numRotEl && document.activeElement !== numRotEl) numRotEl.value = rot.toFixed(3);
+
+    const isZoomOn = !!(state.zoomEnabled && state.zoomEnabled[S]);
+    const zoomVal = (state.stageZoom && state.stageZoom[S]) || 1.0;
+    const zoomBtn = $('zoomToggle' + S);
+    const zoomLbl = $('zoomLbl' + S);
+    if (zoomBtn) {
+        zoomBtn.classList.toggle('on', isZoomOn);
+        zoomBtn.title = isZoomOn
+            ? `Preview zoom ON (${Math.round(zoomVal * 100)}%) — click to disable scroll-wheel zoom`
+            : `Preview zoom disabled — click to enable scroll-wheel zoom`;
+    }
+    if (zoomLbl) {
+        zoomLbl.textContent = isZoomOn ? `Zoom (${Math.round(zoomVal * 100)}%)` : 'Zoom';
+    }
+
+    const liveSyncBtn = $('liveSyncToggle' + S);
+    if (liveSyncBtn) {
+        const isLiveOn = !!(state.liveSyncEnabled && state.liveSyncEnabled[S]);
+        liveSyncBtn.classList.toggle('on', isLiveOn);
+        liveSyncBtn.title = isLiveOn
+            ? 'Live Sync is ON: subtitle moves on DaVinci Resolve viewer in real-time as you drag'
+            : 'Live Sync is OFF: click to sync transform to DaVinci Resolve timeline in real-time';
+    }
+}
+
+function evalSpline(keys, f, defVal) {
+    if (!Array.isArray(keys) || !keys.length) return defVal;
+    if (f <= keys[0][0]) return keys[0][1];
+    for (let i = 0; i < keys.length - 1; i++) {
+        const [f0, v0] = keys[i], [f1, v1] = keys[i + 1];
+        if (f <= f1) {
+            const t = f1 > f0 ? (f - f0) / (f1 - f0) : 1;
+            return v0 + (v1 - v0) * t;
+        }
+    }
+    return keys[keys.length - 1][1];
+}
+
+// Built-in pop-in used when a preset has no size keys of its own: grows past full size, then settles (about 8 frames).
+function introPop(idx) {
+    const t = clamp(idx / 8, 0, 1);
+    const c1 = 1.70158, c3 = c1 + 1;
+    const e = 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+    return Math.max(0.05, 0.6 + 0.4 * e);
+}
+
+// idx: which frame to show, null = the last frame (the finished look), -1 = nothing
+function drawStage(S, a, idx) {
+    const cv = $('stage' + S);
+    if (!cv) return;
+
+    const ctx = CTX[S];
+    const m = (ctx && ctx.model()) || a;
+
+    const imgs = previewImages(a);
+    let im = null;
+    if (imgs && idx !== -1) {
+        const i = idx === null ? imgs.length - 1 : clamp(idx, 0, imgs.length - 1);
+        im = imgs[i];
+        if (!im.complete || !im.naturalWidth) { im.onload = () => drawStage(S, a, idx); im = null; }
+    }
+
+    const bg = state.liveBg.img;
+    const tlW = (state.liveBg.width && state.liveBg.height) ? state.liveBg.width : (im ? im.naturalWidth : 1920);
+    const tlH = (state.liveBg.width && state.liveBg.height) ? state.liveBg.height : (im ? im.naturalHeight : 1080);
+    const ar = tlW / tlH;
+
+    let rawPosX = Number(m && m.posX) || 0;
+    let rawPosY = Number(m && m.posY) || 0;
+    if (Math.abs(rawPosX) <= 1.0 && Math.abs(rawPosY) <= 1.0 && (rawPosX !== 0 || rawPosY !== 0)) {
+        rawPosX = Math.round(rawPosX * tlW * 10) / 10;
+        rawPosY = Math.round(-rawPosY * tlH * 10) / 10;
+    }
+    const posX = rawPosX;
+    const posY = rawPosY;
+    const userScale = Number(m && m.scale) || 1;
+    const userRot = Number(m && m.rotation) || 0;
+    const zoomVal = (state.stageZoom && state.stageZoom[S]) || 1.0;
+    const isZoomOn = !!(state.zoomEnabled && state.zoomEnabled[S]);
+    const resetBtn = $('resetPos' + S);
+    if (resetBtn) resetBtn.disabled = (Math.abs(posX) < 0.1 && Math.abs(posY) < 0.1 && Math.abs(userScale - 1) < 0.005 && Math.abs(userRot) < 0.1 && Math.abs(zoomVal - 1.0) < 0.01 && !isZoomOn);
+    syncXformUI(S, posX, posY, userScale, userRot);
+
+    // Match the stage canvas to the full container width by default, or the user's custom viewer height.
+    const stageBox = $('stageBox' + S);
+    const customH = (state.stageHeight && state.stageHeight[S]) || (state.stageSize && state.stageSize[S] && state.stageSize[S].h);
+    const inResizeMode = !!(state.stageResizeMode && state.stageResizeMode[S]);
+
+    if (stageBox) {
+        stageBox.classList.toggle('resize-mode', inResizeMode);
+        stageBox.style.width = '100%';
+    }
+    if ($('stageResize' + S)) $('stageResize' + S).classList.toggle('hidden', !inResizeMode);
+    if ($('stageResizeBtn' + S)) $('stageResizeBtn' + S).classList.toggle('on', inResizeMode);
+    if ($('stageResizeLbl' + S)) $('stageResizeLbl' + S).textContent = inResizeMode ? 'Done resizing' : 'Resize viewer';
+    if ($('stageSizeReset' + S)) $('stageSizeReset' + S).classList.toggle('hidden', !customH);
+
+    cv.style.width = '100%';
+    if (customH) {
+        const wantH = Math.round(customH) + 'px';
+        if (cv.style.height !== wantH) cv.style.height = wantH;
+        if (cv.style.aspectRatio !== 'auto') cv.style.aspectRatio = 'auto';
+    } else {
+        if (cv.style.height !== 'auto') cv.style.height = 'auto';
+        const wantAspect = tlW + ' / ' + tlH;
+        if (cv.style.aspectRatio !== wantAspect) cv.style.aspectRatio = wantAspect;
+    }
+
+    const domRect = cv.getBoundingClientRect();
+    const boxAr = (customH && domRect.width > 10 && domRect.height > 10) ? (domRect.width / domRect.height) : ar;
+    const targetW = boxAr >= 1 ? 640 : Math.max(200, Math.round(640 * boxAr));
+    const targetH = boxAr >= 1 ? Math.max(200, Math.round(640 / boxAr)) : 640;
+    if (cv.width !== targetW || cv.height !== targetH) {
+        cv.width = targetW;
+        cv.height = targetH;
+    }
+
+    const g = cv.getContext('2d');
+    let vw = cv.width, vh = cv.height;
+    if (Math.abs(boxAr - ar) > 0.005) {
+        if (ar > boxAr) {
+            vw = cv.width;
+            vh = cv.width / ar;
+        } else {
+            vh = cv.height;
+            vw = cv.height * ar;
+        }
+    }
+    const vx = (cv.width - vw) * 0.5;
+    const vy = (cv.height - vh) * 0.5;
+    cv._viewport = { vx, vy, vw, vh };
+    cv._zoom = zoomVal;
+
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, cv.width, cv.height);
+    g.clip();
+
+    // Always clear the whole canvas first so zooming out never leaves smeared copies behind.
+    g.clearRect(0, 0, cv.width, cv.height);
+    const hasSurround = zoomVal < 1.0 || vx > 0.5 || vy > 0.5;
+    if (hasSurround) {
+        // Fill any area around the active frame with a blurred, darkened copy of the frame.
+        g.fillStyle = '#0b0d0c';
+        g.fillRect(0, 0, cv.width, cv.height);
+        if (bg && bg.complete && bg.naturalWidth) {
+            g.save();
+            g.filter = 'blur(' + Math.round(18 * (cv.width / 640)) + 'px) brightness(0.32) saturate(0.7)';
+            const over = 40;   // overdraw so the blur doesn't fade to transparent at the edges
+            g.drawImage(bg, -over, -over, cv.width + over * 2, cv.height + over * 2);
+            g.restore();
+        }
+    }
+
+    if (zoomVal !== 1.0) {
+        g.translate(cv.width * 0.5, cv.height * 0.5);
+        g.scale(zoomVal, zoomVal);
+        g.translate(-cv.width * 0.5, -cv.height * 0.5);
+    }
+
+    // 1. Live timeline background frame filling the timeline-aspect stage
+    if (bg && bg.complete && bg.naturalWidth) {
+        g.drawImage(bg, vx, vy, vw, vh);
+    } else {
+        g.fillStyle = '#16161a';
+        g.fillRect(vx, vy, vw, vh);
+    }
+    if (hasSurround) {
+        // Outline the real frame so its edges read clearly against the dimmed surround.
+        g.save();
+        g.strokeStyle = 'rgba(239, 245, 240, 0.35)';
+        g.lineWidth = 1 / zoomVal;
+        g.strokeRect(vx, vy, vw, vh);
+        g.restore();
+    }
+
+    // Presets with detected Text+ / template nodes show the preset's real rendered animation (captured from Fusion)
+    // looping over the video frame. One text: the usual move / resize / rotate handles. Several texts: one box each.
+    const boxMode = !!(window.SABoxes && SABoxes.active(a));
+    const multiBox = boxMode && SABoxes.nodesOf(a).length > 1;
+    let previewSingle = false;
+    let paintedSingle = false;
+    const gxy = { zoom: zoomVal, rot: userRot, scale: userScale, posX, posY, tlW, tlH };
+    if (multiBox) {
+        cv._gizmo = null;
+        const painted = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy);
+        SABoxes.draw(S, a, m, cv, { vx, vy, vw, vh }, gxy, painted);
+        g.restore();
+        g.strokeStyle = '#29302b';
+        g.lineWidth = 1;
+        g.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
+        for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
+        const bm = $('stageMsg' + S);
+        if (bm) bm.textContent = painted ? 'Drag a box to place that text, or the empty frame to move everything.' : 'No animation preview yet. Press Make preview on this preset in the list.';
+        return;
+    }
+    if (window.SABoxes) SABoxes.hideLayer(S);
+    // Plays the rendered Fusion frames when they exist; until then the built-in preview of the preset stands in.
+    paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy);
+    previewSingle = paintedSingle;
+    for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
+
+    // 2. Animated Text+ overlay with (posX, posY, userScale, userRot) and full Text & Shading Elements (1..8)
+    const activeSubText = (($('subText') && $('subText').value.trim()) || (state.live && state.live.subtitle && state.live.subtitle.text) || '');
+    const dx = (posX / tlW) * vw;
+    const dy = -(posY / tlH) * vh;
+    const rotRad = (userRot * Math.PI) / 180;
+    let cx = vx + vw * 0.5 + dx;
+    let cy = vy + vh * 0.5 + dy;
+    let hw0 = vw * 0.25;
+    let hh0 = vh * 0.06;
+    if (previewSingle && window.SAThumbs) {
+        // Put the handles around where the text really is in the looping animation.
+        const nb = SAThumbs.bounds(a);
+        if (nb) {
+            const bcx = ((nb.x0 + nb.x1) / 2 - 0.5) * vw * userScale, bcy = ((nb.y0 + nb.y1) / 2 - 0.5) * vh * userScale;
+            const cr = Math.cos(rotRad), sr = Math.sin(rotRad);
+            cx = vx + vw * 0.5 + dx + (bcx * cr - bcy * sr);
+            cy = vy + vh * 0.5 + dy + (bcx * sr + bcy * cr);
+            hw0 = (nb.x1 - nb.x0) * vw * 0.5 + 6;
+            hh0 = (nb.y1 - nb.y0) * vh * 0.5 + 4;
+        }
+    }
+
+    const td = cloneTextDesign((m && m.textDesign) || (a && a.textDesign));
+    if (idx !== -1 && !previewSingle) {
+        const useCapturedPreview = !!(im && !m.designDirty && !activeSubText && !(window.SAThumbs && SAThumbs.isBlank(a)));
+        if (useCapturedPreview) {
+            const oc = keyedImage(im);
+            const bounds = oc._bounds || { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+            const ox = (bounds.x + bounds.w * 0.5) * vw;
+            const oy = (bounds.y + bounds.h * 0.5) * vh;
+            hw0 = Math.max(28, (bounds.w * vw) * 0.5 + 8);
+            hh0 = Math.max(14, (bounds.h * vh) * 0.5 + 8);
+
+            g.save();
+            g.translate(cx, cy);
+            if (rotRad) g.rotate(rotRad);
+            if (userScale !== 1) g.scale(userScale, userScale);
+            g.drawImage(oc, -ox, -oy, vw, vh);
+            g.restore();
+        } else {
+            const txt = activeSubText || (a && a.name) || 'Subtitle';
+            const lines = String(txt).split(/\r?\n/);
+            const styleLow = String(td.style || 'Bold').toLowerCase();
+            let weight = '700';
+            if (styleLow.includes('black') || styleLow.includes('heavy')) weight = '900';
+            else if (styleLow.includes('extrabold') || styleLow.includes('ultrabold')) weight = '800';
+            else if (styleLow.includes('semibold') || styleLow.includes('demi')) weight = '600';
+            else if (styleLow.includes('medium')) weight = '500';
+            else if (styleLow.includes('light') || styleLow.includes('thin')) weight = '300';
+            else if (styleLow.includes('regular') || styleLow.includes('normal')) weight = '400';
+            const isItalic = styleLow.includes('italic') || styleLow.includes('oblique');
+
+            const spec = td.animSpec || (a && a.textDesign && a.textDesign.animSpec) || null;
+            const frameRepeat = Math.max(1, Number(spec && spec.frameRepeat) || (td.wiggle ? 4 : 1));
+            const isPlaying = (idx !== null && idx >= 0);
+            const qFrame = isPlaying ? Math.floor(idx / frameRepeat) * frameRepeat : null;
+            const stepIdx = isPlaying ? Math.floor(idx / frameRepeat) : 0;
+
+            const baseSize = Number(td.size) || 0.12;
+            const animSize = (isPlaying && spec && spec.sizeKeys) ? evalSpline(spec.sizeKeys, qFrame, baseSize) : baseSize;
+            let popScale = baseSize > 0.001 ? (animSize / baseSize) : 1;
+            if (isPlaying && (!spec || !spec.sizeKeys)) popScale *= introPop(idx);
+            const animOpacity = (isPlaying && spec && spec.opacityKeys) ? clamp(evalSpline(spec.opacityKeys, qFrame, 1), 0, 1) : (isPlaying ? clamp(idx / 4, 0, 1) : 1);
+            const animTrack = (isPlaying && spec && spec.trackingKeys) ? evalSpline(spec.trackingKeys, qFrame, Number(td.tracking) || 1) : (Number(td.tracking) || 1);
+            const erodeVal = (isPlaying && spec && spec.erode) ? evalSpline(spec.erode, qFrame, 0) : 0;
+
+            const baseScale = clamp(baseSize * 0.62, 0.015, 0.65);
+            const fontPx = Math.max(12, Math.round(vw * baseScale));
+            g.font = (isItalic ? 'italic ' : '') + weight + ' ' + fontPx + 'px "' + (td.font || 'Poppins') + '", -apple-system, sans-serif';
+            g.textAlign = 'center';
+            g.textBaseline = 'middle';
+            try {
+                g.letterSpacing = Math.round((animTrack - 1) * fontPx * 0.22) + 'px';
+            } catch (e) { /* ignore if unsupported */ }
+
+            let jx = 0, jy = 0, animRot = 0;
+            if (isPlaying && spec && spec.angleKeys) {
+                animRot += (evalSpline(spec.angleKeys, qFrame, 0) * Math.PI) / 180;
+            }
+            const pt = (spec && spec.perturb) || (td.wiggle ? { xScale: 0.022, yScale: 0.022, strength: 0.04, wobble: 0.03, speed: 10 } : null);
+            const hasFollower = !!(spec && spec.follower);
+            if (isPlaying && pt && !hasFollower) {
+                jx = Math.sin(stepIdx * 2.3 + 0.7) * vw * (Number(pt.xScale) || 0.022) * 0.22;
+                jy = Math.cos(stepIdx * 2.9 + 0.4) * vh * (Number(pt.yScale) ?? 0.022) * 0.22;
+                animRot += Math.sin(stepIdx * 1.9) * 0.012;
+            }
+
+            const hasBoil = !!(spec && spec.displace) || !!td.wiggle;
+            if (hasBoil) {
+                const turbEl = $('saTurb' + S);
+                const dispEl = $('saDisp' + S);
+                if (turbEl) turbEl.setAttribute('seed', String(((stepIdx * 13) % 89) + 2));
+                if (dispEl) {
+                    const refr = Number(spec && spec.displace && spec.displace.refraction) || 1;
+                    dispEl.setAttribute('scale', (fontPx * 0.052 * refr).toFixed(2));
+                }
+            }
+
+            const lineWidths = lines.map(l => g.measureText(l).width);
+            const maxLineW = Math.max(24, ...lineWidths);
+            const lineH = fontPx * clamp(Number(td.lineSpacing) || 1, 0.4, 2.5) * 1.16;
+            const totalH = lineH * lines.length;
+            hw0 = Math.max(28, (maxLineW + 20) / 2);
+            hh0 = Math.max(14, (totalH + 10) / 2);
+
+            g.save();
+            g.translate(cx + jx, cy + jy);
+            if (rotRad || animRot) g.rotate(rotRad + animRot);
+            const erodeScaleX = erodeVal < 0 ? Math.max(0.84, 1 + erodeVal * 6.5) : 1;
+            const erodeScaleY = erodeVal < 0 ? Math.max(0.88, 1 + erodeVal * 3.5) : 1;
+            const sxTotal = userScale * popScale * erodeScaleX;
+            const syTotal = userScale * popScale * erodeScaleY;
+            if (sxTotal !== 1 || syTotal !== 1) g.scale(sxTotal, syTotal);
+
+            // Render Shading Elements 8 down to 1 (Priority order: higher elements sit behind Element 1)
+            const drawRRect = (x, y, w, h, r) => {
+                const rad = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+                g.beginPath();
+                if (typeof g.roundRect === 'function') {
+                    g.roundRect(x, y, w, h, rad);
+                } else {
+                    g.rect(x, y, w, h);
+                }
+            };
+
+            const drawGlyphLine = (line, li, ox, oy, isStroke) => {
+                const ly = (li - (lines.length - 1) / 2) * lineH + oy;
+                const words = String(line).split(/(\s+)/);
+                if (!isPlaying || !pt || !hasFollower || words.length <= 1) {
+                    let wx = ox, wy = ly, wRot = 0;
+                    if (isPlaying && pt && hasFollower) {
+                        const seed = stepIdx * 2.3 + li * 1.7;
+                        wx += Math.cos(seed) * vw * (Number(pt.xScale) || 0) * 0.22;
+                        wy += Math.sin(seed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22;
+                        if (spec.follower.rot) wRot = Math.sin(stepIdx * 1.9 + li) * 0.012;
+                    }
+                    if (wRot) {
+                        g.save();
+                        g.translate(wx, wy);
+                        g.rotate(wRot);
+                        if (isStroke) g.strokeText(line, 0, 0); else g.fillText(line, 0, 0);
+                        g.restore();
+                    } else {
+                        if (isStroke) g.strokeText(line, wx, wy); else g.fillText(line, wx, wy);
+                    }
+                    return;
+                }
+                const fullW = g.measureText(line).width;
+                let curX = ox - fullW * 0.5;
+                words.forEach((tok, wi) => {
+                    const tw = g.measureText(tok).width;
+                    if (tok.trim()) {
+                        const wSeed = stepIdx * 2.3 + li * 3.1 + wi * 1.9;
+                        const dxW = Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.22;
+                        const dyW = Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22;
+                        const rW = (spec.follower && spec.follower.rot) ? Math.sin(wSeed * 0.85) * 0.013 : 0;
+                        g.save();
+                        g.translate(curX + tw * 0.5 + dxW, ly + dyW);
+                        if (rW) g.rotate(rW);
+                        if (isStroke) g.strokeText(tok, 0, 0); else g.fillText(tok, 0, 0);
+                        g.restore();
+                    }
+                    curX += tw;
+                });
+            };
+
+            for (let ei = 8; ei >= 1; ei--) {
+                const el = td.elements[ei - 1];
+                if (!el || !el.enabled || el.alpha === 0) continue;
+                const op = clamp(Number(el.opacity ?? 1) * animOpacity, 0, 1);
+                if (op <= 0.005) continue;
+
+                g.save();
+                g.globalAlpha = op;
+                const ox = (Number(el.offsetX) || 0) * fontPx * 0.85;
+                const oy = -(Number(el.offsetY) || 0) * fontPx * 0.85;
+                const soft = Number(el.softness) || 0;
+                const filters = [];
+                if (soft > 0) {
+                    filters.push('blur(' + Math.min(24, soft * fontPx * 0.06).toFixed(1) + 'px)');
+                }
+                if (hasBoil) {
+                    filters.push('url(#saBoil' + S + ')');
+                }
+                if (filters.length) {
+                    g.filter = filters.join(' ');
+                }
+
+                const shape = Number(el.shape) || 0;
+                const elType = Number(el.type) || 0;
+                let col = el.color || '#ffffff';
+                if (elType === 2) {
+                    const grad = g.createLinearGradient(-hw0, 0, hw0, 0);
+                    grad.addColorStop(0, el.color || '#ffffff');
+                    grad.addColorStop(1, el.color2 || '#f07b8e');
+                    col = grad;
+                }
+
+                if (shape === 2 || shape === 3) {
+                    // Border Fill (2) or Border Outline (3)
+                    const padX = fontPx * (0.24 + (Number(el.extendH) || 0) * 1.4);
+                    const padY = fontPx * (0.14 + (Number(el.extendV) || 0) * 1.1);
+                    const bw = Math.max(8, maxLineW + padX * 2);
+                    const bh = Math.max(8, totalH + padY * 2);
+                    const rad = clamp(Number(el.round) || 0, 0, 1) * Math.min(bw, bh) * 0.5;
+                    drawRRect(-bw / 2 + ox, -bh / 2 + oy, bw, bh, rad);
+                    if (shape === 2) {
+                        g.fillStyle = col;
+                        g.fill();
+                    } else {
+                        g.strokeStyle = col;
+                        g.lineWidth = Math.max(1.5, (Number(el.thickness) || 0.02) * fontPx * 4);
+                        g.stroke();
+                    }
+                    hw0 = Math.max(hw0, bw / 2);
+                    hh0 = Math.max(hh0, bh / 2);
+                } else if (shape === 1) {
+                    // Text Outline (1)
+                    g.strokeStyle = col;
+                    g.lineJoin = 'round';
+                    g.lineWidth = Math.max(1.5, (Number(el.thickness) || 0.02) * fontPx * 5);
+                    lines.forEach((line, li) => drawGlyphLine(line, li, ox, oy, true));
+                } else {
+                    // Text Fill (0)
+                    g.fillStyle = col;
+                    lines.forEach((line, li) => drawGlyphLine(line, li, ox, oy, false));
+                }
+                g.restore();
+            }
+            g.restore();
+        }
+    }
+
+    // Center guides while moving (drawn in the zoomed frame space)
+    const isDragging = state.stageDrag && state.stageDrag.S === S;
+    const isHovering = state.stageHover === S;
+    if (isDragging && state.stageDrag.mode === 'move') {
+        g.strokeStyle = 'rgba(140, 207, 142, 0.85)';
+        g.lineWidth = 1 / zoomVal;
+        if (Math.abs(posX) < 2) { g.beginPath(); g.moveTo(vx + vw / 2, vy); g.lineTo(vx + vw / 2, vy + vh); g.stroke(); }
+        if (Math.abs(posY) < 2) { g.beginPath(); g.moveTo(vx, vy + vh / 2); g.lineTo(vx + vw, vy + vh / 2); g.stroke(); }
+    }
+    // Leave the zoomed space: the gizmo is drawn and hit-tested in plain canvas pixels,
+    // with handle sizes in screen pixels so they stay grabbable at any panel size or zoom.
+    g.restore();
+
+    const rectW = cv.getBoundingClientRect().width || cv.width;
+    const k = cv.width / Math.max(1, rectW);                 // canvas px per screen px
+    const toScreen = (x, y) => ({ x: (x - cv.width * 0.5) * zoomVal + cv.width * 0.5, y: (y - cv.height * 0.5) * zoomVal + cv.height * 0.5 });
+    const sc = toScreen(cx, cy);
+    const hw = hw0 * userScale * zoomVal + 6 * k;
+    const hh = hh0 * userScale * zoomVal + 6 * k;
+    const cos = Math.cos(rotRad), sin = Math.sin(rotRad);
+    const toCanvas = (lx, ly) => ({ x: sc.x + lx * cos - ly * sin, y: sc.y + lx * sin + ly * cos });
+    const stemLen = 24 * k;
+    const pad = 10 * k;
+    const offscreen = (p) => p.x < pad || p.y < pad || p.x > cv.width - pad || p.y > cv.height - pad;
+    // Handles that fall outside the preview are pinned to its edge so they can always be grabbed.
+    const keepIn = (p) => ({ x: clamp(p.x, pad, cv.width - pad), y: clamp(p.y, pad, cv.height - pad) });
+    const rawCorners = [toCanvas(-hw, -hh), toCanvas(hw, -hh), toCanvas(hw, hh), toCanvas(-hw, hh)];
+    const corners = rawCorners.map(keepIn);
+    let rotBase = toCanvas(0, -hh);
+    let rotRaw = toCanvas(0, -hh - stemLen);
+    if (offscreen(rotRaw)) {
+        const alt = toCanvas(0, hh + stemLen);              // flip the rotate handle below the box when the top is cut off
+        if (!offscreen(alt)) { rotRaw = alt; rotBase = toCanvas(0, hh); }
+    }
+    const rotHandle = keepIn(rotRaw);
+    cv._gizmo = { cx: sc.x, cy: sc.y, hw, hh, rotRad, rotHandle, corners, rawCorners, k };
+
+    // 3. Interactive transform gizmo (bounding box + 4 resize corners + rotation handle)
+    if (isDragging || isHovering) {
+        const mode = isDragging ? state.stageDrag.mode : null;
+        const hov = (!isDragging && state.stageHoverHit && state.stageHoverHit.S === S) ? state.stageHoverHit : null;
+        g.save();
+        // Bounding box
+        g.strokeStyle = isDragging ? '#f07b8e' : 'rgba(240, 123, 142, 0.82)';
+        g.lineWidth = 1.5 * k;
+        g.setLineDash([5 * k, 4 * k]);
+        g.beginPath();
+        rawCorners.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+        g.closePath();
+        g.stroke();
+        g.setLineDash([]);
+
+        // Rotation stem & handle
+        const rotActive = mode === 'rotate' || (hov && hov.mode === 'rotate');
+        g.strokeStyle = '#8ccf8e';
+        g.lineWidth = 1.5 * k;
+        g.beginPath();
+        g.moveTo(clamp(rotBase.x, 0, cv.width), clamp(rotBase.y, 0, cv.height));
+        g.lineTo(rotHandle.x, rotHandle.y);
+        g.stroke();
+        g.fillStyle = rotActive ? '#ffffff' : '#8ccf8e';
+        g.strokeStyle = '#131614';
+        g.lineWidth = 2 * k;
+        g.beginPath();
+        g.arc(rotHandle.x, rotHandle.y, (rotActive ? 8 : 7) * k, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+
+        // 4 corner resize handles
+        corners.forEach((c, i) => {
+            const cActive = (mode === 'scale' && state.stageDrag.corner === i) || (hov && hov.mode === 'scale' && hov.corner === i);
+            const hs = (cActive ? 7.5 : 6.5) * k;
+            g.save();
+            g.translate(c.x, c.y);
+            g.rotate(rotRad);
+            g.fillStyle = cActive ? '#ffffff' : '#f07b8e';
+            g.strokeStyle = '#131614';
+            g.lineWidth = 1.5 * k;
+            g.beginPath();
+            g.rect(-hs, -hs, hs * 2, hs * 2);
+            g.fill();
+            g.stroke();
+            g.restore();
+        });
+        g.restore();
+    }
+
+    // Border around the active video frame
+    g.strokeStyle = '#29302b';
+    g.lineWidth = 1;
+    g.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
+
+    const msg = $('stageMsg' + S);
+    if (msg) {
+        const metaParts = [];
+        if (state.liveBg.width && state.liveBg.height) metaParts.push(state.liveBg.width + '×' + state.liveBg.height);
+        if (Math.abs(zoomVal - 1.0) >= 0.01) metaParts.push('Preview Zoom ' + Math.round(zoomVal * 100) + '%');
+        if (posX !== 0 || posY !== 0) metaParts.push('Pos X: ' + posX.toFixed(1) + ' px, Y: ' + posY.toFixed(1) + ' px');
+        if (Math.abs(userScale - 1) >= 0.005) metaParts.push('Zoom ' + userScale.toFixed(3));
+        if (Math.abs(userRot) >= 0.1) metaParts.push('Rot ' + userRot.toFixed(1) + '°');
+        const prefix = metaParts.length ? metaParts.join(' · ') + ' — ' : '';
+        msg.textContent = prefix + 'Drag text to move, corners to resize, top handle to rotate.';
+    }
+}
+
+// Pointer position in canvas pixels (the canvas fills its element box with matching aspect ratio).
+function stagePoint(cv, clientX, clientY) {
+    const rect = cv.getBoundingClientRect();
+    return {
+        px: (clientX - rect.left) * (cv.width / Math.max(1, rect.width)),
+        py: (clientY - rect.top) * (cv.height / Math.max(1, rect.height))
+    };
+}
+
+function stageHitTest(cv, clientX, clientY) {
+    const { px, py } = stagePoint(cv, clientX, clientY);
+    const gz = cv._gizmo;
+    if (!gz) return { mode: 'move', px, py };
+    const hitR = 20 * (gz.k || 1);
+    // Pick the nearest handle within reach so overlapping handles never block each other.
+    let best = null, bestD = hitR;
+    const dRot = Math.hypot(px - gz.rotHandle.x, py - gz.rotHandle.y);
+    if (dRot <= bestD) { best = { mode: 'rotate', px, py }; bestD = dRot; }
+    gz.corners.forEach((c, i) => {
+        const d = Math.hypot(px - c.x, py - c.y);
+        if (d < bestD) { best = { mode: 'scale', corner: i, px, py }; bestD = d; }
+    });
+    return best || { mode: 'move', px, py };
+}
+
+let liveSyncBusy = false;
+let liveSyncPending = null;
+async function triggerLiveSync(m) {
+    if (!state.liveSyncEnabled || !state.liveSyncEnabled['U']) return;
+    if (!m) return;
+    const payload = {
+        posX: m.posX,
+        posY: m.posY,
+        scale: m.scale,
+        rotation: m.rotation
+    };
+    if (liveSyncBusy) {
+        liveSyncPending = payload;
+        return;
+    }
+    liveSyncBusy = true;
+    try {
+        await window.sa.syncLiveTransform(payload);
+    } catch (e) { /* ignore */ }
+    liveSyncBusy = false;
+    if (liveSyncPending) {
+        const next = liveSyncPending;
+        liveSyncPending = null;
+        triggerLiveSync(next);
+    }
+}
+
+function bindStage(ctx) {
+    const S = ctx.s;
+    const cv = $('stage' + S);
+    if (!cv) return;
+    cv.addEventListener('pointerenter', () => { state.stageHover = S; redrawStages(); });
+    cv.addEventListener('pointerleave', () => {
+        if (state.stageHover === S) { state.stageHover = null; state.stageHoverHit = null; cv.style.cursor = 'grab'; redrawStages(); }
+    });
+    cv.addEventListener('pointermove', (e) => {
+        if (state.stageDrag) return;
+        const hit = stageHitTest(cv, e.clientX, e.clientY);
+        const cornerCursor = (i) => {
+            const gz = cv._gizmo; if (!gz) return 'nwse-resize';
+            const c = (gz.rawCorners && gz.rawCorners[i]) || gz.corners[i];
+            return ((c.x - gz.cx) * (c.y - gz.cy) >= 0) ? 'nwse-resize' : 'nesw-resize';
+        };
+        cv.style.cursor = hit.mode === 'rotate' ? 'crosshair' : (hit.mode === 'scale' ? cornerCursor(hit.corner) : 'grab');
+        const prev = state.stageHoverHit;
+        const next = hit.mode === 'move' ? null : { S, mode: hit.mode, corner: hit.corner };
+        if (JSON.stringify(prev) !== JSON.stringify(next)) {
+            state.stageHoverHit = next;
+            redrawStages();
+        }
+    });
+    cv.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const m = ctx.model();
+        if (!m) return;
+        e.preventDefault();
+        stopPreview();
+        try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        const hit = stageHitTest(cv, e.clientX, e.clientY);
+        const gz = cv._gizmo || { cx: cv.width / 2, cy: cv.height / 2, k: 1 };
+        const cIdx = hit.corner !== undefined ? hit.corner : 0;
+        const rawC = (gz.rawCorners && gz.rawCorners[cIdx]) || { x: gz.cx + 50, y: gz.cy + 50 };
+        const vx0 = rawC.x - gz.cx, vy0 = rawC.y - gz.cy;
+        const rawDiag = Math.max(20, Math.hypot(vx0, vy0));
+        const ux = vx0 / rawDiag, uy = vy0 / rawDiag;
+        const diag0 = Math.max(40 * (gz.k || 1), Math.min(Math.hypot(cv.width, cv.height) * 0.45, rawDiag));
+        let initPosX = Number(m.posX) || 0;
+        let initPosY = Number(m.posY) || 0;
+        const tlW = (state.liveBg && state.liveBg.width) || 1920;
+        const tlH = (state.liveBg && state.liveBg.height) || 1080;
+        if (Math.abs(initPosX) <= 1.0 && Math.abs(initPosY) <= 1.0 && (initPosX !== 0 || initPosY !== 0)) {
+            initPosX = Math.round(initPosX * tlW * 10) / 10;
+            initPosY = Math.round(-initPosY * tlH * 10) / 10;
+        }
+        state.stageDrag = {
+            S, ctx, mode: hit.mode, corner: hit.corner,
+            x0: e.clientX, y0: e.clientY,
+            px0: hit.px, py0: hit.py,
+            cx: gz.cx, cy: gz.cy,
+            ux, uy, diag0,
+            startDist: Math.max(12, Math.hypot(hit.px - gz.cx, hit.py - gz.cy)),
+            startAng: Math.atan2(hit.py - gz.cy, hit.px - gz.cx),
+            posX0: initPosX,
+            posY0: initPosY,
+            scale0: Number(m.scale) || 1,
+            rot0: Number(m.rotation) || 0
+        };
+        redrawStages();
+    });
+    const resizeBtn = $('stageResizeBtn' + S);
+    const sizeResetBtn = $('stageSizeReset' + S);
+    const resizeBar = $('stageResize' + S);
+    const stageBox = $('stageBox' + S);
+    if (resizeBtn) {
+        resizeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!state.stageResizeMode) state.stageResizeMode = { U: false, C: false };
+            state.stageResizeMode[S] = !state.stageResizeMode[S];
+            redrawStages();
+        });
+    }
+    if (sizeResetBtn) {
+        sizeResetBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (state.stageSize) delete state.stageSize[S];
+            if (state.stageHeight) delete state.stageHeight[S];
+            if (state.stageResizeMode) state.stageResizeMode[S] = false;
+            redrawStages();
+        });
+    }
+    if (resizeBar) {
+        resizeBar.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            try { resizeBar.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            const startY = e.clientY;
+            const cvRect = cv.getBoundingClientRect();
+            const startH = cvRect.height || 240;
+            const onMove = (ev) => {
+                const dy = ev.clientY - startY;
+                const nextH = clamp(Math.round(startH + dy), 120, 1400);
+                if (!state.stageHeight) state.stageHeight = {};
+                state.stageHeight[S] = nextH;
+                redrawStages();
+            };
+            const onUp = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+        });
+        resizeBar.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (state.stageHeight) delete state.stageHeight[S];
+            if (state.stageSize) delete state.stageSize[S];
+            redrawStages();
+        });
+    }
+
+    const zoomToggleBtn = $('zoomToggle' + S);
+    if (zoomToggleBtn) {
+        zoomToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!state.zoomEnabled) state.zoomEnabled = { U: false, C: false };
+            state.zoomEnabled[S] = !state.zoomEnabled[S];
+            const m = ctx.model();
+            syncXformUI(S, m && m.posX, m && m.posY, m && m.scale, m && m.rotation);
+            redrawStages();
+        });
+    }
+
+    const liveSyncToggleBtn = $('liveSyncToggle' + S);
+    if (liveSyncToggleBtn) {
+        liveSyncToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!state.liveSyncEnabled) state.liveSyncEnabled = { U: false, C: false };
+            state.liveSyncEnabled[S] = !state.liveSyncEnabled[S];
+            const m = ctx.model();
+            syncXformUI(S, m && m.posX, m && m.posY, m && m.scale, m && m.rotation);
+            if (state.liveSyncEnabled[S] && m) triggerLiveSync(m);
+        });
+    }
+
+    cv.addEventListener('wheel', (e) => {
+        if (!state.zoomEnabled || !state.zoomEnabled[S]) {
+            // Disabled by default: allow normal page scrolling without intercepting wheel events
+            return;
+        }
+        e.preventDefault();
+        stopPreview();
+        if (!state.stageZoom) state.stageZoom = { U: 1.0, C: 1.0 };
+        const cur = state.stageZoom[S] || 1.0;
+        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        state.stageZoom[S] = Number(clamp(cur + delta, 0.5, 3.5).toFixed(2));
+        const m = ctx.model();
+        syncXformUI(S, m && m.posX, m && m.posY, m && m.scale, m && m.rotation);
+        redrawStages();
+    }, { passive: false });
+    cv.addEventListener('dblclick', () => resetStagePos(ctx));
+    const resetBtn = $('resetPos' + S);
+    if (resetBtn) resetBtn.addEventListener('click', () => resetStagePos(ctx));
+
+    const pxEl = $('posX' + S);
+    const numPxEl = $('numPosX' + S);
+    const pyEl = $('posY' + S);
+    const numPyEl = $('numPosY' + S);
+    const scEl = $('scale' + S);
+    const numScEl = $('numScale' + S);
+    const rotEl = $('rot' + S);
+    const numRotEl = $('numRot' + S);
+
+    if (pxEl) {
+        pxEl.addEventListener('input', () => {
+            const m = ctx.model(); if (!m) return;
+            m.posX = Number(pxEl.value);
+            if (numPxEl && document.activeElement !== numPxEl) numPxEl.value = m.posX.toFixed(3);
+            const a = libEntry(m.id); if (a) a.posX = m.posX;
+            ctx.changed(m);
+            redrawStages();
+            triggerLiveSync(m);
+        });
+    }
+    if (numPxEl) {
+        const updatePx = () => {
+            const m = ctx.model(); if (!m) return;
+            const v = Number(numPxEl.value);
+            if (!isNaN(v)) {
+                m.posX = v;
+                if (pxEl && document.activeElement !== pxEl) pxEl.value = v;
+                const a = libEntry(m.id); if (a) a.posX = m.posX;
+                ctx.changed(m);
+                redrawStages();
+                triggerLiveSync(m);
+            }
+        };
+        numPxEl.addEventListener('input', updatePx);
+        numPxEl.addEventListener('change', updatePx);
+    }
+
+    if (pyEl) {
+        pyEl.addEventListener('input', () => {
+            const m = ctx.model(); if (!m) return;
+            m.posY = Number(pyEl.value);
+            if (numPyEl && document.activeElement !== numPyEl) numPyEl.value = m.posY.toFixed(3);
+            const a = libEntry(m.id); if (a) a.posY = m.posY;
+            ctx.changed(m);
+            redrawStages();
+            triggerLiveSync(m);
+        });
+    }
+    if (numPyEl) {
+        const updatePy = () => {
+            const m = ctx.model(); if (!m) return;
+            const v = Number(numPyEl.value);
+            if (!isNaN(v)) {
+                m.posY = v;
+                if (pyEl && document.activeElement !== pyEl) pyEl.value = v;
+                const a = libEntry(m.id); if (a) a.posY = m.posY;
+                ctx.changed(m);
+                redrawStages();
+                triggerLiveSync(m);
+            }
+        };
+        numPyEl.addEventListener('input', updatePy);
+        numPyEl.addEventListener('change', updatePy);
+    }
+
+    if (scEl) {
+        scEl.addEventListener('input', () => {
+            const m = ctx.model(); if (!m) return;
+            m.scale = Number(scEl.value);
+            if (numScEl && document.activeElement !== numScEl) numScEl.value = m.scale.toFixed(3);
+            const a = libEntry(m.id); if (a) a.scale = m.scale;
+            ctx.changed(m);
+            redrawStages();
+            triggerLiveSync(m);
+        });
+    }
+    if (numScEl) {
+        const updateSc = () => {
+            const m = ctx.model(); if (!m) return;
+            const v = Number(numScEl.value);
+            if (!isNaN(v) && v > 0) {
+                m.scale = v;
+                if (scEl && document.activeElement !== scEl) scEl.value = v;
+                const a = libEntry(m.id); if (a) a.scale = m.scale;
+                ctx.changed(m);
+                redrawStages();
+                triggerLiveSync(m);
+            }
+        };
+        numScEl.addEventListener('input', updateSc);
+        numScEl.addEventListener('change', updateSc);
+    }
+
+    if (rotEl) {
+        rotEl.addEventListener('input', () => {
+            const m = ctx.model(); if (!m) return;
+            m.rotation = Number(rotEl.value);
+            if (numRotEl && document.activeElement !== numRotEl) numRotEl.value = m.rotation.toFixed(3);
+            const a = libEntry(m.id); if (a) a.rotation = m.rotation;
+            ctx.changed(m);
+            redrawStages();
+            triggerLiveSync(m);
+        });
+    }
+    if (numRotEl) {
+        const updateRot = () => {
+            const m = ctx.model(); if (!m) return;
+            const v = Number(numRotEl.value);
+            if (!isNaN(v)) {
+                m.rotation = v;
+                if (rotEl && document.activeElement !== rotEl) rotEl.value = v;
+                const a = libEntry(m.id); if (a) a.rotation = m.rotation;
+                ctx.changed(m);
+                redrawStages();
+                triggerLiveSync(m);
+            }
+        };
+        numRotEl.addEventListener('input', updateRot);
+        numRotEl.addEventListener('change', updateRot);
+    }
+}
+
+function resetStagePos(ctx) {
+    const m = ctx.model();
+    if (!m) return;
+    m.posX = 0; m.posY = 0; m.scale = 1; m.rotation = 0;
+    if (state.stageZoom) state.stageZoom[ctx.s] = 1.0;
+    if (state.zoomEnabled) state.zoomEnabled[ctx.s] = false;
+    const a = libEntry(m.id);
+    if (a) { a.posX = 0; a.posY = 0; a.scale = 1; a.rotation = 0; }
+    ctx.changed(m);
+    syncXformUI(ctx.s, 0, 0, 1, 0);
+    redrawStages();
+    triggerLiveSync(m);
+}
+
+function onStageDragMove(e) {
+    const d = state.stageDrag;
+    if (!d) return;
+    const m = d.ctx.model();
+    const cv = $('stage' + d.S);
+    if (!m || !cv) return;
+    const rect = cv.getBoundingClientRect();
+    const zoom = cv._zoom || 1.0;
+    const { px, py } = stagePoint(cv, e.clientX, e.clientY);
+
+    if (d.mode === 'rotate') {
+        let deg = d.rot0 + ((Math.atan2(py - d.cy, px - d.cx) - d.startAng) * 180) / Math.PI;
+        while (deg > 180) deg -= 360;
+        while (deg < -180) deg += 360;
+        if (!e.shiftKey) {
+            for (const snap of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) {
+                if (Math.abs(deg - snap) <= 3.5) { deg = snap; break; }
+            }
+        }
+        m.rotation = Number(deg.toFixed(3));
+    } else if (d.mode === 'scale') {
+        const deltaDiag = (px - d.px0) * d.ux + (py - d.py0) * d.uy;
+        const sc = clamp(d.scale0 * Math.max(0.05, 1 + deltaDiag / d.diag0), 0.05, 5.0);
+        m.scale = Number(sc.toFixed(3));
+    } else {
+        const tlW = (state.liveBg && state.liveBg.width) || 1920;
+        const tlH = (state.liveBg && state.liveBg.height) || 1080;
+        const vp = cv._viewport || { vx: 0, vy: 0, vw: cv.width, vh: cv.height };
+        const cssVw = Math.max(40, rect.width * (vp.vw / cv.width)) * zoom;
+        const cssVh = Math.max(40, rect.height * (vp.vh / cv.height)) * zoom;
+        let nx = d.posX0 + ((e.clientX - d.x0) / cssVw) * tlW;
+        let ny = d.posY0 - ((e.clientY - d.y0) / cssVh) * tlH; // negative Tilt is down on screen in Resolve
+        if (!e.shiftKey) {
+            if (Math.abs(nx) < 6) nx = 0;
+            if (Math.abs(ny) < 6) ny = 0;
+        }
+        m.posX = Number(nx.toFixed(1));
+        m.posY = Number(ny.toFixed(1));
+    }
+    const a = libEntry(m.id);
+    if (a) {
+        a.posX = m.posX;
+        a.posY = m.posY;
+        a.scale = m.scale;
+        a.rotation = m.rotation;
+    }
+    drawStage(d.S, a || m, null);
+    triggerLiveSync(m);
+}
+
+function onStageDragEnd() {
+    const d = state.stageDrag;
+    state.stageDrag = null;
+    if (d) {
+        const m = d.ctx.model();
+        if (m) d.ctx.changed(m);
+        redrawStages();
+    }
+}
+
+function stopPreview() {
+    if (!state.preview) return;
+    cancelAnimationFrame(state.preview.raf);
+    if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }
+    const { ctx, anim } = state.preview;
+    state.preview = null;
+    const pv = document.querySelector('#tl' + ctx.s + ' .pv');
+    if (pv) pv.style.display = 'none';
+    const prevBtn = $('prev' + ctx.s);
+    const loopBtn = $('loop' + ctx.s);
+    if (prevBtn) prevBtn.textContent = '▶ Preview';
+    if (loopBtn) {
+        loopBtn.classList.remove('on');
+        loopBtn.textContent = '🔁 Live Loop';
+    }
+    drawStage(ctx.s, ctx.model() || anim, null);
+}
+
+// Plays the animation frames and the sound against the Text+ alignment, so you hear and see where they land.
+function runPreview(ctx, loop = false) {
+    if (state.preview && state.preview.loop && loop) {
+        stopPreview();
+        return;
+    }
+    stopPreview();
+    const m = ctx.model();
+    if (!m) return;
+    const a = libEntry(m.id);
+    const fps = fpsNow();
+    const g = geometry(m);
+    const from = Math.min(g.textS, g.sfxS) - 4;
+    const to = g.textE + 6;
+    let t0 = performance.now();
+    let fired = false;
+    let loopCount = 0;
+    state.preview = { ctx, anim: a || m, raf: 0, loop: !!loop };
+
+    const prevBtn = $('prev' + ctx.s);
+    const loopBtn = $('loop' + ctx.s);
+    if (loop && loopBtn) {
+        loopBtn.classList.add('on');
+        loopBtn.textContent = '⏹ Stop Loop';
+    }
+    if (prevBtn) prevBtn.textContent = '⏹ Stop';
+
+    const frame = () => {
+        if (!state.preview) return;
+        const curM = ctx.model() || m;
+        let tf = from + (performance.now() - t0) / 1000 * fps;
+        if (tf > to) {
+            if (state.preview.loop) {
+                t0 = performance.now();
+                tf = from;
+                fired = false;
+                loopCount++;
+            } else {
+                stopPreview();
+                return;
+            }
+        }
+        const pv = document.querySelector('#tl' + ctx.s + ' .pv');
+        if (pv && ctx.scale) { pv.style.display = 'block'; pv.style.left = ((tf - ctx.scale.lo) * ctx.scale.ppf) + 'px'; }
+        if (!fired && tf >= g.sfxS && (!state.preview.loop || loopCount === 0)) {
+            fired = true;
+            const sfx = currentSfxPath(curM);
+            if (sfx) play(sfx);
+        }
+        const relFrame = (tf < g.textS || tf > g.textE) ? -1 : Math.max(0, Math.floor(tf - g.textS));
+        drawStage(ctx.s, curM, relFrame);
+        state.preview.raf = requestAnimationFrame(frame);
+    };
+    frame();
+}
+
+// ---------------------------------------------------------------- mounting and binding the alignment & text design blocks
+function mountBlocks() {
+    if ($('adjustBodyU')) $('adjustBodyU').innerHTML = ALIGN_HTML('U');
+    if ($('tdBodyU')) $('tdBodyU').innerHTML = TEXT_DESIGN_HTML('U');
+    if ($('saveBarWrapU')) $('saveBarWrapU').innerHTML = SAVE_BAR_HTML('U');
+    if ($('previewU')) $('previewU').innerHTML = PREVIEW_HTML('U');
+
+    if ($('adjustBodyC')) $('adjustBodyC').innerHTML = ALIGN_HTML('C');
+    if ($('tdBodyC')) $('tdBodyC').innerHTML = TEXT_DESIGN_HTML('C');
+    if ($('saveBarWrapC')) $('saveBarWrapC').innerHTML = SAVE_BAR_HTML('C');
+    if ($('previewC')) $('previewC').innerHTML = PREVIEW_HTML('C');
+    attachHexFields();
+    bindInspectorChrome();
+    linkNumBoxes();
+    linkRgbSliders();
+}
+
+// Resolve-style tab bar (Text / Shading) and collapsible section headers.
+function bindInspectorChrome() {
+    for (const bar of document.querySelectorAll('.rv-tabs')) {
+        const panel = bar.closest('.rv');
+        for (const t of bar.querySelectorAll('.rv-tab')) {
+            t.addEventListener('click', () => {
+                for (const o of bar.querySelectorAll('.rv-tab')) o.classList.toggle('on', o === t);
+                for (const p of panel.querySelectorAll(':scope > .rv-pane')) p.classList.toggle('hidden', p.dataset.pane !== t.dataset.pane);
+            });
+        }
+    }
+    for (const h of document.querySelectorAll('.rv-sec-head')) {
+        h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+    }
+}
+
+// Value boxes next to sliders: typing sets the slider, moving the slider (or code) updates the box.
+function linkNumBoxes() {
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    for (const box of document.querySelectorAll('.rv-num[data-for]')) {
+        const rng = $(box.dataset.for);
+        if (!rng || rng._numBox) continue;
+        rng._numBox = box;
+        const step = Number(rng.step) || 0.01;
+        const dec = step >= 1 ? 0 : Math.min(3, String(step).split('.')[1].length);
+        const show = () => { if (document.activeElement !== box) box.value = Number(desc.get.call(rng)).toFixed(dec); };
+        Object.defineProperty(rng, 'value', {
+            configurable: true,
+            get() { return desc.get.call(this); },
+            set(v) { desc.set.call(this, v); show(); }
+        });
+        rng.addEventListener('input', show);
+        const apply = () => {
+            const n = Number(box.value);
+            if (box.value === '' || !Number.isFinite(n)) return;
+            desc.set.call(rng, String(n));
+            rng.dispatchEvent(new Event('input', { bubbles: true }));
+            rng.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        box.addEventListener('input', apply);
+        box.addEventListener('change', () => { apply(); box.value = Number(desc.get.call(rng)).toFixed(dec); });
+        box.addEventListener('blur', () => { box.value = Number(desc.get.call(rng)).toFixed(dec); });
+        box.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.blur(); });
+        show();
+    }
+}
+
+// Red / Green / Blue sliders (0–1, like Resolve) that drive a color swatch.
+function linkRgbSliders() {
+    const groups = new Map();
+    for (const r of document.querySelectorAll('input[data-rgb-of]')) {
+        const id = r.dataset.rgbOf;
+        if (!groups.has(id)) groups.set(id, []);
+        groups.get(id)[Number(r.dataset.ch)] = r;
+    }
+    for (const [id, chans] of groups) {
+        const sw = $(id);
+        if (!sw || sw._rgbLinked) continue;
+        sw._rgbLinked = true;
+        let busy = false;
+        const fromSwatch = () => {
+            if (busy) return;
+            const h = normHex(sw.value) || '#ffffff';
+            [1, 3, 5].forEach((o, i) => { chans[i].value = (parseInt(h.substr(o, 2), 16) / 255).toFixed(3); });
+        };
+        const toSwatch = () => {
+            const hex = '#' + chans.map(c => Math.round(clamp(Number(c.value) || 0, 0, 1) * 255).toString(16).padStart(2, '0')).join('');
+            busy = true;
+            sw.value = hex;
+            sw.dispatchEvent(new Event('input', { bubbles: true }));
+            busy = false;
+        };
+        for (const c of chans) c.addEventListener('input', toSwatch);
+        sw.addEventListener('input', fromSwatch);
+        sw.addEventListener('colorsync', fromSwatch);
+        fromSwatch();
+    }
+}
+
+// Adds a typed hex code field beside every color swatch, kept in sync in both directions.
+function normHex(v) {
+    let s = String(v || '').trim().replace(/^#/, '');
+    if (/^[0-9a-f]{3}$/i.test(s)) s = s.split('').map(c => c + c).join('');
+    return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
+}
+
+function attachHexFields() {
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    for (const sw of document.querySelectorAll('input[type=color]')) {
+        if (sw._hex) continue;
+        const hex = document.createElement('input');
+        hex.type = 'text';
+        hex.className = 'hex-input';
+        hex.maxLength = 7;
+        hex.spellcheck = false;
+        hex.placeholder = '#ffffff';
+        hex.title = 'Hex color code (e.g. #1e3036)';
+        hex.value = sw.value;
+        sw._hex = hex;
+        const row = document.createElement('div');
+        row.className = 'color-field';
+        sw.parentNode.insertBefore(row, sw);
+        row.appendChild(sw);
+        row.appendChild(hex);
+
+        // Keep the text field current when code sets the swatch value (loading a preset, switching element).
+        Object.defineProperty(sw, 'value', {
+            configurable: true,
+            get() { return desc.get.call(this); },
+            set(v) {
+                desc.set.call(this, v);
+                if (document.activeElement !== hex) hex.value = desc.get.call(this);
+                this.dispatchEvent(new Event('colorsync'));
+            }
+        });
+        sw.addEventListener('input', () => { if (document.activeElement !== hex) hex.value = sw.value; });
+
+        const apply = (final) => {
+            const h = normHex(hex.value);
+            hex.classList.toggle('bad', !h && hex.value.trim() !== '');
+            if (!h) return;
+            if (h !== sw.value) {
+                desc.set.call(sw, h);
+                sw.dispatchEvent(new Event('input', { bubbles: true }));
+                sw.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (final) hex.value = h;
+        };
+        hex.addEventListener('click', (e) => e.preventDefault()); // don't open the swatch picker via the label
+        hex.addEventListener('input', () => apply(false));
+        hex.addEventListener('change', () => apply(true));
+        hex.addEventListener('blur', () => { apply(true); if (!normHex(hex.value)) { hex.value = sw.value; hex.classList.remove('bad'); } });
+        hex.addEventListener('keydown', (e) => { if (e.key === 'Enter') { apply(true); hex.blur(); } });
+        hex.addEventListener('paste', () => setTimeout(() => apply(true), 0));
+    }
+}
+
+function fillTrackSelect(sel, prefix, value) {
+    sel.textContent = '';
+    const opts = [[0, 'Auto (free track)']];
+    for (let i = 1; i <= 12; i++) opts.push([i, prefix + i]);
+    for (const [v, t] of opts) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = t;
+        if (Number(v) === Number(value)) o.selected = true;
+        sel.appendChild(o);
+    }
+}
+
+function nextVersionNameUI(baseName) {
+    const stem = String(baseName || 'Animation').trim().replace(/\s+v\d+$/i, '');
+    const taken = new Set((state.lib.animations || []).map(a => String(a.name || '').trim().toLowerCase()));
+    let v = 2;
+    while (taken.has((stem + ' v' + v).toLowerCase())) v++;
+    return stem + ' v' + v;
+}
+
+function syncVarButtons(S, m) {
+    const varIn = $('tdVarName' + S);
+    const btnNew = $('tdSaveVar' + S);
+    const btnUpd = $('tdUpdateLatest' + S);
+    const bar = $('tdSaveBar' + S);
+    if (!m) {
+        if (bar) {
+            bar.classList.add('hidden');
+            bar.classList.remove('dirty');
+        }
+        return;
+    }
+    const autoName = nextVersionNameUI(m.name);
+    if (varIn && document.activeElement !== varIn && varIn.dataset.forId !== m.id + ':' + m.name) {
+        varIn.value = autoName;
+        varIn.dataset.forId = m.id + ':' + m.name;
+    }
+    const chosen = (varIn && varIn.value.trim()) || autoName;
+    if (btnNew) btnNew.textContent = '+ Create "' + chosen + '"';
+    if (btnUpd) btnUpd.textContent = 'Update "' + (m.name || 'latest') + '"';
+    const isAdjusted = !!(m.adjusted || m.dirty || m.designDirty || (S === 'C' && state.createAdjusted));
+    if (bar) {
+        bar.classList.toggle('hidden', !isAdjusted);
+        bar.classList.toggle('dirty', isAdjusted);
+    }
+}
+
+function fillTextDesign(ctx) {
+    const S = ctx.s, m = ctx.model();
+    if (!m) return;
+    if (!m.textDesign) {
+        const a = libEntry(m.id);
+        m.textDesign = cloneTextDesign(a && a.textDesign);
+    }
+    syncVarButtons(S, m);
+    const td = m.textDesign;
+    const fEl = $('tdFont' + S);
+    if (fEl && document.activeElement !== fEl) fEl.value = td.font || 'Poppins';
+    const stEl = $('tdStyle' + S);
+    if (stEl) {
+        if (!Array.from(stEl.options).some(o => o.value === td.style) && td.style) {
+            const opt = document.createElement('option');
+            opt.value = td.style; opt.textContent = td.style;
+            stEl.appendChild(opt);
+        }
+        stEl.value = td.style || 'Bold';
+    }
+    const el1 = td.elements[0];
+    const c1El = $('tdColor' + S);
+    if (c1El && el1) c1El.value = el1.color || '#ffffff';
+
+    const sz = Number(td.size) || 0.12;
+    const szEl = $('tdSize' + S);
+    if (szEl && document.activeElement !== szEl) szEl.value = sz;
+    if ($('vTdSize' + S)) $('vTdSize' + S).textContent = sz.toFixed(3);
+
+    const trk = Number(td.tracking ?? 1);
+    const trkEl = $('tdTrack' + S);
+    if (trkEl && document.activeElement !== trkEl) trkEl.value = trk;
+    if ($('vTdTrack' + S)) $('vTdTrack' + S).textContent = trk.toFixed(2);
+
+    const lsp = Number(td.lineSpacing ?? 1);
+    const lspEl = $('tdLine' + S);
+    if (lspEl && document.activeElement !== lspEl) lspEl.value = lsp;
+    if ($('vTdLine' + S)) $('vTdLine' + S).textContent = lsp.toFixed(2);
+
+    const selIdx = clamp(Number(td.selectedElement) || 1, 1, 8);
+    td.selectedElement = selIdx;
+    const curEl = td.elements[selIdx - 1];
+
+    const tabsBox = $('shSel' + S);
+    if (tabsBox) {
+        for (const btn of tabsBox.querySelectorAll('.sh-tab')) {
+            const idx = Number(btn.dataset.idx);
+            const eObj = td.elements[idx - 1];
+            btn.classList.toggle('on', idx === selIdx);
+            btn.classList.toggle('enabled', !!(eObj && eObj.enabled));
+        }
+    }
+
+    if (!curEl) return;
+    const nmEl = $('shName' + S);
+    if (nmEl && document.activeElement !== nmEl) nmEl.value = curEl.name || ('Element ' + selIdx);
+    const enEl = $('shEnabled' + S);
+    if (enEl) enEl.checked = !!curEl.enabled;
+
+    const propsBox = $('shProps' + S);
+    if (propsBox) propsBox.classList.toggle('disabled-props', !curEl.enabled);
+
+    const shapeBox = $('shShape' + S);
+    const shVal = Number(curEl.shape) || 0;
+    if (shapeBox) {
+        for (const b of shapeBox.querySelectorAll('.sh-shape')) {
+            b.classList.toggle('on', Number(b.dataset.shape) === shVal);
+        }
+    }
+
+    const typeBox = $('shType' + S);
+    const typeVal = Number(curEl.type) || 0;
+    if (typeBox) {
+        for (const b of typeBox.querySelectorAll('.sh-type')) {
+            b.classList.toggle('on', Number(b.dataset.type) === typeVal);
+        }
+    }
+    const isGradient = typeVal === 2;
+    const isImage = typeVal === 1;
+    if ($('shColor2Wrap' + S)) $('shColor2Wrap' + S).classList.toggle('hidden', !isGradient);
+    if ($('shColorLbl' + S)) $('shColorLbl' + S).textContent = isGradient ? 'Start Color' : 'Color';
+    const c2El = $('shColor2' + S);
+    if (c2El) c2El.value = curEl.color2 || '#f07b8e';
+    if ($('shImageRow' + S)) $('shImageRow' + S).classList.toggle('hidden', !isImage);
+    if ($('shColorRow' + S)) $('shColorRow' + S).classList.toggle('hidden', isImage);
+
+    const shCol = $('shColor' + S);
+    if (shCol) shCol.value = curEl.color || '#ffffff';
+
+    const op = Number(curEl.opacity ?? 1);
+    const opEl = $('shOpacity' + S);
+    if (opEl && document.activeElement !== opEl) opEl.value = op;
+    if ($('vShOpacity' + S)) $('vShOpacity' + S).textContent = op.toFixed(2);
+
+    const th = Number(curEl.thickness ?? 0.02);
+    const thEl = $('shThickness' + S);
+    if (thEl && document.activeElement !== thEl) thEl.value = th;
+    if ($('vShThickness' + S)) $('vShThickness' + S).textContent = th.toFixed(3);
+    if ($('shThickWrap' + S)) $('shThickWrap' + S).classList.toggle('hidden', !(shVal === 1 || shVal === 3));
+
+    const isBorder = (shVal === 2 || shVal === 3);
+    if ($('shBorderWrap' + S)) $('shBorderWrap' + S).classList.toggle('hidden', !isBorder);
+
+    const lvEl = $('shLevel' + S);
+    if (lvEl) lvEl.value = String(curEl.level ?? 0);
+
+    const eh = Number(curEl.extendH ?? 0);
+    const ehEl = $('shExtendH' + S);
+    if (ehEl && document.activeElement !== ehEl) ehEl.value = eh;
+    if ($('vShExtendH' + S)) $('vShExtendH' + S).textContent = eh.toFixed(3);
+
+    const ev = Number(curEl.extendV ?? 0);
+    const evEl = $('shExtendV' + S);
+    if (evEl && document.activeElement !== evEl) evEl.value = ev;
+    if ($('vShExtendV' + S)) $('vShExtendV' + S).textContent = ev.toFixed(3);
+
+    const rd = Number(curEl.round ?? 0);
+    const rdEl = $('shRound' + S);
+    if (rdEl && document.activeElement !== rdEl) rdEl.value = rd;
+    if ($('vShRound' + S)) $('vShRound' + S).textContent = rd.toFixed(3);
+
+    const sfEl = $('shSoftness' + S);
+    if (sfEl && document.activeElement !== sfEl) sfEl.value = Number(curEl.softness ?? 0);
+    const oxEl = $('shOffsetX' + S);
+    if (oxEl && document.activeElement !== oxEl) oxEl.value = Number(curEl.offsetX ?? 0);
+    const oyEl = $('shOffsetY' + S);
+    if (oyEl && document.activeElement !== oyEl) oyEl.value = Number(curEl.offsetY ?? 0);
+    renderTdSummary(ctx);
+}
+
+function bindTextDesign(ctx) {
+    const S = ctx.s;
+    const notifyMsg = (msg, kind) => {
+        if (S === 'C') setCreateStatus(msg, kind);
+        else setStatus(msg, kind);
+    };
+    const commit = () => {
+        const m = ctx.model();
+        if (!m) return;
+        m.designDirty = true;
+        m.adjusted = true;
+        if (S === 'U' && state.use) {
+            state.use.dirty = true;
+            state.use.adjusted = true;
+        }
+        if (S === 'C') state.createAdjusted = true;
+        fillTextDesign(ctx);
+        renderUseSummary();
+        if (S === 'C') renderCreateSummary();
+        redrawStages();
+    };
+    const curEl = () => {
+        const m = ctx.model();
+        if (!m) return null;
+        if (!m.textDesign) m.textDesign = cloneTextDesign(libEntry(m.id) && libEntry(m.id).textDesign);
+        const idx = clamp(Number(m.textDesign.selectedElement) || 1, 1, 8);
+        return m.textDesign.elements[idx - 1];
+    };
+
+    const varIn = $('tdVarName' + S);
+    if (varIn) {
+        varIn.addEventListener('input', () => {
+            const m = ctx.model();
+            if (m) syncVarButtons(S, m);
+        });
+    }
+
+    const btnSaveVar = $('tdSaveVar' + S);
+    if (btnSaveVar) {
+        btnSaveVar.addEventListener('click', async () => {
+            const m = ctx.model();
+            if (!m) return;
+            const customName = ($('tdVarName' + S) && $('tdVarName' + S).value.trim()) || nextVersionNameUI(m.name);
+            notifyMsg('Creating "' + customName + '"…');
+            const res = await window.sa.saveVariant({
+                sourceId: m.id,
+                boxes: m.boxes || {},
+                name: customName,
+                useSfx: m.useSfx !== false,
+                linked: m.linked !== false,
+                sfx: m.sfx !== undefined ? m.sfx : null,
+                sfxPath: m.sfxPath || null,
+                textOffset: m.textOffset,
+                sfxOffset: m.sfxOffset,
+                sfxVolume: m.sfxVolume,
+                tail: m.tail,
+                textTrack: m.textTrack,
+                sfxTrack: m.sfxTrack,
+                posX: Number(m.posX) || 0,
+                posY: Number(m.posY) || 0,
+                scale: Number(m.scale) || 1,
+                rotation: Number(m.rotation) || 0,
+                textDesign: m.textDesign
+            });
+            if (res && res.error) {
+                notifyMsg(res.error, 'bad');
+                return;
+            }
+            if (res && res.lib) {
+                m.designDirty = false;
+                m.adjusted = false;
+                m.dirty = false;
+                state.createAdjusted = false;
+                state.lib = res.lib;
+                state.selectedId = res.createdId;
+                if (S === 'C') state.createId = res.createdId;
+                syncUse(true);
+                renderAll();
+                notifyMsg('Created new preset "' + res.createdName + '".', 'ok');
+            }
+        });
+    }
+
+    const btnUpd = $('tdUpdateLatest' + S);
+    if (btnUpd) {
+        btnUpd.addEventListener('click', async () => {
+            const m = ctx.model();
+            if (!m) return;
+            notifyMsg('Updating "' + m.name + '"…');
+            const res = await window.sa.updateLatest({
+                animationId: m.id,
+                text: $('subText') ? $('subText').value : '',
+                updateText: S === 'U',
+                boxes: m.boxes || {},
+                boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, $('subText') ? $('subText').value : '', S === 'U') : [],
+                useSfx: m.useSfx !== false,
+                linked: m.linked !== false,
+                sfx: m.sfx !== undefined ? m.sfx : null,
+                sfxPath: m.sfxPath || null,
+                textOffset: m.textOffset,
+                sfxOffset: m.sfxOffset,
+                sfxVolume: m.sfxVolume,
+                tail: m.tail,
+                textTrack: m.textTrack,
+                sfxTrack: m.sfxTrack,
+                posX: Number(m.posX) || 0,
+                posY: Number(m.posY) || 0,
+                scale: Number(m.scale) || 1,
+                rotation: Number(m.rotation) || 0,
+                textDesign: m.textDesign
+            });
+            if (res && res.error) {
+                notifyMsg(res.error, 'bad');
+                return;
+            }
+            if (res && res.lib) {
+                m.designDirty = false;
+                m.adjusted = false;
+                m.dirty = false;
+                state.createAdjusted = false;
+                state.lib = res.lib;
+                syncUse(true);
+                renderAll();
+                refreshLiveBg();
+                notifyMsg(
+                    res.updatedClip
+                        ? 'Updated "' + res.animName + '" and latest Text+ clip on timeline.'
+                        : 'Updated "' + res.animName + '" default design.',
+                    'ok'
+                );
+            }
+        });
+    }
+
+    $('tdFont' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        m.textDesign.font = $('tdFont' + S).value.trim() || 'Poppins';
+        commit();
+    });
+    $('tdStyle' + S).addEventListener('change', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        m.textDesign.style = $('tdStyle' + S).value;
+        commit();
+    });
+    $('tdColor' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        const c = $('tdColor' + S).value;
+        m.textDesign.elements[0].color = c;
+        m.textDesign.elements[0].modified = true;
+        commit();
+    });
+    $('tdSize' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        m.textDesign.size = Number($('tdSize' + S).value);
+        if ($('vTdSize' + S)) $('vTdSize' + S).textContent = m.textDesign.size.toFixed(3);
+        commit();
+    });
+    $('tdTrack' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        m.textDesign.tracking = Number($('tdTrack' + S).value);
+        if ($('vTdTrack' + S)) $('vTdTrack' + S).textContent = m.textDesign.tracking.toFixed(2);
+        commit();
+    });
+    $('tdLine' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m || !m.textDesign) return;
+        m.textDesign.lineSpacing = Number($('tdLine' + S).value);
+        if ($('vTdLine' + S)) $('vTdLine' + S).textContent = m.textDesign.lineSpacing.toFixed(2);
+        commit();
+    });
+
+    for (const btn of $('shSel' + S).querySelectorAll('.sh-tab')) {
+        btn.addEventListener('click', () => {
+            const m = ctx.model(); if (!m || !m.textDesign) return;
+            m.textDesign.selectedElement = Number(btn.dataset.idx) || 1;
+            fillTextDesign(ctx);
+        });
+    }
+
+    $('shName' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.name = $('shName' + S).value;
+        el.modified = true;
+        commit();
+    });
+    $('shEnabled' + S).addEventListener('change', () => {
+        const el = curEl(); if (!el) return;
+        el.enabled = $('shEnabled' + S).checked;
+        el.modified = true;
+        commit();
+    });
+
+    for (const b of $('shShape' + S).querySelectorAll('.sh-shape')) {
+        b.addEventListener('click', () => {
+            const el = curEl(); if (!el) return;
+            el.shape = Number(b.dataset.shape) || 0;
+            el.enabled = true;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    const typeBox = $('shType' + S);
+    if (typeBox) {
+        for (const b of typeBox.querySelectorAll('.sh-type')) {
+            b.addEventListener('click', () => {
+                const el = curEl(); if (!el) return;
+                el.type = Number(b.dataset.type) || 0;
+                el.enabled = true;
+                el.modified = true;
+                commit();
+            });
+        }
+    }
+
+    $('shColor' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.color = $('shColor' + S).value;
+        el.modified = true;
+        commit();
+    });
+    if ($('shColor2' + S)) {
+        $('shColor2' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            el.color2 = $('shColor2' + S).value;
+            el.modified = true;
+            commit();
+        });
+    }
+    $('shOpacity' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.opacity = Number($('shOpacity' + S).value);
+        if ($('vShOpacity' + S)) $('vShOpacity' + S).textContent = el.opacity.toFixed(2);
+        el.modified = true;
+        commit();
+    });
+    $('shThickness' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.thickness = Number($('shThickness' + S).value);
+        if ($('vShThickness' + S)) $('vShThickness' + S).textContent = el.thickness.toFixed(3);
+        el.modified = true;
+        commit();
+    });
+    $('shLevel' + S).addEventListener('change', () => {
+        const el = curEl(); if (!el) return;
+        el.level = Number($('shLevel' + S).value);
+        el.modified = true;
+        commit();
+    });
+    $('shExtendH' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.extendH = Number($('shExtendH' + S).value);
+        if ($('vShExtendH' + S)) $('vShExtendH' + S).textContent = el.extendH.toFixed(3);
+        el.modified = true;
+        commit();
+    });
+    $('shExtendV' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.extendV = Number($('shExtendV' + S).value);
+        if ($('vShExtendV' + S)) $('vShExtendV' + S).textContent = el.extendV.toFixed(3);
+        el.modified = true;
+        commit();
+    });
+    $('shRound' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.round = Number($('shRound' + S).value);
+        if ($('vShRound' + S)) $('vShRound' + S).textContent = el.round.toFixed(3);
+        el.modified = true;
+        commit();
+    });
+    $('shSoftness' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.softness = clamp(Number($('shSoftness' + S).value) || 0, 0, 30);
+        el.modified = true;
+        commit();
+    });
+    $('shOffsetX' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.offsetX = clamp(Number($('shOffsetX' + S).value) || 0, -1, 1);
+        el.modified = true;
+        commit();
+    });
+    $('shOffsetY' + S).addEventListener('input', () => {
+        const el = curEl(); if (!el) return;
+        el.offsetY = clamp(Number($('shOffsetY' + S).value) || 0, -1, 1);
+        el.modified = true;
+        commit();
+    });
+}
+
+function fillAdjust(ctx) {
+    const S = ctx.s, m = ctx.model();
+    if (!m) return;
+    syncNumbers(ctx);
+    $('linked' + S).checked = m.linked !== false;
+    $('useSfx' + S).checked = m.useSfx !== false;
+    $('sfxVolume' + S).value = m.sfxVolume; $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
+    const a = libEntry(m.id);
+    const curFile = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (a && a.sfx));
+    const defFile = state.lib.defaultSfx ? state.lib.defaultSfx.file : null;
+    const sfxNameEl = $('sfxName' + S);
+    if (sfxNameEl) {
+        sfxNameEl.textContent = curFile ? 'Sound: ' + curFile : (defFile ? 'Sound: default (' + defFile + ')' : 'Drop a sound file here');
+    }
+    if ($('sfxClear' + S)) {
+        $('sfxClear' + S).style.visibility = curFile ? 'visible' : 'hidden';
+    }
+    fillTrackSelect($('textTrack' + S), 'V', m.textTrack);
+    fillTrackSelect($('sfxTrack' + S), 'A', m.sfxTrack);
+    fillTextDesign(ctx);
+}
+
+function bindAdjust(ctx) {
+    const S = ctx.s;
+    const changed = () => {
+        const m = ctx.model();
+        if (m) {
+            ctx.changed(m);
+            renderTimeline(ctx);
+            if (S === 'U') renderUseSummary();
+            else renderCreateSummary();
+        }
+    };
+    for (const f of ['textOffset', 'sfxOffset', 'tail']) {
+        $(f + S).addEventListener('input', () => {
+            const m = ctx.model(); if (!m) return;
+            const v = clamp(Math.round(Number($(f + S).value) || 0), -300, 300);
+            if (f === 'textOffset' && m.linked === false) m.sfxOffset = clamp(m.sfxOffset - (v - m.textOffset), -300, 300);
+            m[f] = v;
+            changed();
+        });
+    }
+    $('linked' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.linked = $('linked' + S).checked; changed(); } });
+    $('useSfx' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.useSfx = $('useSfx' + S).checked; changed(); renderAnimations(); } });
+    $('sfxVolume' + S).addEventListener('input', () => {
+        const m = ctx.model(); if (!m) return;
+        m.sfxVolume = Number($('sfxVolume' + S).value);
+        $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
+        ctx.changed(m);
+    });
+    $('textTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number($('textTrack' + S).value); ctx.changed(m); } });
+    $('sfxTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number($('sfxTrack' + S).value); ctx.changed(m); } });
+    $('prev' + S).addEventListener('click', () => {
+        if (state.preview) stopPreview();
+        else runPreview(ctx, false);
+    });
+    const loopBtn = $('loop' + S);
+    if (loopBtn) {
+        loopBtn.addEventListener('click', () => {
+            if (state.preview && state.preview.loop) stopPreview();
+            else runPreview(ctx, true);
+        });
+    }
+    $('prevSfx' + S).addEventListener('click', () => {
+        const m = ctx.model(); const p = m && (m.useSfx === false ? null : (m.sfxPath || currentSfxPath(m)));
+        if (p) play(p); else setStatus('This item has no sound to play.', 'bad');
+    });
+
+    const handleSfxFile = async (filePath) => {
+        if (!filePath) return;
+        const m = ctx.model();
+        if (!m) return;
+        if (S === 'C') {
+            state.createAdjusted = true;
+            const res = await window.sa.setAnimationSfx(m.id, filePath);
+            if (takeLib(res)) {
+                const ca = libEntry(state.createId);
+                if (ca) ca.adjusted = true;
+                setCreateStatus('Sound updated for "' + m.name + '"', 'ok');
+                fillAdjust(ctx);
+                renderAnimations();
+                renderCreateSummary();
+            }
+        } else {
+            m.sfxPath = filePath;
+            m.sfx = baseName(filePath);
+            m.dirty = true;
+            m.adjusted = true;
+            m.useSfx = true;
+            $('useSfx' + S).checked = true;
+            fillAdjust(ctx);
+            renderUseSummary();
+            renderAnimations();
+            syncVarButtons('U', m);
+            setStatus('Sound selected: ' + m.sfx + ' (save via "+ Create" or "Update").', 'ok');
+        }
+    };
+
+    if ($('sfxDrop' + S)) dropZone($('sfxDrop' + S), handleSfxFile);
+
+    const pickBtn = $('sfxPick' + S);
+    const fileIn = $('sfxFileInput' + S);
+    if (pickBtn && fileIn) {
+        pickBtn.addEventListener('click', (e) => { e.stopPropagation(); fileIn.click(); });
+        fileIn.addEventListener('change', () => {
+            const f = fileIn.files && fileIn.files[0];
+            if (f) {
+                const p = window.sa.pathForFile(f);
+                if (p) handleSfxFile(p);
+            }
+            fileIn.value = '';
+        });
+    }
+
+    const sfxPlayBtn = $('sfxPlay' + S);
+    if (sfxPlayBtn) {
+        sfxPlayBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const m = ctx.model();
+            const p = m && (m.sfxPath || currentSfxPath(m));
+            if (p) play(p);
+            else setStatus('No sound file set', 'bad');
+        });
+    }
+
+    const sfxClearBtn = $('sfxClear' + S);
+    if (sfxClearBtn) {
+        sfxClearBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const m = ctx.model();
+            if (!m) return;
+            if (S === 'C') {
+                state.createAdjusted = true;
+                const res = await window.sa.setAnimationSfx(m.id, null);
+                if (takeLib(res)) {
+                    const ca = libEntry(state.createId);
+                    if (ca) ca.adjusted = true;
+                    setCreateStatus('Reverted to default sound for "' + m.name + '"', 'ok');
+                    fillAdjust(ctx);
+                    renderAnimations();
+                    renderCreateSummary();
+                }
+            } else {
+                m.sfxPath = null;
+                m.sfx = null;
+                m.dirty = true;
+                m.adjusted = true;
+                fillAdjust(ctx);
+                renderUseSummary();
+                renderAnimations();
+                syncVarButtons('U', m);
+                setStatus('Reverted to default sound.', 'ok');
+            }
+        });
+    }
+
+    bindStage(ctx);
+    bindTextDesign(ctx);
+}
+
+
+// ---------------------------------------------------------------- rendering
+function renderUseSummary() {
+    const m = state.use;
+    const el = $('adjustSummary');
+    if (el) {
+        if (!m) { el.textContent = ''; }
+        else {
+            const f = (n) => sg(n) + 'f';
+            el.textContent = 'text ' + f(m.textOffset) + ' · sound ' + f(m.sfxOffset) + (m.linked !== false ? ' · linked' : '') + (m.dirty ? ' · edited' : '');
+        }
+    }
+    renderTdSummary(CTX.U);
+}
+
+function renderCreateSummary() {
+    const a = libEntry(state.createId);
+    const el = $('adjustSummaryC');
+    if (el) {
+        if (!a) { el.textContent = ''; }
+        else {
+            const f = (n) => sg(n) + 'f';
+            el.textContent = 'text ' + f(a.textOffset) + ' · sound ' + f(a.sfxOffset) + (a.linked !== false ? ' · linked' : '');
+        }
+    }
+    renderTdSummary(CTX.C);
+}
+
+function renderTdSummary(ctx) {
+    const S = ctx.s;
+    const el = $('tdSummary' + S);
+    if (!el) return;
+    const m = ctx.model();
+    if (!m) { el.textContent = ''; return; }
+    const td = m.textDesign || (libEntry(m.id) && libEntry(m.id).textDesign);
+    if (!td) { el.textContent = ''; return; }
+    const font = td.font || 'Poppins';
+    const style = td.style || 'Bold';
+    const size = (Number(td.size) || 0.12).toFixed(3);
+    el.textContent = font + ' ' + style + ' · ' + size + (m.designDirty ? ' · edited' : '');
+}
+
+function soundOf(a) {
+    return a.useSfx === false ? null : (a.sfxPath || (state.lib.defaultSfx && state.lib.defaultSfx.path));
+}
+
+// Use tab: the text + sound effects that are already made. Click one to pick it.
+function renderAnimations() {
+    const grid = $('animGrid');
+    grid.textContent = '';
+    const n = state.lib.animations.length;
+    $('libCount').textContent = n ? n + ' saved' : '';
+    if (window.SAThumbs) SAThumbs.syncHeader();
+    if (!n) {
+        const d = document.createElement('div');
+        d.className = 'empty';
+        d.textContent = 'Nothing here yet. Open the Create tab to make your first text + sound effect.';
+        grid.appendChild(d);
+    }
+    for (const a of state.lib.animations) {
+        const c = document.createElement('div');
+        c.className = 'card' + (a.id === state.selectedId ? ' sel' : '') + (a.missing ? ' missing' : '');
+        const nm = document.createElement('div');
+        nm.className = 'nm'; nm.textContent = a.name;
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        const hasSound = a.useSfx !== false && (a.sfx || state.lib.defaultSfx);
+        sub.textContent = hasSound ? '\u266a' : '';
+        sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
+        if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
+        c.append(nm, sub);
+        const sp = soundOf(a);
+        if (sp) {
+            const pl = document.createElement('button');
+            pl.className = 'ghost play'; pl.textContent = '▶'; pl.title = 'Hear the sound';
+            pl.addEventListener('click', (e) => { e.stopPropagation(); play(sp); });
+            c.appendChild(pl);
+        }
+        c.addEventListener('click', () => {
+            stopPreview();
+            state.selectedId = a.id;
+            syncUse(true);
+            renderAll();
+        });
+        grid.appendChild(c);
+    }
+}
+
+function setCreateStatus(msg, kind) {
+    const el = $('createStatus');
+    el.textContent = msg || '';
+    el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+// Create tab: the builder, the default sound, the saved list, and the default settings of the clicked item.
+function renderCreate() {
+    const d = state.draft;
+    const pk = $('animPicked');
+    pk.classList.toggle('hidden', !(d.animPath || d.fromSelection));
+    pk.textContent = d.fromSelection ? '✓ Text+ selected on the timeline (read when you save)' : (d.animPath ? '✓ ' + baseName(d.animPath) : '');
+    $('animDrop').classList.toggle('chosen', !!d.animPath);
+    $('useSelected').classList.toggle('chosen', !!d.fromSelection);
+    $('newSfx').classList.toggle('chosen', !!d.sfxPath);
+    if ($('crNum2')) $('crNum2').classList.toggle('done', !!(d.animPath || d.fromSelection));
+    if ($('crNum3')) $('crNum3').classList.toggle('done', !!d.sfxPath);
+    $('saveCombo').disabled = !(d.animPath || d.fromSelection);
+    $('saveCombo').title = $('saveCombo').disabled ? 'Pick a text animation first' : '';
+    $('newSfxName').textContent = d.sfxPath ? baseName(d.sfxPath) : 'Drop a sound file here';
+    $('newSfxPlay').style.visibility = d.sfxPath ? 'visible' : 'hidden';
+    $('newSfxClear').style.visibility = d.sfxPath ? 'visible' : 'hidden';
+
+    if (state.createId && !libEntry(state.createId)) state.createId = null;
+
+    const list = $('libList');
+    list.textContent = '';
+    if (!state.lib.animations.length) {
+        const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'Nothing saved yet.'; list.appendChild(e);
+    }
+    for (const a of state.lib.animations) {
+        const row = document.createElement('div');
+        row.className = 'libitem' + (a.id === state.createId ? ' sel' : '');
+        const t = document.createElement('div'); t.className = 't';
+        const b = document.createElement('b'); b.textContent = a.name;
+        const s = document.createElement('span');
+        s.textContent = a.sfx ? '♪ ' + a.sfx : (state.lib.defaultSfx ? '♪ default sound' : 'no sound');
+        t.append(b, s);
+        const pl = document.createElement('button'); pl.className = 'ghost'; pl.textContent = '▶'; pl.title = 'Hear the sound';
+        pl.addEventListener('click', (e) => { e.stopPropagation(); const p = soundOf(a) || (a.useSfx === false ? null : null); if (p) play(p); });
+        const x = document.createElement('button'); x.className = 'ghost'; x.textContent = '×'; x.title = 'Delete from library';
+        x.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm('Delete "' + a.name + '" from your library?')) return;
+            if (state.selectedId === a.id) state.selectedId = null;
+            if (state.createId === a.id) state.createId = null;
+            stopPreview();
+            takeLib(await window.sa.removeAnimation(a.id));
+        });
+        row.append(t, pl, x);
+        row.addEventListener('click', () => {
+            stopPreview();
+            state.createAdjusted = false;
+            a.adjusted = false;
+            a.designDirty = false;
+            state.createId = state.createId === a.id ? null : a.id;
+            renderCreate();
+        });
+        dropZone(row, async (p) => { if (takeLib(await window.sa.setAnimationSfx(a.id, p))) setCreateStatus('Sound changed for "' + a.name + '"', 'ok'); });
+        list.appendChild(row);
+    }
+
+    const a = libEntry(state.createId);
+    $('editor').classList.toggle('hidden', !a);
+    if (a) {
+        if ($('editTitle')) $('editTitle').textContent = a.name;
+        if (document.activeElement !== $('animName')) $('animName').value = a.name;
+        fillAdjust(CTX.C);
+        if (window.SABoxes) SABoxes.render('C');
+        if (!state.preview) drawStage('C', a, null);
+        setCreateAdjustOpen(state.createAdjustOpen !== false);
+        setCreateTdOpen(!!state.createTdOpen);
+        renderCreateSummary();
+    }
+}
+
+// Use tab: the picked item, its preview and the collapsible alignment.
+function renderSettings() {
+    const a = selected();
+    $('settings').classList.toggle('hidden', !a);
+    if (!a) return;
+    syncUse(false);
+    $('useTitle').textContent = a.name;
+    fillAdjust(CTX.U);
+    if (window.SABoxes) SABoxes.render('U');
+    if (!state.preview) drawStage('U', a, null);
+    setAdjustOpen(state.adjustOpen);
+    setTdOpen(state.tdOpen);
+    renderUseSummary();
+}
+
+function setAdjustOpen(open) {
+    state.adjustOpen = open;
+    if ($('adjustBodyU')) $('adjustBodyU').classList.toggle('hidden', !open);
+    if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('open', !!open);
+    if ($('adjustToggle')) {
+        $('adjustToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('adjustToggle').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+    if (open) renderTimeline(CTX.U);
+}
+
+function setTdOpen(open) {
+    state.tdOpen = open;
+    if ($('tdBodyU')) $('tdBodyU').classList.toggle('hidden', !open);
+    if ($('tdWrapU')) $('tdWrapU').classList.toggle('open', !!open);
+    if ($('tdToggleU')) {
+        $('tdToggleU').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('tdToggleU').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+}
+
+function setCreateAdjustOpen(open) {
+    state.createAdjustOpen = open;
+    if ($('adjustBodyC')) $('adjustBodyC').classList.toggle('hidden', !open);
+    if ($('adjustWrapC')) $('adjustWrapC').classList.toggle('open', !!open);
+    if ($('adjustToggleC')) {
+        $('adjustToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('adjustToggleC').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+    if (open) renderTimeline(CTX.C);
+}
+
+function setCreateTdOpen(open) {
+    state.createTdOpen = open;
+    if ($('tdBodyC')) $('tdBodyC').classList.toggle('hidden', !open);
+    if ($('tdWrapC')) $('tdWrapC').classList.toggle('open', !!open);
+    if ($('tdToggleC')) {
+        $('tdToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('tdToggleC').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+}
+
+function renderDefaultSfx() {
+    const d = state.lib.defaultSfx;
+    $('defName').textContent = d ? d.file : 'Drop a sound file here';
+    $('defPlay').disabled = !d;
+    $('defClear').style.visibility = d ? 'visible' : 'hidden';
+    $('defPlay').style.visibility = d ? 'visible' : 'hidden';
+    $('defSfx').classList.toggle('chosen', !!d);
+}
+
+function renderPin() {
+    const on = state.lib.alwaysOnTop !== false;
+    const btn = $('pin');
+    if (!btn) return;
+    btn.classList.toggle('on', on);
+    btn.title = on
+        ? 'Pinned above DaVinci Resolve (click to unpin)'
+        : 'Pin panel above DaVinci Resolve';
+}
+
+function renderLive() {
+    const L = state.live;
+    const conn = $('conn');
+    if (!L || !L.ok) {
+        conn.textContent = L && L.reason ? L.reason : 'Not connected';
+        conn.className = 'pill off';
+        $('subMeta').textContent = '–';
+        $('create').disabled = true;
+        return;
+    }
+    conn.textContent = L.timeline;
+    conn.className = 'pill on';
+    const s = L.subtitle;
+    const key = s ? s.start + ':' + s.end + ':' + s.text : 'none:' + L.timeline;
+    const changed = key !== state.shownKey;
+    if (changed) {                           // the subtitle changed: show the new text
+        state.shownKey = key;
+        $('subText').value = s ? s.text : '';
+        redrawStages();
+    }
+    $('subMeta').textContent = s
+        ? '#' + s.index + ' of ' + L.count + ' · ' + (L.source === 'selection' ? 'selected' : 'at playhead')
+        : (L.count ? 'no subtitle at the playhead' : 'this timeline has no subtitles');
+    $('subHint').textContent = s ? '' : 'You can still type text here and it will be placed at the playhead for 3 seconds.';
+    $('create').disabled = state.busy || !selected();
+    if (changed || state.lastFrame !== L.frame) {
+        state.lastFrame = L.frame;
+        if (!state.drag && !state.preview) renderTimelines();
+        refreshLiveBg();
+    } else if (!state.liveBg.img) {
+        refreshLiveBg();
+    }
+}
+
+function renderAll() {
+    renderAnimations();
+    renderSettings();
+    renderDefaultSfx();
+    renderCreate();
+    renderPin();
+    renderLive();
+}
+
+// ---------------------------------------------------------------- live subtitle
+async function tick() {
+    if (!state.busy && !state.drag) {
+        try { state.live = await window.sa.poll(false); } catch (e) { state.live = { ok: false, reason: 'Not connected' }; }
+        renderLive();
+    }
+    setTimeout(tick, 200);
+}
+
+// ---------------------------------------------------------------- actions
+async function create() {
+    const a = selected();
+    const m = state.use;
+    const L = state.live;
+    if (!a || !m || !L || !L.ok) return;
+    const text = $('subText').value;
+    const s = L.subtitle;
+    const start = s ? s.start : L.frame;
+    const end = s ? s.end : L.frame + Math.round(L.fps * 3);
+    state.busy = true;
+    $('create').disabled = true;
+    setStatus('Creating…');
+    const res = await window.sa.apply({
+        animationId: a.id, text, start, end,
+        textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
+        textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false,
+        linked: m.linked !== false,
+        posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
+        scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
+        textDesign: m.textDesign || a.textDesign || null,
+        boxList: window.SABoxes ? SABoxes.payload(m, a, text) : []
+    });
+    state.busy = false;
+    if (res && res.ok) {
+        const parts = ['Placed on V' + res.videoTrack, res.frames + ' frames'];
+        if (res.audioTrack) parts.push('sound on A' + res.audioTrack + (res.linked ? ' (linked)' : ''));
+        if (res.trackNotes && res.trackNotes.length) parts.push('(' + res.trackNotes.join(', ') + ')');
+        if (window.SABoxes && res.liveNodes && res.liveNodes.length) parts.push(SABoxes.liveSummary(res.liveNodes));
+        state.liveBg.key = '';
+        refreshLiveBg();
+        setStatus(parts.join(' · ') + (res.warnings.length ? ' · ' + res.warnings.join(' ') : ''), res.warnings.length ? '' : 'ok');
+        // a preview may have been captured while placing it
+        try { const r = await window.sa.getLib(); if (r && r.lib) { state.lib = r.lib; syncUse(false); renderAll(); } } catch (e) { /* ignore */ }
+    } else {
+        setStatus((res && res.error) || 'Something went wrong', 'bad');
+    }
+    renderLive();
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+    // Stop the window from opening a file that misses a drop zone.
+    for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
+    window.addEventListener('resize', () => {
+        renderTimelines();
+        redrawStages();
+    });
+
+    mountBlocks();
+    bindAdjust(CTX.U);
+    bindAdjust(CTX.C);
+
+    takeLib(await window.sa.getLib());
+    if (state.lib.animations.length) { state.selectedId = state.lib.animations[0].id; syncUse(true); }
+    renderAll();
+
+    $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
+    if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
+    if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
+    if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });
+    $('subText').addEventListener('input', () => redrawStages());
+    $('resetU').addEventListener('click', () => {
+        syncUse(true);
+        if (state.use) {
+            state.use.dirty = false;
+            state.use.adjusted = false;
+            state.use.designDirty = false;
+        }
+        fillAdjust(CTX.U);
+        renderUseSummary();
+        renderTimelines();
+        redrawStages();
+    });
+    $('animName').addEventListener('input', () => {
+        const a = libEntry(state.createId); if (!a) return;
+        const name = $('animName').value.trim();
+        if (!name) return;
+        a.name = name;
+        saveField(a.id, { name });
+        if ($('editTitle')) $('editTitle').textContent = name;
+        renderAnimations(); renderTimeline(CTX.C);
+        const b = document.querySelector('#libList .libitem.sel b'); if (b) b.textContent = name;
+    });
+    $('prevCapC').addEventListener('click', async () => {
+        if (!state.createId) return;
+        setCreateStatus('Taking preview frames…');
+        const res = await window.sa.capturePreview(state.createId);
+        if (takeLib(res)) setCreateStatus('Preview updated.', 'ok'); else if (res && res.error) setCreateStatus(res.error, 'bad');
+    });
+
+    $('tabBtnApply').addEventListener('click', () => setTab('apply'));
+    $('tabBtnLibrary').addEventListener('click', () => setTab('library'));
+    $('tabBtnCreate').addEventListener('click', () => setTab('create'));
+
+    $('defPlay').addEventListener('click', () => play(state.lib.defaultSfx && state.lib.defaultSfx.path));
+    $('defClear').addEventListener('click', async () => takeLib(await window.sa.setDefaultSfx(null)));
+    dropZone($('defSfx'), async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
+
+    const browse = (el, kind, handler) => {
+        const go = async (e) => {
+            if (e.target.closest('button')) return;
+            const p = await window.sa.pickFile(kind);
+            if (p && typeof p === 'string') await handler(p);
+        };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); } });
+    };
+    browse($('defSfx'), 'sfx', async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
+    browse($('newSfx'), 'sfx', async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
+    browse($('animDrop'), 'anim', async (p) => {
+        state.draft.animPath = p; state.draft.fromSelection = false;
+        if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
+        setCreateStatus('');
+        renderCreate();
+    });
+    dropZone($('animDrop'), async (p) => {
+        const ext = p.toLowerCase().split('.').pop();
+        if (!['comp', 'setting'].includes(ext)) { setCreateStatus('Drop a Fusion .comp or .setting file', 'bad'); return; }
+        state.draft.animPath = p; state.draft.fromSelection = false;
+        if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
+        setCreateStatus('');
+        renderCreate();
+    });
+    $('useSelected').addEventListener('click', () => {
+        state.draft.fromSelection = true; state.draft.animPath = null;
+        setCreateStatus('');
+        renderCreate();
+    });
+    dropZone($('newSfx'), async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
+    $('newSfxClear').addEventListener('click', () => { state.draft.sfxPath = null; renderCreate(); });
+    $('newSfxPlay').addEventListener('click', () => play(state.draft.sfxPath));
+    $('saveCombo').addEventListener('click', async () => {
+        const d = state.draft;
+        setCreateStatus('Saving…');
+        const res = await window.sa.createCombo({
+            name: $('newName').value, animPath: d.animPath, fromSelection: d.fromSelection, sfxPath: d.sfxPath
+        });
+        if (res && res.error) { setCreateStatus(res.error, 'bad'); return; }
+        if (takeLib(res)) {
+            state.selectedId = res.createdId;
+            state.createId = res.createdId;
+            syncUse(true);
+            state.draft = { animPath: null, fromSelection: false, sfxPath: null };
+            $('newName').value = '';
+            renderAll();
+            setCreateStatus('Saved. Set its default alignment below; it is now in the Use tab.', 'ok');
+        }
+    });
+
+    $('pin').addEventListener('click', async () => takeLib(await window.sa.setOnTop(state.lib.alwaysOnTop === false)));
+    $('openFolder').addEventListener('click', () => window.sa.openFolder());
+    $('rescan').addEventListener('click', async () => { state.live = await window.sa.poll(true); renderLive(); setStatus('Subtitles re-read.', 'ok'); });
+    $('create').addEventListener('click', create);
+
+    tick();
+});
+
+window.addEventListener('beforeunload', () => { window.sa.cleanup(); });
+

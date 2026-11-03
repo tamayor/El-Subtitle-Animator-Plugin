@@ -172,14 +172,15 @@ function parseAnimSpec(raw, tpChunk) {
     }
 
     const ptIdx = raw.indexOf('= PerturbPoint');
-    if (ptIdx >= 0) {
-        const ptChunk = extractBraceBlock(raw, ptIdx);
+    const pnIdx = raw.indexOf('= PerturbNumber');
+    if (ptIdx >= 0 || pnIdx >= 0) {
+        const chunk = extractBraceBlock(raw, ptIdx >= 0 ? ptIdx : pnIdx);
         const numP = (k, d) => {
-            const m = new RegExp('\\b' + k + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*([\\d.\\-]+)').exec(ptChunk);
+            const m = new RegExp('\\b' + k + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*([\\d.\\-]+)').exec(chunk);
             return m ? parseFloat(m[1]) : d;
         };
         spec.perturb = {
-            xScale: numP('XScale', 0),
+            xScale: numP('XScale', 0.02),
             yScale: numP('YScale', 0.02),
             strength: numP('Strength', 0.04),
             wobble: numP('Wobble', 0.03),
@@ -199,9 +200,13 @@ function parseAnimSpec(raw, tpChunk) {
             delay: numF('Delay', 0),
             rot: numF('TransformRotation', 0),
             slideY: 0,
-            slideX: 0
+            slideX: 0,
+            pathSpline: null,
+            sizeKeys: null,
+            opacityKeys: null,
+            rotKeys: null
         };
-        const woMatch = /WordOffset\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
+        const woMatch = /(?:WordOffset|CharacterOffset)\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
         if (woMatch) {
             const pIdx = raw.indexOf(woMatch[1] + ' = PolyPath');
             if (pIdx >= 0) {
@@ -216,7 +221,23 @@ function parseAnimSpec(raw, tpChunk) {
                     spec.follower.slideY = pts[0].y - pts[pts.length - 1].y;
                     spec.follower.slideX = pts[0].x - pts[pts.length - 1].x;
                 }
+                const dispMatch = /Displacement\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(pChunk);
+                if (dispMatch) {
+                    spec.follower.pathSpline = parseSplineKeyframes(raw, dispMatch[1]);
+                }
             }
+        }
+        const wsMatch = /(?:WordSize[XY]|CharacterSize[XY]|TransformSize)\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
+        if (wsMatch) {
+            spec.follower.sizeKeys = parseSplineKeyframes(raw, wsMatch[1]);
+        }
+        const opMatch = /Opacity\d*\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
+        if (opMatch) {
+            spec.follower.opacityKeys = parseSplineKeyframes(raw, opMatch[1]);
+        }
+        const rotMatch = /(?:WordAngleZ|CharacterAngleZ)\s*=\s*Input\s*\{[^}]*?SourceOp\s*=\s*"([^"]+)"/.exec(flChunk);
+        if (rotMatch) {
+            spec.follower.rotKeys = parseSplineKeyframes(raw, rotMatch[1]);
         }
     }
 

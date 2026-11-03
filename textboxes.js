@@ -810,26 +810,60 @@
                 const wordAge = f - wordStart;
 
                 if (wordAge >= 0) {
-                    const animDur = isSlide ? 16 : 4;
-                    const progress = clampN(wordAge / animDur, 0, 1);
-                    const easeOut = 1 - Math.pow(1 - progress, 3);
+                    let easeOut = 1;
+                    if (spec && spec.follower && spec.follower.pathSpline) {
+                        easeOut = clampN(ev(spec.follower.pathSpline, wordAge, 1), 0, 1);
+                    } else {
+                        const animDur = isSlide ? 16 : 4;
+                        const progress = clampN(wordAge / animDur, 0, 1);
+                        easeOut = 1 - Math.pow(1 - progress, 3);
+                    }
 
                     let dySlide = 0;
-                    if (isSlideDown) dySlide = -(1 - easeOut) * (px * 0.85);
-                    else if (isSlideIn) dySlide = (1 - easeOut) * (px * 1.0);
+                    let dxSlide = 0;
+                    if (spec && spec.follower && Math.abs(spec.follower.slideY) > 0.001) {
+                        const targetDy = clampN(-spec.follower.slideY * H * 0.8, -px * 1.1, px * 1.1);
+                        dySlide = (1 - easeOut) * targetDy;
+                    } else if (isSlideDown) {
+                        dySlide = -(1 - easeOut) * (px * 0.75);
+                    } else if (isSlideIn) {
+                        dySlide = (1 - easeOut) * (px * 0.85);
+                    }
 
-                    const wordAlpha = clampN(wordAge / (isSlide ? 8 : 2), 0, 1);
-                    const wordScale = isTyping
-                        ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
-                        : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
+                    if (spec && spec.follower && Math.abs(spec.follower.slideX) > 0.001) {
+                        const targetDx = clampN(spec.follower.slideX * W * 0.8, -px * 1.2, px * 1.2);
+                        dxSlide = (1 - easeOut) * targetDx;
+                    }
+
+                    let wordAlpha = 1;
+                    if (spec && spec.follower && spec.follower.opacityKeys) {
+                        wordAlpha = clampN(ev(spec.follower.opacityKeys, wordAge, 1), 0, 1);
+                    } else {
+                        wordAlpha = clampN(wordAge / (isSlide ? 6 : 2), 0, 1);
+                    }
+
+                    let wordScale = 1;
+                    if (spec && spec.follower && spec.follower.sizeKeys) {
+                        wordScale = clampN(ev(spec.follower.sizeKeys, wordAge, 1), 0.7, 1.3);
+                    } else if (isTyping) {
+                        wordScale = wordAge < 4 ? 0.93 + 0.07 * easeOut : 1.0;
+                    } else if (isSlide) {
+                        wordScale = wordAge < 16 ? 0.97 + 0.03 * easeOut : 1.0;
+                    }
+
+                    let wordRot = 0;
+                    if (spec && spec.follower && spec.follower.rotKeys) {
+                        wordRot = (ev(spec.follower.rotKeys, wordAge, 0) * Math.PI) / 180;
+                    }
 
                     let glitchDx = 0;
-                    if (isSlideIn && progress < 0.6) {
-                        glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2 : -1) * (1 - progress);
+                    if (isSlideIn && wordAge < 8) {
+                        glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2 : -1) * (1 - wordAge / 8);
                     }
 
                     c.save();
-                    c.translate(curX + tw * 0.5 + glitchDx, ly + dySlide);
+                    c.translate(curX + tw * 0.5 + dxSlide + glitchDx, ly + dySlide);
+                    if (wordRot) c.rotate(wordRot);
                     if (wordScale !== 1) c.scale(wordScale, wordScale);
                     if (wordAlpha < 1) c.globalAlpha = (c.globalAlpha || 1) * wordAlpha;
 

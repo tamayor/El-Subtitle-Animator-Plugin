@@ -1345,29 +1345,60 @@ function drawStage(S, a, idx) {
                     const wordAge = currentF - wordStart;
 
                     if (wordAge >= 0) {
-                        const animDur = isSlide ? 16 : 4;
-                        const progress = clamp(wordAge / animDur, 0, 1);
-                        const easeOut = 1 - Math.pow(1 - progress, 3);
-
-                        let dySlide = 0;
-                        if (isSlideDown) {
-                            dySlide = -(1 - easeOut) * (fontPx * 0.85);
-                        } else if (isSlideIn) {
-                            dySlide = (1 - easeOut) * (fontPx * 1.0);
+                        let easeOut = 1;
+                        if (spec && spec.follower && spec.follower.pathSpline) {
+                            easeOut = clamp(evalSpline(spec.follower.pathSpline, wordAge, 1), 0, 1);
+                        } else {
+                            const animDur = isSlide ? 16 : 4;
+                            const progress = clamp(wordAge / animDur, 0, 1);
+                            easeOut = 1 - Math.pow(1 - progress, 3);
                         }
 
-                        const wordAlpha = clamp(wordAge / (isSlide ? 8 : 2), 0, 1);
-                        const wordScale = isTyping
-                            ? (progress < 1 ? 0.92 + 0.08 * easeOut : 1.0)
-                            : (isSlide ? (0.96 + 0.04 * easeOut) : 1.0);
+                        let dySlide = 0;
+                        let dxSlide = 0;
+                        if (spec && spec.follower && Math.abs(spec.follower.slideY) > 0.001) {
+                            const targetDy = clamp(-spec.follower.slideY * vh * 0.8, -fontPx * 1.1, fontPx * 1.1);
+                            dySlide = (1 - easeOut) * targetDy;
+                        } else if (isSlideDown) {
+                            dySlide = -(1 - easeOut) * (fontPx * 0.75);
+                        } else if (isSlideIn) {
+                            dySlide = (1 - easeOut) * (fontPx * 0.85);
+                        }
+
+                        if (spec && spec.follower && Math.abs(spec.follower.slideX) > 0.001) {
+                            const targetDx = clamp(spec.follower.slideX * vw * 0.8, -fontPx * 1.2, fontPx * 1.2);
+                            dxSlide = (1 - easeOut) * targetDx;
+                        }
+
+                        let wordAlpha = 1;
+                        if (spec && spec.follower && spec.follower.opacityKeys) {
+                            wordAlpha = clamp(evalSpline(spec.follower.opacityKeys, wordAge, 1), 0, 1);
+                        } else {
+                            wordAlpha = clamp(wordAge / (isSlide ? 6 : 2), 0, 1);
+                        }
+
+                        let wordScale = 1;
+                        if (spec && spec.follower && spec.follower.sizeKeys) {
+                            wordScale = clamp(evalSpline(spec.follower.sizeKeys, wordAge, 1), 0.7, 1.3);
+                        } else if (isTyping) {
+                            wordScale = wordAge < 4 ? 0.93 + 0.07 * easeOut : 1.0;
+                        } else if (isSlide) {
+                            wordScale = wordAge < 16 ? 0.97 + 0.03 * easeOut : 1.0;
+                        }
+
+                        let wordRot = 0;
+                        if (spec && spec.follower && spec.follower.rotKeys) {
+                            wordRot = (evalSpline(spec.follower.rotKeys, wordAge, 0) * Math.PI) / 180;
+                        }
 
                         let glitchDx = 0;
-                        if (isSlideIn && progress < 0.6) {
-                            glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2.5 : -1.5) * (1 - progress);
+                        if (isSlideIn && wordAge < 8) {
+                            glitchDx = (Math.sin(wordAge * 12.3) > 0.4 ? 2 : -1.5) * (1 - wordAge / 8);
                         }
 
                         g.save();
-                        g.translate(curX + tw * 0.5 + glitchDx, ly + dySlide);
+                        g.translate(curX + tw * 0.5 + dxSlide + glitchDx, ly + dySlide);
+                        if (wordRot) g.rotate(wordRot);
                         if (wordScale !== 1) g.scale(wordScale, wordScale);
                         if (wordAlpha < 1) g.globalAlpha = (g.globalAlpha || 1) * wordAlpha;
 

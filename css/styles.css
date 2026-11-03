@@ -181,6 +181,69 @@ section.active-section {
     padding-bottom: 8px;
     margin-bottom: 8px;
     border-bottom: 1px solid rgba(240, 123, 142, 0.2);
+    flex-wrap: wrap;
+}
+
+.sec-head-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.layout-modes-bar {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+    user-select: none;
+    -webkit-user-select: none;
+    flex: 0 0 auto;
+}
+
+.layout-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dim);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+    -webkit-text-fill-color: var(--dim);
+}
+
+.layout-mode-btn svg {
+    flex: 0 0 auto;
+    opacity: 0.8;
+}
+
+.layout-mode-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+    -webkit-text-fill-color: var(--text);
+}
+
+.layout-mode-btn.on {
+    color: #e5ece7;
+    background: var(--card-inner);
+    border-color: var(--strawberry-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    -webkit-text-fill-color: #e5ece7;
+}
+
+.layout-mode-btn.on svg {
+    color: var(--strawberry);
+    opacity: 1;
 }
 
 .active-badge {
@@ -1694,6 +1757,40 @@ body.tab-library {
     .inspector-pane.drawers-pane>.adjust-wrap:first-child {
         margin-top: 0;
     }
+}
+
+/* Explicit Collapse Mode: hide drawers below preview */
+.inspector-grid.layout-collapse .drawers-pane {
+    display: none !important;
+}
+
+/* Explicit Default Mode: stacked */
+.inspector-grid.layout-default {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+/* Explicit Sidebar Mode: place drawers to the right of preview */
+.inspector-grid.layout-sidebar {
+    display: grid !important;
+    grid-template-columns: minmax(320px, 1.15fr) minmax(320px, 1fr) !important;
+    gap: 14px !important;
+    align-items: start !important;
+}
+
+.inspector-grid.layout-sidebar .drawers-pane {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+}
+
+body.inspector-sidebar .tab-columns {
+    display: grid !important;
+    grid-template-columns: minmax(300px, 1fr) minmax(700px, 2.2fr) !important;
+    gap: 16px !important;
+    align-items: start !important;
 }
 
 /* =====================================================================

@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('sa', {
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
     readSfx: (p) => ipcRenderer.invoke('sfx:read', p),
     setOnTop: (flag) => ipcRenderer.invoke('win:setOnTop', !!flag),
+    setLayoutMode: (mode) => ipcRenderer.invoke('win:setLayoutMode', mode),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),
     // Real disk path of a file dropped onto the panel.
     pathForFile: (file) => {

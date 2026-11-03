@@ -86,10 +86,32 @@
             <div class="tab-col-side">
                 <section id="settings" class="active-section hidden">
                     <div class="sec-head">
-                        <span class="label">Selected</span>
-                        <span id="useTitle" class="active-badge"></span>
+                        <div class="sec-head-left">
+                            <span class="label">Selected</span>
+                            <span id="useTitle" class="active-badge"></span>
+                        </div>
+                        <div class="layout-modes-bar" id="layoutModesU" role="group" aria-label="Layout view mode">
+                            <button type="button" class="layout-mode-btn" data-mode="collapse" title="Collapse: hide settings below, show preview only">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M1.5 8a.5.5 0 0 1 .5-.5h12a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5z"/>
+                                </svg>
+                                <span>Collapse</span>
+                            </button>
+                            <button type="button" class="layout-mode-btn on" data-mode="default" title="Default: preview on top, settings below">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-11A1.5 1.5 0 0 1 1 5.5v-3zm0 7A1.5 1.5 0 0 1 2.5 8h11a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-4z"/>
+                                </svg>
+                                <span>Default</span>
+                            </button>
+                            <button type="button" class="layout-mode-btn" data-mode="sidebar" title="Sidebar: place settings to the right of preview and expand window width">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M0 2.5A1.5 1.5 0 0 1 1.5 1h13A1.5 1.5 0 0 1 16 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 13.5v-11zM10 2v12h4.5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H10zM9 2H1.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5H9V2z"/>
+                                </svg>
+                                <span>Sidebar</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="inspector-grid">
+                    <div id="inspectorGridU" class="inspector-grid">
                         <div class="inspector-pane stage-pane">
                             <div id="previewU"></div>
                         </div>
@@ -151,15 +173,37 @@
                     <div id="editorPark" class="hidden">
                 <section id="editor" class="active-section hidden">
                     <div class="sec-head">
-                        <span class="label">Editing default settings</span>
-                        <span id="editTitle" class="active-badge"></span>
+                        <div class="sec-head-left">
+                            <span class="label">Editing default settings</span>
+                            <span id="editTitle" class="active-badge"></span>
+                        </div>
+                        <div class="layout-modes-bar" id="layoutModesC" role="group" aria-label="Layout view mode">
+                            <button type="button" class="layout-mode-btn" data-mode="collapse" title="Collapse: hide settings below, show preview only">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M1.5 8a.5.5 0 0 1 .5-.5h12a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5z"/>
+                                </svg>
+                                <span>Collapse</span>
+                            </button>
+                            <button type="button" class="layout-mode-btn on" data-mode="default" title="Default: preview on top, settings below">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-11A1.5 1.5 0 0 1 1 5.5v-3zm0 7A1.5 1.5 0 0 1 2.5 8h11a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-4z"/>
+                                </svg>
+                                <span>Default</span>
+                            </button>
+                            <button type="button" class="layout-mode-btn" data-mode="sidebar" title="Sidebar: place settings to the right of preview and expand window width">
+                                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
+                                    <path d="M0 2.5A1.5 1.5 0 0 1 1.5 1h13A1.5 1.5 0 0 1 16 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 13.5v-11zM10 2v12h4.5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H10zM9 2H1.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5H9V2z"/>
+                                </svg>
+                                <span>Sidebar</span>
+                            </button>
+                        </div>
                     </div>
                     <input id="animName" type="text" placeholder="Name">
                     <div class="tag-pick-row">
                         <span class="tag-pick-label">Tags</span>
                         <div id="animTags" class="tag-pick"></div>
                     </div>
-                    <div class="inspector-grid">
+                    <div id="inspectorGridC" class="inspector-grid">
                         <div class="inspector-pane stage-pane">
                             <div id="previewC"></div>
                         </div>

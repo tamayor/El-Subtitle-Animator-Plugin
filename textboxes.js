@@ -638,19 +638,12 @@
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
-        const sub = activeSubtitleText();
-        const curM = (typeof state !== 'undefined' && state.tab === 'apply' && state.selectedId === a.id && state.use)
-            ? state.use
-            : (typeof state !== 'undefined' && state.tab === 'library' && state.createId === a.id && libEntry(state.createId))
-                ? libEntry(state.createId)
-                : a;
-        const isDirty = !!(curM && curM.designDirty);
-        if (sub || isDirty) {
+        const imgs = frames(a);
+        if (!framesReady(imgs) || geometry(a, imgs).blank) {
+            const sub = activeSubtitleText();
             drawSynthetic(cv, a, t, sub);
             return;
         }
-        const imgs = frames(a);
-        if (!framesReady(imgs) || geometry(a, imgs).blank) { drawSynthetic(cv, a, t, ''); return; }
         const g = geometry(a, imgs);
         const idx = frameIndex(a, imgs, t);
         const c = cv.getContext('2d');
@@ -693,23 +686,9 @@
         return Math.floor(((t % LOOP_MS) / 1000) * fps);
     }
 
-    function wrapToLines(text, maxChars) {
+    function wrapToLines(text) {
         if (!text) return [];
-        if (text.includes('\n')) {
-            return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-        }
-        const limit = maxChars || 22;
-        if (text.length <= limit) return [text];
-        const words = text.split(/\s+/).filter(Boolean);
-        if (words.length <= 1) return [text];
-        const half = text.length / 2;
-        let bestIdx = 1, minDiff = Infinity, cur = 0;
-        for (let i = 0; i < words.length - 1; i++) {
-            cur += words[i].length + 1;
-            const diff = Math.abs(cur - half);
-            if (diff < minDiff) { minDiff = diff; bestIdx = i + 1; }
-        }
-        return [words.slice(0, bestIdx).join(' '), words.slice(bestIdx).join(' ')];
+        return String(text).split(/\r?\n/).filter(Boolean);
     }
 
     // Draws the preset's text design with a built-in animation (pop-in, keys from the Fusion file, wiggle),
@@ -871,9 +850,17 @@
         const imgs = frames(a);
         if (!framesReady(imgs)) return null;
         if (geometry(a, imgs).blank) return null;
-        const idx = (typeof t === 'number' && t >= 0 && t < imgs.length && Number.isInteger(t))
-            ? t
-            : frameIndex(a, imgs, t);
+        const total = imgs ? imgs.length : 0;
+        if (total <= 0) return null;
+        let idx = 0;
+        if (typeof t === 'number' && Number.isInteger(t) && t >= 0) {
+            const fps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
+            const spanFrames = Math.max(1, Math.round((LOOP_MS / 1000) * fps));
+            const progress = (t % spanFrames) / spanFrames;
+            idx = Math.min(total - 1, Math.max(0, Math.floor(progress * total)));
+        } else {
+            idx = frameIndex(a, imgs, t);
+        }
         return keyedImage(imgs[idx]);
     }
 
@@ -900,8 +887,7 @@
                 if (a) {
                     const curM = (state.tab === 'apply' && state.use) ? state.use : a;
                     const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    const isTdOpen = !!(state.tdOpen || state.createTdOpen);
-                    if (hasRealFrames(a) && window.SABoxes && SABoxes.active(a) && !activeSubtitleText() && !isDirty && !isTdOpen) {
+                    if (hasRealFrames(a) && !isDirty) {
                         redrawStages();
                     } else if (typeof drawStage === 'function') {
                         drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));

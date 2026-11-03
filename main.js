@@ -10,7 +10,7 @@
 //    trimmed to the subtitle's length with SetRightOffset.
 //  - Sound effects go on a free audio track at an exact frame with MediaPool.AppendToTimeline.
 
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -1553,6 +1553,59 @@ function setOnTop(event, flag) {
     return { lib: libForUI() };
 }
 
+let preSidebarBounds = null;
+
+async function setLayoutMode(event, mode) {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    const bounds = mainWindow.getBounds();
+    const currentScreen = screen ? screen.getDisplayMatching(bounds) : null;
+    const workArea = currentScreen ? currentScreen.workArea : { x: 0, y: 0, width: 1920, height: 1080 };
+
+    if (mode === 'sidebar') {
+        if (!preSidebarBounds) {
+            preSidebarBounds = { ...bounds };
+        }
+        const targetW = Math.min(workArea.width - 20, Math.max(1160, bounds.width + 440));
+        let newX = bounds.x;
+        if (newX + targetW > workArea.x + workArea.width) {
+            newX = Math.max(workArea.x + 10, workArea.x + workArea.width - targetW);
+        }
+        mainWindow.setBounds({
+            x: Math.round(newX),
+            y: Math.round(bounds.y),
+            width: Math.round(targetW),
+            height: Math.round(bounds.height)
+        }, true);
+        return { ok: true, mode: 'sidebar', width: targetW };
+    } else {
+        if (preSidebarBounds && bounds.width > 700) {
+            const restoreW = Math.min(bounds.width, Math.max(460, preSidebarBounds.width));
+            let newX = bounds.x;
+            if (newX + restoreW > workArea.x + workArea.width) {
+                newX = Math.max(workArea.x + 10, workArea.x + workArea.width - restoreW);
+            }
+            mainWindow.setBounds({
+                x: Math.round(newX),
+                y: Math.round(bounds.y),
+                width: Math.round(restoreW),
+                height: Math.round(bounds.height)
+            }, true);
+            preSidebarBounds = null;
+            return { ok: true, mode, width: restoreW };
+        } else if (bounds.width > 800) {
+            const restoreW = 460;
+            mainWindow.setBounds({
+                x: Math.round(bounds.x),
+                y: Math.round(bounds.y),
+                width: Math.round(restoreW),
+                height: Math.round(bounds.height)
+            }, true);
+            return { ok: true, mode, width: restoreW };
+        }
+        return { ok: true, mode, width: bounds.width };
+    }
+}
+
 function getAppVersion() {
     try {
         const pkgPath = path.join(__dirname, 'package.json');
@@ -1713,6 +1766,7 @@ app.whenReady().then(() => {
     ipcMain.handle('act:seek', wrap(seek));
     ipcMain.handle('sfx:read', wrap(readSfx));
     ipcMain.handle('win:setOnTop', wrap(setOnTop));
+    ipcMain.handle('win:setLayoutMode', wrap(setLayoutMode));
     ipcMain.handle('resolve:cleanup', cleanup);
     createWindow();
     checkResolveAlive();

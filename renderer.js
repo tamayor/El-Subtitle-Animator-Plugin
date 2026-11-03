@@ -965,23 +965,9 @@ function introPop(idx) {
     return Math.max(0.05, 0.6 + 0.4 * e);
 }
 
-function wrapToLines(text, maxChars) {
+function wrapToLines(text) {
     if (!text) return [];
-    if (text.includes('\n')) {
-        return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    }
-    const limit = maxChars || 22;
-    if (text.length <= limit) return [text];
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length <= 1) return [text];
-    const half = text.length / 2;
-    let bestIdx = 1, minDiff = Infinity, cur = 0;
-    for (let i = 0; i < words.length - 1; i++) {
-        cur += words[i].length + 1;
-        const diff = Math.abs(cur - half);
-        if (diff < minDiff) { minDiff = diff; bestIdx = i + 1; }
-    }
-    return [words.slice(0, bestIdx).join(' '), words.slice(bestIdx).join(' ')];
+    return String(text).split(/\r?\n/).filter(Boolean);
 }
 
 // idx: which frame to show, null = the last frame (the finished look), -1 = nothing
@@ -1125,7 +1111,7 @@ function drawStage(S, a, idx) {
     const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
     const isAdjustOpen = (S === 'U' && state.adjustOpen);
     const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
-    const canUseCaptured = !activeSubText && !isDesignDirty && !isAdjustOpen && !isTdOpen;
+    const canUseCaptured = !isDesignDirty;
 
     if (multiBox) {
         cv._gizmo = null;
@@ -3959,6 +3945,62 @@ async function initVersion() {
     });
 }
 
+function initInspectorLayoutModes() {
+    let savedMode = 'default';
+    try {
+        savedMode = localStorage.getItem('sa_inspector_layout_mode') || 'default';
+    } catch (e) {}
+    applyLayoutMode(savedMode, false);
+
+    document.querySelectorAll('.layout-modes-bar').forEach(bar => {
+        bar.querySelectorAll('.layout-mode-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const mode = btn.dataset.mode;
+                await applyLayoutMode(mode, true);
+            });
+        });
+    });
+}
+
+async function applyLayoutMode(mode, triggerResize) {
+    state.inspectorLayoutMode = mode;
+    try { localStorage.setItem('sa_inspector_layout_mode', mode); } catch (e) {}
+
+    // Update buttons in both tabs
+    document.querySelectorAll('.layout-mode-btn').forEach(b => {
+        b.classList.toggle('on', b.dataset.mode === mode);
+    });
+
+    // Update inspector grids
+    ['U', 'C'].forEach(S => {
+        const grid = $('inspectorGrid' + S);
+        if (grid) {
+            grid.classList.remove('layout-collapse', 'layout-default', 'layout-sidebar');
+            grid.classList.add('layout-' + mode);
+        }
+    });
+
+    // Update body classes for viewport styling
+    document.body.classList.toggle('inspector-sidebar', mode === 'sidebar');
+    document.body.classList.toggle('inspector-collapse', mode === 'collapse');
+
+    // Expand or restore electron window viewport
+    if (triggerResize && window.sa && typeof window.sa.setLayoutMode === 'function') {
+        try {
+            await window.sa.setLayoutMode(mode);
+        } catch (err) {
+            console.warn('Failed to resize window for layout mode:', err);
+        }
+    }
+
+    setTimeout(() => {
+        renderTimelines();
+        redrawStages();
+    }, 120);
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
     // Stop the window from opening a file that misses a drop zone.
     for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
@@ -3970,6 +4012,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
 
     initVersion();
+    initInspectorLayoutModes();
     mountBlocks();
     bindAdjust(CTX.U);
     bindAdjust(CTX.C);

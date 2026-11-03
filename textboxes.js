@@ -919,7 +919,11 @@
             let col = el.color || '#ffffff';
             if (Number(el.type) === 2) {
                 const maxW = Math.max(12, maxFullLineW);
-                const gr = c.createLinearGradient(-maxW / 2, 0, maxW / 2, 0);
+                const angleRad = ((Number(el.mappingAngle) || 0) * Math.PI) / 180;
+                const hw = (maxW / 2) * (Number(el.mappingSize) || 1);
+                const dx = Math.cos(angleRad) * hw;
+                const dy = Math.sin(angleRad) * hw;
+                const gr = c.createLinearGradient(-dx, -dy, dx, dy);
                 gr.addColorStop(0, el.color || '#ffffff');
                 gr.addColorStop(1, el.color2 || '#f07b8e');
                 col = gr;

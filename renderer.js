@@ -185,14 +185,14 @@ const STYLE_OPTIONS = [
 
 function defaultElementsList() {
     return [
-        { index: 1, name: 'White Solid Fill', enabled: true, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 2, name: 'Red Outline', enabled: false, opacity: 1.0, type: 0, shape: 1, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ff0000', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 3, name: 'Black Shadow', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#000000', color2: '#f07b8e', softness: 5.0, offsetX: 0.05, offsetY: -0.05 },
-        { index: 4, name: 'Blue Border', enabled: false, opacity: 1.0, type: 0, shape: 2, thickness: 0.02, level: 0, extendH: 0.176, extendV: 0.164, round: 0.197, color: '#0000ff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 5, name: 'Element 5', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 6, name: 'Element 6', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 7, name: 'Element 7', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
-        { index: 8, name: 'Element 8', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', softness: 0.0, offsetX: 0.0, offsetY: 0.0 }
+        { index: 1, name: 'White Solid Fill', enabled: true, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 2, name: 'Red Outline', enabled: false, opacity: 1.0, type: 0, shape: 1, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ff0000', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 3, name: 'Black Shadow', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#000000', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 5.0, offsetX: 0.05, offsetY: -0.05 },
+        { index: 4, name: 'Blue Border', enabled: false, opacity: 1.0, type: 0, shape: 2, thickness: 0.02, level: 0, extendH: 0.176, extendV: 0.164, round: 0.197, color: '#0000ff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 5, name: 'Element 5', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 6, name: 'Element 6', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 7, name: 'Element 7', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 },
+        { index: 8, name: 'Element 8', enabled: false, opacity: 1.0, type: 0, shape: 0, thickness: 0.02, level: 3, extendH: 0.0, extendV: 0.0, round: 0.0, color: '#ffffff', color2: '#f07b8e', mappingAngle: 0.0, mappingSize: 1.0, mappingAspect: 1.0, mappingLevel: 3, softness: 0.0, offsetX: 0.0, offsetY: 0.0 }
     ];
 }
 
@@ -225,7 +225,11 @@ function cloneTextDesign(td) {
             const def = base.elements[i] || {};
             return Object.assign({}, def, el, {
                 type: el.type !== undefined ? Number(el.type) : (def.type || 0),
-                color2: el.color2 || def.color2 || '#f07b8e'
+                color2: el.color2 || def.color2 || '#f07b8e',
+                mappingAngle: el.mappingAngle !== undefined ? Number(el.mappingAngle) : (def.mappingAngle || 0.0),
+                mappingSize: el.mappingSize !== undefined ? Number(el.mappingSize) : (def.mappingSize || 1.0),
+                mappingAspect: el.mappingAspect !== undefined ? Number(el.mappingAspect) : (def.mappingAspect || 1.0),
+                mappingLevel: el.mappingLevel !== undefined ? Number(el.mappingLevel) : (def.mappingLevel || 3)
             });
         });
     }
@@ -389,30 +393,240 @@ const TEXT_DESIGN_HTML = (S) => `
                 <button type="button" class="sh-shape" data-shape="3" title="Border Outline"><span class="ico-box-out"></span></button>
             </div>
         </div>
-        <div class="sh-row">
-            <span class="sh-lbl">Type</span>
-            <div id="shType${S}" class="sh-types">
-                <button type="button" class="sh-type" data-type="0">Solid</button>
-                <button type="button" class="sh-type" data-type="1">Image</button>
-                <button type="button" class="sh-type" data-type="2">Gradient</button>
+        <div class="rv-row">
+            <label class="rv-lbl" title="Double-click to reset to default (Solid)">Type</label>
+            <div id="shType${S}" class="rv-seg">
+                <button type="button" class="rv-seg-btn on" data-type="0">Solid</button>
+                <button type="button" class="rv-seg-btn" data-type="2">Gradient</button>
+            </div>
+            <span class="rv-kf-space" title="Keyframe">
+                <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </span>
+        </div>
+
+        <!-- Solid Color & Opacity (Alpha) Section -->
+        <div id="shSolidWrap${S}" class="rv-color-group">
+            <div class="rv-row">
+                <label class="rv-lbl" for="shColor${S}" title="Click to choose color">Color</label>
+                <div class="rv-color-ctl">
+                    <button type="button" class="rv-disclosure open" id="shColorToggle${S}" title="Toggle RGBA controls">
+                        <svg viewBox="0 0 10 10" width="8" height="8" fill="currentColor"><path d="M2.5 1.5 L7.5 5 L2.5 8.5 Z"/></svg>
+                    </button>
+                    <div class="rv-swatch-box" id="shSwatchBox${S}" title="Click to choose color">
+                        <div class="rv-swatch-fill" id="shSwatchFill${S}"></div>
+                        <input id="shColor${S}" type="color" value="#ffffff" data-default="#ffffff" class="rv-native-color">
+                    </div>
+                    <input id="shHex${S}" type="text" class="hex-input" maxlength="7" spellcheck="false" placeholder="#ffffff" value="#ffffff" title="Hex color code">
+                    <button type="button" class="rv-eyedropper-btn" id="shDropBtn${S}" title="Pick screen color">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                            <path d="M13.354.646a1.207 1.207 0 0 0-1.708 0L8.5 3.793l-.646-.647a.5.5 0 1 0-.708.708L8.293 5l-7.147 7.146A.5.5 0 0 0 1 12.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .354-.146L11 7.707l1.146 1.147a.5.5 0 0 0 .708-.708l-.647-.646 3.147-3.146a1.207 1.207 0 0 0 0-1.708l-2-2zM2 12.707l7-7L10.293 7l-7 7H2v-1.293z"/>
+                        </svg>
+                    </button>
+                </div>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
+            </div>
+
+            <div id="shSolidSliders${S}">
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shRN${S}" title="Double-click to reset to 1.0">Red</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-r"></span>
+                        <input id="shR${S}" type="range" class="rv-slider rv-r" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shRN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                    <span class="rv-kf-space">
+                        <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                    </span>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shGN${S}" title="Double-click to reset to 1.0">Green</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-g"></span>
+                        <input id="shG${S}" type="range" class="rv-slider rv-g" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shGN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                    <span class="rv-kf-space">
+                        <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                    </span>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shBN${S}" title="Double-click to reset to 1.0">Blue</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-b"></span>
+                        <input id="shB${S}" type="range" class="rv-slider rv-b" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shBN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                    <span class="rv-kf-space">
+                        <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                    </span>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="vShOpacity${S}" title="Double-click to reset to 1.00">Alpha</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-a"></span>
+                        <input id="shOpacity${S}" type="range" class="rv-slider rv-a" min="0" max="1" step="0.01" value="1" data-default="1.00">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="vShOpacity${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.00">
+                    </div>
+                    <span class="rv-kf-space">
+                        <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                    </span>
+                </div>
             </div>
         </div>
-        <div class="row td-color-size" id="shColorRow${S}">
-            <label class="color-pick">
-                <span id="shColorLbl${S}">Color</span>
-                <input id="shColor${S}" type="color" value="#ffffff" data-default="#ffffff">
-            </label>
-            <label class="color-pick hidden" id="shColor2Wrap${S}">
-                <span>End Color</span>
-                <input id="shColor2${S}" type="color" value="#f07b8e" data-default="#f07b8e">
-            </label>
-            <div class="ctl grow">
-                <label title="Double-click to reset to default (1.00)">Opacity <span class="val" id="vShOpacity${S}">1.00</span></label>
-                <input id="shOpacity${S}" type="range" min="0" max="1" step="0.01" value="1" data-default="1.00">
+
+        <!-- Gradient Section -->
+        <div id="shGradWrap${S}" class="rv-color-group hidden">
+            <div class="rv-row">
+                <label class="rv-lbl">Shading Gradient</label>
+                <div class="rv-spacer"></div>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
             </div>
-        </div>
-        <div class="row hidden" id="shImageRow${S}">
-            <div class="hint grow">Image fill uses Fusion Text+ texture input</div>
+
+            <div class="rv-grad-bar-wrap">
+                <div class="rv-grad-bar" id="shGradBar${S}"></div>
+                <div class="rv-grad-stops" id="shGradStops${S}">
+                    <div class="rv-grad-stop sel" data-stop="0" id="shStop0${S}" style="left: 0%;" title="Start Color (0.0)">
+                        <svg viewBox="0 0 10 10" width="10" height="10"><polygon points="5,0 10,10 0,10" fill="currentColor"/></svg>
+                    </div>
+                    <div class="rv-grad-stop" data-stop="1" id="shStop1${S}" style="left: 100%;" title="End Color (1.0)">
+                        <svg viewBox="0 0 10 10" width="10" height="10"><polygon points="5,0 10,10 0,10" fill="currentColor"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rv-row rv-offset-row">
+                <div class="rv-spacer"></div>
+                <div class="rv-num-cell">
+                    <input id="shStopOffset${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="0.0" readonly title="Stop Offset">
+                </div>
+            </div>
+
+            <div class="rv-row">
+                <label class="rv-lbl" id="shStopLbl${S}">Start Color</label>
+                <div class="rv-color-ctl">
+                    <button type="button" class="rv-disclosure open" id="shGradColorToggle${S}">
+                        <svg viewBox="0 0 10 10" width="8" height="8" fill="currentColor"><path d="M2.5 1.5 L7.5 5 L2.5 8.5 Z"/></svg>
+                    </button>
+                    <div class="rv-swatch-box" id="shGradSwatchBox${S}" title="Click to choose stop color">
+                        <div class="rv-swatch-fill" id="shGradSwatchFill${S}"></div>
+                        <input id="shGradColorInput${S}" type="color" value="#ffffff" class="rv-native-color">
+                    </div>
+                    <input id="shGradHex${S}" type="text" class="hex-input" maxlength="7" spellcheck="false" placeholder="#ffffff" value="#ffffff" title="Hex color code for active stop">
+                    <button type="button" class="rv-eyedropper-btn" id="shGradDropBtn${S}" title="Pick screen color">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                            <path d="M13.354.646a1.207 1.207 0 0 0-1.708 0L8.5 3.793l-.646-.647a.5.5 0 1 0-.708.708L8.293 5l-7.147 7.146A.5.5 0 0 0 1 12.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .354-.146L11 7.707l1.146 1.147a.5.5 0 0 0 .708-.708l-.647-.646 3.147-3.146a1.207 1.207 0 0 0 0-1.708l-2-2zM2 12.707l7-7L10.293 7l-7 7H2v-1.293z"/>
+                        </svg>
+                    </button>
+                    <input id="shColor2${S}" type="color" value="#f07b8e" data-default="#f07b8e" class="hidden">
+                </div>
+            </div>
+
+            <div id="shGradSliders${S}">
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shGradRN${S}" title="Double-click to reset to 1.0">Red</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-r"></span>
+                        <input id="shGradR${S}" type="range" class="rv-slider rv-r" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shGradRN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shGradGN${S}" title="Double-click to reset to 1.0">Green</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-g"></span>
+                        <input id="shGradG${S}" type="range" class="rv-slider rv-g" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shGradGN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shGradBN${S}" title="Double-click to reset to 1.0">Blue</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-b"></span>
+                        <input id="shGradB${S}" type="range" class="rv-slider rv-b" min="0" max="1" step="0.001" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shGradBN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                </div>
+                <div class="rv-row">
+                    <label class="rv-lbl rv-sub-lbl" for="shGradAN${S}" title="Double-click to reset to 1.0">Alpha</label>
+                    <div class="rv-slider-track-wrap">
+                        <span class="rv-dot rv-dot-a"></span>
+                        <input id="shGradA${S}" type="range" class="rv-slider rv-a" min="0" max="1" step="0.01" value="1" data-default="1.0">
+                    </div>
+                    <div class="rv-num-cell">
+                        <input id="shGradAN${S}" type="number" class="rv-num" min="0" max="1" step="0.01" value="1.0" data-default="1.0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="rv-row">
+                <label class="rv-lbl" for="shMapAngleN${S}" title="Double-click to reset to default (0.0)">Mapping Angle</label>
+                <div class="rv-slider-track-wrap">
+                    <input id="shMapAngle${S}" type="range" class="rv-slider" min="-180" max="180" step="1" value="0" data-default="0">
+                </div>
+                <div class="rv-num-cell">
+                    <input id="shMapAngleN${S}" type="number" class="rv-num" min="-180" max="180" step="0.1" value="0.0" data-default="0.0">
+                </div>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
+            </div>
+
+            <div class="rv-row">
+                <label class="rv-lbl" for="shMapSizeN${S}" title="Double-click to reset to default (1.00)">Mapping Size</label>
+                <div class="rv-slider-track-wrap">
+                    <input id="shMapSize${S}" type="range" class="rv-slider" min="0.1" max="5" step="0.01" value="1" data-default="1.00">
+                </div>
+                <div class="rv-num-cell">
+                    <input id="shMapSizeN${S}" type="number" class="rv-num" min="0.1" max="10" step="0.01" value="1.0" data-default="1.00">
+                </div>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
+            </div>
+
+            <div class="rv-row">
+                <label class="rv-lbl" for="shMapAspectN${S}" title="Double-click to reset to default (1.00)">Mapping Aspect</label>
+                <div class="rv-slider-track-wrap">
+                    <input id="shMapAspect${S}" type="range" class="rv-slider" min="0.1" max="5" step="0.01" value="1" data-default="1.00">
+                </div>
+                <div class="rv-num-cell">
+                    <input id="shMapAspectN${S}" type="number" class="rv-num" min="0.1" max="10" step="0.01" value="1.0" data-default="1.00">
+                </div>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
+            </div>
+
+            <div class="rv-row">
+                <label class="rv-lbl" for="shMapLevel${S}">Mapping Level</label>
+                <select id="shMapLevel${S}" class="rv-select" data-default="3">
+                    <option value="3">Character</option>
+                    <option value="2">Word</option>
+                    <option value="1">Line</option>
+                    <option value="0">Text</option>
+                </select>
+                <span class="rv-kf-space">
+                    <svg class="rv-kf" viewBox="0 0 10 10" width="8" height="8"><polygon points="5,1 9,5 5,9 1,5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+                </span>
+            </div>
         </div>
         <div id="shThickWrap${S}" class="ctl">
             <label title="Double-click to reset to default (0.020)">Thickness <span class="val" id="vShThickness${S}">0.020</span></label>
@@ -1706,7 +1920,11 @@ function drawStage(S, a, idx) {
                 const elType = Number(el.type) || 0;
                 let col = el.color || '#ffffff';
                 if (elType === 2) {
-                    const grad = g.createLinearGradient(-maxLineW / 2, 0, maxLineW / 2, 0);
+                    const angleRad = ((Number(el.mappingAngle) || 0) * Math.PI) / 180;
+                    const hw = (maxLineW / 2) * (Number(el.mappingSize) || 1);
+                    const dx = Math.cos(angleRad) * hw;
+                    const dy = Math.sin(angleRad) * hw;
+                    const grad = g.createLinearGradient(-dx, -dy, dx, dy);
                     grad.addColorStop(0, el.color || '#ffffff');
                     grad.addColorStop(1, el.color2 || '#f07b8e');
                     col = grad;
@@ -2546,6 +2764,21 @@ function normHex(v) {
     return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
 }
 
+function hexToRgb01(hex) {
+    const h = normHex(hex) || '#ffffff';
+    const s = h.slice(1);
+    return {
+        r: parseInt(s.slice(0, 2), 16) / 255,
+        g: parseInt(s.slice(2, 4), 16) / 255,
+        b: parseInt(s.slice(4, 6), 16) / 255
+    };
+}
+
+function rgb01ToHex(r, g, b) {
+    const toH = (x) => Math.max(0, Math.min(255, Math.round((Number(x) || 0) * 255))).toString(16).padStart(2, '0');
+    return '#' + toH(r) + toH(g) + toH(b);
+}
+
 // DaVinci Resolve authentic default parameter values for Transform, Text Design, and Alignment
 const RESOLVE_DEFAULTS = {
     // Transform (DaVinci Resolve Edit Page layer transform defaults)
@@ -2563,6 +2796,18 @@ const RESOLVE_DEFAULTS = {
     tdTrack: 1.0,
     tdLine: 1.0,
     shOpacity: 1.0,
+    shR: 1.0,
+    shRN: 1.0,
+    shG: 1.0,
+    shGN: 1.0,
+    shB: 1.0,
+    shBN: 1.0,
+    shMapAngle: 0,
+    shMapAngleN: 0,
+    shMapSize: 1.0,
+    shMapSizeN: 1.0,
+    shMapAspect: 1.0,
+    shMapAspectN: 1.0,
     shThickness: 0.02,
     shExtendH: 0.0,
     shExtendV: 0.0,
@@ -2598,7 +2843,7 @@ function bindDblClickReset() {
     dblClickResetBound = true;
     document.addEventListener('dblclick', (e) => {
         // Find if target is a label or inside a label
-        const label = e.target.closest('label, .xform-lbl, .sh-lbl');
+        const label = e.target.closest('label, .xform-lbl, .sh-lbl, .rv-lbl');
         if (!label) return;
 
         // Do not trigger if user was double clicking inside an input box to select text
@@ -2614,7 +2859,7 @@ function bindDblClickReset() {
             if (!inputs.includes(inp)) inputs.push(inp);
         });
 
-        const row = label.closest('.xform-grid-row, .ctl, .row, .sh-border-box, .sh-soft-row, .td-color-size');
+        const row = label.closest('.xform-grid-row, .ctl, .row, .sh-border-box, .sh-soft-row, .td-color-size, .rv-row');
         if (row) {
             row.querySelectorAll('input, select').forEach(inp => {
                 if (!inputs.includes(inp)) inputs.push(inp);
@@ -2647,7 +2892,7 @@ function bindDblClickReset() {
 function attachHexFields() {
     const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
     for (const sw of document.querySelectorAll('input[type=color]')) {
-        if (sw._hex) continue;
+        if (sw._hex || sw.classList.contains('rv-native-color') || sw.classList.contains('hidden') || (sw.closest && sw.closest('.rv-swatch-box'))) continue;
         const hex = document.createElement('input');
         hex.type = 'text';
         hex.className = 'hex-input';
@@ -2742,6 +2987,39 @@ function syncVarButtons(S, m) {
     }
 }
 
+function syncGradientStopUI(S, curEl, stopIdx) {
+    if (!curEl) return;
+    const s0 = $('shStop0' + S), s1 = $('shStop1' + S);
+    if (s0) s0.classList.toggle('sel', stopIdx === 0);
+    if (s1) s1.classList.toggle('sel', stopIdx === 1);
+
+    const offsetEl = $('shStopOffset' + S);
+    if (offsetEl) offsetEl.value = stopIdx === 0 ? '0.0' : '1.0';
+
+    const lbl = $('shStopLbl' + S);
+    if (lbl) lbl.textContent = stopIdx === 0 ? 'Start Color' : 'End Color';
+
+    const col = stopIdx === 0 ? (curEl.color || '#ffffff') : (curEl.color2 || '#f07b8e');
+    const rgb = hexToRgb01(col);
+    const op = clamp(Number(curEl.opacity ?? 1), 0, 1);
+
+    const setVal = (slId, numId, val, dec) => {
+        const sl = $(slId + S), nm = $(numId + S);
+        if (sl && document.activeElement !== sl) sl.value = val;
+        if (nm && document.activeElement !== nm) nm.value = Number(val).toFixed(dec);
+    };
+
+    setVal('shGradR', 'shGradRN', rgb.r, 2);
+    setVal('shGradG', 'shGradGN', rgb.g, 2);
+    setVal('shGradB', 'shGradBN', rgb.b, 2);
+    setVal('shGradA', 'shGradAN', op, 2);
+
+    if ($('shGradSwatchFill' + S)) $('shGradSwatchFill' + S).style.backgroundColor = col;
+    if ($('shGradColorInput' + S)) $('shGradColorInput' + S).value = col;
+    const hexEl = $('shGradHex' + S);
+    if (hexEl && document.activeElement !== hexEl) hexEl.value = col;
+}
+
 function fillTextDesign(ctx) {
     const S = ctx.s, m = ctx.model();
     if (!m) return;
@@ -2816,28 +3094,57 @@ function fillTextDesign(ctx) {
     }
 
     const typeBox = $('shType' + S);
-    const typeVal = Number(curEl.type) || 0;
+    const typeVal = Number(curEl.type) === 2 ? 2 : 0;
+    curEl.type = typeVal;
     if (typeBox) {
-        for (const b of typeBox.querySelectorAll('.sh-type')) {
+        for (const b of typeBox.querySelectorAll('.rv-seg-btn, .sh-type')) {
             b.classList.toggle('on', Number(b.dataset.type) === typeVal);
         }
     }
     const isGradient = typeVal === 2;
-    const isImage = typeVal === 1;
-    if ($('shColor2Wrap' + S)) $('shColor2Wrap' + S).classList.toggle('hidden', !isGradient);
-    if ($('shColorLbl' + S)) $('shColorLbl' + S).textContent = isGradient ? 'Start Color' : 'Color';
-    const c2El = $('shColor2' + S);
-    if (c2El) c2El.value = curEl.color2 || '#f07b8e';
-    if ($('shImageRow' + S)) $('shImageRow' + S).classList.toggle('hidden', !isImage);
-    if ($('shColorRow' + S)) $('shColorRow' + S).classList.toggle('hidden', isImage);
+    if ($('shSolidWrap' + S)) $('shSolidWrap' + S).classList.toggle('hidden', isGradient);
+    if ($('shGradWrap' + S)) $('shGradWrap' + S).classList.toggle('hidden', !isGradient);
 
-    const shCol = $('shColor' + S);
-    if (shCol) shCol.value = curEl.color || '#ffffff';
+    const c1 = curEl.color || '#ffffff';
+    const c2 = curEl.color2 || '#f07b8e';
+    const op = clamp(Number(curEl.opacity ?? 1), 0, 1);
 
-    const op = Number(curEl.opacity ?? 1);
-    const opEl = $('shOpacity' + S);
-    if (opEl && document.activeElement !== opEl) opEl.value = op;
-    if ($('vShOpacity' + S)) $('vShOpacity' + S).textContent = op.toFixed(2);
+    // Sync Solid inputs
+    const rgb1 = hexToRgb01(c1);
+    const setVal = (slId, numId, val, dec) => {
+        const sl = $(slId + S), nm = $(numId + S);
+        if (sl && document.activeElement !== sl) sl.value = val;
+        if (nm && document.activeElement !== nm) nm.value = Number(val).toFixed(dec);
+    };
+
+    setVal('shR', 'shRN', rgb1.r, 2);
+    setVal('shG', 'shGN', rgb1.g, 2);
+    setVal('shB', 'shBN', rgb1.b, 2);
+    setVal('shOpacity', 'vShOpacity', op, 2);
+
+    if ($('shColor' + S)) $('shColor' + S).value = c1;
+    if ($('shSwatchFill' + S)) $('shSwatchFill' + S).style.backgroundColor = c1;
+    const hexEl = $('shHex' + S);
+    if (hexEl && document.activeElement !== hexEl) hexEl.value = c1;
+
+    // Sync Gradient inputs
+    if ($('shColor2' + S)) $('shColor2' + S).value = c2;
+    if ($('shGradBar' + S)) $('shGradBar' + S).style.background = `linear-gradient(to right, ${c1}, ${c2})`;
+
+    const activeStop = typeBox ? (typeBox._activeStop ?? 0) : 0;
+    syncGradientStopUI(S, curEl, activeStop);
+
+    // Sync mapping inputs
+    const mAngle = Number(curEl.mappingAngle ?? 0);
+    const mSize = Number(curEl.mappingSize ?? 1);
+    const mAspect = Number(curEl.mappingAspect ?? 1);
+    const mLevel = Number(curEl.mappingLevel ?? 3);
+
+    setVal('shMapAngle', 'shMapAngleN', mAngle, 1);
+    setVal('shMapSize', 'shMapSizeN', mSize, 2);
+    setVal('shMapAspect', 'shMapAspectN', mAspect, 2);
+    const mlEl = $('shMapLevel' + S);
+    if (mlEl) mlEl.value = String(mLevel);
 
     const th = Number(curEl.thickness ?? 0.02);
     const thEl = $('shThickness' + S);
@@ -3210,38 +3517,433 @@ function bindTextDesign(ctx) {
 
     const typeBox = $('shType' + S);
     if (typeBox) {
-        for (const b of typeBox.querySelectorAll('.sh-type')) {
+        for (const b of typeBox.querySelectorAll('.rv-seg-btn, .sh-type')) {
             b.addEventListener('click', () => {
                 const el = curEl(); if (!el) return;
-                el.type = Number(b.dataset.type) || 0;
+                el.type = Number(b.dataset.type) === 2 ? 2 : 0;
                 el.enabled = true;
                 el.modified = true;
+                fillTextDesign(ctx);
                 commit();
             });
         }
     }
 
-    $('shColor' + S).addEventListener('input', () => {
+    // --- Solid Color & Opacity RGBA controls
+    const updateSolidRgb = () => {
         const el = curEl(); if (!el) return;
-        el.color = $('shColor' + S).value;
+        const r = clamp(Number($('shR' + S).value), 0, 1);
+        const g = clamp(Number($('shG' + S).value), 0, 1);
+        const b = clamp(Number($('shB' + S).value), 0, 1);
+        const hex = rgb01ToHex(r, g, b);
+        el.color = hex;
+        if ($('shColor' + S)) $('shColor' + S).value = hex;
+        if ($('shSwatchFill' + S)) $('shSwatchFill' + S).style.backgroundColor = hex;
+        const hexEl = $('shHex' + S);
+        if (hexEl && document.activeElement !== hexEl) hexEl.value = hex;
         el.modified = true;
         commit();
-    });
-    if ($('shColor2' + S)) {
-        $('shColor2' + S).addEventListener('input', () => {
+    };
+
+    if ($('shR' + S)) {
+        $('shR' + S).addEventListener('input', () => {
+            if ($('shRN' + S)) $('shRN' + S).value = Number($('shR' + S).value).toFixed(2);
+            updateSolidRgb();
+        });
+    }
+    if ($('shRN' + S)) {
+        $('shRN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shRN' + S).value) || 0, 0, 1);
+            if ($('shR' + S)) $('shR' + S).value = v;
+            updateSolidRgb();
+        });
+    }
+
+    if ($('shG' + S)) {
+        $('shG' + S).addEventListener('input', () => {
+            if ($('shGN' + S)) $('shGN' + S).value = Number($('shG' + S).value).toFixed(2);
+            updateSolidRgb();
+        });
+    }
+    if ($('shGN' + S)) {
+        $('shGN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shGN' + S).value) || 0, 0, 1);
+            if ($('shG' + S)) $('shG' + S).value = v;
+            updateSolidRgb();
+        });
+    }
+
+    if ($('shB' + S)) {
+        $('shB' + S).addEventListener('input', () => {
+            if ($('shBN' + S)) $('shBN' + S).value = Number($('shB' + S).value).toFixed(2);
+            updateSolidRgb();
+        });
+    }
+    if ($('shBN' + S)) {
+        $('shBN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shBN' + S).value) || 0, 0, 1);
+            if ($('shB' + S)) $('shB' + S).value = v;
+            updateSolidRgb();
+        });
+    }
+
+    if ($('shHex' + S)) {
+        const hexEl = $('shHex' + S);
+        const applyHex = () => {
             const el = curEl(); if (!el) return;
-            el.color2 = $('shColor2' + S).value;
+            const norm = normHex(hexEl.value);
+            hexEl.classList.toggle('bad', !norm && hexEl.value.trim() !== '');
+            if (!norm) return;
+            el.color = norm;
+            const rgb = hexToRgb01(norm);
+            if ($('shR' + S)) $('shR' + S).value = rgb.r;
+            if ($('shRN' + S)) $('shRN' + S).value = rgb.r.toFixed(2);
+            if ($('shG' + S)) $('shG' + S).value = rgb.g;
+            if ($('shGN' + S)) $('shGN' + S).value = rgb.g.toFixed(2);
+            if ($('shB' + S)) $('shB' + S).value = rgb.b;
+            if ($('shBN' + S)) $('shBN' + S).value = rgb.b.toFixed(2);
+            if ($('shSwatchFill' + S)) $('shSwatchFill' + S).style.backgroundColor = norm;
+            if ($('shColor' + S)) $('shColor' + S).value = norm;
+            el.modified = true;
+            commit();
+        };
+        hexEl.addEventListener('input', applyHex);
+        hexEl.addEventListener('blur', () => {
+            const el = curEl();
+            const norm = normHex(hexEl.value);
+            if (norm) hexEl.value = norm;
+            else if (el) { hexEl.value = el.color || '#ffffff'; hexEl.classList.remove('bad'); }
+        });
+    }
+
+    const updateSolidOpacity = (v) => {
+        const el = curEl(); if (!el) return;
+        el.opacity = clamp(Number(v), 0, 1);
+        el.modified = true;
+        commit();
+    };
+
+    if ($('shOpacity' + S)) {
+        $('shOpacity' + S).addEventListener('input', () => {
+            const v = Number($('shOpacity' + S).value);
+            if ($('vShOpacity' + S)) $('vShOpacity' + S).value = v.toFixed(2);
+            updateSolidOpacity(v);
+        });
+    }
+    if ($('vShOpacity' + S)) {
+        $('vShOpacity' + S).addEventListener('input', () => {
+            const v = clamp(Number($('vShOpacity' + S).value) || 0, 0, 1);
+            if ($('shOpacity' + S)) $('shOpacity' + S).value = v;
+            updateSolidOpacity(v);
+        });
+    }
+
+    if ($('shColor' + S)) {
+        $('shColor' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            el.color = $('shColor' + S).value;
+            const rgb = hexToRgb01(el.color);
+            if ($('shR' + S)) $('shR' + S).value = rgb.r;
+            if ($('shRN' + S)) $('shRN' + S).value = rgb.r.toFixed(2);
+            if ($('shG' + S)) $('shG' + S).value = rgb.g;
+            if ($('shGN' + S)) $('shGN' + S).value = rgb.g.toFixed(2);
+            if ($('shB' + S)) $('shB' + S).value = rgb.b;
+            if ($('shBN' + S)) $('shBN' + S).value = rgb.b.toFixed(2);
+            if ($('shSwatchFill' + S)) $('shSwatchFill' + S).style.backgroundColor = el.color;
+            const hexEl = $('shHex' + S);
+            if (hexEl && document.activeElement !== hexEl) hexEl.value = el.color;
             el.modified = true;
             commit();
         });
     }
-    $('shOpacity' + S).addEventListener('input', () => {
+
+    if ($('shDropBtn' + S)) {
+        $('shDropBtn' + S).addEventListener('click', async () => {
+            if (window.EyeDropper) {
+                try {
+                    const ed = new EyeDropper();
+                    const res = await ed.open();
+                    if (res && res.sRGBHex) {
+                        const colEl = $('shColor' + S);
+                        if (colEl) {
+                            colEl.value = res.sRGBHex;
+                            colEl.dispatchEvent(new Event('input'));
+                        }
+                    }
+                } catch (e) { }
+            } else {
+                const colEl = $('shColor' + S);
+                if (colEl) colEl.click();
+            }
+        });
+    }
+
+    if ($('shColorToggle' + S)) {
+        $('shColorToggle' + S).addEventListener('click', () => {
+            const toggle = $('shColorToggle' + S);
+            toggle.classList.toggle('open');
+            const sliders = $('shSolidSliders' + S);
+            if (sliders) sliders.classList.toggle('hidden', !toggle.classList.contains('open'));
+        });
+    }
+
+    // --- Gradient controls
+    let activeGradStop = 0;
+    if ($('shStop0' + S)) {
+        $('shStop0' + S).addEventListener('click', () => {
+            activeGradStop = 0;
+            if (typeBox) typeBox._activeStop = 0;
+            const el = curEl(); if (el) syncGradientStopUI(S, el, 0);
+        });
+    }
+    if ($('shStop1' + S)) {
+        $('shStop1' + S).addEventListener('click', () => {
+            activeGradStop = 1;
+            if (typeBox) typeBox._activeStop = 1;
+            const el = curEl(); if (el) syncGradientStopUI(S, el, 1);
+        });
+    }
+
+    const updateGradRgb = () => {
         const el = curEl(); if (!el) return;
-        el.opacity = Number($('shOpacity' + S).value);
-        if ($('vShOpacity' + S)) $('vShOpacity' + S).textContent = el.opacity.toFixed(2);
+        const r = clamp(Number($('shGradR' + S).value), 0, 1);
+        const g = clamp(Number($('shGradG' + S).value), 0, 1);
+        const b = clamp(Number($('shGradB' + S).value), 0, 1);
+        const hex = rgb01ToHex(r, g, b);
+        if (activeGradStop === 0) {
+            el.color = hex;
+            if ($('shColor' + S)) $('shColor' + S).value = hex;
+        } else {
+            el.color2 = hex;
+            if ($('shColor2' + S)) $('shColor2' + S).value = hex;
+        }
+        if ($('shGradSwatchFill' + S)) $('shGradSwatchFill' + S).style.backgroundColor = hex;
+        if ($('shGradColorInput' + S)) $('shGradColorInput' + S).value = hex;
+        const hexEl = $('shGradHex' + S);
+        if (hexEl && document.activeElement !== hexEl) hexEl.value = hex;
+        if ($('shGradBar' + S)) $('shGradBar' + S).style.background = `linear-gradient(to right, ${el.color || '#ffffff'}, ${el.color2 || '#f07b8e'})`;
         el.modified = true;
         commit();
-    });
+    };
+
+    if ($('shGradR' + S)) {
+        $('shGradR' + S).addEventListener('input', () => {
+            if ($('shGradRN' + S)) $('shGradRN' + S).value = Number($('shGradR' + S).value).toFixed(2);
+            updateGradRgb();
+        });
+    }
+    if ($('shGradRN' + S)) {
+        $('shGradRN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shGradRN' + S).value) || 0, 0, 1);
+            if ($('shGradR' + S)) $('shGradR' + S).value = v;
+            updateGradRgb();
+        });
+    }
+
+    if ($('shGradG' + S)) {
+        $('shGradG' + S).addEventListener('input', () => {
+            if ($('shGradGN' + S)) $('shGradGN' + S).value = Number($('shGradG' + S).value).toFixed(2);
+            updateGradRgb();
+        });
+    }
+    if ($('shGradGN' + S)) {
+        $('shGradGN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shGradGN' + S).value) || 0, 0, 1);
+            if ($('shGradG' + S)) $('shGradG' + S).value = v;
+            updateGradRgb();
+        });
+    }
+
+    if ($('shGradB' + S)) {
+        $('shGradB' + S).addEventListener('input', () => {
+            if ($('shGradBN' + S)) $('shGradBN' + S).value = Number($('shGradB' + S).value).toFixed(2);
+            updateGradRgb();
+        });
+    }
+    if ($('shGradBN' + S)) {
+        $('shGradBN' + S).addEventListener('input', () => {
+            const v = clamp(Number($('shGradBN' + S).value) || 0, 0, 1);
+            if ($('shGradB' + S)) $('shGradB' + S).value = v;
+            updateGradRgb();
+        });
+    }
+
+    if ($('shGradHex' + S)) {
+        const hexEl = $('shGradHex' + S);
+        const applyGradHex = () => {
+            const el = curEl(); if (!el) return;
+            const norm = normHex(hexEl.value);
+            hexEl.classList.toggle('bad', !norm && hexEl.value.trim() !== '');
+            if (!norm) return;
+            if (activeGradStop === 0) {
+                el.color = norm;
+                if ($('shColor' + S)) $('shColor' + S).value = norm;
+            } else {
+                el.color2 = norm;
+                if ($('shColor2' + S)) $('shColor2' + S).value = norm;
+            }
+            syncGradientStopUI(S, el, activeGradStop);
+            if ($('shGradBar' + S)) $('shGradBar' + S).style.background = `linear-gradient(to right, ${el.color || '#ffffff'}, ${el.color2 || '#f07b8e'})`;
+            el.modified = true;
+            commit();
+        };
+        hexEl.addEventListener('input', applyGradHex);
+        hexEl.addEventListener('blur', () => {
+            const el = curEl();
+            const norm = normHex(hexEl.value);
+            if (norm) hexEl.value = norm;
+            else if (el) {
+                const cur = activeGradStop === 0 ? el.color : el.color2;
+                hexEl.value = cur || '#ffffff';
+                hexEl.classList.remove('bad');
+            }
+        });
+    }
+
+    if ($('shGradA' + S)) {
+        $('shGradA' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = clamp(Number($('shGradA' + S).value), 0, 1);
+            if ($('shGradAN' + S)) $('shGradAN' + S).value = v.toFixed(2);
+            el.opacity = v;
+            el.modified = true;
+            commit();
+        });
+    }
+    if ($('shGradAN' + S)) {
+        $('shGradAN' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = clamp(Number($('shGradAN' + S).value) || 0, 0, 1);
+            if ($('shGradA' + S)) $('shGradA' + S).value = v;
+            el.opacity = v;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    if ($('shGradColorInput' + S)) {
+        $('shGradColorInput' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const hex = $('shGradColorInput' + S).value;
+            if (activeGradStop === 0) {
+                el.color = hex;
+                if ($('shColor' + S)) $('shColor' + S).value = hex;
+            } else {
+                el.color2 = hex;
+                if ($('shColor2' + S)) $('shColor2' + S).value = hex;
+            }
+            syncGradientStopUI(S, el, activeGradStop);
+            if ($('shGradBar' + S)) $('shGradBar' + S).style.background = `linear-gradient(to right, ${el.color || '#ffffff'}, ${el.color2 || '#f07b8e'})`;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    if ($('shGradDropBtn' + S)) {
+        $('shGradDropBtn' + S).addEventListener('click', async () => {
+            if (window.EyeDropper) {
+                try {
+                    const ed = new EyeDropper();
+                    const res = await ed.open();
+                    if (res && res.sRGBHex) {
+                        const inEl = $('shGradColorInput' + S);
+                        if (inEl) {
+                            inEl.value = res.sRGBHex;
+                            inEl.dispatchEvent(new Event('input'));
+                        }
+                    }
+                } catch (e) { }
+            } else {
+                const inEl = $('shGradColorInput' + S);
+                if (inEl) inEl.click();
+            }
+        });
+    }
+
+    if ($('shGradColorToggle' + S)) {
+        $('shGradColorToggle' + S).addEventListener('click', () => {
+            const toggle = $('shGradColorToggle' + S);
+            toggle.classList.toggle('open');
+            const sliders = $('shGradSliders' + S);
+            if (sliders) sliders.classList.toggle('hidden', !toggle.classList.contains('open'));
+        });
+    }
+
+    // Mapping Angle
+    if ($('shMapAngle' + S)) {
+        $('shMapAngle' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = Number($('shMapAngle' + S).value);
+            if ($('shMapAngleN' + S)) $('shMapAngleN' + S).value = v.toFixed(1);
+            el.mappingAngle = v;
+            el.modified = true;
+            commit();
+        });
+    }
+    if ($('shMapAngleN' + S)) {
+        $('shMapAngleN' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = clamp(Number($('shMapAngleN' + S).value) || 0, -180, 180);
+            if ($('shMapAngle' + S)) $('shMapAngle' + S).value = v;
+            el.mappingAngle = v;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    // Mapping Size
+    if ($('shMapSize' + S)) {
+        $('shMapSize' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = Number($('shMapSize' + S).value);
+            if ($('shMapSizeN' + S)) $('shMapSizeN' + S).value = v.toFixed(2);
+            el.mappingSize = v;
+            el.modified = true;
+            commit();
+        });
+    }
+    if ($('shMapSizeN' + S)) {
+        $('shMapSizeN' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = clamp(Number($('shMapSizeN' + S).value) || 0.1, 0.1, 10);
+            if ($('shMapSize' + S)) $('shMapSize' + S).value = v;
+            el.mappingSize = v;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    // Mapping Aspect
+    if ($('shMapAspect' + S)) {
+        $('shMapAspect' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = Number($('shMapAspect' + S).value);
+            if ($('shMapAspectN' + S)) $('shMapAspectN' + S).value = v.toFixed(2);
+            el.mappingAspect = v;
+            el.modified = true;
+            commit();
+        });
+    }
+    if ($('shMapAspectN' + S)) {
+        $('shMapAspectN' + S).addEventListener('input', () => {
+            const el = curEl(); if (!el) return;
+            const v = clamp(Number($('shMapAspectN' + S).value) || 0.1, 0.1, 10);
+            if ($('shMapAspect' + S)) $('shMapAspect' + S).value = v;
+            el.mappingAspect = v;
+            el.modified = true;
+            commit();
+        });
+    }
+
+    // Mapping Level
+    if ($('shMapLevel' + S)) {
+        $('shMapLevel' + S).addEventListener('change', () => {
+            const el = curEl(); if (!el) return;
+            el.mappingLevel = Number($('shMapLevel' + S).value);
+            el.modified = true;
+            commit();
+        });
+    }
     $('shThickness' + S).addEventListener('input', () => {
         const el = curEl(); if (!el) return;
         el.thickness = Number($('shThickness' + S).value);

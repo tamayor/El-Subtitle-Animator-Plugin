@@ -213,6 +213,21 @@ def apply_text_design(tool, td):
             put("Red%d" % idx, r)
             put("Green%d" % idx, g)
             put("Blue%d" % idx, b)
+        if el.get("mappingAngle") is not None:
+            put("MappingAngle%d" % idx, float(el["mappingAngle"]))
+        if el.get("mappingSize") is not None:
+            put("MappingSize%d" % idx, float(el["mappingSize"]))
+        if el.get("mappingAspect") is not None:
+            put("MappingAspect%d" % idx, float(el["mappingAspect"]))
+        if el.get("mappingLevel") is not None:
+            put("MappingLevel%d" % idx, int(el["mappingLevel"]))
+        if el.get("type") == 2 and el.get("color") and el.get("color2"):
+            try:
+                r1, g1, b1 = hex_to_rgb(el["color"])
+                r2, g2, b2 = hex_to_rgb(el["color2"])
+                put("ShadingGradient%d" % idx, {0.0: [r1, g1, b1, 1.0], 1.0: [r2, g2, b2, 1.0]})
+            except Exception:
+                pass
         if el.get("softness") is not None:
             soft = float(el["softness"])
             put("SoftnessX%d" % idx, soft)

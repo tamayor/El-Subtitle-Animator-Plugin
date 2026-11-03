@@ -327,6 +327,8 @@ function parseTextStyle(filePath, savedDesign) {
                 // A colour with zero alpha draws nothing visible (used as a cut-out that reveals the text).
                 const al = num('Alpha' + i);
                 if (al !== null) el.alpha = al;
+                const ty = num('Type' + i);
+                el.type = ty !== null ? Math.round(ty) : (el.type !== undefined ? el.type : 0);
                 const sh = num('ElementShape' + i);
                 if (sh !== null) el.shape = Math.round(sh);
                 const th = num('Thickness' + i);
@@ -492,17 +494,27 @@ function designForFusion(compPath, wanted) {
         const differs = typeof base[k] === 'number' ? Math.abs(Number(wanted[k]) - base[k]) > 1e-6 : String(wanted[k]) !== String(base[k]);
         if (differs) out[k] = wanted[k];
     }
+    // Per shading element, only the fields that really differ from the preset file are sent (changing the colour
+    // sends the colour and nothing else), so untouched inputs - and their keyframes - stay exactly as built.
     const keys = ['name', 'enabled', 'opacity', 'shape', 'thickness', 'level', 'extendH', 'extendV', 'round', 'color', 'softness', 'offsetX', 'offsetY', 'type'];
     const els = [];
     if (Array.isArray(wanted.elements)) {
         for (const el of wanted.elements) {
             const idx = Number(el && el.index);
             if (!(idx >= 1 && idx <= 8) || !el.modified) continue;
-            const b = base.elements[idx - 1];
-            if (keys.some(k => el[k] !== undefined && String(el[k]).toLowerCase() !== String(b[k]).toLowerCase())) els.push(el);
+            const b = base.elements[idx - 1] || {};
+            const diff = { index: idx, modified: true };
+            for (const k of keys) {
+                if (el[k] === undefined || el[k] === null) continue;
+                const same = (typeof el[k] === 'number' && typeof b[k] === 'number')
+                    ? Math.abs(el[k] - b[k]) <= 1e-6
+                    : String(el[k]).toLowerCase() === String(b[k]).toLowerCase();
+                if (!same) diff[k] = el[k];
+            }
+            if (Object.keys(diff).length > 2) els.push(diff);
         }
     }
-    if (els.length) { out.elements = els; if (wanted.selectedElement) out.selectedElement = wanted.selectedElement; }
+    if (els.length) out.elements = els;
     if (wanted.layout && typeof wanted.layout === 'object' && base.layout) {
         const lay = {};
         for (const k of ['type', 'centerZ', 'pivotX', 'pivotY', 'pivotZ', 'size', 'perspective']) {
@@ -964,13 +976,15 @@ function wrap(fn) {
 
 // Grabs real 25fps or 30fps frames from a clip on the timeline so the panel can preview the animation in a 3-second loop.
 // text: the exact text the frames were rendered with ('' = sample text, null = whatever the captured clip held).
-async function capturePreview(animId, itemId, text, designKey) {
+let previewBgNext = null;   // background the next captured preview was rendered on ('black' | 'white')
+// tempDir: write the frames there and leave the preset's saved preview untouched (Use tab one-time overrides).
+async function capturePreview(animId, itemId, text, designKey, tempDir) {
     const project = await getProject();
     const tl = project && await project.GetCurrentTimeline();
     const meta = tl ? await timelineMeta(tl) : { fps: 25 };
     const fps = Math.round(meta.fps || 25);
     const targetCount = Math.round(fps * 3);
-    const dir = path.join(PREV_DIR, animId);
+    const dir = tempDir || path.join(PREV_DIR, animId);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
     const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim: 320, outDir: dir }, 120000);
@@ -979,9 +993,14 @@ async function capturePreview(animId, itemId, text, designKey) {
     if (res && res.frames && res.frames.length) {
         res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
     }
+    const info = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null, bg: previewBgNext || 'black' };
+    previewBgNext = null;
+    if (tempDir) {
+        return { preview: info, previewFiles: Array.from({ length: count }, (_, i) => path.join(dir, 'p' + String(i).padStart(2, '0') + '.png')) };
+    }
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === animId);
-    if (a) { a.preview = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null }; saveLib(lib); }
+    if (a) { a.preview = info; saveLib(lib); }
     return true;
 }
 
@@ -1279,8 +1298,15 @@ async function syncLiveTransform(event, req) {
             RotationAngle: rotAngle
         });
 
-        // Live sync Text Design & text content to timeline Fusion clip
+        // Live sync Text Design & text content to timeline Fusion clip. Only the values that differ from the preset
+        // file are sent (never the whole design), so the clip's keyframes and follower animation keep playing.
+        let liveDesign = null;
         if (req.textDesign) {
+            const animE = req.id ? loadLib().animations.find(x => x.id === req.id) : null;
+            const cp = animE ? path.join(ANIM_DIR, animE.file) : null;
+            liveDesign = (cp && fs.existsSync(cp)) ? designForFusion(cp, req.textDesign) : null;
+        }
+        if (liveDesign) {
             const itemId = String(await item.GetUniqueId());
             const names = (await item.GetFusionCompNameList()) || [];
             const compName = names[names.length - 1] || null;
@@ -1290,14 +1316,14 @@ async function syncLiveTransform(event, req) {
                     item: itemId,
                     comp: compName,
                     boxes: req.boxList,
-                    textDesign: req.textDesign
+                    textDesign: liveDesign
                 }, 4000);
             } else {
                 await bridgeCall('set_text', {
                     item: itemId,
                     comp: compName,
                     text: textArg,
-                    textDesign: req.textDesign
+                    textDesign: liveDesign
                 }, 4000);
             }
         }
@@ -1451,7 +1477,56 @@ function previewData(event, id) {
 const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line'];
 
 // design / designKey (optional): the panel's current, maybe unsaved, text design to render with.
-async function makePreview(event, animId, customText, design, designKey) {
+// temp: render a one-time preview (Use tab) into its own folder; the preset's default preview is not changed.
+// Diagnostics: one line per event in _debug/preview-log.txt inside the plugin folder.
+const DEBUG_LOG = path.join(__dirname, '_debug', 'preview-log.txt');
+function dlog(...parts) {
+    try {
+        fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
+        const line = new Date().toISOString() + ' ' + parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ') + '\n';
+        fs.appendFileSync(DEBUG_LOG, line);
+    } catch (e) { /* ignore */ }
+}
+function frameStats(files) {
+    const crypto = require('crypto');
+    const hashes = files.map(f => { try { return crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex').slice(0, 8); } catch (e) { return 'missing'; } });
+    const runs = [];
+    for (const h of hashes) { if (runs.length && runs[runs.length - 1][0] === h) runs[runs.length - 1][1]++; else runs.push([h, 1]); }
+    return { frames: hashes.length, unique: new Set(hashes).size, runs: runs.map(r => r[0] + 'x' + r[1]).join(' ') };
+}
+
+async function makePreview(event, animId, customText, design, designKey, temp) {
+    const t0 = Date.now();
+    const r = await makePreviewInner(event, animId, customText, design, designKey, temp);
+    try {
+        const lib = loadLib();
+        const a = lib.animations.find(x => x.id === animId);
+        const files = (r && r.temp && r.temp.previewFiles) || (a && a.preview ? Array.from({ length: a.preview.count }, (_, i) => path.join(PREV_DIR, animId, 'p' + String(i).padStart(2, '0') + '.png')) : []);
+        const compPath = a ? path.join(ANIM_DIR, a.file) : null;
+        dlog('makePreview', { id: animId, name: a && a.name, temp: !!temp, text: customText || null, ms: Date.now() - t0, error: r && r.error,
+            sent: compPath ? designForFusion(compPath, (design && typeof design === 'object') ? design : (a.textDesign || null)) : null,
+            stats: r && !r.error ? frameStats(files) : null });
+    } catch (e) { dlog('makePreview log failed', String(e)); }
+    return r;
+}
+
+// Preview frames come back from Resolve on black. Text that is (nearly) all dark - e.g. black words with no bright
+// outline - would vanish into that black and look like an empty, frozen render, so it is rendered on white instead.
+function previewBackground(compPath, design) {
+    try {
+        const td = parseTextStyle(compPath, design || null);
+        const lum = (hex) => {
+            const h = String(hex || '#ffffff').replace('#', '');
+            const c = (k) => parseInt(h.substr(k * 2, 2), 16) / 255;
+            return 0.2126 * c(0) + 0.7152 * c(1) + 0.0722 * c(2);
+        };
+        const shown = td.elements.filter(e => e && e.enabled && Number(e.opacity ?? 1) > 0.05 && e.alpha !== 0);
+        if (!shown.length) return 'black';
+        return shown.some(e => lum(e.color) > 0.3) ? 'black' : 'white';
+    } catch (e) { return 'black'; }
+}
+
+async function makePreviewInner(event, animId, customText, design, designKey, temp) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
     let tl = null, item = null, origTC = null, leftover = false;
@@ -1496,6 +1571,15 @@ async function makePreview(event, animId, customText, design, designKey) {
         try {
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* only a safety refresh */ }
+        let bg = previewBackground(compPath, (design && typeof design === 'object') ? design : (anim.textDesign || null));
+        if (bg === 'white') {
+            try { const r = await bridgeCall('preview_bg', { item: itemId, comp: compName, color: [1, 1, 1] }); if (!r || !r.ok) bg = 'black'; } catch (e) { bg = 'black'; }
+        }
+        previewBgNext = bg;
+        if (temp) {
+            const t = await capturePreview(animId, itemId, sampleText || '', designKey, path.join(PREV_DIR, animId + (temp === 'sub' ? '__sub' : '__use')));
+            return { ok: true, temp: t };
+        }
         await capturePreview(animId, itemId, sampleText || '', designKey);
         return { ok: true, lib: libForUI() };
     } catch (e) {
@@ -1864,6 +1948,7 @@ app.whenReady().then(() => {
     ipcMain.handle('win:setOnTop', wrap(setOnTop));
     ipcMain.handle('win:setLayoutMode', wrap(setLayoutMode));
     ipcMain.handle('win:fitWidth', wrap(fitWidth));
+    ipcMain.handle('dbg:log', (e, ...parts) => { dlog('[panel]', ...parts); return true; });
     ipcMain.handle('resolve:cleanup', cleanup);
     createWindow();
     checkResolveAlive();

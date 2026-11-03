@@ -580,9 +580,8 @@ const CTX = {
                     linked: m.linked !== false,
                     boxes: m.boxes || {}
                 };
-                const a = libEntry(m.id);
-                if (a) Object.assign(a, patch);
-                saveField(m.id, patch);
+                // Use tab = one-time override: nothing is written to the preset's saved default.
+                void patch;
                 syncVarButtons('U', m);
             }
             renderUseSummary();
@@ -622,6 +621,8 @@ function syncUse(force) {
     const a = selected();
     if (!a) { state.use = null; return; }
     if (force || !state.use || state.use.id !== a.id || !state.use.dirty) {
+        // A refresh of the same preset keeps the one-time subtitle render, so it is not rendered again.
+        const keepRender = (!force && state.use && state.use.id === a.id && !(state.use.designRev > 0)) ? state.use : null;
         state.use = {
             id: a.id, name: a.name, dirty: false, adjusted: false, designDirty: false,
             textOffset: a.textOffset, sfxOffset: a.sfxOffset, tail: a.tail, linked: a.linked !== false,
@@ -632,12 +633,13 @@ function syncUse(force) {
             boxes: window.SABoxes ? SABoxes.cloneBoxes(a) : {},
             sfxPath: a.sfxPath
         };
+        if (keepRender) {
+            state.use.tempPreview = keepRender.tempPreview;
+            state.use.renderReq = keepRender.renderReq;
+            state.use.rendering = keepRender.rendering;
+        }
     } else {
-        state.use.posX = Number(a.posX) || 0;
-        state.use.posY = Number(a.posY) || 0;
-        state.use.scale = Number(a.scale) || 1;
-        state.use.rotation = Number(a.rotation) || 0;
-        state.use.linked = a.linked !== false;
+        // Keep the one-time Use tab values as they are.
         if (!state.use.textDesign) state.use.textDesign = cloneTextDesign(a.textDesign);
     }
 }
@@ -889,7 +891,7 @@ function previewImages(a) {
     const key = a.id + ':' + a.preview.count + ':' + (a.preview.stamp || 0);
     let list = imgCache.get(key);
     if (!list) {
-        list = a.previewFiles.map(p => { const i = new Image(); i.src = fileUrl(p) + '?v=' + (a.preview.stamp || 0); return i; });
+        list = a.previewFiles.map(p => { const i = new Image(); i._bg = a.preview.bg || 'black'; i.src = fileUrl(p) + '?v=' + (a.preview.stamp || 0); return i; });
         imgCache.set(key, list);
     }
     return list;
@@ -903,6 +905,7 @@ function keyedImage(im) {
     oc.width = w; oc.height = h;
     const og = oc.getContext('2d');
     og.drawImage(im, 0, 0);
+    const whiteBg = im._bg === 'white';
     try {
         const id = og.getImageData(0, 0, w, h);
         const d = id.data;
@@ -911,7 +914,10 @@ function keyedImage(im) {
         let x = 0, y = 0;
         for (let p = 0; p < len; p += 4) {
             const cr = d[p], cg = d[p + 1], cb = d[p + 2];
-            const m = (cr > cg) ? (cr > cb ? cr : cb) : (cg > cb ? cg : cb);
+            // distance from the background the frame was rendered on: black (brightest channel) or white (darkest)
+            const m = whiteBg
+                ? 255 - ((cr < cg) ? (cr < cb ? cr : cb) : (cg < cb ? cg : cb))
+                : ((cr > cg) ? (cr > cb ? cr : cb) : (cg > cb ? cg : cb));
             if (m <= 4) {
                 d[p + 3] = 0;
             } else {
@@ -1067,7 +1073,97 @@ function previewMatchesDesign(a, m) {
     if (!dirty && (stored === undefined || stored === null)) return true;   // older renders: the preset as saved
     return stored === designKeyOf((m && m.textDesign) || a.textDesign);
 }
-function stageRendering(a) { return !!(a && window.SAThumbs && SAThumbs.isBusy && SAThumbs.isBusy(a.id)); }
+function stageRendering(S, a) {
+    if (S === 'U' && state.use && a && state.use.id === a.id && state.use.rendering) return true;
+    return !!(a && window.SAThumbs && SAThumbs.isBusy && SAThumbs.isBusy(a.id));
+}
+// Use tab: the one-time render (subtitle text and/or override design) stands in for the preset's own frames.
+function useView(a) {
+    const u = state.use;
+    if (!a || !u || u.id !== a.id || !u.tempPreview) return a;
+    if (!normSub(currentSubText()) && !(u.designRev > 0)) return a;   // nothing overridden: the preset as saved
+    return Object.assign({}, a, { preview: u.tempPreview.preview, previewFiles: u.tempPreview.previewFiles });
+}
+// Preset cards show the subtitle too. The selected preset's card mirrors the viewer (subtitle + Use tab changes);
+// the other cards get a render of the subtitle with their saved design, made one at a time in the background once
+// the subtitle and the playhead have settled. These never replace a preset's saved default preview.
+const subCards = new Map();      // preset id -> { text, temp }
+function cardView(a) {
+    if (!a) return a;
+    const want = normSub(currentSubText());
+    if (state.use && state.use.id === a.id) {
+        const v = useView(a);
+        if (v !== a) return v;
+    }
+    const c = subCards.get(a.id);
+    if (want && c && c.text === want && c.temp) return Object.assign({}, a, { preview: c.temp.preview, previewFiles: c.temp.previewFiles });
+    return a;
+}
+(function () {
+    let lastSub = '', subSince = 0, lastFrame = null, frameSince = 0, running = false;
+    const failed = new Set();
+    setInterval(async () => {
+        try {
+            const want = normSub(currentSubText());
+            const now = Date.now();
+            if (want !== lastSub) { lastSub = want; subSince = now; }
+            const fr = state.live && state.live.frame;
+            if (fr !== lastFrame) { lastFrame = fr; frameSince = now; }
+            if (running || !want || state.tab !== 'apply' || !state.live || !state.live.ok) return;
+            if (now - subSince < 1500 || now - frameSince < 1500) return;               // still scrubbing / typing
+            const u = state.use;
+            if (state.busy || state.drag || state.stageDrag || state.preview || (u && (u._timer || u.rendering)) || (subPv && subPv.running)) return;
+            if (window.SAThumbs && SAThumbs.isBusy && state.lib.animations.some(x => SAThumbs.isBusy(x.id))) return;
+            const next = state.lib.animations.find(x => !x.missing && !(u && u.id === x.id)
+                && !failed.has(x.id + '\u0000' + want) && !(subCards.get(x.id) && subCards.get(x.id).text === want));
+            if (!next) return;
+            running = true;
+            if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, true);
+            let res;
+            try { res = await window.sa.makePreview(next.id, want, null, '', 'sub'); } catch (e) { res = { error: String(e && e.message || e) }; }
+            if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, false);
+            running = false;
+            if (res && res.error) { if (!/busy/i.test(res.error)) failed.add(next.id + '\u0000' + want); return; }
+            if (res && res.temp) subCards.set(next.id, { text: want, temp: res.temp });
+        } catch (e) { running = false; }
+    }, 700);
+})();
+
+// Use tab: one render per change of subtitle text or override design, into a temporary preview only.
+function ensureUsePreview(a) {
+    const u = state.use;
+    if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
+    const want = normSub(currentSubText());
+    const rev = u.designRev || 0;
+    if (!want && rev === 0) return;
+    const reqKey = want + '\u0000' + rev;
+    if (u.renderReq === reqKey || u.rendering) return;
+    if (u._timerKey === reqKey && u._timer) return;
+    clearTimeout(u._timer);
+    u._timerKey = reqKey;
+    const frame0 = state.live && state.live.frame;
+    u._timer = setTimeout(async () => {
+        u._timer = 0; u._timerKey = null;
+        if (state.use !== u || (state.live && state.live.frame !== frame0) || state.busy || state.drag || state.stageDrag || state.preview
+            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || state.tab !== 'apply') return;
+        u.renderReq = reqKey;
+        u.rendering = true;
+        setStatus('Rendering the real animation in Resolve…');
+        redrawStages();
+        let res;
+        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true); } catch (e) { res = { error: String(e && e.message || e) }; }
+        u.rendering = false;
+        if (res && res.error) {
+            if (/busy/i.test(res.error)) u.renderReq = null;      // try again shortly
+            else setStatus(res.error, 'bad');
+            redrawStages();
+            return;
+        }
+        if (state.use === u && res && res.temp) u.tempPreview = res.temp;
+        setStatus('Preview ready.', 'ok');
+        redrawStages();
+    }, 600);
+}
 function syncStageOverlay(S, on) {
     const box = $('stageBox' + S);
     if (!box) return;
@@ -1078,14 +1174,21 @@ function syncStageOverlay(S, on) {
         box.appendChild(o);
     } else if (!on && o) o.remove();
 }
+// One render per change: a preset is re-rendered only when the subtitle text changes or you edit its design
+// (each edit bumps its design revision). Once a (text, revision) pair has been rendered it is never rendered again,
+// whatever the reloaded library looks like afterwards, so it can never loop.
+const designRev = new Map();      // preset id -> number of design edits this session
+const lastRendered = new Map();   // preset id -> 'text|revision' last rendered successfully
+// Create tab: renders the preset's default preview with its sample text when its default design is edited.
 function ensureRealPreview(a, m) {
     if (!a || a.missing || !window.sa || !window.sa.makePreview) return;
-    const want = normSub(currentSubText());
-    const td = (m && m.textDesign) || a.textDesign || null;
-    const dKey = designKeyOf(td);
-    if (a.preview && previewMatchesText(a, want) && previewMatchesDesign(a, m)) return;
-    const key = a.id + '\u0000' + want + '\u0000' + dKey;
-    if (subPv.running || subPv.failed.has(key) || subPv.done.has(key)) return;
+    const want = '';
+    const rev = designRev.get(a.id) || 0;
+    const reqKey = want + '\u0000' + rev;
+    if (lastRendered.get(a.id) === reqKey) return;                                    // already rendered once
+    if (rev === 0 && a.preview && previewMatchesText(a, want)) return;                // untouched design, frames fit
+    const key = a.id + '\u0000' + reqKey;
+    if (subPv.running || subPv.failed.has(key)) return;
     if (subPv.key === key && subPv.timer) return;
     clearTimeout(subPv.timer);
     subPv.key = key;
@@ -1096,32 +1199,35 @@ function ensureRealPreview(a, m) {
         const cur = state.tab === 'apply' ? selected() : libEntry(state.createId);
         const curM = (state.tab === 'apply' && state.use) ? state.use : cur;
         if ((state.live && state.live.frame !== frame0) || state.busy || state.drag || state.stageDrag || state.preview
-            || !cur || cur.id !== a.id || normSub(currentSubText()) !== want
-            || designKeyOf((curM && curM.textDesign) || cur.textDesign) !== dKey) { subPv.key = null; return; }
+            || !cur || cur.id !== a.id
+            || (designRev.get(a.id) || 0) !== rev) { subPv.key = null; return; }
+        const td = (curM && curM.textDesign) || cur.textDesign || null;
         subPv.running = true;
+        lastRendered.set(a.id, reqKey);       // claim it now so nothing can queue the same render again
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, true);
         setStatus('Rendering the real animation in Resolve…');
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, dKey); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td)); } catch (e) { res = { error: String(e && e.message || e) }; }
         subPv.running = false;
         subPv.key = null;
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, false);
         if (res && res.error) {
+            if (lastRendered.get(a.id) === reqKey) lastRendered.delete(a.id);
             if (!/busy/i.test(res.error)) { subPv.failed.set(key, res.error); setStatus(res.error, 'bad'); }
             return;
         }
-        subPv.done.add(key);
         if (res && res.lib) { state.lib = res.lib; syncUse(false); }
         setStatus('Preview ready.', 'ok');
         renderAll();
         redrawStages();
-    }, 1200);
+    }, 600);
 }
 
 // idx: which frame to show, null = the last frame (the finished look), -1 = nothing
 function drawStage(S, a, idx) {
     const cv = $('stage' + S);
     if (!cv) return;
+    if (S === 'U') a = useView(a);
 
     const ctx = CTX[S];
     const m = (ctx && ctx.model()) || a;
@@ -1265,8 +1371,8 @@ function drawStage(S, a, idx) {
     // Edited designs are rendered by Fusion too; until those frames arrive the last real render keeps playing
     // (with a Rendering overlay) instead of switching to a hand-drawn imitation, which is what made it glitch.
     const canUseCaptured = true;
-    ensureRealPreview(a, m);
-    syncStageOverlay(S, stageRendering(a));
+    if (S === 'U') ensureUsePreview(a); else ensureRealPreview(a, m);
+    syncStageOverlay(S, stageRendering(S, a));
 
     if (multiBox) {
         cv._gizmo = null;
@@ -2872,7 +2978,8 @@ function bindTextDesign(ctx) {
     const commit = () => {
         const m = ctx.model();
         if (!m) return;
-        designTouched.add(m.id);
+        if (S === 'U') m.designRev = (m.designRev || 0) + 1;
+        else designRev.set(m.id, (designRev.get(m.id) || 0) + 1);
         m.designDirty = true;
         m.adjusted = true;
         m.dirty = true;
@@ -2883,7 +2990,8 @@ function bindTextDesign(ctx) {
         }
         if (S === 'C') state.createAdjusted = true;
 
-        const a = libEntry(m.id);
+        // Create tab edits the preset's default design; the Use tab is a one-time override and saves nothing.
+        const a = S === 'C' ? libEntry(m.id) : null;
         if (a) {
             a.textDesign = cloneTextDesign(m.textDesign);
             a.designDirty = true;
@@ -2899,7 +3007,7 @@ function bindTextDesign(ctx) {
             SAThumbs.drawAll(performance.now());
         }
 
-        saveField(m.id, { textDesign: m.textDesign });
+        if (S === 'C') saveField(m.id, { textDesign: m.textDesign });
 
         if (typeof triggerLiveSync === 'function') {
             triggerLiveSync(m, S);
@@ -4548,4 +4656,38 @@ window.addEventListener('beforeunload', () => { window.sa.cleanup(); });
     };
     document.addEventListener('pointerup', end, true);
     document.addEventListener('pointercancel', end, true);
+})();
+
+
+// ---------------------------------------------------------------- diagnostics: what the viewer is showing, every 2 s
+(function () {
+    let lastFrames = [];
+    const origPaint = () => window.SABoxes && SABoxes.paint;
+    let paintInfo = null;
+    const hook = setInterval(() => {
+        if (!window.SABoxes || SABoxes._dbgHooked) return;
+        const p = SABoxes.paint;
+        SABoxes.paint = function (g, a, m, vp, gx, frameIdx) {
+            const r = p.apply(this, arguments);
+            paintInfo = { r, frameIdx, files: (a && a.previewFiles && a.previewFiles.length) || 0, f0: a && a.previewFiles && a.previewFiles[0] && a.previewFiles[0].split('/').slice(-2).join('/'), stamp: a && a.preview && a.preview.stamp };
+            return r;
+        };
+        SABoxes._dbgHooked = true;
+        clearInterval(hook);
+    }, 200);
+    setInterval(() => {
+        try {
+            if (!window.sa || !window.sa.dlog || state.tab !== 'apply') return;
+            const a = selected(); const u = state.use;
+            const v = (typeof useView === 'function' && a) ? useView(a) : a;
+            let real = null, blank = null;
+            try { real = SAThumbs.hasRealFrames(v); blank = SAThumbs.isBlank(v); } catch (e) { /* ignore */ }
+            window.sa.dlog({
+                tab: state.tab, id: a && a.id, sub: normSub(currentSubText()).slice(0, 30), rev: u && u.designRev, rendering: u && u.rendering,
+                temp: !!(u && u.tempPreview), tempCount: u && u.tempPreview && u.tempPreview.preview && u.tempPreview.preview.count,
+                usingTemp: !!(v && a && v !== a), real, blank, paint: paintInfo, previewLoop: !!state.preview, drag: !!state.drag, stageDrag: !!state.stageDrag
+            });
+            paintInfo = null;
+        } catch (e) { try { window.sa.dlog('diag error', String(e && e.message || e)); } catch (e2) { /* ignore */ } }
+    }, 2000);
 })();

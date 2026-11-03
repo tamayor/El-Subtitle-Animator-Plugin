@@ -178,8 +178,8 @@
     // Draws the preset's real rendered animation (captured from Fusion) over the video frame, looping every 3 s at real 25 or 30 fps.
     function paint(g, a, m, vp, gx, frameIdx) {
         if (!window.SAThumbs) return false;
-        const tVal = (frameIdx !== null && frameIdx !== undefined && frameIdx >= 0) ? frameIdx : performance.now();
-        const fr = SAThumbs.keyedFrame(a, tVal);
+        const isFrame = frameIdx !== null && frameIdx !== undefined && frameIdx >= 0;
+        const fr = SAThumbs.keyedFrame(a, isFrame ? frameIdx : performance.now(), isFrame);
         if (!fr) return false;
         const nodes = nodesOf(a);
         let ox = 0, oy = 0;
@@ -598,6 +598,7 @@
             if (a.previewFiles && a.previewFiles.length) {
                 e.imgs = a.previewFiles.map((p) => {
                     const i = new Image();
+                    i._bg = a.preview.bg || 'black';
                     i.src = (typeof fileUrl === 'function' ? fileUrl(p) : ('file://' + p)) + '?v=' + (a.preview.stamp || 0);
                     return i;
                 });
@@ -657,16 +658,20 @@
         const a = libEntry(cv.dataset.id);
         if (!a) return;
         const sub = activeSubtitleText();
-        const imgs = frames(a);
+        // The card shows the same render as the viewer: your subtitle (and, for the selected preset, your Use tab
+        // changes) once it has been rendered, the preset's own sample render until then.
+        const view = (typeof cardView === 'function') ? cardView(a) : a;
+        const imgs = frames(view);
         // Real Fusion frames always win: they are the preset's own nodes and keyframes, never re-animated here.
-        if (!framesReady(imgs) || geometry(a, imgs).blank) {
+        if (!framesReady(imgs) || geometry(view, imgs).blank) {
             drawSynthetic(cv, a, t, sub);
             return;
         }
-        const g = geometry(a, imgs);
-        const idx = frameIndex(a, imgs, t);
+        const g = geometry(view, imgs);
+        const idx = frameIndex(view, imgs, t);
         const c = cv.getContext('2d');
-        c.fillStyle = '#000';
+        // Dark text is rendered on white (see previewBackground in main.js), so its card is white too.
+        c.fillStyle = imgs[idx]._bg === 'white' ? '#ffffff' : '#000';
         c.fillRect(0, 0, cv.width, cv.height);
         const scale = Math.min((cv.width - 14) / g.rw, (cv.height - 10) / g.rh, 3);
         const dw = g.rw * scale, dh = g.rh * scale;
@@ -950,14 +955,16 @@
     }
 
     // The frame to show at time t (keyed so the black background is transparent over the video).
-    function keyedFrame(a, t) {
+    // isFrame: t is a timeline frame number; otherwise t is a clock time in ms. (Telling them apart by "is it a whole
+    // number" was wrong: the clock often lands on whole milliseconds, which made the preview jump to its last frame.)
+    function keyedFrame(a, t, isFrame) {
         const imgs = frames(a);
         if (!framesReady(imgs)) return null;
         if (geometry(a, imgs).blank) return null;
         const total = imgs ? imgs.length : 0;
         if (total <= 0) return null;
         let idx = 0;
-        if (typeof t === 'number' && Number.isInteger(t) && t >= 0) {
+        if (isFrame === true) {
             // Timeline frame number: play at 1x real speed, hold final frame if reached
             idx = Math.min(total - 1, t);
         } else {
@@ -1009,7 +1016,9 @@
             renderAnimations();
             setStatus('Rendering preview ' + (batch ? (batch.done + 1) + ' of ' + batch.total + ' ' : '') + 'in Resolve…');
             let res;
-            try { res = await window.sa.makePreview(id, liveSub); } catch (e) { res = { error: String(e && e.message || e) }; }
+            // Card previews are the preset's default look, so they always use its sample text.
+            void liveSub;
+            try { res = await window.sa.makePreview(id, null); } catch (e) { res = { error: String(e && e.message || e) }; }
             busy.delete(id);
             if (batch) batch.done++;
             if (res && res.error) {
@@ -1076,10 +1085,20 @@
     }
 
     // Presets without a preview are rendered one at a time as soon as Resolve is connected.
+    // Each preset is tried automatically once per state of its preview; a render that comes back empty is not
+    // retried over and over (that was an endless render loop) - its card offers Retry instead.
+    const autoTried = new Map();
     setInterval(() => {
         if (busy.size || batch || state.busy || !state.live || !state.live.ok) return;
-        const next = state.lib.animations.find(a => needsPreview(a) && !failed.has(a.id));
-        if (next) render(next.id);
+        const sig = (a) => a.preview ? String(a.preview.stamp || 0) : 'none';
+        const next = state.lib.animations.find(a => needsPreview(a) && !failed.has(a.id) && autoTried.get(a.id) !== sig(a));
+        if (!next) return;
+        autoTried.set(next.id, sig(next));
+        render(next.id).then(() => {
+            const a = libEntry(next.id);
+            if (a) autoTried.set(a.id, sig(a));
+            if (a && needsPreview(a)) failed.set(a.id, 'The render came back empty. Press Retry to render it again.');
+        });
     }, 2500);
 
     // A "Rendering…" layer over a preview while Fusion renders it.

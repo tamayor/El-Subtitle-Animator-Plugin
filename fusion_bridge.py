@@ -146,79 +146,82 @@ def apply_layout(tool, lay):
 
 
 def apply_text_design(tool, td):
+    """Only the values present in td are written, and never into an input that is keyframed / driven by a
+    modifier, so the preset's animation is left exactly as it was built."""
     if not td or not isinstance(td, dict):
         return
-    apply_layout(tool, td.get("layout"))
-    try:
-        if td.get("font"):
-            tool.SetInput("Font", str(td["font"]))
-        if td.get("style"):
-            tool.SetInput("Style", str(td["style"]))
-        if td.get("size") is not None:
-            tool.SetInput("Size", float(td["size"]))
-        if td.get("tracking") is not None:
-            tool.SetInput("CharacterSpacing", float(td["tracking"]))
-        if td.get("lineSpacing") is not None:
-            tool.SetInput("LineSpacing", float(td["lineSpacing"]))
-    except Exception:
-        pass
 
-    elements = td.get("elements")
-    if isinstance(elements, list):
-        for el in elements:
-            if not isinstance(el, dict):
-                continue
-            idx = int(el.get("index") or 0)
-            if idx < 1 or idx > 8:
-                continue
-            en = 1 if el.get("enabled") else 0
-            try:
-                if en or el.get("modified"):
-                    tool.SetInput("SelectElement", idx)
-                    tool.SetInput("Enabled%d" % idx, 1)
-                    if el.get("name"):
-                        tool.SetInput("Name%d" % idx, str(el["name"]))
-                    if el.get("opacity") is not None:
-                        tool.SetInput("Opacity%d" % idx, float(el["opacity"]))
-                    if el.get("type") is not None:
-                        tool.SetInput("Type%d" % idx, int(el["type"]))
-                    if el.get("shape") is not None:
-                        tool.SetInput("ElementShape%d" % idx, int(el["shape"]))
-                    if el.get("thickness") is not None:
-                        tool.SetInput("Thickness%d" % idx, float(el["thickness"]))
-                    if el.get("level") is not None:
-                        tool.SetInput("Level%d" % idx, int(el["level"]))
-                    if el.get("extendH") is not None:
-                        tool.SetInput("ExtendHorizontal%d" % idx, float(el["extendH"]))
-                    if el.get("extendV") is not None:
-                        tool.SetInput("ExtendVertical%d" % idx, float(el["extendV"]))
-                    if el.get("round") is not None:
-                        tool.SetInput("Round%d" % idx, float(el["round"]))
-                    if el.get("color"):
-                        r, g, b = hex_to_rgb(el["color"])
-                        tool.SetInput("Red%d" % idx, r)
-                        tool.SetInput("Green%d" % idx, g)
-                        tool.SetInput("Blue%d" % idx, b)
-                    if el.get("softness") is not None:
-                        soft = float(el["softness"])
-                        tool.SetInput("SoftnessX%d" % idx, soft)
-                        tool.SetInput("SoftnessY%d" % idx, soft)
-                    if el.get("offsetX") is not None or el.get("offsetY") is not None:
-                        ox = float(el.get("offsetX") or 0.0)
-                        oy = float(el.get("offsetY") or 0.0)
-                        try:
-                            tool.SetInput("Offset%d" % idx, {1: ox, 2: oy, 3: 0.0})
-                        except Exception:
-                            pass
-                tool.SetInput("Enabled%d" % idx, en)
-            except Exception:
-                pass
+    def put(input_id, value):
         try:
-            sel = int(td.get("selectedElement") or 1)
-            tool.SetInput("SelectElement", max(1, min(8, sel)))
+            if is_driven(tool, input_id) is not None:
+                return
+            cur = get_in(tool, input_id)
+            if isinstance(value, float) and isinstance(cur, (int, float)) and abs(float(cur) - value) < 1e-9:
+                return
+            if cur == value:
+                return
+            tool.SetInput(input_id, value)
         except Exception:
             pass
 
+    apply_layout(tool, td.get("layout"))
+    if td.get("font"):
+        put("Font", str(td["font"]))
+    if td.get("style"):
+        put("Style", str(td["style"]))
+    if td.get("size") is not None:
+        put("Size", float(td["size"]))
+    if td.get("tracking") is not None:
+        put("CharacterSpacing", float(td["tracking"]))
+    if td.get("lineSpacing") is not None:
+        put("LineSpacing", float(td["lineSpacing"]))
+
+    elements = td.get("elements")
+    if not isinstance(elements, list):
+        return
+    for el in elements:
+        if not isinstance(el, dict):
+            continue
+        try:
+            idx = int(el.get("index") or 0)
+        except Exception:
+            continue
+        if idx < 1 or idx > 8:
+            continue
+        if el.get("enabled") is not None:
+            put("Enabled%d" % idx, 1 if el["enabled"] else 0)
+        if el.get("name"):
+            put("Name%d" % idx, str(el["name"]))
+        if el.get("opacity") is not None:
+            put("Opacity%d" % idx, float(el["opacity"]))
+        if el.get("type") is not None:
+            put("Type%d" % idx, int(el["type"]))
+        if el.get("shape") is not None:
+            put("ElementShape%d" % idx, int(el["shape"]))
+        if el.get("thickness") is not None:
+            put("Thickness%d" % idx, float(el["thickness"]))
+        if el.get("level") is not None:
+            put("Level%d" % idx, int(el["level"]))
+        if el.get("extendH") is not None:
+            put("ExtendHorizontal%d" % idx, float(el["extendH"]))
+        if el.get("extendV") is not None:
+            put("ExtendVertical%d" % idx, float(el["extendV"]))
+        if el.get("round") is not None:
+            put("Round%d" % idx, float(el["round"]))
+        if el.get("color"):
+            r, g, b = hex_to_rgb(el["color"])
+            put("Red%d" % idx, r)
+            put("Green%d" % idx, g)
+            put("Blue%d" % idx, b)
+        if el.get("softness") is not None:
+            soft = float(el["softness"])
+            put("SoftnessX%d" % idx, soft)
+            put("SoftnessY%d" % idx, soft)
+        if el.get("offsetX") is not None or el.get("offsetY") is not None:
+            cur = as_pt(get_in(tool, "Offset%d" % idx)) or [0.0, 0.0]
+            ox = float(el["offsetX"]) if el.get("offsetX") is not None else cur[0]
+            oy = float(el["offsetY"]) if el.get("offsetY") is not None else cur[1]
+            put("Offset%d" % idx, {1: ox, 2: oy, 3: 0.0})
 
 
 def wake_followers(comp):
@@ -461,6 +464,52 @@ def op_set_audio_volume(a):
     return {"ok": bool(res)}
 
 
+def capture_adaptive(item, n, max_dim, out_dir):
+    """Exports frames 0..n-1 to out_dir, but skips the expensive render while the picture is not changing: once
+    4 frames in a row come out identical, it renders only every 5th frame and copies the held frame in between.
+    If a probe differs (the animation moves again), the skipped frames are rendered for real, so nothing is lost."""
+    def path_of(i):
+        return os.path.join(out_dir, "p%02d.png" % i)
+
+    def render(i):
+        fp = path_of(i)
+        r = item.ExportFrame(i, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+        if not r or not r.get("success"):
+            raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+        with open(fp, "rb") as fh:
+            return fh.read()
+
+    def copy_to(i, data):
+        with open(path_of(i), "wb") as fh:
+            fh.write(data)
+
+    PROBE = 5
+    prev, same, i = None, 0, 0
+    while i < n:
+        data = render(i)
+        same = same + 1 if (prev is not None and data == prev) else 0
+        prev = data
+        i += 1
+        while same >= 3 and i < n:
+            j = min(i + PROBE - 1, n - 1)
+            probe = render(j)
+            if probe == prev:
+                for k in range(i, j):
+                    copy_to(k, prev)
+                i = j + 1
+                continue
+            # it moved again somewhere in between: render those frames properly
+            for k in range(i, j):
+                d = render(k)
+                same = same + 1 if d == prev else 0
+                prev = d
+            same = same + 1 if probe == prev else 0
+            prev = probe
+            i = j + 1
+            break
+    return list(range(n))
+
+
 def op_capture(a):
     """Real 25fps or 30fps frames of a timeline clip over 3 seconds, for the panel's animation preview."""
     item = find_item(a["item"])
@@ -491,6 +540,10 @@ def op_capture(a):
         orig_props = {}
     frames, off = [], 0
     try:
+        if out_dir and step == 1:
+            n = min(count, duration)
+            frames = capture_adaptive(item, n, max_dim, out_dir)
+            off = duration
         while off < duration and len(frames) < count:
             if out_dir:
                 fp = os.path.join(out_dir, "p%02d.png" % len(frames))
@@ -538,7 +591,41 @@ def op_live_frame(a):
     }
 
 
-OPS = {"scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
+def op_preview_bg(a):
+    """Preview clips only: puts a solid colour behind the text (Background -> Merge -> MediaOut), so dark text is
+    not lost against the black frame that Resolve exports. The clip is deleted right after the frames are taken."""
+    comp = get_comp(a["item"], a.get("comp"))
+    col = a.get("color") or [1.0, 1.0, 1.0]
+    tools = as_list(comp.GetToolList(False))
+    mo = None
+    for t in tools:
+        if attrs(t).get("TOOLS_RegID") == "MediaOut":
+            mo = t
+            break
+    if mo is None:
+        return {"ok": False, "why": "no MediaOut"}
+    src = mo.Input.GetConnectedOutput()
+    if src is None:
+        return {"ok": False, "why": "MediaOut not connected"}
+    comp.Lock()
+    try:
+        bg = comp.AddTool("Background", -32768, -32768)
+        mg = comp.AddTool("Merge", -32768, -32768)
+        if bg is None or mg is None:
+            return {"ok": False, "why": "could not add tools"}
+        bg.SetInput("TopLeftRed", float(col[0]))
+        bg.SetInput("TopLeftGreen", float(col[1]))
+        bg.SetInput("TopLeftBlue", float(col[2]))
+        bg.SetInput("TopLeftAlpha", 1.0)
+        mg.Background.ConnectTo(bg.Output)
+        mg.Foreground.ConnectTo(src)
+        mo.Input.ConnectTo(mg.Output)
+    finally:
+        comp.Unlock()
+    return {"ok": True}
+
+
+OPS = {"preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
 
 
 def handle(req):

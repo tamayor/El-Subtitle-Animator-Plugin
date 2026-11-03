@@ -1547,6 +1547,9 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         origTC = await tl.GetCurrentTimecode();
         await tl.SetCurrentTimecode(frameToTC(await tl.GetEndFrame(), meta));
         item = await tl.InsertFusionTitleIntoTimeline('Text+');
+        // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
+        // instead of for the whole render (the frames are exported from the clip, not from the playhead).
+        try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* restored again below */ }
         if (!item) throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
         await fitDuration(item, Math.round(meta.fps * 3));
         const itemId = String(await item.GetUniqueId());

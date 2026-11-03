@@ -1065,6 +1065,9 @@
         if (!a || a.missing) return false;
         if (!a.preview || !a.previewFiles || !a.previewFiles.length) return true;
         if (isBlank(a)) return true;
+        // The card's default look always shows "Sample text": previews captured from a timeline clip (or older
+        // renders made with a subtitle) still show that clip's own words, so they are rendered again once.
+        if (a.preview.text !== '') return true;
         return false;
     }
 

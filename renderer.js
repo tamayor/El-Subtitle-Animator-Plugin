@@ -18,7 +18,7 @@ const state = {
     stageDrag: null,       // active drag on a preview stage (positioning text)
     stageHover: null,      // 'U' or 'C' when hovering a preview stage
     zoomEnabled: { U: false, C: false }, // zoom preview disabled by default; toggled via button
-    liveSyncEnabled: { U: false, C: false }, // real-time live sync to DaVinci Resolve timeline clip
+    liveSyncEnabled: { U: true, C: true }, // real-time live sync to DaVinci Resolve timeline clip
     liveBg: { key: '', img: null, busy: false, pending: null, width: 1920, height: 1080 },
     preview: null,         // running preview
     waves: new Map(),      // sound path -> { peaks, seconds }
@@ -59,11 +59,15 @@ function fileUrl(p) {
     return 'file://' + p.split('/').map(encodeURIComponent).join('/');
 }
 
-function play(p) {
+function play(p, volumeDb) {
     if (!p) return;
     try {
         if (state.audio) { state.audio.pause(); }
         state.audio = new Audio(fileUrl(p));
+        if (volumeDb !== undefined && volumeDb !== null) {
+            const gain = Math.pow(10, Number(volumeDb) / 20);
+            state.audio.volume = clamp(gain, 0, 1);
+        }
         const pr = state.audio.play();
         if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
     } catch (e) { setStatus('Could not play that sound', 'bad'); }
@@ -146,19 +150,23 @@ function currentSfxPath(a) {
     return state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
 }
 
-function drawWave(canvas, wave) {
+function drawWave(canvas, wave, volumeDb) {
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    const w = Math.max(1, Math.round((canvas.clientWidth || 100) * dpr));
+    const h = Math.max(1, Math.round((canvas.clientHeight || 40) * dpr));
     canvas.width = w; canvas.height = h;
     const g = canvas.getContext('2d');
     g.clearRect(0, 0, w, h);
     if (!wave || !wave.peaks.length) return;
     g.fillStyle = '#9be29d';
     const n = wave.peaks.length;
+    const db = (volumeDb !== undefined && volumeDb !== null) ? Number(volumeDb) : 0;
+    const linearGain = Math.pow(10, db / 20);
+    // Baseline scale at 0 dB is 0.68 of height; scaled by volume gain, capped at full height (1.0)
+    const ampScale = Math.max(0.04, Math.min(1.0, 0.68 * linearGain));
     for (let x = 0; x < w; x++) {
         const v = wave.peaks[Math.min(n - 1, Math.floor(x / w * n))];
-        const bar = Math.max(2 * dpr, v * h * 0.96);
+        const bar = Math.max(2 * dpr, v * h * ampScale);
         g.fillRect(x, (h - bar) / 2, 1, bar);
     }
 }
@@ -232,9 +240,9 @@ const ALIGN_HTML = (S) => `
 <div id="tl${S}" class="tl"></div>
 <div class="hint">Drag the sound to line it up. Drag the text to move both (when linked), or its edges to change when it starts and ends.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
 <div class="row nums">
-    <label>Text start <input id="textOffset${S}" type="number" step="1" value="0"><span class="u">f</span></label>
-    <label>Sound start <input id="sfxOffset${S}" type="number" step="1" value="0"><span class="u">f</span></label>
-    <label>Text ends <input id="tail${S}" type="number" step="1" value="0"><span class="u">f</span></label>
+    <label title="Double-click to reset to default (0f)">Text start <input id="textOffset${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
+    <label title="Double-click to reset to default (0f)">Sound start <input id="sfxOffset${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
+    <label title="Double-click to reset to default (0f)">Text ends <input id="tail${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
 </div>
 
 <div class="row between sfxhead">
@@ -248,8 +256,8 @@ const ALIGN_HTML = (S) => `
 </div>
 <input type="file" id="sfxFileInput${S}" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
 <div class="ctl">
-    <label>Sound volume <span class="val" id="vSfxVolume${S}"></span></label>
-    <input id="sfxVolume${S}" type="range" min="-30" max="6" step="1" value="0">
+    <label title="Double-click to reset to default (0 dB)">Sound volume <span class="val" id="vSfxVolume${S}">0 dB</span></label>
+    <input id="sfxVolume${S}" type="range" min="-30" max="6" step="1" value="0" data-default="0">
 </div>
 <div class="row two">
     <div class="ctl"><label>Text track</label><select id="textTrack${S}"></select></div>
@@ -268,37 +276,37 @@ const TEXT_DESIGN_HTML = (S) => `
     <div class="td-subhead">Text</div>
     <div class="row two">
         <div class="ctl">
-            <label>Font</label>
-            <input id="tdFont${S}" type="text" list="fontList${S}" placeholder="Poppins">
+            <label title="Double-click to reset to default (Poppins)">Font</label>
+            <input id="tdFont${S}" type="text" list="fontList${S}" placeholder="Poppins" data-default="Poppins">
             <datalist id="fontList${S}">
                 ${FONT_OPTIONS.map(f => `<option value="${f}"></option>`).join('')}
             </datalist>
         </div>
         <div class="ctl">
-            <label>Style</label>
-            <select id="tdStyle${S}">
+            <label title="Double-click to reset to default (Bold)">Style</label>
+            <select id="tdStyle${S}" data-default="Bold">
                 ${STYLE_OPTIONS.map(st => `<option value="${st}">${st}</option>`).join('')}
             </select>
         </div>
     </div>
     <div class="row td-color-size">
-        <label class="color-pick" title="Primary text fill color (Element 1)">
+        <label class="color-pick" title="Primary text fill color (Element 1) · Double-click to reset to #ffffff">
             <span>Color</span>
-            <input id="tdColor${S}" type="color" value="#ffffff">
+            <input id="tdColor${S}" type="color" value="#ffffff" data-default="#ffffff">
         </label>
         <div class="ctl grow">
-            <label>Size <span class="val" id="vTdSize${S}">0.120</span></label>
-            <input id="tdSize${S}" type="range" min="0.02" max="0.40" step="0.002" value="0.12">
+            <label title="Double-click to reset to default (0.080)">Size <span class="val" id="vTdSize${S}">0.080</span></label>
+            <input id="tdSize${S}" type="range" min="0.02" max="0.40" step="0.002" value="0.08" data-default="0.08">
         </div>
     </div>
     <div class="row two">
         <div class="ctl">
-            <label>Tracking <span class="val" id="vTdTrack${S}">1.00</span></label>
-            <input id="tdTrack${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00">
+            <label title="Double-click to reset to default (1.00)">Tracking <span class="val" id="vTdTrack${S}">1.00</span></label>
+            <input id="tdTrack${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00" data-default="1.00">
         </div>
         <div class="ctl">
-            <label>Line Spacing <span class="val" id="vTdLine${S}">1.00</span></label>
-            <input id="tdLine${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00">
+            <label title="Double-click to reset to default (1.00)">Line Spacing <span class="val" id="vTdLine${S}">1.00</span></label>
+            <input id="tdLine${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00" data-default="1.00">
         </div>
     </div>
 
@@ -337,28 +345,28 @@ const TEXT_DESIGN_HTML = (S) => `
         <div class="row td-color-size" id="shColorRow${S}">
             <label class="color-pick">
                 <span id="shColorLbl${S}">Color</span>
-                <input id="shColor${S}" type="color" value="#ffffff">
+                <input id="shColor${S}" type="color" value="#ffffff" data-default="#ffffff">
             </label>
             <label class="color-pick hidden" id="shColor2Wrap${S}">
                 <span>End Color</span>
-                <input id="shColor2${S}" type="color" value="#f07b8e">
+                <input id="shColor2${S}" type="color" value="#f07b8e" data-default="#f07b8e">
             </label>
             <div class="ctl grow">
-                <label>Opacity <span class="val" id="vShOpacity${S}">1.00</span></label>
-                <input id="shOpacity${S}" type="range" min="0" max="1" step="0.01" value="1">
+                <label title="Double-click to reset to default (1.00)">Opacity <span class="val" id="vShOpacity${S}">1.00</span></label>
+                <input id="shOpacity${S}" type="range" min="0" max="1" step="0.01" value="1" data-default="1.00">
             </div>
         </div>
         <div class="row hidden" id="shImageRow${S}">
             <div class="hint grow">Image fill uses Fusion Text+ texture input</div>
         </div>
         <div id="shThickWrap${S}" class="ctl">
-            <label>Thickness <span class="val" id="vShThickness${S}">0.020</span></label>
-            <input id="shThickness${S}" type="range" min="0" max="0.15" step="0.002" value="0.02">
+            <label title="Double-click to reset to default (0.020)">Thickness <span class="val" id="vShThickness${S}">0.020</span></label>
+            <input id="shThickness${S}" type="range" min="0" max="0.15" step="0.002" value="0.02" data-default="0.020">
         </div>
         <div id="shBorderWrap${S}" class="sh-border-box">
             <div class="ctl">
                 <label>Level</label>
-                <select id="shLevel${S}">
+                <select id="shLevel${S}" data-default="3">
                     <option value="0">Text</option>
                     <option value="1">Line</option>
                     <option value="2">Word</option>
@@ -366,22 +374,22 @@ const TEXT_DESIGN_HTML = (S) => `
                 </select>
             </div>
             <div class="ctl">
-                <label>Extend Horizontal <span class="val" id="vShExtendH${S}">0.000</span></label>
-                <input id="shExtendH${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0">
+                <label title="Double-click to reset to default (0.000)">Extend Horizontal <span class="val" id="vShExtendH${S}">0.000</span></label>
+                <input id="shExtendH${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0" data-default="0.000">
             </div>
             <div class="ctl">
-                <label>Extend Vertical <span class="val" id="vShExtendV${S}">0.000</span></label>
-                <input id="shExtendV${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0">
+                <label title="Double-click to reset to default (0.000)">Extend Vertical <span class="val" id="vShExtendV${S}">0.000</span></label>
+                <input id="shExtendV${S}" type="range" min="-0.2" max="1.0" step="0.005" value="0" data-default="0.000">
             </div>
             <div class="ctl">
-                <label>Round <span class="val" id="vShRound${S}">0.000</span></label>
-                <input id="shRound${S}" type="range" min="0" max="1.0" step="0.005" value="0">
+                <label title="Double-click to reset to default (0.000)">Round <span class="val" id="vShRound${S}">0.000</span></label>
+                <input id="shRound${S}" type="range" min="0" max="1.0" step="0.005" value="0" data-default="0.000">
             </div>
         </div>
         <div class="row nums sh-soft-row">
-            <label>Softness <input id="shSoftness${S}" type="number" min="0" max="30" step="0.5" value="0"></label>
-            <label>Offset X <input id="shOffsetX${S}" type="number" min="-1" max="1" step="0.01" value="0"></label>
-            <label>Offset Y <input id="shOffsetY${S}" type="number" min="-1" max="1" step="0.01" value="0"></label>
+            <label title="Double-click to reset to default (0)">Softness <input id="shSoftness${S}" type="number" min="0" max="30" step="0.5" value="0" data-default="0"></label>
+            <label title="Double-click to reset to default (0)">Offset X <input id="shOffsetX${S}" type="number" min="-1" max="1" step="0.01" value="0" data-default="0"></label>
+            <label title="Double-click to reset to default (0)">Offset Y <input id="shOffsetY${S}" type="number" min="-1" max="1" step="0.01" value="0" data-default="0"></label>
         </div>
     </div>
 </div>`;
@@ -440,49 +448,49 @@ const PREVIEW_HTML = (S) => `
 
     <!-- Zoom row -->
     <div class="xform-grid-row">
-        <label class="xform-lbl" for="numScale${S}">Zoom</label>
+        <label class="xform-lbl" for="numScale${S}" title="Double-click to reset to default (1.000)">Zoom</label>
         <div class="xform-slider-cell">
-            <input id="scale${S}" type="range" class="rv-slider" min="0.050" max="4.000" step="0.005" value="1.000">
+            <input id="scale${S}" type="range" class="rv-slider" min="0.050" max="4.000" step="0.005" value="1.000" data-default="1.000">
         </div>
         <div class="xform-num-cell">
             <span class="xform-axis">X/Y</span>
-            <input id="numScale${S}" type="number" class="rv-num xform-num" min="0.01" max="10.0" step="0.001" value="1.000">
+            <input id="numScale${S}" type="number" class="rv-num xform-num" min="0.01" max="10.0" step="0.001" value="1.000" data-default="1.000">
         </div>
     </div>
 
     <!-- Position X row -->
     <div class="xform-grid-row">
-        <label class="xform-lbl" for="numPosX${S}">Position X</label>
+        <label class="xform-lbl" for="numPosX${S}" title="Double-click to reset to default (0.000)">Position X</label>
         <div class="xform-slider-cell">
-            <input id="posX${S}" type="range" class="rv-slider" min="-960" max="960" step="0.5" value="0">
+            <input id="posX${S}" type="range" class="rv-slider" min="-960" max="960" step="0.5" value="0" data-default="0">
         </div>
         <div class="xform-num-cell">
             <span class="xform-axis">X</span>
-            <input id="numPosX${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000">
+            <input id="numPosX${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000" data-default="0.000">
         </div>
     </div>
 
     <!-- Position Y row -->
     <div class="xform-grid-row">
-        <label class="xform-lbl" for="numPosY${S}">Position Y</label>
+        <label class="xform-lbl" for="numPosY${S}" title="Double-click to reset to default (0.000)">Position Y</label>
         <div class="xform-slider-cell">
-            <input id="posY${S}" type="range" class="rv-slider" min="-540" max="540" step="0.5" value="0">
+            <input id="posY${S}" type="range" class="rv-slider" min="-540" max="540" step="0.5" value="0" data-default="0">
         </div>
         <div class="xform-num-cell">
             <span class="xform-axis">Y</span>
-            <input id="numPosY${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000">
+            <input id="numPosY${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000" data-default="0.000">
         </div>
     </div>
 
     <!-- Rotation Angle row -->
     <div class="xform-grid-row">
-        <label class="xform-lbl" for="numRot${S}">Rotation Angle</label>
+        <label class="xform-lbl" for="numRot${S}" title="Double-click to reset to default (0.000)">Rotation Angle</label>
         <div class="xform-slider-cell">
-            <input id="rot${S}" type="range" class="rv-slider" min="-180" max="180" step="0.1" value="0">
+            <input id="rot${S}" type="range" class="rv-slider" min="-180" max="180" step="0.1" value="0" data-default="0">
         </div>
         <div class="xform-num-cell">
             <span class="xform-axis">°</span>
-            <input id="numRot${S}" type="number" class="rv-num xform-num" min="-360" max="360" step="0.001" value="0.000">
+            <input id="numRot${S}" type="number" class="rv-num xform-num" min="-360" max="360" step="0.001" value="0.000" data-default="0.000">
         </div>
     </div>
 </div>
@@ -676,7 +684,7 @@ function renderTimeline(ctx) {
     const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : ''), laneS);
     sb.style.left = X(g.sfxS) + 'px'; sb.style.width = Math.max(6, g.sfxFrames * ppf) + 'px';
     const cv = document.createElement('canvas'); sb.appendChild(cv);
-    drawWave(cv, loadWaveCached(m));
+    drawWave(cv, loadWaveCached(m), m.sfxVolume);
 
     // dashed link between the start of the text and the sound
     if (m.linked !== false) {
@@ -839,23 +847,24 @@ function keyedImage(im) {
         const id = og.getImageData(0, 0, w, h);
         const d = id.data;
         let minX = w, minY = h, maxX = 0, maxY = 0, found = false;
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                const p = (y * w + x) * 4;
-                const m = Math.max(d[p], d[p + 1], d[p + 2]);
-                if (m <= 4) {
-                    d[p + 3] = 0;
-                } else {
-                    if (m < 28) d[p + 3] = Math.round(((m - 4) / 24) * d[p + 3]);
-                    if (m > 12) {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                        found = true;
-                    }
+        const len = d.length;
+        let x = 0, y = 0;
+        for (let p = 0; p < len; p += 4) {
+            const cr = d[p], cg = d[p + 1], cb = d[p + 2];
+            const m = (cr > cg) ? (cr > cb ? cr : cb) : (cg > cb ? cg : cb);
+            if (m <= 4) {
+                d[p + 3] = 0;
+            } else {
+                if (m < 28) d[p + 3] = (((m - 4) * d[p + 3]) / 24) | 0;
+                if (m > 12) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
                 }
             }
+            if (++x === w) { x = 0; y++; }
         }
         og.putImageData(id, 0, 0);
         oc._bounds = found
@@ -903,7 +912,7 @@ function syncXformUI(S, posX, posY, scale, rotation) {
         pyEl.max = maxTilt;
         if (document.activeElement !== pyEl) pyEl.value = clamp(py, -maxTilt, maxTilt);
     }
-    if (scEl && document.activeElement !== scEl) scEl.value = clamp(sc, 0.1, 3.0);
+    if (scEl && document.activeElement !== scEl) scEl.value = clamp(sc, 0.05, 4.0);
     if (rotEl && document.activeElement !== rotEl) rotEl.value = clamp(rot, -180, 180);
 
     if (numPxEl && document.activeElement !== numPxEl) numPxEl.value = px.toFixed(3);
@@ -954,6 +963,25 @@ function introPop(idx) {
     const c1 = 1.70158, c3 = c1 + 1;
     const e = 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
     return Math.max(0.05, 0.6 + 0.4 * e);
+}
+
+function wrapToLines(text, maxChars) {
+    if (!text) return [];
+    if (text.includes('\n')) {
+        return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    }
+    const limit = maxChars || 22;
+    if (text.length <= limit) return [text];
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length <= 1) return [text];
+    const half = text.length / 2;
+    let bestIdx = 1, minDiff = Infinity, cur = 0;
+    for (let i = 0; i < words.length - 1; i++) {
+        cur += words[i].length + 1;
+        const diff = Math.abs(cur - half);
+        if (diff < minDiff) { minDiff = diff; bestIdx = i + 1; }
+    }
+    return [words.slice(0, bestIdx).join(' '), words.slice(bestIdx).join(' ')];
 }
 
 // idx: which frame to show, null = the last frame (the finished look), -1 = nothing
@@ -1093,9 +1121,15 @@ function drawStage(S, a, idx) {
     let previewSingle = false;
     let paintedSingle = false;
     const gxy = { zoom: zoomVal, rot: userRot, scale: userScale, posX, posY, tlW, tlH };
+    const activeSubText = (($('subText') && $('subText').value.trim()) || (state.live && state.live.subtitle && state.live.subtitle.text) || '');
+    const isDesignDirty = !!((m && m.designDirty) || (a && a.designDirty));
+    const isAdjustOpen = (S === 'U' && state.adjustOpen);
+    const isTdOpen = (S === 'U' && state.tdOpen) || (S === 'C' && state.createTdOpen);
+    const canUseCaptured = !activeSubText && !isDesignDirty && !isAdjustOpen && !isTdOpen;
+
     if (multiBox) {
         cv._gizmo = null;
-        const painted = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
+        const painted = canUseCaptured && SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
         SABoxes.draw(S, a, m, cv, { vx, vy, vw, vh }, gxy, painted);
         g.restore();
         g.strokeStyle = '#29302b';
@@ -1107,53 +1141,81 @@ function drawStage(S, a, idx) {
         return;
     }
     if (window.SABoxes) SABoxes.hideLayer(S);
-    // Plays the rendered Fusion frames when they exist; until then the built-in preview of the preset stands in.
-    paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
-    previewSingle = paintedSingle;
+    // Plays the rendered Fusion frames when they exist and no live subtitle or design override is active; otherwise the real text overlay stands in.
+    if (canUseCaptured && window.SABoxes) {
+        paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
+        previewSingle = paintedSingle;
+    }
     for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
 
     // 2. Animated Text+ overlay with (posX, posY, userScale, userRot) and full Text & Shading Elements (1..8)
-    const activeSubText = (($('subText') && $('subText').value.trim()) || (state.live && state.live.subtitle && state.live.subtitle.text) || '');
     const dx = (posX / tlW) * vw;
     const dy = -(posY / tlH) * vh;
     const rotRad = (userRot * Math.PI) / 180;
-    let cx = vx + vw * 0.5 + dx;
-    let cy = vy + vh * 0.5 + dy;
-    let hw0 = vw * 0.25;
-    let hh0 = vh * 0.06;
-    if (previewSingle && window.SAThumbs) {
-        // Put the handles around where the text really is in the looping animation.
-        const nb = SAThumbs.bounds(a);
-        if (nb) {
-            const bcx = ((nb.x0 + nb.x1) / 2 - 0.5) * vw * userScale, bcy = ((nb.y0 + nb.y1) / 2 - 0.5) * vh * userScale;
-            const cr = Math.cos(rotRad), sr = Math.sin(rotRad);
-            cx = vx + vw * 0.5 + dx + (bcx * cr - bcy * sr);
-            cy = vy + vh * 0.5 + dy + (bcx * sr + bcy * cr);
-            hw0 = (nb.x1 - nb.x0) * vw * 0.5 + 6;
-            hh0 = (nb.y1 - nb.y0) * vh * 0.5 + 4;
+    const cx = vx + vw * 0.5 + dx;
+    const cy = vy + vh * 0.5 + dy;
+    const hw0 = vw * 0.5;
+    const hh0 = vh * 0.5;
+
+    // Resolve Text+ layout position: locate text inside layer based on template node or custom box center
+    let layoutCx = 0.5;
+    let layoutCy = 0.5;
+    let layoutScale = 1.0;
+    if (a && Array.isArray(a.nodes) && a.nodes.length) {
+        const primaryNode = a.nodes[0];
+        if (typeof primaryNode.cx === 'number') layoutCx = primaryNode.cx;
+        if (typeof primaryNode.cy === 'number') layoutCy = primaryNode.cy;
+        const b = (m && m.boxes && m.boxes[primaryNode.id]) || (a.boxes && a.boxes[primaryNode.id]);
+        if (b) {
+            if (typeof b.cx === 'number') layoutCx = b.cx;
+            if (typeof b.cy === 'number') layoutCy = b.cy;
+            if (typeof b.scale === 'number' && b.scale > 0) layoutScale = b.scale;
+        }
+    } else if (m && m.boxes) {
+        const firstKey = Object.keys(m.boxes)[0];
+        if (firstKey && m.boxes[firstKey]) {
+            const b = m.boxes[firstKey];
+            if (typeof b.cx === 'number') layoutCx = b.cx;
+            if (typeof b.cy === 'number') layoutCy = b.cy;
+            if (typeof b.scale === 'number' && b.scale > 0) layoutScale = b.scale;
+        }
+    } else if (a && a.boxes) {
+        const firstKey = Object.keys(a.boxes)[0];
+        if (firstKey && a.boxes[firstKey]) {
+            const b = a.boxes[firstKey];
+            if (typeof b.cx === 'number') layoutCx = b.cx;
+            if (typeof b.cy === 'number') layoutCy = b.cy;
+            if (typeof b.scale === 'number' && b.scale > 0) layoutScale = b.scale;
         }
     }
+    const layoutOx = (layoutCx - 0.5) * vw;
+    const layoutOy = -(layoutCy - 0.5) * vh;
 
     const td = cloneTextDesign((m && m.textDesign) || (a && a.textDesign));
     if (idx !== -1 && !previewSingle) {
-        const useCapturedPreview = !!(im && !m.designDirty && !activeSubText && !(window.SAThumbs && SAThumbs.isBlank(a)));
+        // Timeline frame clipping: text does not render outside the active timeline frame
+        g.save();
+        g.beginPath();
+        g.rect(vx, vy, vw, vh);
+        g.clip();
+
+        const useCapturedPreview = !!(im && canUseCaptured && !(window.SAThumbs && SAThumbs.isBlank(a)));
         if (useCapturedPreview) {
             const oc = keyedImage(im);
-            const bounds = oc._bounds || { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
-            const ox = (bounds.x + bounds.w * 0.5) * vw;
-            const oy = (bounds.y + bounds.h * 0.5) * vh;
-            hw0 = Math.max(28, (bounds.w * vw) * 0.5 + 8);
-            hh0 = Math.max(14, (bounds.h * vh) * 0.5 + 8);
-
             g.save();
             g.translate(cx, cy);
             if (rotRad) g.rotate(rotRad);
             if (userScale !== 1) g.scale(userScale, userScale);
-            g.drawImage(oc, -ox, -oy, vw, vh);
+            // Clip strictly to transform box boundary
+            g.beginPath();
+            g.rect(-vw / 2, -vh / 2, vw, vh);
+            g.clip();
+            g.drawImage(oc, -vw / 2 + layoutOx, -vh / 2 + layoutOy, vw, vh);
             g.restore();
         } else {
-            const txt = activeSubText || (a && a.name) || 'Subtitle';
-            const lines = String(txt).split(/\r?\n/);
+            const defaultTxt = (a && Array.isArray(a.nodes) && a.nodes.length && a.nodes[0].defaultText) || '';
+            const txt = activeSubText || defaultTxt || 'Sample text';
+            const lines = wrapToLines(String(txt));
             const styleLow = String(td.style || 'Bold').toLowerCase();
             let weight = '700';
             if (styleLow.includes('black') || styleLow.includes('heavy')) weight = '900';
@@ -1214,16 +1276,21 @@ function drawStage(S, a, idx) {
             const maxLineW = Math.max(24, ...lineWidths);
             const lineH = fontPx * clamp(Number(td.lineSpacing) || 1, 0.4, 2.5) * 1.16;
             const totalH = lineH * lines.length;
-            hw0 = Math.max(28, (maxLineW + 20) / 2);
-            hh0 = Math.max(14, (totalH + 10) / 2);
 
             g.save();
-            g.translate(cx + jx, cy + jy);
+            g.translate(cx, cy);
             if (rotRad || animRot) g.rotate(rotRad + animRot);
+            if (userScale !== 1) g.scale(userScale, userScale);
+            // Clip strictly to transform box boundary
+            g.beginPath();
+            g.rect(-vw / 2, -vh / 2, vw, vh);
+            g.clip();
+            g.translate(layoutOx + jx, layoutOy + jy);
+            if (layoutScale !== 1) g.scale(layoutScale, layoutScale);
             const erodeScaleX = erodeVal < 0 ? Math.max(0.84, 1 + erodeVal * 6.5) : 1;
             const erodeScaleY = erodeVal < 0 ? Math.max(0.88, 1 + erodeVal * 3.5) : 1;
-            const sxTotal = userScale * popScale * erodeScaleX;
-            const syTotal = userScale * popScale * erodeScaleY;
+            const sxTotal = popScale * erodeScaleX;
+            const syTotal = popScale * erodeScaleY;
             if (sxTotal !== 1 || syTotal !== 1) g.scale(sxTotal, syTotal);
 
             // Render Shading Elements 8 down to 1 (Priority order: higher elements sit behind Element 1)
@@ -1314,7 +1381,7 @@ function drawStage(S, a, idx) {
                 const elType = Number(el.type) || 0;
                 let col = el.color || '#ffffff';
                 if (elType === 2) {
-                    const grad = g.createLinearGradient(-hw0, 0, hw0, 0);
+                    const grad = g.createLinearGradient(-maxLineW / 2, 0, maxLineW / 2, 0);
                     grad.addColorStop(0, el.color || '#ffffff');
                     grad.addColorStop(1, el.color2 || '#f07b8e');
                     col = grad;
@@ -1336,8 +1403,6 @@ function drawStage(S, a, idx) {
                         g.lineWidth = Math.max(1.5, (Number(el.thickness) || 0.02) * fontPx * 4);
                         g.stroke();
                     }
-                    hw0 = Math.max(hw0, bw / 2);
-                    hh0 = Math.max(hh0, bh / 2);
                 } else if (shape === 1) {
                     // Text Outline (1)
                     g.strokeStyle = col;
@@ -1353,6 +1418,7 @@ function drawStage(S, a, idx) {
             }
             g.restore();
         }
+        g.restore(); // end timeline resolution clip
     }
 
     // Center guides while moving (drawn in the zoomed frame space)
@@ -1372,75 +1438,104 @@ function drawStage(S, a, idx) {
     const k = cv.width / Math.max(1, rectW);                 // canvas px per screen px
     const toScreen = (x, y) => ({ x: (x - cv.width * 0.5) * zoomVal + cv.width * 0.5, y: (y - cv.height * 0.5) * zoomVal + cv.height * 0.5 });
     const sc = toScreen(cx, cy);
-    const hw = hw0 * userScale * zoomVal + 6 * k;
-    const hh = hh0 * userScale * zoomVal + 6 * k;
+    const hw = (vw * 0.5) * userScale * zoomVal;
+    const hh = (vh * 0.5) * userScale * zoomVal;
     const cos = Math.cos(rotRad), sin = Math.sin(rotRad);
     const toCanvas = (lx, ly) => ({ x: sc.x + lx * cos - ly * sin, y: sc.y + lx * sin + ly * cos });
-    const stemLen = 24 * k;
-    const pad = 10 * k;
-    const offscreen = (p) => p.x < pad || p.y < pad || p.x > cv.width - pad || p.y > cv.height - pad;
-    // Handles that fall outside the preview are pinned to its edge so they can always be grabbed.
-    const keepIn = (p) => ({ x: clamp(p.x, pad, cv.width - pad), y: clamp(p.y, pad, cv.height - pad) });
-    const rawCorners = [toCanvas(-hw, -hh), toCanvas(hw, -hh), toCanvas(hw, hh), toCanvas(-hw, hh)];
-    const corners = rawCorners.map(keepIn);
-    let rotBase = toCanvas(0, -hh);
-    let rotRaw = toCanvas(0, -hh - stemLen);
-    if (offscreen(rotRaw)) {
-        const alt = toCanvas(0, hh + stemLen);              // flip the rotate handle below the box when the top is cut off
-        if (!offscreen(alt)) { rotRaw = alt; rotBase = toCanvas(0, hh); }
-    }
-    const rotHandle = keepIn(rotRaw);
-    cv._gizmo = { cx: sc.x, cy: sc.y, hw, hh, rotRad, rotHandle, corners, rawCorners, k };
+    // Rotation stem points up from center anchor point to rotation handle (matching DaVinci Resolve)
+    const rotArmLen = Math.max(30 * k, Math.min(hh * 0.42, 100 * k));
+    const rotHandle = toCanvas(0, -rotArmLen);
+    const rawCorners = [
+        toCanvas(-hw, -hh), // 0: Top-Left
+        toCanvas(hw, -hh),  // 1: Top-Right
+        toCanvas(hw, hh),   // 2: Bottom-Right
+        toCanvas(-hw, hh)   // 3: Bottom-Left
+    ];
+    const rawEdges = [
+        toCanvas(0, -hh),   // 0: Top-Center
+        toCanvas(hw, 0),    // 1: Right-Center
+        toCanvas(0, hh),    // 2: Bottom-Center
+        toCanvas(-hw, 0)    // 3: Left-Center
+    ];
+    cv._gizmo = {
+        cx: sc.x,
+        cy: sc.y,
+        hw,
+        hh,
+        rotRad,
+        rotHandle,
+        corners: rawCorners,
+        rawCorners,
+        edges: rawEdges,
+        rawEdges,
+        center: sc,
+        k
+    };
 
-    // 3. Interactive transform gizmo (bounding box + 4 resize corners + rotation handle)
-    if (isDragging || isHovering) {
-        const mode = isDragging ? state.stageDrag.mode : null;
-        const hov = (!isDragging && state.stageHoverHit && state.stageHoverHit.S === S) ? state.stageHoverHit : null;
-        g.save();
-        // Bounding box
-        g.strokeStyle = isDragging ? '#f07b8e' : 'rgba(240, 123, 142, 0.82)';
-        g.lineWidth = 1.5 * k;
-        g.setLineDash([5 * k, 4 * k]);
-        g.beginPath();
-        rawCorners.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
-        g.closePath();
-        g.stroke();
-        g.setLineDash([]);
+    // 3. DaVinci Resolve authentic layer transform gizmo
+    // Solid white bounding box, 4 corners, 4 edge midpoints, center anchor point, and rotation stem & handle
+    const isDraggingGizmo = isDragging && state.stageDrag;
+    const mode = isDraggingGizmo ? state.stageDrag.mode : null;
+    const hov = (!isDraggingGizmo && state.stageHoverHit && state.stageHoverHit.S === S) ? state.stageHoverHit : null;
 
-        // Rotation stem & handle
-        const rotActive = mode === 'rotate' || (hov && hov.mode === 'rotate');
-        g.strokeStyle = '#8ccf8e';
-        g.lineWidth = 1.5 * k;
+    g.save();
+    // Bounding box: solid white
+    g.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+    g.lineWidth = 1.35 * k;
+    g.beginPath();
+    rawCorners.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+    g.closePath();
+    g.stroke();
+
+    // Rotation stem: solid white line from center anchor point up to rotation handle
+    g.beginPath();
+    g.moveTo(sc.x, sc.y);
+    g.lineTo(rotHandle.x, rotHandle.y);
+    g.stroke();
+
+    // DaVinci Resolve circular control handles: white fill with royal blue border
+    const drawHandle = (pt, isActive, isHov, isCenter) => {
+        const hr = (isActive ? 5.8 : (isHov ? 5.2 : 4.4)) * k;
         g.beginPath();
-        g.moveTo(clamp(rotBase.x, 0, cv.width), clamp(rotBase.y, 0, cv.height));
-        g.lineTo(rotHandle.x, rotHandle.y);
-        g.stroke();
-        g.fillStyle = rotActive ? '#ffffff' : '#8ccf8e';
-        g.strokeStyle = '#131614';
-        g.lineWidth = 2 * k;
-        g.beginPath();
-        g.arc(rotHandle.x, rotHandle.y, (rotActive ? 8 : 7) * k, 0, Math.PI * 2);
+        g.arc(pt.x, pt.y, hr, 0, Math.PI * 2);
+        g.fillStyle = '#ffffff';
         g.fill();
+        g.strokeStyle = isActive ? '#5b95ff' : '#2b62c9';
+        g.lineWidth = (isActive ? 2.0 : 1.4) * k;
         g.stroke();
-
-        // 4 corner resize handles
-        corners.forEach((c, i) => {
-            const cActive = (mode === 'scale' && state.stageDrag.corner === i) || (hov && hov.mode === 'scale' && hov.corner === i);
-            const hs = (cActive ? 7.5 : 6.5) * k;
-            g.save();
-            g.translate(c.x, c.y);
-            g.rotate(rotRad);
-            g.fillStyle = cActive ? '#ffffff' : '#f07b8e';
-            g.strokeStyle = '#131614';
-            g.lineWidth = 1.5 * k;
+        if (isCenter) {
             g.beginPath();
-            g.rect(-hs, -hs, hs * 2, hs * 2);
+            g.arc(pt.x, pt.y, 1.3 * k, 0, Math.PI * 2);
+            g.fillStyle = isActive ? '#5b95ff' : '#2b62c9';
             g.fill();
-            g.stroke();
-            g.restore();
-        });
-        g.restore();
-    }
+        }
+    };
+
+    // 4 Corner resize handles
+    rawCorners.forEach((c, i) => {
+        const cActive = (mode === 'scale' && state.stageDrag.corner === i);
+        const cHov = (hov && hov.mode === 'scale' && hov.corner === i);
+        drawHandle(c, cActive, cHov, false);
+    });
+
+    // 4 Edge midpoint resize handles
+    rawEdges.forEach((ePt, i) => {
+        const eActive = (mode === 'scale-edge' && state.stageDrag.edge === i);
+        const eHov = (hov && hov.mode === 'scale-edge' && hov.edge === i);
+        drawHandle(ePt, eActive, eHov, false);
+    });
+
+    // Center Anchor Point handle
+    const centerActive = (mode === 'move' && state.stageDrag && state.stageDrag.isCenter);
+    const centerHov = (hov && hov.mode === 'move' && hov.isCenter);
+    drawHandle(sc, centerActive, centerHov, true);
+
+    // Rotation handle
+    const rotActive = (mode === 'rotate');
+    const rotHov = (hov && hov.mode === 'rotate');
+    drawHandle(rotHandle, rotActive, rotHov, false);
+
+    g.restore();
 
     // Border around the active video frame
     g.strokeStyle = '#29302b';
@@ -1456,7 +1551,7 @@ function drawStage(S, a, idx) {
         if (Math.abs(userScale - 1) >= 0.005) metaParts.push('Zoom ' + userScale.toFixed(3));
         if (Math.abs(userRot) >= 0.1) metaParts.push('Rot ' + userRot.toFixed(1) + '°');
         const prefix = metaParts.length ? metaParts.join(' · ') + ' — ' : '';
-        msg.textContent = prefix + 'Drag text to move, corners to resize, top handle to rotate.';
+        msg.textContent = prefix + 'Drag box or center to move, handles to resize, top arm to rotate.';
     }
 }
 
@@ -1469,32 +1564,76 @@ function stagePoint(cv, clientX, clientY) {
     };
 }
 
+// Helper to determine the directional cursor based on handle angle relative to center
+function angleCursor(rad) {
+    let deg = ((rad * 180 / Math.PI) % 180 + 180) % 180;
+    if (deg >= 22.5 && deg < 67.5) return 'nwse-resize';
+    if (deg >= 67.5 && deg < 112.5) return 'ns-resize';
+    if (deg >= 112.5 && deg < 157.5) return 'nesw-resize';
+    return 'ew-resize';
+}
+
 function stageHitTest(cv, clientX, clientY) {
     const { px, py } = stagePoint(cv, clientX, clientY);
     const gz = cv._gizmo;
     if (!gz) return { mode: 'move', px, py };
-    const hitR = 20 * (gz.k || 1);
-    // Pick the nearest handle within reach so overlapping handles never block each other.
-    let best = null, bestD = hitR;
+    const hitR = 14 * (gz.k || 1);
+
+    // 1. Rotation handle (circle atop stem)
     const dRot = Math.hypot(px - gz.rotHandle.x, py - gz.rotHandle.y);
-    if (dRot <= bestD) { best = { mode: 'rotate', px, py }; bestD = dRot; }
-    gz.corners.forEach((c, i) => {
+    if (dRot <= hitR) return { mode: 'rotate', px, py };
+
+    // 2. Corner handles (4 corners)
+    let bestC = -1, bestCD = hitR;
+    gz.rawCorners.forEach((c, i) => {
         const d = Math.hypot(px - c.x, py - c.y);
-        if (d < bestD) { best = { mode: 'scale', corner: i, px, py }; bestD = d; }
+        if (d < bestCD) { bestCD = d; bestC = i; }
     });
-    return best || { mode: 'move', px, py };
+    if (bestC !== -1) return { mode: 'scale', corner: bestC, px, py };
+
+    // 3. Edge midpoint handles (0:Top, 1:Right, 2:Bottom, 3:Left)
+    let bestE = -1, bestED = hitR;
+    gz.rawEdges.forEach((ePt, i) => {
+        const d = Math.hypot(px - ePt.x, py - ePt.y);
+        if (d < bestED) { bestED = d; bestE = i; }
+    });
+    if (bestE !== -1) return { mode: 'scale-edge', edge: bestE, px, py };
+
+    // 4. Center Anchor Point handle
+    const dCenter = Math.hypot(px - gz.cx, py - gz.cy);
+    if (dCenter <= hitR) return { mode: 'move', isCenter: true, px, py };
+
+    // 5. Inside bounding box (with padding)
+    const dx = px - gz.cx, dy = py - gz.cy;
+    const cos = Math.cos(gz.rotRad), sin = Math.sin(gz.rotRad);
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    const pad = 14 * (gz.k || 1);
+    if (Math.abs(lx) <= gz.hw + pad && Math.abs(ly) <= gz.hh + pad) {
+        return { mode: 'move', px, py };
+    }
+
+    return { mode: 'none', px, py };
 }
 
 let liveSyncBusy = false;
 let liveSyncPending = null;
-async function triggerLiveSync(m) {
-    if (!state.liveSyncEnabled || !state.liveSyncEnabled['U']) return;
+async function triggerLiveSync(m, S) {
+    const tabKey = S || (state.tab === 'library' ? 'C' : 'U');
+    if (!state.liveSyncEnabled || !state.liveSyncEnabled[tabKey]) return;
     if (!m) return;
+    const a = libEntry(m.id) || m;
+    const subTextVal = $('subText') ? $('subText').value : '';
     const payload = {
+        id: m.id,
         posX: m.posX,
         posY: m.posY,
         scale: m.scale,
-        rotation: m.rotation
+        rotation: m.rotation,
+        sfxVolume: m.sfxVolume,
+        textDesign: m.textDesign,
+        text: subTextVal,
+        boxList: (window.SABoxes && a) ? SABoxes.payload(m, a, subTextVal, tabKey === 'U') : []
     };
     if (liveSyncBusy) {
         liveSyncPending = payload;
@@ -1508,7 +1647,7 @@ async function triggerLiveSync(m) {
     if (liveSyncPending) {
         const next = liveSyncPending;
         liveSyncPending = null;
-        triggerLiveSync(next);
+        triggerLiveSync(next, tabKey);
     }
 }
 
@@ -1518,19 +1657,39 @@ function bindStage(ctx) {
     if (!cv) return;
     cv.addEventListener('pointerenter', () => { state.stageHover = S; redrawStages(); });
     cv.addEventListener('pointerleave', () => {
-        if (state.stageHover === S) { state.stageHover = null; state.stageHoverHit = null; cv.style.cursor = 'grab'; redrawStages(); }
+        if (state.stageHover === S) {
+            state.stageHover = null;
+            state.stageHoverHit = null;
+            cv.style.cursor = 'default';
+            redrawStages();
+        }
     });
     cv.addEventListener('pointermove', (e) => {
         if (state.stageDrag) return;
         const hit = stageHitTest(cv, e.clientX, e.clientY);
-        const cornerCursor = (i) => {
-            const gz = cv._gizmo; if (!gz) return 'nwse-resize';
-            const c = (gz.rawCorners && gz.rawCorners[i]) || gz.corners[i];
-            return ((c.x - gz.cx) * (c.y - gz.cy) >= 0) ? 'nwse-resize' : 'nesw-resize';
-        };
-        cv.style.cursor = hit.mode === 'rotate' ? 'crosshair' : (hit.mode === 'scale' ? cornerCursor(hit.corner) : 'grab');
+        const gz = cv._gizmo;
+        if (!gz || hit.mode === 'none') {
+            cv.style.cursor = 'default';
+        } else if (hit.mode === 'rotate') {
+            cv.style.cursor = 'crosshair';
+        } else if (hit.mode === 'scale') {
+            const c = gz.rawCorners[hit.corner];
+            cv.style.cursor = angleCursor(Math.atan2(c.y - gz.cy, c.x - gz.cx));
+        } else if (hit.mode === 'scale-edge') {
+            const ed = gz.rawEdges[hit.edge];
+            cv.style.cursor = angleCursor(Math.atan2(ed.y - gz.cy, ed.x - gz.cx));
+        } else if (hit.mode === 'move') {
+            cv.style.cursor = 'grab';
+        }
+
         const prev = state.stageHoverHit;
-        const next = hit.mode === 'move' ? null : { S, mode: hit.mode, corner: hit.corner };
+        const next = hit.mode === 'none' ? null : {
+            S,
+            mode: hit.mode,
+            corner: hit.corner,
+            edge: hit.edge,
+            isCenter: hit.isCenter
+        };
         if (JSON.stringify(prev) !== JSON.stringify(next)) {
             state.stageHoverHit = next;
             redrawStages();
@@ -1540,17 +1699,28 @@ function bindStage(ctx) {
         if (e.button !== 0) return;
         const m = ctx.model();
         if (!m) return;
+        const hit = stageHitTest(cv, e.clientX, e.clientY);
+        if (hit.mode === 'none') return;
         e.preventDefault();
         stopPreview();
         try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-        const hit = stageHitTest(cv, e.clientX, e.clientY);
         const gz = cv._gizmo || { cx: cv.width / 2, cy: cv.height / 2, k: 1 };
-        const cIdx = hit.corner !== undefined ? hit.corner : 0;
-        const rawC = (gz.rawCorners && gz.rawCorners[cIdx]) || { x: gz.cx + 50, y: gz.cy + 50 };
-        const vx0 = rawC.x - gz.cx, vy0 = rawC.y - gz.cy;
-        const rawDiag = Math.max(20, Math.hypot(vx0, vy0));
-        const ux = vx0 / rawDiag, uy = vy0 / rawDiag;
-        const diag0 = Math.max(40 * (gz.k || 1), Math.min(Math.hypot(cv.width, cv.height) * 0.45, rawDiag));
+        let ux = 0, uy = 0, dist0 = 100;
+        if (hit.mode === 'scale') {
+            const cIdx = hit.corner !== undefined ? hit.corner : 0;
+            const rawC = (gz.rawCorners && gz.rawCorners[cIdx]) || { x: gz.cx + 50, y: gz.cy + 50 };
+            const vx0 = rawC.x - gz.cx, vy0 = rawC.y - gz.cy;
+            dist0 = Math.max(12, Math.hypot(vx0, vy0));
+            ux = vx0 / dist0;
+            uy = vy0 / dist0;
+        } else if (hit.mode === 'scale-edge') {
+            const eIdx = hit.edge !== undefined ? hit.edge : 0;
+            const rawE = (gz.rawEdges && gz.rawEdges[eIdx]) || { x: gz.cx, y: gz.cy - 50 };
+            const vx0 = rawE.x - gz.cx, vy0 = rawE.y - gz.cy;
+            dist0 = Math.max(12, Math.hypot(vx0, vy0));
+            ux = vx0 / dist0;
+            uy = vy0 / dist0;
+        }
         let initPosX = Number(m.posX) || 0;
         let initPosY = Number(m.posY) || 0;
         const tlW = (state.liveBg && state.liveBg.width) || 1920;
@@ -1560,18 +1730,18 @@ function bindStage(ctx) {
             initPosY = Math.round(-initPosY * tlH * 10) / 10;
         }
         state.stageDrag = {
-            S, ctx, mode: hit.mode, corner: hit.corner,
+            S, ctx, mode: hit.mode, corner: hit.corner, edge: hit.edge, isCenter: hit.isCenter,
             x0: e.clientX, y0: e.clientY,
             px0: hit.px, py0: hit.py,
             cx: gz.cx, cy: gz.cy,
-            ux, uy, diag0,
-            startDist: Math.max(12, Math.hypot(hit.px - gz.cx, hit.py - gz.cy)),
+            ux, uy, dist0,
             startAng: Math.atan2(hit.py - gz.cy, hit.px - gz.cx),
             posX0: initPosX,
             posY0: initPosY,
             scale0: Number(m.scale) || 1,
             rot0: Number(m.rotation) || 0
         };
+        if (hit.mode === 'move') cv.style.cursor = 'grabbing';
         redrawStages();
     });
     const resizeBtn = $('stageResizeBtn' + S);
@@ -1819,20 +1989,22 @@ function onStageDragMove(e) {
     const { px, py } = stagePoint(cv, e.clientX, e.clientY);
 
     if (d.mode === 'rotate') {
-        let deg = d.rot0 + ((Math.atan2(py - d.cy, px - d.cx) - d.startAng) * 180) / Math.PI;
+        const curAng = Math.atan2(py - d.cy, px - d.cx);
+        let deg = d.rot0 + ((curAng - d.startAng) * 180) / Math.PI;
         while (deg > 180) deg -= 360;
         while (deg < -180) deg += 360;
         if (!e.shiftKey) {
             for (const snap of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) {
-                if (Math.abs(deg - snap) <= 3.5) { deg = snap; break; }
+                if (Math.abs(deg - snap) <= 3.0) { deg = snap; break; }
             }
         }
         m.rotation = Number(deg.toFixed(3));
-    } else if (d.mode === 'scale') {
-        const deltaDiag = (px - d.px0) * d.ux + (py - d.py0) * d.uy;
-        const sc = clamp(d.scale0 * Math.max(0.05, 1 + deltaDiag / d.diag0), 0.05, 5.0);
+    } else if (d.mode === 'scale' || d.mode === 'scale-edge') {
+        const curDist = (px - d.cx) * d.ux + (py - d.cy) * d.uy;
+        const ratio = Math.max(0.05, curDist / Math.max(8, d.dist0));
+        const sc = clamp(d.scale0 * ratio, 0.05, 5.0);
         m.scale = Number(sc.toFixed(3));
-    } else {
+    } else if (d.mode === 'move') {
         const tlW = (state.liveBg && state.liveBg.width) || 1920;
         const tlH = (state.liveBg && state.liveBg.height) || 1080;
         const vp = cv._viewport || { vx: 0, vy: 0, vw: cv.width, vh: cv.height };
@@ -1841,8 +2013,8 @@ function onStageDragMove(e) {
         let nx = d.posX0 + ((e.clientX - d.x0) / cssVw) * tlW;
         let ny = d.posY0 - ((e.clientY - d.y0) / cssVh) * tlH; // negative Tilt is down on screen in Resolve
         if (!e.shiftKey) {
-            if (Math.abs(nx) < 6) nx = 0;
-            if (Math.abs(ny) < 6) ny = 0;
+            if (Math.abs(nx) < 4) nx = 0;
+            if (Math.abs(ny) < 4) ny = 0;
         }
         m.posX = Number(nx.toFixed(1));
         m.posY = Number(ny.toFixed(1));
@@ -1854,6 +2026,7 @@ function onStageDragMove(e) {
         a.scale = m.scale;
         a.rotation = m.rotation;
     }
+    syncXformUI(d.S, m.posX, m.posY, m.scale, m.rotation);
     drawStage(d.S, a || m, null);
     triggerLiveSync(m);
 }
@@ -1862,6 +2035,8 @@ function onStageDragEnd() {
     const d = state.stageDrag;
     state.stageDrag = null;
     if (d) {
+        const cv = $('stage' + d.S);
+        if (cv) cv.style.cursor = 'default';
         const m = d.ctx.model();
         if (m) d.ctx.changed(m);
         redrawStages();
@@ -1933,7 +2108,7 @@ function runPreview(ctx, loop = false) {
         if (!fired && tf >= g.sfxS && (!state.preview.loop || loopCount === 0)) {
             fired = true;
             const sfx = currentSfxPath(curM);
-            if (sfx) play(sfx);
+            if (sfx) play(sfx, curM && curM.sfxVolume);
         }
         const relFrame = (tf < g.textS || tf > g.textE) ? -1 : Math.max(0, Math.floor(tf - g.textS));
         drawStage(ctx.s, curM, relFrame);
@@ -1957,6 +2132,7 @@ function mountBlocks() {
     bindInspectorChrome();
     linkNumBoxes();
     linkRgbSliders();
+    bindDblClickReset();
 }
 
 // Resolve-style tab bar (Text / Shading) and collapsible section headers.
@@ -2043,6 +2219,104 @@ function normHex(v) {
     let s = String(v || '').trim().replace(/^#/, '');
     if (/^[0-9a-f]{3}$/i.test(s)) s = s.split('').map(c => c + c).join('');
     return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
+}
+
+// DaVinci Resolve authentic default parameter values for Transform, Text Design, and Alignment
+const RESOLVE_DEFAULTS = {
+    // Transform (DaVinci Resolve Edit Page layer transform defaults)
+    scale: 1.0,
+    numScale: 1.0,
+    posX: 0,
+    numPosX: 0,
+    posY: 0,
+    numPosY: 0,
+    rot: 0,
+    numRot: 0,
+
+    // Text & Shading Design (DaVinci Resolve Fusion Text+ defaults)
+    tdSize: 0.08,
+    tdTrack: 1.0,
+    tdLine: 1.0,
+    shOpacity: 1.0,
+    shThickness: 0.02,
+    shExtendH: 0.0,
+    shExtendV: 0.0,
+    shRound: 0.0,
+    shSoftness: 0,
+    shOffsetX: 0,
+    shOffsetY: 0,
+
+    // Alignment (DaVinci Resolve timeline audio & offset defaults)
+    sfxVolume: 0,
+    textOffset: 0,
+    sfxOffset: 0,
+    tail: 0
+};
+
+function getDefaultValue(inp) {
+    if (!inp) return null;
+    if (inp.dataset && inp.dataset.default !== undefined) {
+        const str = String(inp.dataset.default).trim();
+        const num = Number(str);
+        return isNaN(num) ? str : num;
+    }
+    const cleanId = (inp.id || '').replace(/[UC]$/, '');
+    if (cleanId in RESOLVE_DEFAULTS) {
+        return RESOLVE_DEFAULTS[cleanId];
+    }
+    return null;
+}
+
+let dblClickResetBound = false;
+function bindDblClickReset() {
+    if (dblClickResetBound) return;
+    dblClickResetBound = true;
+    document.addEventListener('dblclick', (e) => {
+        // Find if target is a label or inside a label
+        const label = e.target.closest('label, .xform-lbl, .sh-lbl');
+        if (!label) return;
+
+        // Do not trigger if user was double clicking inside an input box to select text
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+        const inputs = [];
+        const forId = label.getAttribute('for');
+        if (forId) {
+            const el = document.getElementById(forId);
+            if (el) inputs.push(el);
+        }
+        label.querySelectorAll('input, select').forEach(inp => {
+            if (!inputs.includes(inp)) inputs.push(inp);
+        });
+
+        const row = label.closest('.xform-grid-row, .ctl, .row, .sh-border-box, .sh-soft-row, .td-color-size');
+        if (row) {
+            row.querySelectorAll('input, select').forEach(inp => {
+                if (!inputs.includes(inp)) inputs.push(inp);
+            });
+        }
+
+        if (!inputs.length) return;
+
+        let handled = false;
+        inputs.forEach(inp => {
+            const def = getDefaultValue(inp);
+            if (def !== null && def !== undefined) {
+                inp.value = def;
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                handled = true;
+            }
+        });
+
+        if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+                if (window.getSelection) window.getSelection().removeAllRanges();
+            } catch (err) {}
+        }
+    });
 }
 
 function attachHexFields() {
@@ -2284,15 +2558,35 @@ function bindTextDesign(ctx) {
         if (!m) return;
         m.designDirty = true;
         m.adjusted = true;
+        m.dirty = true;
         if (S === 'U' && state.use) {
             state.use.dirty = true;
             state.use.adjusted = true;
+            state.use.designDirty = true;
         }
         if (S === 'C') state.createAdjusted = true;
+
+        const a = libEntry(m.id);
+        if (a) {
+            a.textDesign = cloneTextDesign(m.textDesign);
+            a.designDirty = true;
+            a.adjusted = true;
+        }
+
         fillTextDesign(ctx);
         renderUseSummary();
         if (S === 'C') renderCreateSummary();
         redrawStages();
+
+        if (window.SAThumbs && typeof SAThumbs.drawAll === 'function') {
+            SAThumbs.drawAll(performance.now());
+        }
+
+        saveField(m.id, { textDesign: m.textDesign });
+
+        if (typeof triggerLiveSync === 'function') {
+            triggerLiveSync(m, S);
+        }
     };
     const curEl = () => {
         const m = ctx.model();
@@ -2610,7 +2904,11 @@ function bindAdjust(ctx) {
         const m = ctx.model(); if (!m) return;
         m.sfxVolume = Number($('sfxVolume' + S).value);
         $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
+        const a = libEntry(m.id);
+        if (a) a.sfxVolume = m.sfxVolume;
         ctx.changed(m);
+        renderTimeline(ctx);
+        triggerLiveSync(m, S);
     });
     $('textTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number($('textTrack' + S).value); ctx.changed(m); } });
     $('sfxTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number($('sfxTrack' + S).value); ctx.changed(m); } });
@@ -2627,7 +2925,7 @@ function bindAdjust(ctx) {
     }
     $('prevSfx' + S).addEventListener('click', () => {
         const m = ctx.model(); const p = m && (m.useSfx === false ? null : (m.sfxPath || currentSfxPath(m)));
-        if (p) play(p); else setStatus('This item has no sound to play.', 'bad');
+        if (p) play(p, m && m.sfxVolume); else setStatus('This item has no sound to play.', 'bad');
     });
 
     const handleSfxFile = async (filePath) => {
@@ -2922,6 +3220,7 @@ function setTdOpen(open) {
         const chev = $('tdToggleU').querySelector('.chev');
         if (chev) chev.textContent = open ? '▾' : '▸';
     }
+    redrawStages();
 }
 
 function setCreateAdjustOpen(open) {
@@ -2945,6 +3244,7 @@ function setCreateTdOpen(open) {
         const chev = $('tdToggleC').querySelector('.chev');
         if (chev) chev.textContent = open ? '▾' : '▸';
     }
+    redrawStages();
 }
 
 function renderDefaultSfx() {

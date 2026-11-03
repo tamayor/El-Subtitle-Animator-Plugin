@@ -1047,6 +1047,27 @@ body.tab-library {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.xform-lbl:hover,
+.ctl > label:hover,
+.nums label:hover,
+.sh-border-box label:hover,
+.sh-soft-row label:hover {
+    color: #e5ece7;
+}
+
+.ctl > label,
+.nums label,
+.sh-border-box label,
+.sh-soft-row label {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: pointer;
 }
 
 .xform-slider-cell {

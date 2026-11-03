@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('sa', {
     replaceAnimationFile: (id, p, keep) => ipcRenderer.invoke('lib:replaceFile', id, p, keep),
     pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),
     previewData: (id) => ipcRenderer.invoke('lib:previewData', id),
-    makePreview: (id) => ipcRenderer.invoke('lib:makePreview', id),
+    makePreview: (id, customText) => ipcRenderer.invoke('lib:makePreview', id, customText),
     scanClip: () => ipcRenderer.invoke('act:scanClip'),
     apply: (req) => ipcRenderer.invoke('act:apply', req),
     updateLatest: (req) => ipcRenderer.invoke('act:updateLatest', req),

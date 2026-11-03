@@ -528,6 +528,7 @@ let subCache = { key: '', at: 0, list: [] };
 let applying = false;
 let lastPoll = null;
 let lastPlacedItemId = null;
+let lastPlacedAudioId = null;
 
 async function getSubtitles(tl, force) {
     const key = await tl.GetName();
@@ -835,17 +836,26 @@ async function apply(event, req) {
                 warnings.push('The sound effect could not be placed.');
             } else {
                 const sfxItem = placed[0];
-                if (req.sfxVolume) {
-                    await sfxItem.SetProperties({ AudioVolume: Number(req.sfxVolume) });
+                const targetVol = (req.sfxVolume !== undefined && req.sfxVolume !== null)
+                    ? Number(req.sfxVolume)
+                    : (anim.sfxVolume !== undefined && anim.sfxVolume !== null ? Number(anim.sfxVolume) : 0);
+                try {
+                    await sfxItem.SetProperties({
+                        AudioVolumeEnabled: true,
+                        AudioVolume: targetVol
+                    });
+                } catch (e) {
+                    warnings.push('Could not set sound volume: ' + e.message);
                 }
+                const sfxId = String(await sfxItem.GetUniqueId());
+                lastPlacedAudioId = sfxId;
                 try {
                     let linkedOk = false;
                     if (typeof tl.SetClipsLinked === 'function') {
                         linkedOk = await tl.SetClipsLinked([item, sfxItem], wantLink);
                     }
                     if (!linkedOk) {
-                        const sfxId = String(await sfxItem.GetUniqueId());
-                        linkedOk = await bridgeCall('link_clips', { videoId: itemId, audioId: sfxId, linked: wantLink });
+                        linkedOk = await bridgeCall('link_clips', { videoId: itemId, audioId: sfxId, linked: wantLink, volume: targetVol });
                     }
                     clipsLinked = !!(wantLink && linkedOk);
                 } catch (e) {
@@ -884,15 +894,18 @@ async function capturePreview(animId, itemId) {
     const meta = tl ? await timelineMeta(tl) : { fps: 25 };
     const fps = Math.round(meta.fps || 25);
     const targetCount = Math.round(fps * 3);
-    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim: 480 }, 120000);
-    if (!res || !res.frames || !res.frames.length) throw new Error('No frames came back');
     const dir = path.join(PREV_DIR, animId);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
+    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim: 320, outDir: dir }, 120000);
+    const count = (res && typeof res.count === 'number') ? res.count : ((res && res.frames) ? res.frames.length : 0);
+    if (!count) throw new Error('No frames came back');
+    if (res && res.frames && res.frames.length) {
+        res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
+    }
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === animId);
-    if (a) { a.preview = { count: res.frames.length, step: res.step || 1, fps: res.fps || fps, stamp: Date.now() }; saveLib(lib); }
+    if (a) { a.preview = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now() }; saveLib(lib); }
     return true;
 }
 
@@ -1189,6 +1202,53 @@ async function syncLiveTransform(event, req) {
             ZoomY: zoom,
             RotationAngle: rotAngle
         });
+
+        // Live sync Text Design & text content to timeline Fusion clip
+        if (req.textDesign) {
+            const itemId = String(await item.GetUniqueId());
+            const names = (await item.GetFusionCompNameList()) || [];
+            const compName = names[names.length - 1] || null;
+            const textArg = (req.text && String(req.text).trim()) ? String(req.text).trim() : null;
+            if (Array.isArray(req.boxList) && req.boxList.length) {
+                await bridgeCall('set_boxes', {
+                    item: itemId,
+                    comp: compName,
+                    boxes: req.boxList,
+                    textDesign: req.textDesign
+                }, 4000);
+            } else {
+                await bridgeCall('set_text', {
+                    item: itemId,
+                    comp: compName,
+                    text: textArg,
+                    textDesign: req.textDesign
+                }, 4000);
+            }
+        }
+
+        // Live sync sound volume to timeline audio clip if present
+        if (req.sfxVolume !== undefined && req.sfxVolume !== null && lastPlacedAudioId) {
+            try {
+                const project = await getProject();
+                const tl = project && await project.GetCurrentTimeline();
+                if (tl) {
+                    const audioTracks = (await tl.GetTrackCount('audio')) || 0;
+                    for (let t = 1; t <= audioTracks; t++) {
+                        const aItems = (await tl.GetItemListInTrack('audio', t)) || [];
+                        for (const ai of aItems) {
+                            if (String(await ai.GetUniqueId()) === String(lastPlacedAudioId)) {
+                                await ai.SetProperties({
+                                    AudioVolumeEnabled: true,
+                                    AudioVolume: Number(req.sfxVolume)
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+
         return { ok: true };
     } catch (e) {
         return { ok: false, error: e.message };
@@ -1293,7 +1353,7 @@ function previewData(event, id) {
 // timeline, the preset is loaded onto it, its frames are exported, and the clip is removed again.
 const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line'];
 
-async function makePreview(event, animId) {
+async function makePreview(event, animId, customText) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
     let tl = null, item = null, origTC = null, leftover = false;
@@ -1328,14 +1388,14 @@ async function makePreview(event, animId) {
 
         const textDesign = designForFusion(compPath, anim.textDesign || null);
         const nodes = detectNodes(compPath).filter(n => !n.nested);
+        const sampleText = (customText && typeof customText === 'string' && customText.trim()) ? customText.trim() : null;
         if (nodes.length) {
-            const boxes = nodes.map((n, i) => ({ id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label, text: SAMPLE_TEXTS[i % SAMPLE_TEXTS.length] }));
+            const boxes = nodes.map((n, i) => ({ id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label, text: sampleText || SAMPLE_TEXTS[i % SAMPLE_TEXTS.length] }));
             await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes, textDesign });
         } else {
-            await bridgeCall('set_text', { item: itemId, comp: compName, text: SAMPLE_TEXTS[0], textDesign });
+            await bridgeCall('set_text', { item: itemId, comp: compName, text: sampleText || SAMPLE_TEXTS[0], textDesign });
         }
         try {
-            await new Promise(r => setTimeout(r, 250));
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* only a safety refresh */ }
         await capturePreview(animId, itemId);

@@ -178,6 +178,7 @@
     // Draws the preset's real rendered animation (captured from Fusion) over the video frame, looping every 3 s at real 25 or 30 fps.
     function paint(g, a, m, vp, gx, frameIdx) {
         if (!window.SAThumbs) return false;
+        if (m && m.designDirty) return false;
         const tVal = (frameIdx !== null && frameIdx !== undefined && frameIdx >= 0) ? frameIdx : performance.now();
         const fr = SAThumbs.keyedFrame(a, tVal);
         if (!fr) return false;
@@ -189,9 +190,16 @@
             oy = -(b.cy - nodes[0].cy);
         }
         g.save();
+        g.beginPath();
+        g.rect(vp.vx, vp.vy, vp.vw, vp.vh);
+        g.clip();
         g.translate(vp.vx + vp.vw / 2 + (gx.posX / gx.tlW) * vp.vw, vp.vy + vp.vh / 2 - (gx.posY / gx.tlH) * vp.vh);
         if (gx.rot) g.rotate((gx.rot * Math.PI) / 180);
         if (gx.scale !== 1) g.scale(gx.scale, gx.scale);
+        // Clip strictly to transform box boundary
+        g.beginPath();
+        g.rect(-vp.vw / 2, -vp.vh / 2, vp.vw, vp.vh);
+        g.clip();
         g.drawImage(fr, -vp.vw / 2 + ox * vp.vw, -vp.vh / 2 + oy * vp.vh, vp.vw, vp.vh);
         g.restore();
         return true;
@@ -556,36 +564,59 @@
     const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const isDefaultBounds = (b) => b && Math.abs(b.x - 0.2) < 1e-6 && Math.abs(b.y - 0.4) < 1e-6 && Math.abs(b.w - 0.6) < 1e-6 && Math.abs(b.h - 0.2) < 1e-6;
 
-    // Preview frames as images made from data URLs (loaded once per preview through the main process).
+    // Preview frames loaded directly from file URLs (or through previewFrames cache), avoiding heavy base64 IPC.
     const dataCache = new Map();
     function frames(a) {
         if (!a || !a.preview) return null;
+        if (typeof previewFrames === 'function') {
+            const list = previewFrames(a);
+            if (list && list.length) return list;
+        }
         const key = a.id + ':' + (a.preview.stamp || 0) + ':' + a.preview.count;
         let e = dataCache.get(key);
         if (!e) {
             e = { imgs: null };
             dataCache.set(key, e);
-            window.sa.previewData(a.id).then((r) => {
-                if (r && r.frames && r.frames.length) e.imgs = r.frames.map((b64) => { const i = new Image(); i.src = 'data:image/png;base64,' + b64; return i; });
-            }).catch(() => { dataCache.delete(key); });
+            if (a.previewFiles && a.previewFiles.length) {
+                e.imgs = a.previewFiles.map((p) => {
+                    const i = new Image();
+                    i.src = (typeof fileUrl === 'function' ? fileUrl(p) : ('file://' + p)) + '?v=' + (a.preview.stamp || 0);
+                    return i;
+                });
+            } else if (window.sa && window.sa.previewData) {
+                window.sa.previewData(a.id).then((r) => {
+                    if (r && r.frames && r.frames.length) e.imgs = r.frames.map((b64) => { const i = new Image(); i.src = 'data:image/png;base64,' + b64; return i; });
+                }).catch(() => { dataCache.delete(key); });
+            }
         }
         return e.imgs;
     }
 
     function framesReady(imgs) { return imgs && imgs.length && imgs.every(i => i.complete && i.naturalWidth); }
 
-    // Scan every captured frame and keep the smallest box that holds the text through the whole animation.
+    // Scan captured frames (sampled across the animation for speed) to compute the text bounding box.
     function geometry(a, imgs) {
         const key = a.id + ':' + (a.preview && a.preview.stamp) + ':' + imgs.length;
         let g = geoCache.get(key);
         if (g) return g;
         let minX = 1, minY = 1, maxX = 0, maxY = 0, any = false;
-        for (const im of imgs) {
+        const step = Math.max(1, Math.floor(imgs.length / 12));
+        for (let i = 0; i < imgs.length; i += step) {
+            const im = imgs[i];
             const b = keyedImage(im)._bounds;          // finds where the text pixels are in this frame
             if (!b || isDefaultBounds(b)) continue;
             any = true;
             minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
             maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+        }
+        if (imgs.length > 1) {
+            const lastIm = imgs[imgs.length - 1];
+            const b = keyedImage(lastIm)._bounds;
+            if (b && !isDefaultBounds(b)) {
+                any = true;
+                minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+                maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+            }
         }
         if (!any) { minX = 0.25; minY = 0.42; maxX = 0.75; maxY = 0.58; }
         const W = imgs[0].naturalWidth, H = imgs[0].naturalHeight;
@@ -598,11 +629,28 @@
         return g;
     }
 
+    function activeSubtitleText() {
+        const el = document.getElementById('subText');
+        const v = el ? el.value.trim() : '';
+        return v || (typeof state !== 'undefined' && state.live && state.live.subtitle && state.live.subtitle.text && state.live.subtitle.text.trim()) || '';
+    }
+
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
+        const sub = activeSubtitleText();
+        const curM = (typeof state !== 'undefined' && state.tab === 'apply' && state.selectedId === a.id && state.use)
+            ? state.use
+            : (typeof state !== 'undefined' && state.tab === 'library' && state.createId === a.id && libEntry(state.createId))
+                ? libEntry(state.createId)
+                : a;
+        const isDirty = !!(curM && curM.designDirty);
+        if (sub || isDirty) {
+            drawSynthetic(cv, a, t, sub);
+            return;
+        }
         const imgs = frames(a);
-        if (!framesReady(imgs) || geometry(a, imgs).blank) { drawSynthetic(cv, a, t); return; }
+        if (!framesReady(imgs) || geometry(a, imgs).blank) { drawSynthetic(cv, a, t, ''); return; }
         const g = geometry(a, imgs);
         const idx = frameIndex(a, imgs, t);
         const c = cv.getContext('2d');
@@ -645,9 +693,28 @@
         return Math.floor(((t % LOOP_MS) / 1000) * fps);
     }
 
+    function wrapToLines(text, maxChars) {
+        if (!text) return [];
+        if (text.includes('\n')) {
+            return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        }
+        const limit = maxChars || 22;
+        if (text.length <= limit) return [text];
+        const words = text.split(/\s+/).filter(Boolean);
+        if (words.length <= 1) return [text];
+        const half = text.length / 2;
+        let bestIdx = 1, minDiff = Infinity, cur = 0;
+        for (let i = 0; i < words.length - 1; i++) {
+            cur += words[i].length + 1;
+            const diff = Math.abs(cur - half);
+            if (diff < minDiff) { minDiff = diff; bestIdx = i + 1; }
+        }
+        return [words.slice(0, bestIdx).join(' '), words.slice(bestIdx).join(' ')];
+    }
+
     // Draws the preset's text design with a built-in animation (pop-in, keys from the Fusion file, wiggle),
-    // used until real Fusion frames exist or when the capture came back empty.
-    function drawSynthetic(cv, a, t) {
+    // used until real Fusion frames exist or when the capture came back empty, or for live subtitle rendering.
+    function drawSynthetic(cv, a, t, customSub) {
         const c = cv.getContext('2d');
         const W = cv.width, H = cv.height;
         c.setTransform(1, 0, 0, 1, 0, 0);
@@ -655,7 +722,13 @@
         c.filter = 'none';
         c.fillStyle = '#000';
         c.fillRect(0, 0, W, H);
-        const td = (typeof cloneTextDesign === 'function') ? cloneTextDesign(a && a.textDesign) : ((a && a.textDesign) || {});
+        const curModel = (typeof state !== 'undefined' && state.tab === 'apply' && state.selectedId === a.id && state.use)
+            ? state.use
+            : (typeof state !== 'undefined' && state.tab === 'library' && state.createId === a.id && libEntry(state.createId))
+                ? libEntry(state.createId)
+                : a;
+        const rawTd = (curModel && curModel.textDesign) || (a && a.textDesign) || {};
+        const td = (typeof cloneTextDesign === 'function') ? cloneTextDesign(rawTd) : rawTd;
         const spec = td.animSpec || null;
         const f = autoFrame(t);
         const rep = Math.max(1, Number(spec && spec.frameRepeat) || (td.wiggle ? 4 : 1));
@@ -681,22 +754,54 @@
         else if (/light|thin/.test(st)) weight = '300';
         else if (/regular|normal/.test(st)) weight = '400';
         const italic = /italic|oblique/.test(st) ? 'italic ' : '';
-        let text = 'Sample text';
-        if (spec && spec.follower) {
-            const words = text.split(' ');
-            const delay = Math.max(3, Number(spec.follower.delay || 4));
-            const count = Math.min(words.length, Math.max(0, Math.floor(f / delay)));
-            text = count > 0 ? words.slice(0, count).join(' ') : '';
+
+        const subText = (customSub !== undefined && customSub !== null && String(customSub).trim() !== '')
+            ? String(customSub).trim()
+            : activeSubtitleText();
+        const rawText = subText || 'Sample text';
+        const lines = wrapToLines(rawText);
+        if (!lines.length) { c.restore(); return; }
+
+        const allWords = [];
+        lines.forEach((line, li) => {
+            const ws = line.split(/\s+/).filter(Boolean);
+            ws.forEach(w => allWords.push({ word: w, lineIdx: li }));
+        });
+
+        let renderLines = lines;
+        if (spec && spec.follower && allWords.length > 0) {
+            const maxAnimFrames = Math.floor(autoFrame(LOOP_MS) * 0.55);
+            const baseDelay = Math.max(1, Math.min(5, Math.floor(maxAnimFrames / allWords.length)));
+            const delay = Math.max(1, Math.min(baseDelay, Math.max(1, Math.round(Number(spec.follower.delay || 1) * 3))));
+            const count = Math.min(allWords.length, Math.max(0, Math.floor(f / delay)));
+            if (count === 0) { c.restore(); return; }
+            const lineBuckets = lines.map(() => []);
+            for (let i = 0; i < count; i++) {
+                const item = allWords[i];
+                lineBuckets[item.lineIdx].push(item.word);
+            }
+            renderLines = lineBuckets.map(b => b.join(' '));
         }
-        if (!text) { c.restore(); return; }
-        let px = Math.round(H * 0.3);
+
+        const numLines = lines.length;
+        let px = Math.round(H * (numLines > 1 ? 0.22 : 0.28));
         const setFont = () => { c.font = italic + weight + ' ' + px + 'px "' + (td.font || 'Poppins') + '", -apple-system, sans-serif'; };
         setFont();
-        const fit = (W * 0.8) / Math.max(1, c.measureText(text).width);
-        if (fit < 1) { px = Math.max(8, Math.floor(px * fit)); setFont(); }
+        const maxFullLineW = Math.max(...lines.map(l => c.measureText(l).width));
+        const fitW = (W * 0.82) / Math.max(1, maxFullLineW);
+        if (fitW < 1) { px = Math.max(10, Math.floor(px * fitW)); setFont(); }
+        const lineSpacing = clampN(Number(td.lineSpacing) || 1, 0.6, 2.0);
+        const curLineH = px * lineSpacing * 1.18;
+        const totalFullH = curLineH * numLines;
+        if (totalFullH > H * 0.82) {
+            px = Math.max(10, Math.floor(px * ((H * 0.82) / totalFullH)));
+            setFont();
+        }
+
         c.textAlign = 'center';
         c.textBaseline = 'middle';
-        const tw = c.measureText(text).width;
+        const startY = -((renderLines.length - 1) / 2) * curLineH;
+
         c.save();
         c.translate(W / 2 + jx, H / 2 + jy);
         if (rot) c.rotate(rot);
@@ -716,35 +821,47 @@
             if (soft > 0) c.filter = 'blur(' + Math.min(8, soft * px * 0.06).toFixed(1) + 'px)';
             let col = el.color || '#ffffff';
             if (Number(el.type) === 2) {
-                const gr = c.createLinearGradient(-tw / 2, 0, tw / 2, 0);
+                const activeWidths = renderLines.map(l => l ? c.measureText(l).width : 0);
+                const maxW = Math.max(12, ...activeWidths);
+                const gr = c.createLinearGradient(-maxW / 2, 0, maxW / 2, 0);
                 gr.addColorStop(0, el.color || '#ffffff');
                 gr.addColorStop(1, el.color2 || '#f07b8e');
                 col = gr;
             }
             const shape = Number(el.shape) || 0;
             if (shape === 2 || shape === 3) {
-                const bw = tw + px * (0.48 + (Number(el.extendH) || 0) * 2.8);
-                const bh = px * (1.16 + 0.28 + (Number(el.extendV) || 0) * 2.2);
+                const activeWidths = renderLines.map(l => l ? c.measureText(l).width : 0);
+                const maxW = Math.max(12, ...activeWidths);
+                const activeLineCount = renderLines.filter(Boolean).length || 1;
+                const bw = maxW + px * (0.48 + (Number(el.extendH) || 0) * 2.8);
+                const bh = (activeLineCount * curLineH) + px * (0.28 + (Number(el.extendV) || 0) * 2.2);
                 const r = clampN(Number(el.round) || 0, 0, 1) * Math.min(bw, bh) * 0.5;
                 c.beginPath();
-                if (typeof c.roundRect === 'function') c.roundRect(-bw / 2 + ox, -bh / 2 + oy, bw, bh, r); else c.rect(-bw / 2 + ox, -bh / 2 + oy, bw, bh);
+                if (typeof c.roundRect === 'function') c.roundRect(-bw / 2 + ox, -bh / 2 + oy, bw, bh, r);
+                else c.rect(-bw / 2 + ox, -bh / 2 + oy, bw, bh);
                 if (shape === 2) { c.fillStyle = col; c.fill(); }
                 else { c.strokeStyle = col; c.lineWidth = Math.max(1, (Number(el.thickness) || 0.02) * px * 4); c.stroke(); }
             } else if (shape === 1) {
                 c.strokeStyle = col;
                 c.lineJoin = 'round';
                 c.lineWidth = Math.max(1, (Number(el.thickness) || 0.02) * px * 5);
-                c.strokeText(text, ox, oy);
+                renderLines.forEach((l, li) => {
+                    if (l) c.strokeText(l, ox, startY + li * curLineH + oy);
+                });
             } else {
                 c.fillStyle = col;
-                c.fillText(text, ox, oy);
+                renderLines.forEach((l, li) => {
+                    if (l) c.fillText(l, ox, startY + li * curLineH + oy);
+                });
             }
             c.restore();
         }
         if (!drew) {
             c.globalAlpha = op;
             c.fillStyle = '#ffffff';
-            c.fillText(text, 0, 0);
+            renderLines.forEach((l, li) => {
+                if (l) c.fillText(l, 0, startY + li * curLineH);
+            });
         }
         c.restore();
     }
@@ -781,8 +898,14 @@
                 lastStage = ts;
                 const a = state.tab === 'apply' ? selected() : libEntry(state.createId);
                 if (a) {
-                    if (hasRealFrames(a) && window.SABoxes && SABoxes.active(a)) redrawStages();
-                    else if (typeof drawStage === 'function') drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));
+                    const curM = (state.tab === 'apply' && state.use) ? state.use : a;
+                    const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
+                    const isTdOpen = !!(state.tdOpen || state.createTdOpen);
+                    if (hasRealFrames(a) && window.SABoxes && SABoxes.active(a) && !activeSubtitleText() && !isDirty && !isTdOpen) {
+                        redrawStages();
+                    } else if (typeof drawStage === 'function') {
+                        drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));
+                    }
                 }
             }
         }
@@ -791,12 +914,13 @@
     async function render(ids) {
         const list = Array.isArray(ids) ? ids : [ids];
         batch = list.length > 1 ? { done: 0, total: list.length } : null;
+        const liveSub = activeSubtitleText();
         for (const id of list) {
             busy.add(id);
             renderAnimations();
             setStatus('Rendering preview ' + (batch ? (batch.done + 1) + ' of ' + batch.total + ' ' : '') + 'in Resolve…');
             let res;
-            try { res = await window.sa.makePreview(id); } catch (e) { res = { error: String(e && e.message || e) }; }
+            try { res = await window.sa.makePreview(id, liveSub); } catch (e) { res = { error: String(e && e.message || e) }; }
             busy.delete(id);
             if (batch) batch.done++;
             if (res && res.error) {
@@ -870,7 +994,12 @@
         if (next) render(next.id);
     }, 2500);
 
-    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames };
+    function drawAll(t) {
+        const ts = (t !== undefined) ? t : performance.now();
+        document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
+    }
+
+    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames, drawAll, wrapToLines };
     requestAnimationFrame(loop);
 })();
 

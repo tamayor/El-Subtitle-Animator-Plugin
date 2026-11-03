@@ -8,6 +8,7 @@
 #   out: {"id": 1, "ok": true, "result": ...}   or   {"id": 1, "ok": false, "error": "..."}
 
 import sys
+import os
 import json
 import traceback
 
@@ -411,9 +412,23 @@ def op_link_clips(a):
     tl = timeline()
     v_item = find_any_item(a.get("videoId"), "video")
     a_item = find_any_item(a.get("audioId"), "audio")
+    if a_item and a.get("volume") is not None:
+        try:
+            a_item.SetProperties({"AudioVolumeEnabled": True, "AudioVolume": float(a["volume"])})
+        except Exception:
+            pass
     if not v_item or not a_item:
         return False
     return bool(tl.SetClipsLinked([v_item, a_item], bool(a.get("linked", True))))
+
+
+def op_set_audio_volume(a):
+    item = find_any_item(a.get("item"), "audio")
+    if not item:
+        return {"ok": False, "error": "Item not found"}
+    vol = float(a.get("volume", 0.0))
+    res = item.SetProperties({"AudioVolumeEnabled": True, "AudioVolume": vol})
+    return {"ok": bool(res)}
 
 
 def op_capture(a):
@@ -425,7 +440,19 @@ def op_capture(a):
     span = min(duration, int(round(fps * 3)))
     count = int(a.get("count") or span)
     step = int(a.get("step") or 1)
-    max_dim = int(a.get("maxDim") or 480)
+    max_dim = int(a.get("maxDim") or 320)
+    out_dir = a.get("outDir")
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        try:
+            for old_f in os.listdir(out_dir):
+                if old_f.startswith("p") and old_f.endswith(".png"):
+                    try:
+                        os.remove(os.path.join(out_dir, old_f))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     orig_props = {}
     try:
         orig_props = item.GetProperties() or {}
@@ -435,11 +462,18 @@ def op_capture(a):
     frames, off = [], 0
     try:
         while off < duration and len(frames) < count:
-            r = item.ExportFrame(off, {"outputType": "encodedString", "encodedImageFormat": "png",
-                                        "maxDimension": max_dim})
-            if not r or not r.get("success"):
-                raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
-            frames.append(r["data"])
+            if out_dir:
+                fp = os.path.join(out_dir, "p%02d.png" % len(frames))
+                r = item.ExportFrame(off, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+                if not r or not r.get("success"):
+                    raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+                frames.append(len(frames))
+            else:
+                r = item.ExportFrame(off, {"outputType": "encodedString", "encodedImageFormat": "png",
+                                            "maxDimension": max_dim})
+                if not r or not r.get("success"):
+                    raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+                frames.append(r["data"])
             off += step
     finally:
         if orig_props:
@@ -453,7 +487,7 @@ def op_capture(a):
                 })
             except Exception:
                 pass
-    return {"step": step, "fps": fps, "frames": frames}
+    return {"step": step, "fps": fps, "count": len(frames), "frames": [] if out_dir else frames}
 
 
 def op_live_frame(a):
@@ -474,7 +508,7 @@ def op_live_frame(a):
     }
 
 
-OPS = {"scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text}
+OPS = {"scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
 
 
 def handle(req):

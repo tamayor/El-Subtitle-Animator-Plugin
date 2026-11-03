@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('sa', {
     saveVariant: (req) => ipcRenderer.invoke('lib:saveVariant', req),
     updateAnimation: (id, patch) => ipcRenderer.invoke('lib:update', id, patch),
     removeAnimation: (id) => ipcRenderer.invoke('lib:remove', id),
+    saveTags: (tags) => ipcRenderer.invoke('lib:saveTags', tags),
     setDefaultSfx: (p) => ipcRenderer.invoke('lib:setDefaultSfx', p),
     setAnimationSfx: (id, p) => ipcRenderer.invoke('lib:setAnimationSfx', id, p),
     replaceAnimationFile: (id, p, keep) => ipcRenderer.invoke('lib:replaceFile', id, p, keep),

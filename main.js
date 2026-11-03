@@ -58,10 +58,11 @@ function newAnimation(name, file, defaults) {
 
 function loadLib() {
     ensureDirs();
-    let lib = { defaultSfx: null, alwaysOnTop: true, animations: [] };
+    let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
     try {
         lib = Object.assign(lib, JSON.parse(fs.readFileSync(LIB_FILE, 'utf8')));
     } catch (e) { /* first run */ }
+    if (!Array.isArray(lib.tags)) lib.tags = [];
     return lib;
 }
 
@@ -447,6 +448,7 @@ function libForUI() {
         dataDir: DATA_DIR,
         alwaysOnTop: lib.alwaysOnTop !== false,
         defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: path.join(SFX_DIR, lib.defaultSfx) } : null,
+        tags: lib.tags,
         animations: lib.animations.map(a => {
             const animPath = path.join(ANIM_DIR, a.file);
             const exists = fs.existsSync(animPath);
@@ -1259,8 +1261,29 @@ function updateAnimation(event, id, patch) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
+    if ('tags' in patch) {
+        const known = new Set(lib.tags.map(t => t.id));
+        a.tags = Array.isArray(a.tags) ? Array.from(new Set(a.tags)).filter(id => known.has(id)) : [];
+    }
+    saveLib(lib);
+    return { lib: libForUI() };
+}
+
+// Tags (like Finder tags): a name and a color, kept in library.json inside the library folder.
+// The panel sends the whole list; presets lose any tag that no longer exists.
+function saveTags(event, tags) {
+    const lib = loadLib();
+    const seen = new Set();
+    lib.tags = (Array.isArray(tags) ? tags : []).map(t => ({
+        id: String((t && t.id) || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))),
+        name: String((t && t.name) || '').trim().slice(0, 40),
+        color: /^#[0-9a-f]{6}$/i.test(String(t && t.color)) ? String(t.color).toLowerCase() : '#8e8e93'
+    })).filter(t => t.name && !seen.has(t.id) && seen.add(t.id));
+    for (const a of lib.animations) {
+        if (Array.isArray(a.tags)) a.tags = a.tags.filter(id => seen.has(id));
+    }
     saveLib(lib);
     return { lib: libForUI() };
 }
@@ -1676,6 +1699,7 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:capture', wrap(captureFromSelection));
     ipcMain.handle('lib:update', wrap(updateAnimation));
     ipcMain.handle('lib:remove', wrap(removeAnimation));
+    ipcMain.handle('lib:saveTags', wrap(saveTags));
     ipcMain.handle('lib:setDefaultSfx', wrap(setDefaultSfx));
     ipcMain.handle('lib:setAnimationSfx', wrap(setAnimationSfx));
     ipcMain.handle('lib:replaceFile', wrap(replaceAnimationFile));

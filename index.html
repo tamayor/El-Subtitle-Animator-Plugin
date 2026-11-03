@@ -33,15 +33,17 @@
             <h1>El Subtitle Animator</h1>
             <span id="appVersion" class="version-badge" title="Click to update version (or edit package.json)">v1.0.0</span>
         </div>
-        <span id="conn" class="pill off">Connecting…</span>
-        <button id="pin" class="icon-btn on" title="Pinned above DaVinci Resolve (click to unpin)"
+        <div class="header-bar">
+            <button id="pin" class="icon-btn on" title="Pinned above DaVinci Resolve (click to unpin)"
             aria-label="Pin window">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
                 <path
                     d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 1 1-.707-.708l3.182-3.182L2.398 7.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z" />
             </svg>
         </button>
+            <span id="conn" class="pill off">Connecting…</span>
         <button id="rescan" class="ghost" title="Re-read the subtitle track">Rescan</button>
+        </div>
     </header>
 
     <nav class="tabs">
@@ -76,6 +78,7 @@
                             <span class="meta" id="libCount"></span>
                         </span>
                     </div>
+                    <div id="useFilter" class="tag-filter"></div>
                     <div id="animGrid" class="grid"></div>
                 </section>
             </div>
@@ -126,20 +129,36 @@
                         <span class="label">Your library</span>
                         <button id="openFolder" class="ghost">Open folder</button>
                     </div>
+                    <div id="tagsWrap" class="adjust-wrap tags-wrap">
+                        <div class="tags-head">
+                            <button id="tagsToggle" class="adjust" aria-expanded="false">
+                                <span class="chev">▸</span>
+                                <span class="adj-title">Tags</span>
+                                <span id="tagsDots" class="tag-dots"></span>
+                                <span id="tagsSummary" class="adj-sum"></span>
+                            </button>
+                            <button id="tagsPlus" class="ghost tag-plus" title="New tag">+</button>
+                        </div>
+                        <div id="tagsBody" class="adjust-body hidden">
+                            <div id="tagList" class="tag-list"></div>
+                        </div>
+                    </div>
+                    <div id="libFilter" class="tag-filter"></div>
                     <div id="libList"></div>
-                    <div class="hint">Click a preset to edit it here: its text boxes, alignment, Fusion file and sound.
+                    <div class="hint">Click a preset to open its settings right below it: its text boxes, alignment, Fusion file and sound.
                         Drop a sound onto a row to change
                         its sound.</div>
-                </section>
-            </div>
-
-            <div class="tab-col-side">
+                    <div id="editorPark" class="hidden">
                 <section id="editor" class="active-section hidden">
                     <div class="sec-head">
                         <span class="label">Editing default settings</span>
                         <span id="editTitle" class="active-badge"></span>
                     </div>
                     <input id="animName" type="text" placeholder="Name">
+                    <div class="tag-pick-row">
+                        <span class="tag-pick-label">Tags</span>
+                        <div id="animTags" class="tag-pick"></div>
+                    </div>
                     <div class="inspector-grid">
                         <div class="inspector-pane stage-pane">
                             <div id="previewC"></div>
@@ -167,7 +186,10 @@
                         </div>
                     </div>
                 </section>
+                    </div>
+                </section>
             </div>
+
         </div>
     </div>
 

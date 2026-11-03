@@ -3066,6 +3066,497 @@ function soundOf(a) {
     return a.useSfx === false ? null : (a.sfxPath || (state.lib.defaultSfx && state.lib.defaultSfx.path));
 }
 
+// ---------------------------------------------------------------- tags (Finder-style: name + color)
+const TAG_COLORS = ['#ff453a', '#ff9f0a', '#ffd60a', '#32d74b', '#0a84ff', '#bf5af2', '#8e8e93'];
+const tagUI = { open: false, color: TAG_COLORS[4], filter: { use: [], lib: [] } };
+
+function allTags() { return Array.isArray(state.lib.tags) ? state.lib.tags : []; }
+function tagById(id) { return allTags().find(t => t.id === id) || null; }
+function tagsOf(a) { return (Array.isArray(a.tags) ? a.tags : []).map(tagById).filter(Boolean); }
+
+// A preset passes the filter when it has any of the picked tags (no picks = show everything).
+function passesTagFilter(a, key) {
+    const f = tagUI.filter[key];
+    if (!f.length) return true;
+    const mine = Array.isArray(a.tags) ? a.tags : [];
+    return f.some(id => mine.includes(id));
+}
+
+function tagDotsEl(a) {
+    const tags = tagsOf(a);
+    if (!tags.length) return null;
+    const w = document.createElement('span');
+    w.className = 'tag-dots';
+    w.title = tags.map(t => t.name).join(', ');
+    for (const t of tags.slice(0, 5)) {
+        const d = document.createElement('span');
+        d.className = 'tag-dot'; d.style.background = t.color;
+        w.appendChild(d);
+    }
+    return w;
+}
+
+function tagChip(t, on, onClick) {
+    const b = document.createElement('button');
+    b.className = 'tag-chip' + (on ? ' on' : '');
+    b.style.setProperty('--chip', t.color);
+    const d = document.createElement('span');
+    d.className = 'tag-dot'; d.style.background = t.color;
+    const n = document.createElement('span');
+    n.textContent = t.name;
+    b.append(d, n);
+    b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return b;
+}
+
+// The dropdown filter button above a list; clicking opens dropdown to toggle tags.
+function renderTagFilter(key, boxId) {
+    const box = $(boxId);
+    if (!box) return;
+    const tags = allTags();
+    const f = tagUI.filter[key] = tagUI.filter[key].filter(id => tagById(id));
+    box.textContent = '';
+    if (!tags.length) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'tag-filter-btn' + (f.length ? ' active' : '');
+    
+    // Label & count
+    let label = 'Filter tags';
+    if (f.length === 0) {
+        label = 'All Tags';
+    } else if (f.length === 1) {
+        const t = tagById(f[0]);
+        label = t ? t.name : '1 Tag';
+    } else {
+        label = f.length + ' Tags';
+    }
+
+    // Dot indicators inside dropdown button
+    if (f.length > 0) {
+        const dotsWrap = document.createElement('span');
+        dotsWrap.className = 'tag-dots';
+        for (const tid of f.slice(0, 4)) {
+            const t = tagById(tid);
+            if (t) {
+                const d = document.createElement('span');
+                d.className = 'tag-dot';
+                d.style.background = t.color;
+                dotsWrap.appendChild(d);
+            }
+        }
+        btn.appendChild(dotsWrap);
+    } else {
+        const icon = document.createElement('span');
+        icon.className = 'tag-filter-icon';
+        icon.textContent = '🏷️';
+        btn.appendChild(icon);
+    }
+
+    const txt = document.createElement('span');
+    txt.className = 'tag-filter-label';
+    txt.textContent = label;
+    btn.appendChild(txt);
+
+    const chev = document.createElement('span');
+    chev.className = 'chev';
+    chev.textContent = '▾';
+    btn.appendChild(chev);
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPop(btn, 'pop-menu pop-tagfilter', (el) => {
+            const head = document.createElement('div');
+            head.className = 'pop-title';
+            head.textContent = 'Filter by Tags';
+            el.appendChild(head);
+
+            // 'All' option
+            const allItem = document.createElement('button');
+            allItem.className = 'pop-item' + (f.length === 0 ? ' on' : '');
+            const allCk = document.createElement('span');
+            allCk.className = 'pop-check';
+            allCk.textContent = '✓';
+            const allLbl = document.createElement('span');
+            allLbl.className = 'pop-label';
+            allLbl.textContent = 'All (Show All)';
+            allItem.append(allCk, allLbl);
+            allItem.addEventListener('click', () => {
+                tagUI.filter[key] = [];
+                closePop();
+                renderAll();
+            });
+            el.appendChild(allItem);
+
+            const sep = document.createElement('div');
+            sep.className = 'pop-sep';
+            el.appendChild(sep);
+
+            for (const t of tags) {
+                const isSelected = f.includes(t.id);
+                const it = document.createElement('button');
+                it.className = 'pop-item' + (isSelected ? ' on' : '');
+                const ck = document.createElement('span');
+                ck.className = 'pop-check';
+                ck.textContent = '✓';
+                const d = document.createElement('span');
+                d.className = 'tag-dot';
+                d.style.background = t.color;
+                const n = document.createElement('span');
+                n.className = 'pop-label';
+                n.textContent = t.name;
+                it.append(ck, d, n);
+                it.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const cur = tagUI.filter[key];
+                    tagUI.filter[key] = cur.includes(t.id) ? cur.filter(x => x !== t.id) : cur.concat(t.id);
+                    it.classList.toggle('on', tagUI.filter[key].includes(t.id));
+                    allItem.classList.toggle('on', tagUI.filter[key].length === 0);
+                    renderAll();
+                });
+                el.appendChild(it);
+            }
+        });
+    });
+
+    box.appendChild(btn);
+
+    // If active filters, show an instant clear '×' chip
+    if (f.length > 0) {
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'ghost tag-filter-clear';
+        clearBtn.textContent = 'Reset filter';
+        clearBtn.addEventListener('click', () => {
+            tagUI.filter[key] = [];
+            renderAll();
+        });
+        box.appendChild(clearBtn);
+    }
+}
+
+async function saveTagList(tags) {
+    return takeLib(await window.sa.saveTags(tags));
+}
+
+function setTagsOpen(open) {
+    tagUI.open = !!open;
+    $('tagsBody').classList.toggle('hidden', !open);
+    $('tagsWrap').classList.toggle('open', !!open);
+    $('tagsToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    const chev = $('tagsToggle').querySelector('.chev');
+    if (chev) chev.textContent = open ? '▾' : '▸';
+}
+
+// ---------------------------------------------------------------- small floating popovers (menus, new tag)
+let popEl = null;
+function closePop() {
+    if (!popEl) return;
+    popEl.remove();
+    popEl = null;
+    document.removeEventListener('mousedown', popOutside, true);
+    document.removeEventListener('keydown', popKey, true);
+    window.removeEventListener('resize', closePop);
+}
+function popOutside(e) { if (popEl && !popEl.contains(e.target) && !(popEl._anchor && popEl._anchor.contains(e.target))) closePop(); }
+function popKey(e) { if (e.key === 'Escape') closePop(); }
+
+// Opens a popover under `anchor`; build(el) fills it. Clicking the same anchor again closes it.
+function openPop(anchor, cls, build) {
+    const again = popEl && popEl._anchor === anchor && popEl._cls === cls;
+    closePop();
+    if (again) return null;
+    const el = document.createElement('div');
+    el.className = 'pop ' + cls;
+    el._anchor = anchor; el._cls = cls;
+    build(el);
+    document.body.appendChild(el);
+    const r = anchor.getBoundingClientRect();
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let left = Math.min(r.right - w, window.innerWidth - w - 8);
+    if (left < 8) left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    let top = r.bottom + 4;
+    if (top + h > window.innerHeight - 8 && r.top - h - 4 > 8) top = r.top - h - 4;
+    el.style.left = left + window.scrollX + 'px';
+    el.style.top = top + window.scrollY + 'px';
+    popEl = el;
+    document.addEventListener('mousedown', popOutside, true);
+    document.addEventListener('keydown', popKey, true);
+    window.addEventListener('resize', closePop);
+    return el;
+}
+
+// "New tag" popover: pick a color, type a name. assignTo = preset id that gets the new tag right away.
+function openNewTagPop(anchor, assignTo) {
+    let color = tagUI.color;
+    openPop(anchor, 'pop-newtag', (el) => {
+        const title = document.createElement('div');
+        title.className = 'pop-title'; title.textContent = 'New tag';
+        const sw = document.createElement('div');
+        sw.className = 'tag-swatches';
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.placeholder = 'Tag name'; inp.maxLength = 40; inp.autocomplete = 'off';
+        const add = document.createElement('button');
+        add.className = 'tag-add'; add.textContent = 'Add';
+        const paint = () => {
+            sw.textContent = '';
+            for (const c of TAG_COLORS) {
+                const s = document.createElement('button');
+                s.className = 'tag-swatch' + (color === c ? ' on' : '');
+                s.style.background = c; s.title = c;
+                s.addEventListener('click', () => { color = c; paint(); inp.focus(); });
+                sw.appendChild(s);
+            }
+            const custom = document.createElement('label');
+            custom.className = 'tag-swatch custom' + (TAG_COLORS.includes(color) ? '' : ' on');
+            custom.title = 'Custom color';
+            const ci = document.createElement('input');
+            ci.type = 'color'; ci.value = color;
+            ci.addEventListener('change', () => { color = ci.value.toLowerCase(); paint(); });
+            custom.appendChild(ci);
+            sw.appendChild(custom);
+            add.style.setProperty('--chip', color);
+        };
+        paint();
+        const go = async () => {
+            const name = inp.value.trim();
+            if (!name) { inp.focus(); return; }
+            if (allTags().some(t => t.name.toLowerCase() === name.toLowerCase())) {
+                inp.setCustomValidity('A tag named "' + name + '" already exists.');
+                inp.reportValidity();
+                inp.addEventListener('input', () => inp.setCustomValidity(''), { once: true });
+                return;
+            }
+            tagUI.color = color;
+            const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            closePop();
+            if (await saveTagList(allTags().concat({ id, name, color })) && assignTo) {
+                const a = libEntry(assignTo);
+                if (a) takeLib(await window.sa.updateAnimation(a.id, { tags: (a.tags || []).concat(id) }));
+            }
+        };
+        add.addEventListener('click', go);
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+        const row = document.createElement('div');
+        row.className = 'tag-new-row';
+        row.append(inp, add);
+        el.append(title, sw, row);
+        setTimeout(() => inp.focus(), 0);
+    });
+}
+
+async function toggleTagOn(id, tagId) {
+    const a = libEntry(id);
+    if (!a) return false;
+    const mine = Array.isArray(a.tags) ? a.tags : [];
+    const next = mine.includes(tagId) ? mine.filter(x => x !== tagId) : mine.concat(tagId);
+    takeLib(await window.sa.updateAnimation(a.id, { tags: next }));
+    return next.includes(tagId);
+}
+
+// The ⋯ menu on a library row: tick tags on/off, make a new tag, or delete the preset.
+function openRowMenu(anchor, a) {
+    openPop(anchor, 'pop-menu', (el) => {
+        const head = document.createElement('div');
+        head.className = 'pop-title'; head.textContent = 'Tags';
+        el.appendChild(head);
+        const mine = Array.isArray(a.tags) ? a.tags : [];
+        if (!allTags().length) {
+            const e = document.createElement('div');
+            e.className = 'pop-empty'; e.textContent = 'No tags yet';
+            el.appendChild(e);
+        }
+        for (const t of allTags()) {
+            const it = document.createElement('button');
+            it.className = 'pop-item' + (mine.includes(t.id) ? ' on' : '');
+            const ck = document.createElement('span'); ck.className = 'pop-check'; ck.textContent = '✓';
+            const d = document.createElement('span'); d.className = 'tag-dot'; d.style.background = t.color;
+            const n = document.createElement('span'); n.className = 'pop-label'; n.textContent = t.name;
+            it.append(ck, d, n);
+            it.addEventListener('click', async () => { it.classList.toggle('on', await toggleTagOn(a.id, t.id)); });
+            el.appendChild(it);
+        }
+        const nt = document.createElement('button');
+        nt.className = 'pop-item';
+        nt.innerHTML = '<span class="pop-check">+</span><span class="pop-label">New tag…</span>';
+        nt.addEventListener('click', () => { closePop(); openNewTagPop(anchor, a.id); });
+        el.appendChild(nt);
+        const sep = document.createElement('div'); sep.className = 'pop-sep';
+        el.appendChild(sep);
+        const del = document.createElement('button');
+        del.className = 'pop-item danger';
+        del.innerHTML = '<span class="pop-check">🗑</span><span class="pop-label">Delete preset</span>';
+        del.addEventListener('click', async () => {
+            closePop();
+            if (!confirm('Delete "' + a.name + '" from your library?')) return;
+            if (state.selectedId === a.id) state.selectedId = null;
+            if (state.createId === a.id) state.createId = null;
+            stopPreview();
+            takeLib(await window.sa.removeAnimation(a.id));
+        });
+        el.appendChild(del);
+    });
+}
+
+// Library tab: the Tags accordion (rename / recolor / delete; + makes a new one) and the editor's tag picker.
+function renderTags() {
+    const tags = allTags();
+    const counts = {};
+    for (const a of state.lib.animations) for (const id of (a.tags || [])) counts[id] = (counts[id] || 0) + 1;
+    $('tagsSummary').textContent = tags.length ? String(tags.length) : 'none yet';
+    const dots = $('tagsDots');
+    dots.textContent = '';
+    for (const t of tags.slice(0, 12)) {
+        const d = document.createElement('span');
+        d.className = 'tag-dot'; d.style.background = t.color; d.title = t.name;
+        dots.appendChild(d);
+    }
+
+    const list = $('tagList');
+    const editing = list.contains(document.activeElement);   // don't wipe a rename in progress
+    if (!editing) list.textContent = '';
+    if (!editing && !tags.length) {
+        const e = document.createElement('div');
+        e.className = 'empty-tags';
+        e.textContent = 'No tags yet. Click + to make one.';
+        list.appendChild(e);
+    }
+    for (const t of (editing ? [] : tags)) {
+        const row = document.createElement('div');
+        row.className = 'tag-row';
+        row.dataset.tagId = t.id;
+
+        // Drag handle & order buttons
+        const handle = document.createElement('span');
+        handle.className = 'tag-handle';
+        handle.textContent = '⋮⋮';
+        handle.title = 'Drag to reorder tag sequence';
+        handle.draggable = true;
+
+        handle.addEventListener('dragstart', (e) => {
+            row.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', t.id);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        handle.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            document.querySelectorAll('#tagList .tag-row').forEach(r => r.classList.remove('drag-over-top', 'drag-over-bottom'));
+        });
+
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const rect = row.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            if (relY < rect.height / 2) {
+                row.classList.add('drag-over-top');
+                row.classList.remove('drag-over-bottom');
+            } else {
+                row.classList.add('drag-over-bottom');
+                row.classList.remove('drag-over-top');
+            }
+        });
+        row.addEventListener('dragleave', () => {
+            row.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over-top', 'drag-over-bottom');
+            const draggedId = e.dataTransfer.getData('text/plain');
+            if (!draggedId || draggedId === t.id) return;
+            const current = allTags().slice();
+            const fromIdx = current.findIndex(x => x.id === draggedId);
+            const toIdx = current.findIndex(x => x.id === t.id);
+            if (fromIdx < 0 || toIdx < 0) return;
+            const rect = row.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            const [item] = current.splice(fromIdx, 1);
+            let targetIdx = current.findIndex(x => x.id === t.id);
+            if (relY >= rect.height / 2) targetIdx++;
+            current.splice(targetIdx, 0, item);
+            saveTagList(current);
+        });
+
+        // Quick up / down arrows for accessible reordering
+        const orderWrap = document.createElement('span');
+        orderWrap.className = 'tag-order-btns';
+        const upBtn = document.createElement('button');
+        upBtn.className = 'ghost tag-arrow';
+        upBtn.textContent = '▲';
+        upBtn.title = 'Move up';
+        upBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const current = allTags().slice();
+            const idx = current.findIndex(x => x.id === t.id);
+            if (idx > 0) {
+                const temp = current[idx - 1];
+                current[idx - 1] = current[idx];
+                current[idx] = temp;
+                saveTagList(current);
+            }
+        });
+        const dnBtn = document.createElement('button');
+        dnBtn.className = 'ghost tag-arrow';
+        dnBtn.textContent = '▼';
+        dnBtn.title = 'Move down';
+        dnBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const current = allTags().slice();
+            const idx = current.findIndex(x => x.id === t.id);
+            if (idx >= 0 && idx < current.length - 1) {
+                const temp = current[idx + 1];
+                current[idx + 1] = current[idx];
+                current[idx] = temp;
+                saveTagList(current);
+            }
+        });
+        orderWrap.append(upBtn, dnBtn);
+
+        const col = document.createElement('label');
+        col.className = 'tag-color'; col.style.background = t.color; col.title = 'Change color';
+        const ci = document.createElement('input');
+        ci.type = 'color'; ci.value = t.color;
+        ci.addEventListener('input', () => { col.style.background = ci.value; });
+        ci.addEventListener('change', () => saveTagList(allTags().map(x => x.id === t.id ? Object.assign({}, x, { color: ci.value }) : x)));
+        col.appendChild(ci);
+        const nm = document.createElement('input');
+        nm.type = 'text'; nm.className = 'tag-name'; nm.value = t.name; nm.maxLength = 40; nm.title = 'Rename';
+        nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') nm.blur(); if (e.key === 'Escape') { nm.value = t.name; nm.blur(); } });
+        nm.addEventListener('change', () => {
+            const v = nm.value.trim();
+            if (!v) { nm.value = t.name; return; }
+            if (v !== t.name) saveTagList(allTags().map(x => x.id === t.id ? Object.assign({}, x, { name: v }) : x));
+        });
+        const cnt = document.createElement('span');
+        cnt.className = 'tag-count'; cnt.textContent = counts[t.id] || ''; cnt.title = (counts[t.id] || 0) + ' preset(s)';
+        const x = document.createElement('button');
+        x.className = 'ghost'; x.textContent = '×'; x.title = 'Delete tag';
+        x.addEventListener('click', () => {
+            const n = counts[t.id] || 0;
+            if (n && !confirm('Delete tag "' + t.name + '"? It will be removed from ' + n + ' preset(s).')) return;
+            saveTagList(allTags().filter(y => y.id !== t.id));
+        });
+        row.append(handle, orderWrap, col, nm, cnt, x);
+        list.appendChild(row);
+    }
+
+    // the open preset's tags, with a + to make a new one on the spot
+    const pick = $('animTags');
+    const a = libEntry(state.createId);
+    if (pick && a) {
+        pick.textContent = '';
+        const mine = Array.isArray(a.tags) ? a.tags : [];
+        for (const t of tags) {
+            pick.appendChild(tagChip(t, mine.includes(t.id), () => toggleTagOn(a.id, t.id)));
+        }
+        const plus = document.createElement('button');
+        plus.className = 'tag-chip tag-chip-plus';
+        plus.textContent = '+';
+        plus.title = 'New tag';
+        plus.addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop(plus, a.id); });
+        pick.appendChild(plus);
+    }
+}
+
 // Use tab: the text + sound effects that are already made. Click one to pick it.
 function renderAnimations() {
     const grid = $('animGrid');
@@ -3073,13 +3564,22 @@ function renderAnimations() {
     const n = state.lib.animations.length;
     $('libCount').textContent = n ? n + ' saved' : '';
     if (window.SAThumbs) SAThumbs.syncHeader();
+    renderTagFilter('use', 'useFilter');
     if (!n) {
         const d = document.createElement('div');
         d.className = 'empty';
         d.textContent = 'Nothing here yet. Open the Create tab to make your first text + sound effect.';
         grid.appendChild(d);
     }
-    for (const a of state.lib.animations) {
+    const shown = state.lib.animations.filter(a => passesTagFilter(a, 'use'));
+    if (n && !shown.length) {
+        const d = document.createElement('div');
+        d.className = 'empty';
+        d.textContent = 'No presets have the selected tags.';
+        grid.appendChild(d);
+    }
+    if (n && shown.length !== n) $('libCount').textContent = shown.length + ' of ' + n;
+    for (const a of shown) {
         const c = document.createElement('div');
         c.className = 'card' + (a.id === state.selectedId ? ' sel' : '') + (a.missing ? ' missing' : '');
         const nm = document.createElement('div');
@@ -3091,6 +3591,8 @@ function renderAnimations() {
         sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
         if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
         c.append(nm, sub);
+        const dots = tagDotsEl(a);
+        if (dots) c.appendChild(dots);
         const sp = soundOf(a);
         if (sp) {
             const pl = document.createElement('button');
@@ -3134,30 +3636,39 @@ function renderCreate() {
     if (state.createId && !libEntry(state.createId)) state.createId = null;
 
     const list = $('libList');
-    list.textContent = '';
+    const ed = $('editor');
+    renderTagFilter('lib', 'libFilter');
+    const libShown = state.lib.animations.filter(a => passesTagFilter(a, 'lib'));
+    const openId = libShown.some(a => a.id === state.createId) ? state.createId : null;
+    // Rebuild the rows around the settings panel without moving it when it is already in place
+    // (moving it would drop focus from whatever you are typing in it).
+    for (const ch of Array.from(list.children)) if (ch !== ed) ch.remove();
+    if (openId) { if (ed.parentNode !== list) list.appendChild(ed); }
+    else if (ed.parentNode !== $('editorPark')) $('editorPark').appendChild(ed);
+    const put = (el, beforeEditor) => { if (beforeEditor && ed.parentNode === list) list.insertBefore(el, ed); else list.appendChild(el); };
     if (!state.lib.animations.length) {
-        const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'Nothing saved yet.'; list.appendChild(e);
+        const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'Nothing saved yet.'; put(e, true);
     }
-    for (const a of state.lib.animations) {
+    if (state.lib.animations.length && !libShown.length) {
+        const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'No presets have the selected tags.'; put(e, true);
+    }
+    let beforeEditor = !!openId;
+    for (const a of libShown) {
         const row = document.createElement('div');
         row.className = 'libitem' + (a.id === state.createId ? ' sel' : '');
+        row.dataset.id = a.id;
         const t = document.createElement('div'); t.className = 't';
         const b = document.createElement('b'); b.textContent = a.name;
         const s = document.createElement('span');
         s.textContent = a.sfx ? '♪ ' + a.sfx : (state.lib.defaultSfx ? '♪ default sound' : 'no sound');
         t.append(b, s);
+        const dots = tagDotsEl(a);
+        if (dots) row.appendChild(dots);
         const pl = document.createElement('button'); pl.className = 'ghost'; pl.textContent = '▶'; pl.title = 'Hear the sound';
         pl.addEventListener('click', (e) => { e.stopPropagation(); const p = soundOf(a) || (a.useSfx === false ? null : null); if (p) play(p); });
-        const x = document.createElement('button'); x.className = 'ghost'; x.textContent = '×'; x.title = 'Delete from library';
-        x.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (!confirm('Delete "' + a.name + '" from your library?')) return;
-            if (state.selectedId === a.id) state.selectedId = null;
-            if (state.createId === a.id) state.createId = null;
-            stopPreview();
-            takeLib(await window.sa.removeAnimation(a.id));
-        });
-        row.append(t, pl, x);
+        const more = document.createElement('button'); more.className = 'ghost more'; more.textContent = '⋯'; more.title = 'Tags and more';
+        more.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(more, a); });
+        row.append(t, pl, more);
         row.addEventListener('click', () => {
             stopPreview();
             state.createAdjusted = false;
@@ -3165,12 +3676,20 @@ function renderCreate() {
             a.designDirty = false;
             state.createId = state.createId === a.id ? null : a.id;
             renderCreate();
+            if (state.createId) {
+                // bring the opened preset to the top so its settings are right there below it
+                requestAnimationFrame(() => {
+                    const r = list.querySelector('.libitem.sel');
+                    if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                });
+            }
         });
         dropZone(row, async (p) => { if (takeLib(await window.sa.setAnimationSfx(a.id, p))) setCreateStatus('Sound changed for "' + a.name + '"', 'ok'); });
-        list.appendChild(row);
+        put(row, beforeEditor);
+        if (a.id === openId) beforeEditor = false;
     }
 
-    const a = libEntry(state.createId);
+    const a = openId ? libEntry(openId) : null;
     $('editor').classList.toggle('hidden', !a);
     if (a) {
         if ($('editTitle')) $('editTitle').textContent = a.name;
@@ -3181,6 +3700,7 @@ function renderCreate() {
         setCreateAdjustOpen(state.createAdjustOpen !== false);
         setCreateTdOpen(!!state.createTdOpen);
         renderCreateSummary();
+        renderTags();
     }
 }
 
@@ -3305,6 +3825,7 @@ function renderAll() {
     renderSettings();
     renderDefaultSfx();
     renderCreate();
+    renderTags();
     renderPin();
     renderLive();
 }
@@ -3552,6 +4073,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     $('pin').addEventListener('click', async () => takeLib(await window.sa.setOnTop(state.lib.alwaysOnTop === false)));
     $('openFolder').addEventListener('click', () => window.sa.openFolder());
+    $('tagsToggle').addEventListener('click', () => setTagsOpen(!tagUI.open));
+    $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
+    setTagsOpen(false);
     $('rescan').addEventListener('click', async () => { state.live = await window.sa.poll(true); renderLive(); setStatus('Subtitles re-read.', 'ok'); });
     $('create').addEventListener('click', create);
 

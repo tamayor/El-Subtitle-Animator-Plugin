@@ -3956,25 +3956,22 @@ function initInspectorLayoutModes() {
     } catch (e) { }
     applyLayoutMode(savedMode, false);
 
-    document.querySelectorAll('.layout-modes-bar').forEach(bar => {
-        bar.querySelectorAll('.layout-mode-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const mode = btn.dataset.mode;
-                await applyLayoutMode(mode, true);
-            });
-        });
-    });
+    document.addEventListener('click', async (e) => {
+        const modeBtn = e.target.closest('.layout-mode-btn');
+        if (modeBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const mode = modeBtn.dataset.mode;
+            if (mode) await applyLayoutMode(mode, true);
+            return;
+        }
 
-    ['U', 'C'].forEach(S => {
-        const expandBtn = $('collapseExpandBtn' + S);
+        const expandBtn = e.target.closest('.collapse-expand-bar');
         if (expandBtn) {
-            expandBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                await applyLayoutMode('default', true);
-            });
+            e.preventDefault();
+            e.stopPropagation();
+            await applyLayoutMode('default', true);
+            return;
         }
     });
 }
@@ -4026,9 +4023,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         redrawStages();
     });
 
+    mountBlocks();
     initVersion();
     initInspectorLayoutModes();
-    mountBlocks();
     bindAdjust(CTX.U);
     bindAdjust(CTX.C);
 

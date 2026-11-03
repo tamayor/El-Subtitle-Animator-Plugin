@@ -1095,7 +1095,7 @@ function drawStage(S, a, idx) {
     const gxy = { zoom: zoomVal, rot: userRot, scale: userScale, posX, posY, tlW, tlH };
     if (multiBox) {
         cv._gizmo = null;
-        const painted = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy);
+        const painted = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
         SABoxes.draw(S, a, m, cv, { vx, vy, vw, vh }, gxy, painted);
         g.restore();
         g.strokeStyle = '#29302b';
@@ -1108,7 +1108,7 @@ function drawStage(S, a, idx) {
     }
     if (window.SABoxes) SABoxes.hideLayer(S);
     // Plays the rendered Fusion frames when they exist; until then the built-in preview of the preset stands in.
-    paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy);
+    paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
     previewSingle = paintedSingle;
     for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
 
@@ -1240,7 +1240,7 @@ function drawStage(S, a, idx) {
             const drawGlyphLine = (line, li, ox, oy, isStroke) => {
                 const ly = (li - (lines.length - 1) / 2) * lineH + oy;
                 const words = String(line).split(/(\s+)/);
-                if (!isPlaying || !pt || !hasFollower || words.length <= 1) {
+                if (!isPlaying || !hasFollower || words.length <= 1) {
                     let wx = ox, wy = ly, wRot = 0;
                     if (isPlaying && pt && hasFollower) {
                         const seed = stepIdx * 2.3 + li * 1.7;
@@ -1261,18 +1261,28 @@ function drawStage(S, a, idx) {
                 }
                 const fullW = g.measureText(line).width;
                 let curX = ox - fullW * 0.5;
-                words.forEach((tok, wi) => {
+                const delayFrames = Math.max(2, Number(spec.follower && spec.follower.delay) || 3);
+                let wordCount = 0;
+                words.forEach((tok) => {
                     const tw = g.measureText(tok).width;
                     if (tok.trim()) {
-                        const wSeed = stepIdx * 2.3 + li * 3.1 + wi * 1.9;
-                        const dxW = Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.22;
-                        const dyW = Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22;
-                        const rW = (spec.follower && spec.follower.rot) ? Math.sin(wSeed * 0.85) * 0.013 : 0;
-                        g.save();
-                        g.translate(curX + tw * 0.5 + dxW, ly + dyW);
-                        if (rW) g.rotate(rW);
-                        if (isStroke) g.strokeText(tok, 0, 0); else g.fillText(tok, 0, 0);
-                        g.restore();
+                        const wordStart = wordCount * delayFrames;
+                        wordCount++;
+                        const currentF = (qFrame !== null && qFrame !== undefined) ? qFrame : ((typeof autoFrame === 'function') ? autoFrame(performance.now()) : 0);
+                        if (currentF >= wordStart) {
+                            const wordAge = currentF - wordStart;
+                            const wordPop = wordAge < 4 ? 0.9 + 0.1 * (wordAge / 4) : 1.0;
+                            const wSeed = stepIdx * 2.3 + li * 3.1 + wordCount * 1.9;
+                            const dxW = pt ? Math.cos(wSeed) * vw * (Number(pt.xScale) || 0) * 0.22 : 0;
+                            const dyW = pt ? Math.sin(wSeed) * vh * (Number(pt.yScale) ?? 0.02) * 0.22 : 0;
+                            const rW = (spec.follower && spec.follower.rot) ? Math.sin(wSeed * 0.85) * 0.013 : 0;
+                            g.save();
+                            g.translate(curX + tw * 0.5 + dxW, ly + dyW);
+                            if (rW) g.rotate(rW);
+                            if (wordPop !== 1) g.scale(wordPop, wordPop);
+                            if (isStroke) g.strokeText(tok, 0, 0); else g.fillText(tok, 0, 0);
+                            g.restore();
+                        }
                     }
                     curX += tw;
                 });
@@ -3048,6 +3058,86 @@ async function create() {
     renderLive();
 }
 
+async function initVersion() {
+    const el = $('appVersion');
+    if (!el) return;
+
+    let currentVersion = '1.0.0';
+
+    if (window.sa && window.sa.getVersion) {
+        try {
+            const res = await window.sa.getVersion();
+            if (res && res.version) {
+                currentVersion = res.version;
+                el.textContent = currentVersion.startsWith('v') ? currentVersion : `v${currentVersion}`;
+            }
+        } catch (e) {
+            console.warn('Could not load version:', e);
+        }
+    }
+
+    el.addEventListener('click', () => {
+        if (el.querySelector('input')) return;
+
+        const currentText = el.textContent.trim().replace(/^v/i, '');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'version-input';
+        input.value = currentText;
+        input.title = 'Press Enter to save, Esc to cancel';
+
+        let finished = false;
+        const finish = async (save) => {
+            if (finished) return;
+            finished = true;
+            const val = input.value.trim();
+            if (save && val) {
+                const cleaned = val.replace(/^v/i, '').trim();
+                if (cleaned) {
+                    if (window.sa && window.sa.setVersion) {
+                        try {
+                            const res = await window.sa.setVersion(cleaned);
+                            if (res && res.version) {
+                                currentVersion = res.version;
+                            } else if (res && res.error) {
+                                console.error('Failed to set version:', res.error);
+                            } else {
+                                currentVersion = cleaned;
+                            }
+                        } catch (e) {
+                            console.error('Error calling setVersion:', e);
+                            currentVersion = cleaned;
+                        }
+                    } else {
+                        currentVersion = cleaned;
+                    }
+                }
+            }
+            el.textContent = currentVersion.startsWith('v') ? currentVersion : `v${currentVersion}`;
+            el.classList.remove('editing');
+        };
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                input.blur();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                input.value = currentText;
+                input.blur();
+            }
+        });
+
+        input.addEventListener('blur', () => finish(true));
+
+        el.textContent = '';
+        el.classList.add('editing');
+        el.appendChild(input);
+        input.focus();
+        input.select();
+    });
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
     // Stop the window from opening a file that misses a drop zone.
     for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
@@ -3058,6 +3148,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         redrawStages();
     });
 
+    initVersion();
     mountBlocks();
     bindAdjust(CTX.U);
     bindAdjust(CTX.C);

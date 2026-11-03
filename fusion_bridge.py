@@ -214,7 +214,7 @@ def wake_followers(comp):
 def op_set_text(a):
     comp = get_comp(a["item"], a.get("comp"))
     found = False
-    all_tools = list((comp.GetToolList(True) or {}).values()) if isinstance(comp.GetToolList(True), dict) else list(comp.GetToolList(True) or [])
+    all_tools = tool_list(comp)
     has_follower = False
     if a.get("text") is not None:
         for mod in all_tools:
@@ -326,7 +326,7 @@ def set_node_text(tool, input_id, text, all_tools, first):
 def op_set_boxes(a):
     """Put text / position / size into each detected Text+ or template, one by one."""
     comp = get_comp(a["item"], a.get("comp"))
-    all_tools = as_list(comp.GetToolList(True))
+    all_tools = tool_list(comp)
     missing, fixed, design_done, first_text = [], [], False, True
     for b in a.get("boxes") or []:
         name = b.get("tool")
@@ -417,14 +417,15 @@ def op_link_clips(a):
 
 
 def op_capture(a):
-    """Small stills of a timeline clip over its first two seconds, for the panel's animation preview."""
+    """Real 25fps or 30fps frames of a timeline clip over 3 seconds, for the panel's animation preview."""
     item = find_item(a["item"])
     tl = timeline()
     fps = float(tl.GetSetting("timelineFrameRate") or 25)
     duration = int(item.GetDuration() or 0) or 50
-    count = int(a.get("count") or 16)
     span = min(duration, int(round(fps * 3)))
-    step = max(1, int(round(span / float(count))))
+    count = int(a.get("count") or span)
+    step = int(a.get("step") or 1)
+    max_dim = int(a.get("maxDim") or 480)
     orig_props = {}
     try:
         orig_props = item.GetProperties() or {}
@@ -435,7 +436,7 @@ def op_capture(a):
     try:
         while off < duration and len(frames) < count:
             r = item.ExportFrame(off, {"outputType": "encodedString", "encodedImageFormat": "png",
-                                        "maxDimension": int(a.get("maxDim") or 360)})
+                                        "maxDimension": max_dim})
             if not r or not r.get("success"):
                 raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
             frames.append(r["data"])

@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('sa', {
     poll: (force) => ipcRenderer.invoke('app:poll', !!force),
     liveFrame: (frame) => ipcRenderer.invoke('app:liveFrame', frame),
     openFolder: () => ipcRenderer.invoke('app:openFolder'),
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
+    setVersion: (v) => ipcRenderer.invoke('app:setVersion', v),
     getLib: () => ipcRenderer.invoke('lib:get'),
     addAnimationFile: (p) => ipcRenderer.invoke('lib:addAnimationFile', p),
     saveSelected: (name) => ipcRenderer.invoke('lib:saveSelected', name),

@@ -175,10 +175,11 @@
         });
     }
 
-    // Draws the preset's real rendered animation (captured from Fusion) over the video frame, looping every 3 s.
-    function paint(g, a, m, vp, gx) {
+    // Draws the preset's real rendered animation (captured from Fusion) over the video frame, looping every 3 s at real 25 or 30 fps.
+    function paint(g, a, m, vp, gx, frameIdx) {
         if (!window.SAThumbs) return false;
-        const fr = SAThumbs.keyedFrame(a, performance.now());
+        const tVal = (frameIdx !== null && frameIdx !== undefined && frameIdx >= 0) ? frameIdx : performance.now();
+        const fr = SAThumbs.keyedFrame(a, tVal);
         if (!fr) return false;
         const nodes = nodesOf(a);
         let ox = 0, oy = 0;
@@ -614,9 +615,11 @@
     }
 
     function frameIndex(a, imgs, t) {
-        const pv = a.preview || {};
-        const fps = pv.fps || 25, step = pv.step || 1;
-        return Math.min(imgs.length - 1, Math.floor((((t % LOOP_MS) / 1000) * fps) / step));
+        const total = imgs ? imgs.length : 0;
+        if (total <= 1) return 0;
+        const progress = ((t % LOOP_MS) + LOOP_MS) % LOOP_MS / LOOP_MS;
+        const idx = Math.floor(progress * total);
+        return Math.min(total - 1, Math.max(0, idx));
     }
 
     // Normalized text bounds over the whole animation, or null while the frames are not loaded.
@@ -678,7 +681,14 @@
         else if (/light|thin/.test(st)) weight = '300';
         else if (/regular|normal/.test(st)) weight = '400';
         const italic = /italic|oblique/.test(st) ? 'italic ' : '';
-        const text = 'Sample text';
+        let text = 'Sample text';
+        if (spec && spec.follower) {
+            const words = text.split(' ');
+            const delay = Math.max(3, Number(spec.follower.delay || 4));
+            const count = Math.min(words.length, Math.max(0, Math.floor(f / delay)));
+            text = count > 0 ? words.slice(0, count).join(' ') : '';
+        }
+        if (!text) { c.restore(); return; }
         let px = Math.round(H * 0.3);
         const setFont = () => { c.font = italic + weight + ' ' + px + 'px "' + (td.font || 'Poppins') + '", -apple-system, sans-serif'; };
         setFont();
@@ -744,7 +754,10 @@
         const imgs = frames(a);
         if (!framesReady(imgs)) return null;
         if (geometry(a, imgs).blank) return null;
-        return keyedImage(imgs[frameIndex(a, imgs, t)]);
+        const idx = (typeof t === 'number' && t >= 0 && t < imgs.length && Number.isInteger(t))
+            ? t
+            : frameIndex(a, imgs, t);
+        return keyedImage(imgs[idx]);
     }
 
     let last = 0, lastStage = 0;
@@ -755,12 +768,16 @@
     }
     function tick(ts) {
         if (!document.hidden) {
-            if (state.tab === 'apply' && ts - last > 60) {
+            const curFps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
+            const targetFps = (curFps >= 28 && curFps <= 32) ? 30 : (curFps >= 23 && curFps <= 26 ? 25 : curFps);
+            const interval = 1000 / Math.max(20, Math.min(60, targetFps));
+
+            if (state.tab === 'apply' && ts - last >= interval - 2) {
                 last = ts;
                 document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
             }
-            // Keep the viewer's animation playing while nobody is dragging.
-            if ((state.tab === 'apply' || state.tab === 'library') && ts - lastStage > 45 && !state.drag && !state.stageDrag && !state.preview) {
+            // Keep the viewer's animation playing at real 25/30 fps while nobody is dragging.
+            if ((state.tab === 'apply' || state.tab === 'library') && ts - lastStage >= interval - 2 && !state.drag && !state.stageDrag && !state.preview) {
                 lastStage = ts;
                 const a = state.tab === 'apply' ? selected() : libEntry(state.createId);
                 if (a) {
@@ -823,17 +840,24 @@
         return wrap;
     }
 
+    function needsPreview(a) {
+        if (!a || a.missing) return false;
+        if (!a.preview || !a.previewFiles || !a.previewFiles.length) return true;
+        if (isBlank(a)) return true;
+        return false;
+    }
+
     function syncHeader() {
         const btn = document.getElementById('makePrevAll');
         if (!btn) return;
-        const missing = state.lib.animations.filter(a => !a.missing && !(a.preview && a.previewFiles && a.previewFiles.length));
+        const missing = state.lib.animations.filter(needsPreview);
         btn.classList.toggle('hidden', !missing.length && !batch);
         btn.disabled = !!busy.size;
         btn.textContent = batch ? 'Rendering ' + Math.min(batch.done + 1, batch.total) + '/' + batch.total + '…' : 'Make previews';
         if (!btn._bound) {
             btn._bound = true;
             btn.addEventListener('click', () => {
-                const ids = state.lib.animations.filter(a => !a.missing && !(a.preview && a.previewFiles && a.previewFiles.length)).map(a => a.id);
+                const ids = state.lib.animations.filter(needsPreview).map(a => a.id);
                 if (ids.length) { ids.forEach(i => failed.delete(i)); render(ids); }
             });
         }
@@ -842,7 +866,7 @@
     // Presets without a preview are rendered one at a time as soon as Resolve is connected.
     setInterval(() => {
         if (busy.size || batch || state.busy || !state.live || !state.live.ok) return;
-        const next = state.lib.animations.find(a => !a.missing && !failed.has(a.id) && !(a.preview && a.previewFiles && a.previewFiles.length));
+        const next = state.lib.animations.find(a => needsPreview(a) && !failed.has(a.id));
         if (next) render(next.id);
     }, 2500);
 

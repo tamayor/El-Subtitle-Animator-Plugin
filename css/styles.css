@@ -53,15 +53,72 @@ header {
     border-bottom: 1px solid var(--line-soft);
 }
 
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
 h1 {
     font-size: 15px;
     margin: 0;
-    flex: 1;
+    flex: 0 0 auto;
     font-weight: 700;
     letter-spacing: 0.2px;
     background: linear-gradient(90deg, var(--matcha) 0%, var(--strawberry) 85%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+}
+
+.version-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    padding: 2px 6px;
+    border-radius: 6px;
+    color: var(--dim);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+    -webkit-text-fill-color: var(--dim);
+}
+
+.version-badge:hover {
+    color: var(--matcha);
+    background: var(--matcha-tint);
+    border-color: var(--matcha-border);
+    -webkit-text-fill-color: var(--matcha);
+}
+
+.version-badge.editing {
+    padding: 0;
+    background: transparent;
+    border-color: var(--matcha);
+}
+
+.version-badge .version-input {
+    width: 58px;
+    height: 18px;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    padding: 1px 4px;
+    border: none;
+    border-radius: 5px;
+    background: var(--card-inner);
+    color: var(--text);
+    text-align: center;
+    outline: none;
+    box-shadow: 0 0 0 1px var(--matcha);
+    -webkit-text-fill-color: var(--text);
 }
 
 /* ---------- clean sectioning & open-section highlights ---------- */

@@ -877,9 +877,14 @@ function wrap(fn) {
     };
 }
 
-// Grabs a short run of small frames from a clip on the timeline so the panel can preview the animation.
+// Grabs real 25fps or 30fps frames from a clip on the timeline so the panel can preview the animation in a 3-second loop.
 async function capturePreview(animId, itemId) {
-    const res = await bridgeCall('capture', { item: itemId, count: 30, maxDim: 640 }, 120000);
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    const meta = tl ? await timelineMeta(tl) : { fps: 25 };
+    const fps = Math.round(meta.fps || 25);
+    const targetCount = Math.round(fps * 3);
+    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim: 480 }, 120000);
     if (!res || !res.frames || !res.frames.length) throw new Error('No frames came back');
     const dir = path.join(PREV_DIR, animId);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -887,7 +892,7 @@ async function capturePreview(animId, itemId) {
     res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === animId);
-    if (a) { a.preview = { count: res.frames.length, step: res.step, fps: res.fps, stamp: Date.now() }; saveLib(lib); }
+    if (a) { a.preview = { count: res.frames.length, step: res.step || 1, fps: res.fps || fps, stamp: Date.now() }; saveLib(lib); }
     return true;
 }
 
@@ -953,7 +958,13 @@ async function createCombo(event, req) {
     if (req.sfxPath) a.sfx = copySfx(req.sfxPath);
     lib.animations.push(a);
     saveLib(lib);
-    if (fromItem) { try { await capturePreview(a.id, fromItem); } catch (e) { /* the preview is optional */ } }
+    if (fromItem) {
+        try {
+            await makePreview(null, a.id);
+        } catch (e) {
+            try { await capturePreview(a.id, fromItem); } catch (e2) { /* the preview is optional */ }
+        }
+    }
     return { lib: libForUI(), createdId: a.id };
 }
 
@@ -1459,6 +1470,60 @@ function setOnTop(event, flag) {
     return { lib: libForUI() };
 }
 
+function getAppVersion() {
+    try {
+        const pkgPath = path.join(__dirname, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            if (pkg && pkg.version) return { version: String(pkg.version).trim() };
+        }
+    } catch (e) {
+        console.warn('Failed reading package.json version:', e);
+    }
+    try {
+        if (app && app.getVersion) {
+            const v = app.getVersion();
+            if (v && v !== '0.0.0') return { version: String(v).trim() };
+        }
+    } catch (e) {}
+    return { version: '1.0.0' };
+}
+
+function setAppVersion(event, newVer) {
+    if (!newVer || typeof newVer !== 'string') {
+        return { error: 'Invalid version string' };
+    }
+    const cleanVer = newVer.trim().replace(/^v/i, '').trim();
+    if (!cleanVer) return { error: 'Invalid version string' };
+
+    const pkgPath = path.join(__dirname, 'package.json');
+    try {
+        let pkg = {};
+        if (fs.existsSync(pkgPath)) {
+            pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        }
+        pkg.version = cleanVer;
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 4) + '\n', 'utf8');
+    } catch (e) {
+        return { error: 'Failed to update package.json: ' + (e.message || e) };
+    }
+
+    const manifestPath = path.join(__dirname, 'manifest.xml');
+    try {
+        if (fs.existsSync(manifestPath)) {
+            let xml = fs.readFileSync(manifestPath, 'utf8');
+            if (/<Version>.*?<\/Version>/.test(xml)) {
+                xml = xml.replace(/<Version>.*?<\/Version>/, `<Version>${cleanVer}</Version>`);
+                fs.writeFileSync(manifestPath, xml, 'utf8');
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to update manifest.xml:', e);
+    }
+
+    return { ok: true, version: cleanVer };
+}
+
 // ------------------------------------------------------------------ app & auto-close with DaVinci Resolve
 let mainWindow = null;
 let resolveWatchTimer = null;
@@ -1541,6 +1606,8 @@ app.whenReady().then(() => {
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));
+    ipcMain.handle('app:getVersion', wrap(getAppVersion));
+    ipcMain.handle('app:setVersion', wrap(setAppVersion));
     ipcMain.handle('lib:get', wrap(() => ({ lib: libForUI() })));
     ipcMain.handle('lib:addAnimationFile', wrap(addAnimationFile));
     ipcMain.handle('lib:saveSelected', wrap(saveSelectedAsAnimation));

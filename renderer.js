@@ -150,7 +150,9 @@ function currentSfxPath(a) {
     return state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
 }
 
-function drawWave(canvas, wave, volumeDb) {
+// shape: { frac } = how much of the sound is shown (the rest is trimmed away), { fade } = fraction of the shown
+// width that fades out at the end.
+function drawWave(canvas, wave, volumeDb, shape) {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round((canvas.clientWidth || 100) * dpr));
     const h = Math.max(1, Math.round((canvas.clientHeight || 40) * dpr));
@@ -160,14 +162,27 @@ function drawWave(canvas, wave, volumeDb) {
     if (!wave || !wave.peaks.length) return;
     g.fillStyle = '#9be29d';
     const n = wave.peaks.length;
+    const frac = shape && shape.frac > 0 ? Math.min(1, shape.frac) : 1;
+    const fade = shape && shape.fade > 0 ? Math.min(1, shape.fade) : 0;
     const db = (volumeDb !== undefined && volumeDb !== null) ? Number(volumeDb) : 0;
     const linearGain = Math.pow(10, db / 20);
     // Baseline scale at 0 dB is 0.68 of height; scaled by volume gain, capped at full height (1.0)
     const ampScale = Math.max(0.04, Math.min(1.0, 0.68 * linearGain));
+    const fadeX = w * (1 - fade);
     for (let x = 0; x < w; x++) {
-        const v = wave.peaks[Math.min(n - 1, Math.floor(x / w * n))];
-        const bar = Math.max(2 * dpr, v * h * ampScale);
+        const v = wave.peaks[Math.min(n - 1, Math.floor(x / w * frac * n))];
+        const mult = (fade > 0 && x > fadeX) ? Math.max(0, (w - x) / (w * fade)) : 1;
+        const bar = Math.max(2 * dpr, v * h * ampScale) * mult;
+        if (bar < 1) continue;
         g.fillRect(x, (h - bar) / 2, 1, bar);
+    }
+    if (fade > 0) {
+        g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        g.lineWidth = Math.max(1, dpr);
+        g.beginPath();
+        g.moveTo(fadeX, 3 * dpr); g.lineTo(w, h / 2);
+        g.moveTo(fadeX, h - 3 * dpr); g.lineTo(w, h / 2);
+        g.stroke();
     }
 }
 
@@ -181,17 +196,64 @@ const FONT_OPTIONS = [
 
 // All fonts installed on this computer (loaded once in the background); the short list above is the fallback.
 state.fonts = FONT_OPTIONS.slice();
+state.fontStyles = {};      // font family -> the styles it really has
 (async () => {
     try {
         let list = null;
-        if (window.sa && window.sa.listFonts) { const r = await window.sa.listFonts(); list = r && r.fonts; }
+        if (window.sa && window.sa.listFonts) { const r = await window.sa.listFonts(); list = r && r.fonts; if (r && r.styles) state.fontStyles = r.styles; }
         if ((!list || !list.length) && typeof window.queryLocalFonts === 'function') {
             const f = await window.queryLocalFonts();
             list = Array.from(new Set(f.map(x => x.family))).sort((a, b) => a.localeCompare(b));
+            for (const x of f) { (state.fontStyles[x.family] = state.fontStyles[x.family] || []).includes(x.style) || state.fontStyles[x.family].push(x.style); }
         }
         if (list && list.length) state.fonts = list;
     } catch (e) { /* keep the short list */ }
 })();
+
+// null = font not in the installed list (typed by hand). A font with no styles, or whose family name already carries
+// its weight (Larken-Black, Arial Black), is listed by Resolve with the single style "Regular".
+const FONT_WEIGHT_NAME = /[-\s](thin|hairline|extra\s?light|ultra\s?light|light|regular|book|medium|semi\s?bold|demi\s?bold|bold|extra\s?bold|ultra\s?bold|heavy|black|italic|oblique)$/i;
+function fontStylesOf(font) {
+    const k = Object.keys(state.fontStyles || {}).find(x => x.toLowerCase() === String(font || '').toLowerCase());
+    if (!k) return null;
+    const raw = state.fontStyles[k] || [];
+    if (!raw.length || (raw.length <= 1 && FONT_WEIGHT_NAME.test(String(font)))) return ['Regular'];
+    return raw;
+}
+// A style the font has: the wanted one, else Regular, else the first.
+function pickStyle(styles, want) {
+    const w = String(want || '').toLowerCase();
+    const hit = styles.find(x => x.toLowerCase() === w);
+    if (hit) return hit;
+    for (const n of ['regular', 'book', 'roman', 'normal', 'medium']) { const r = styles.find(x => x.toLowerCase() === n); if (r) return r; }
+    return styles[0];
+}
+// The Style box lists what the chosen font really has (the general list when the font is not known).
+function fillStyleSelect(S, font, value) {
+    const sel = $('tdStyle' + S);
+    if (!sel) return value;
+    const styles = fontStylesOf(font);
+    if (styles && !styles.length) {
+        // The font has no styles: the Style box is empty and disabled, and no style is sent to Resolve.
+        sel.textContent = '';
+        const o = document.createElement('option'); o.value = ''; o.textContent = ''; sel.appendChild(o);
+        sel.value = '';
+        sel.disabled = true;
+        return '';
+    }
+    sel.disabled = false;
+    const opts = styles || STYLE_OPTIONS;
+    let val = value;
+    if (styles && !styles.some(x => x.toLowerCase() === String(value || '').toLowerCase())) val = pickStyle(styles, value);
+    if (!val) val = styles ? pickStyle(styles, 'Regular') : 'Bold';
+    if (opts.join('|') !== Array.from(sel.options).map(o => o.value).join('|')) {
+        sel.textContent = '';
+        for (const st of opts) { const o = document.createElement('option'); o.value = st; o.textContent = st; sel.appendChild(o); }
+    }
+    if (val && !Array.from(sel.options).some(o => o.value === val)) { const o = document.createElement('option'); o.value = val; o.textContent = val; sel.appendChild(o); }
+    sel.value = val;
+    return val;
+}
 
 // Searchable font list under the Font box, like Resolve's: click to see every installed font, type to filter.
 function bindFontPicker(inp) {
@@ -974,11 +1036,14 @@ function geometry(m) {
     const span = subSpan();
     const fps = fpsNow();
     const wave = loadWaveCached(m);
-    const sfxFrames = Math.max(2, Math.round(((wave && wave.seconds) || 0.5) * fps));
+    const sfxFull = Math.max(2, Math.round(((wave && wave.seconds) || 0.5) * fps));
     const textS = m.textOffset;
     const textE = span.dur + m.tail;
     const sfxS = textS + m.sfxOffset;
-    return { span, fps, sfxFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames };
+    // The sound is cut where the subtitle ends (never shorter than 5 frames) and fades out over its last second.
+    const sfxFrames = Math.max(Math.min(sfxFull, 5), Math.min(sfxFull, Math.round(textE - sfxS)));
+    const fadeFrames = Math.min(sfxFrames, Math.round(fps));
+    return { span, fps, sfxFull, sfxFrames, fadeFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames };
 }
 
 function loadWaveCached(m) {
@@ -991,7 +1056,7 @@ function loadWaveCached(m) {
 
 function windowFor(g) {
     const lo = Math.min(0, g.textS, g.sfxS) - 12;
-    const hi = Math.max(g.span.dur, g.textE, g.sfxE) + 12;
+    const hi = Math.max(g.span.dur, g.textE, g.sfxS + g.sfxFull) + 12;
     return { lo, hi };
 }
 
@@ -1046,11 +1111,20 @@ function renderTimeline(ctx) {
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name || ''; tb.appendChild(nm);
     const hl = add('handle l', tb), hr = add('handle r', tb);
 
+    // the sound's full length, as a faint ghost behind the trimmed bar
+    if (m.useSfx !== false && currentSfxPath(m) && g.sfxFull > g.sfxFrames) {
+        const gs = add('sfx-ghost', laneS);
+        gs.style.left = X(g.sfxS) + 'px'; gs.style.width = Math.max(6, g.sfxFull * ppf) + 'px';
+        const gcv = document.createElement('canvas'); gs.appendChild(gcv);
+        drawWave(gcv, loadWaveCached(m), m.sfxVolume);
+    }
+
     // sound bar
     const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : ''), laneS);
     sb.style.left = X(g.sfxS) + 'px'; sb.style.width = Math.max(6, g.sfxFrames * ppf) + 'px';
     const cv = document.createElement('canvas'); sb.appendChild(cv);
-    drawWave(cv, loadWaveCached(m), m.sfxVolume);
+    drawWave(cv, loadWaveCached(m), m.sfxVolume, { frac: g.sfxFrames / g.sfxFull, fade: g.fadeFrames / g.sfxFrames });
+    sb.title = (g.sfxFrames < g.sfxFull ? 'Trimmed to the subtitle length. ' : '') + 'Fades out over the last ' + (g.fadeFrames / g.fps).toFixed(g.fadeFrames % Math.round(g.fps) === 0 ? 0 : 1) + ' s';
 
     // dashed link between the start of the text and the sound
     if (m.linked !== false) {
@@ -1922,7 +1996,7 @@ function drawStage(S, a, idx) {
             const defaultTxt = (a && Array.isArray(a.nodes) && a.nodes.length && a.nodes[0].defaultText) || '';
             const txt = activeSubText || defaultTxt || 'Sample text';
             const lines = wrapToLines(String(txt));
-            const styleLow = String(td.style || 'Bold').toLowerCase();
+            const styleLow = String(td.style === '' ? 'Regular' : (td.style || 'Bold')).toLowerCase();
             let weight = '700';
             if (styleLow.includes('black') || styleLow.includes('heavy')) weight = '900';
             else if (styleLow.includes('extrabold') || styleLow.includes('ultrabold')) weight = '800';
@@ -2914,6 +2988,7 @@ function runPreview(ctx, loop = false) {
             sfxEl.load();
         } catch (e) { sfxEl = null; }
     }
+    const baseVol = sfxEl ? sfxEl.volume : 1;
     const startedAt = performance.now();
 
     const frame = () => {
@@ -2945,11 +3020,18 @@ function runPreview(ctx, loop = false) {
                 try {
                     if (state.audio && state.audio !== sfxEl) state.audio.pause();
                     state.audio = sfxEl;
+                    sfxEl.volume = baseVol;
                     sfxEl.currentTime = 0;
                     const pr = sfxEl.play();
                     if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
                 } catch (e) { /* ignore */ }
             }
+        }
+        // Same as on the timeline: the sound stops where the subtitle ends, fading out over its last second.
+        if (sfxEl && fired) {
+            const left = g.sfxE - tf;
+            if (left <= 0) { if (!sfxEl.paused) sfxEl.pause(); }
+            else if (left < g.fadeFrames) sfxEl.volume = clamp(baseVol * left / g.fadeFrames, 0, 1);
         }
         const relFrame = (tf < g.textS) ? -1 : Math.max(0, Math.floor(tf - g.textS));
         // The preset entry (not the editing copy) carries the rendered Fusion frames, so the play button shows the real preview.
@@ -3340,15 +3422,7 @@ function fillTextDesign(ctx) {
     const td = editTD(m, S);
     const fEl = $('tdFont' + S);
     if (fEl && document.activeElement !== fEl) fEl.value = td.font || 'Poppins';
-    const stEl = $('tdStyle' + S);
-    if (stEl) {
-        if (!Array.from(stEl.options).some(o => o.value === td.style) && td.style) {
-            const opt = document.createElement('option');
-            opt.value = td.style; opt.textContent = td.style;
-            stEl.appendChild(opt);
-        }
-        stEl.value = td.style || 'Bold';
-    }
+    { const ns = fillStyleSelect(S, td.font || 'Poppins', td.style); if (typeof ns === 'string') td.style = ns; }
     const el1 = td.elements[0];
     const c1El = $('tdColor' + S);
     if (c1El && el1) c1El.value = el1.color || '#ffffff';
@@ -3763,6 +3837,7 @@ function bindTextDesign(ctx) {
         if (typedOnly && !known) return;                     // half-typed names wait for Enter / a pick
         if (known) v = known;
         td.font = v || 'Poppins';
+        { const ns = fillStyleSelect(S, td.font, td.style); if (typeof ns === 'string') td.style = ns; }     // never a style the new font does not have
         commit();
     };
     $('tdFont' + S).addEventListener('input', (e) => applyFont(!!(e && e.inputType)));
@@ -4527,7 +4602,7 @@ function renderTdSummary(ctx) {
     const td = editTD(m, S) || (libEntry(m.id) && libEntry(m.id).textDesign);
     if (!td) { el.textContent = ''; return; }
     const font = td.font || 'Poppins';
-    const style = td.style || 'Bold';
+    const style = td.style === '' ? '' : (td.style || 'Bold');
     const size = (Number(td.size) || 0.12).toFixed(3);
     const who = (window.SABoxes && SABoxes.targetLabel) ? SABoxes.targetLabel(S) : '';
     el.textContent = (who ? who + ' · ' : '') + font + ' ' + style + ' · ' + size + (m.designDirty ? ' · edited' : '');
@@ -5076,6 +5151,73 @@ function renderTags() {
     }
 }
 
+// Library: drag a preset by its handle to a new place in the list; the order is saved and used everywhere.
+function startLibDrag(e, rowEl, a, list) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const scroller = (() => {
+        for (let el = list.parentElement; el; el = el.parentElement) {
+            const oy = getComputedStyle(el).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+        }
+        return document.scrollingElement;
+    })();
+    const startY = e.clientY, startScroll = scroller.scrollTop;
+    let lastY = startY, target = null, timer = 0;
+    const rows = () => Array.from(list.querySelectorAll(':scope > .libitem')).filter(r => r !== rowEl);
+    const line = document.createElement('div');
+    line.className = 'lib-drop-line';
+    rowEl.classList.add('dragging');
+    document.body.classList.add('lib-dragging');
+    const update = () => {
+        rowEl.style.transform = 'translateY(' + (lastY - startY + scroller.scrollTop - startScroll) + 'px)';
+        const others = rows();
+        target = null;
+        for (const r of others) {
+            const b = r.getBoundingClientRect();
+            if (lastY < b.top + b.height / 2) { target = r; break; }
+        }
+        if (target) target.before(line);
+        else if (others.length) others[others.length - 1].after(line);
+    };
+    const tick = () => {
+        const sb = scroller === document.scrollingElement ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect();
+        let d = 0;
+        if (lastY < sb.top + 36) d = -10; else if (lastY > sb.bottom - 36) d = 10;
+        if (d) { scroller.scrollTop += d; update(); }
+    };
+    const move = (ev) => { lastY = ev.clientY; update(); };
+    const up = async () => {
+        document.removeEventListener('mousemove', move, true);
+        document.removeEventListener('mouseup', up, true);
+        clearInterval(timer);
+        const ids = rows().map(r => r.dataset.id);
+        const at = target ? ids.indexOf(target.dataset.id) : ids.length;
+        ids.splice(at < 0 ? ids.length : at, 0, a.id);
+        line.remove();
+        rowEl.classList.remove('dragging');
+        rowEl.style.transform = '';
+        document.body.classList.remove('lib-dragging');
+        const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+        window.addEventListener('click', swallow, true);
+        setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+        // The shown rows (maybe filtered by tag) take the slots those presets already had in the full list.
+        const full = state.lib.animations.map(x => x.id);
+        const shownSet = new Set(Array.from(list.querySelectorAll(':scope > .libitem')).map(r => r.dataset.id));
+        const queue = ids.slice();
+        const next = full.map(id => shownSet.has(id) ? queue.shift() : id);
+        if (next.join('|') === full.join('|')) return;
+        const byId = new Map(state.lib.animations.map(x => [x.id, x]));
+        state.lib.animations = next.map(id => byId.get(id)).filter(Boolean);
+        renderAll();
+        takeLib(await window.sa.reorderAnimations(next));
+    };
+    document.addEventListener('mousemove', move, true);
+    document.addEventListener('mouseup', up, true);
+    timer = setInterval(tick, 30);
+    update();
+}
+
 // Use tab: the text + sound effects that are already made. Click one to pick it.
 function renderAnimations() {
     const grid = $('animGrid');
@@ -5174,6 +5316,11 @@ function renderCreate() {
         const s = document.createElement('span');
         s.textContent = a.sfx ? '♪ ' + a.sfx : (state.lib.defaultSfx ? '♪ default sound' : 'no sound');
         t.append(b, s);
+        const grip = document.createElement('span');
+        grip.className = 'lib-grip'; grip.textContent = '⋮⋮'; grip.title = 'Drag to change the order';
+        grip.addEventListener('mousedown', (e) => startLibDrag(e, row, a, list));
+        grip.addEventListener('click', (e) => e.stopPropagation());
+        row.appendChild(grip);
         const dots = tagDotsEl(a);
         if (dots) row.appendChild(dots);
         const more = document.createElement('button'); more.className = 'ghost more'; more.textContent = '⋯'; more.title = 'Tags and more';
@@ -5350,6 +5497,41 @@ async function tick() {
 }
 
 // ---------------------------------------------------------------- actions
+// The sound that goes on the timeline: cut where the subtitle ends and faded out over its last second. Made here
+// (the panel can decode any audio file), saved by the app as a WAV, and imported into Resolve in place of the original.
+async function buildFadedSfx(m) {
+    const p = currentSfxPath(m);
+    if (!p || m.useSfx === false) return null;
+    const g = geometry(m);
+    const bytes = await window.sa.readSfx(p);
+    if (!(bytes instanceof Uint8Array)) return null;
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    let buf;
+    try { buf = await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); } finally { ac.close(); }
+    const sr = buf.sampleRate, ch = Math.min(2, buf.numberOfChannels);
+    const trimSec = Math.max(5 / g.fps, Math.min(buf.duration, (g.textE - g.sfxS) / g.fps));
+    const n = Math.max(1, Math.round(trimSec * sr));
+    const fadeN = Math.min(n, Math.round(sr));              // 1 second
+    const data = new Uint8Array(44 + n * ch * 2);
+    const dv = new DataView(data.buffer);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true); dv.setUint32(24, sr, true);
+    dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true);
+    str(36, 'data'); dv.setUint32(40, n * ch * 2, true);
+    for (let c = 0; c < ch; c++) {
+        const src = buf.getChannelData(c);
+        for (let i = 0; i < n; i++) {
+            let v = i < src.length ? src[i] : 0;
+            if (i >= n - fadeN) v *= (n - i) / fadeN;
+            v = Math.max(-1, Math.min(1, v));
+            dv.setInt16(44 + (i * ch + c) * 2, v < 0 ? v * 32768 : v * 32767, true);
+        }
+    }
+    const res = await window.sa.saveSfxClip(baseName(p), data);
+    return (res && res.path) || null;
+}
+
 async function create() {
     const a = selected();
     const m = state.use;
@@ -5362,8 +5544,10 @@ async function create() {
     state.busy = true;
     $('create').disabled = true;
     setStatus('Creating…');
+    let sfxClip = null;
+    try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }      // falls back to the original sound
     const res = await window.sa.apply({
-        animationId: a.id, text, start, end,
+        animationId: a.id, text, start, end, sfxPath: sfxClip || undefined,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
         textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false,
         linked: m.linked !== false,

@@ -167,7 +167,7 @@ def apply_text_design(tool, td):
     apply_layout(tool, td.get("layout"))
     if td.get("font"):
         put("Font", str(td["font"]))
-    if td.get("style"):
+    if td.get("style") is not None:
         put("Style", str(td["style"]))
     if td.get("size") is not None:
         put("Size", float(td["size"]))

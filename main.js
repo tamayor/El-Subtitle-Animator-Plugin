@@ -525,6 +525,12 @@ function designForFusion(compPath, wanted, toolName) {
         const differs = typeof base[k] === 'number' ? Math.abs(Number(wanted[k]) - base[k]) > 1e-6 : String(wanted[k]) !== String(base[k]);
         if (differs) out[k] = wanted[k];
     }
+    // A new font must come with a style that font really has, or Resolve shows "Font Not Found".
+    if (out.font || (wanted.font && out.style)) {
+        const f = out.font || wanted.font;
+        const st = validFontStyle(f, out.style || wanted.style || base.style);
+        if (typeof st === 'string') out.style = st;
+    }
     // Per shading element, only the fields that really differ from the preset file are sent (changing the colour
     // sends the colour and nothing else), so untouched inputs - and their keyframes - stay exactly as built.
     const keys = ['name', 'enabled', 'opacity', 'shape', 'thickness', 'level', 'extendH', 'extendV', 'round', 'color', 'color2', 'mappingAngle', 'mappingSize', 'mappingAspect', 'mappingLevel', 'softness', 'offsetX', 'offsetY', 'type'];
@@ -1053,21 +1059,59 @@ async function apply(event, req) {
 }
 
 // ------------------------------------------------------------------ library actions
-// Every font family installed on this Mac (what Text+ offers in its Font box), looked up once per run.
-let fontCache = null;
+// Every font family installed on this Mac with the styles each one really has (what Text+ offers in its Font
+// and Style boxes), looked up once per run. A Text+ shows "Font Not Found" when the style is not one of these.
+let fontCache = null, fontStyleMap = {};
 function listSystemFonts() {
     return new Promise((resolve) => {
-        if (fontCache) return resolve(fontCache);
-        if (process.platform !== 'darwin') return resolve([]);
-        const js = 'ObjC.import("AppKit"); JSON.stringify(ObjC.deepUnwrap($.NSFontManager.sharedFontManager.availableFontFamilies))';
-        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 20000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+        if (fontCache) return resolve({ fonts: fontCache, styles: fontStyleMap });
+        if (process.platform !== 'darwin') return resolve({ fonts: [], styles: {} });
+        const js = 'ObjC.import("AppKit"); const fm = $.NSFontManager.sharedFontManager; const out = {};' +
+            'for (const f of ObjC.deepUnwrap(fm.availableFontFamilies)) { let st = []; try { st = (ObjC.deepUnwrap(fm.availableMembersOfFontFamily(f)) || []).map(m => String(m[1])); } catch (e) {} out[f] = st; }' +
+            'JSON.stringify(out)';
+        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 60000, maxBuffer: 32 * 1024 * 1024 }, (err, out) => {
             try {
-                const arr = JSON.parse(String(out || '').trim());
-                fontCache = Array.from(new Set(arr.filter(x => typeof x === 'string' && x && !x.startsWith('.')))).sort((a, b) => a.localeCompare(b));
+                const map = JSON.parse(String(out || '').trim());
+                const names = Object.keys(map).filter(x => x && !x.startsWith('.')).sort((a, b) => a.localeCompare(b));
+                fontStyleMap = {};
+                for (const n of names) fontStyleMap[n] = Array.from(new Set((map[n] || []).filter(Boolean)));
+                fontCache = names;
             } catch (e) { fontCache = null; }
-            resolve(fontCache || []);
+            resolve({ fonts: fontCache || [], styles: fontStyleMap });
         });
     });
+}
+const FONT_WEIGHT_NAME = /[-\s](thin|hairline|extra\s?light|ultra\s?light|light|regular|book|medium|semi\s?bold|demi\s?bold|bold|extra\s?bold|ultra\s?bold|heavy|black|italic|oblique)$/i;
+// A style that exists for this font: the wanted one when it does, else Regular (or the first the font has).
+function validFontStyle(font, wanted) {
+    const key = Object.keys(fontStyleMap).find(k => k.toLowerCase() === String(font || '').toLowerCase());
+    const list = key ? fontStyleMap[key] : null;
+    if (!key) return wanted;
+    // A font with no styles, or one whose family name already carries its weight (Larken-Black, Arial Black), is
+    // listed by Resolve with the single style "Regular".
+    if (!list || !list.length || (list.length <= 1 && FONT_WEIGHT_NAME.test(String(font)))) return 'Regular';
+    const w = String(wanted || '').toLowerCase();
+    const hit = list.find(x => x.toLowerCase() === w);
+    if (hit) return hit;
+    for (const n of ['regular', 'book', 'roman', 'normal', 'medium']) { const r = list.find(x => x.toLowerCase() === n); if (r) return r; }
+    return list[0];
+}
+
+// A trimmed copy of a sound effect (made in the panel, with its fade-out already applied) is stored here; the
+// name carries a hash of its content, so the same trim is only imported into Resolve once.
+function saveSfxClip(event, name, bytes) {
+    const dir = path.join(DATA_DIR, 'sfx-cache');
+    fs.mkdirSync(dir, { recursive: true });
+    const buf = Buffer.from(bytes);
+    const h = require('crypto').createHash('sha1').update(buf).digest('hex').slice(0, 8);
+    const base = String(name || 'sound').replace(/\.[^.]+$/, '').replace(/[^\w.\- ]+/g, '_').slice(0, 60);
+    const file = path.join(dir, base + ' (trim ' + h + ').wav');
+    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    try {
+        const all = fs.readdirSync(dir).map(n => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((x, y) => y.t - x.t);
+        for (const o of all.slice(80)) fs.rmSync(path.join(dir, o.n), { force: true });
+    } catch (e) { /* ignore */ }
+    return { path: file };
 }
 
 function wrap(fn) {
@@ -1513,6 +1557,21 @@ function saveTags(event, tags) {
     for (const a of lib.animations) {
         if (Array.isArray(a.tags)) a.tags = a.tags.filter(id => seen.has(id));
     }
+    saveLib(lib);
+    return { lib: libForUI() };
+}
+
+// New order of the presets (a list of ids). Presets missing from the list keep their relative order at the end.
+function reorderAnimations(event, ids) {
+    const lib = loadLib();
+    const byId = new Map(lib.animations.map(a => [a.id, a]));
+    const out = [];
+    for (const id of (Array.isArray(ids) ? ids : [])) {
+        const a = byId.get(id);
+        if (a) { out.push(a); byId.delete(id); }
+    }
+    for (const a of lib.animations) if (byId.has(a.id)) out.push(a);
+    lib.animations = out;
     saveLib(lib);
     return { lib: libForUI() };
 }
@@ -2189,7 +2248,7 @@ app.on('before-quit', () => cleanup());
 
 app.whenReady().then(() => {
     ensureDirs();
-    ipcMain.handle('fonts:list', async () => ({ fonts: await listSystemFonts() }));
+    ipcMain.handle('fonts:list', async () => await listSystemFonts());
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
@@ -2205,6 +2264,7 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:update', wrap(updateAnimation));
     ipcMain.handle('lib:remove', wrap(removeAnimation));
     ipcMain.handle('lib:saveTags', wrap(saveTags));
+    ipcMain.handle('lib:reorder', wrap(reorderAnimations));
     ipcMain.handle('lib:setDefaultSfx', wrap(setDefaultSfx));
     ipcMain.handle('lib:setAnimationSfx', wrap(setAnimationSfx));
     ipcMain.handle('lib:replaceFile', wrap(replaceAnimationFile));
@@ -2217,6 +2277,7 @@ app.whenReady().then(() => {
     ipcMain.handle('act:syncLiveTransform', wrap(syncLiveTransform));
     ipcMain.handle('act:seek', wrap(seek));
     ipcMain.handle('sfx:read', wrap(readSfx));
+    ipcMain.handle('sfx:saveClip', wrap(saveSfxClip));
     ipcMain.handle('win:setOnTop', wrap(setOnTop));
     ipcMain.handle('win:setLayoutMode', wrap(setLayoutMode));
     ipcMain.handle('win:fitWidth', wrap(fitWidth));

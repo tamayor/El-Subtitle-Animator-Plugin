@@ -911,6 +911,7 @@ ${S === 'U' ? `<div id="stageLive${S}" class="stage-live hidden">
         <button type="button" id="liveApply${S}" class="live-apply" title="Keep the Text+ on the timeline (with its sound) and end the preview">Apply</button>
     </div>
 </div>` : ''}
+${S === 'U' ? `<div id="liveAdvice${S}" class="live-advice">Preview in Resolve starts only when you click <b>▶ Preview in Resolve</b>. Playing, pausing or moving the playhead never starts it.</div>` : ''}
 <div id="stageMsg${S}" class="stagemsg"></div>
 <div class="xform-section">
     <div class="xform-header">
@@ -3399,7 +3400,7 @@ function liveReq(m, a, text) {
         animationId: a.id, text, start: p.start, end: p.end,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
         textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false, place: placeOptions(),
-        linked: m.linked !== false,
+        linked: m.linked !== false, sfxPath: p.sfxPath || undefined,
         posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
         textDesign: m.textDesign || a.textDesign || null,
@@ -3407,12 +3408,55 @@ function liveReq(m, a, text) {
     };
 }
 function setLiveUI(on) {
+    state.liveUI = !!on;
     const box = $('stageBoxU'), bar = $('stageLiveU');
     if (box) box.classList.toggle('hidden', on);
     if (bar) bar.classList.toggle('hidden', !on);
     if ($('stageMsgU')) $('stageMsgU').classList.toggle('hidden', on);
     const b = $('stageLiveBtnU'); if (b) b.disabled = on;
-    $('create').disabled = state.busy || !selected() || on;
+    $('create').disabled = state.busy || !selected() || !!state.livePrev;
+    // Alignment is collapsed and disabled while a preview runs: the sound is moved / trimmed on the Resolve timeline itself.
+    if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('live-locked', !!state.livePrev);
+    setAdjustOpen(state.adjustOpen);
+    refreshLiveBar();
+}
+// Labels of the Preview bar: it stays on screen after Apply and only "Remove preview" brings the player back.
+function refreshLiveBar() {
+    const bar = $('stageLiveU'); if (!bar) return;
+    const a = selected();
+    const btn = $('liveApplyU');
+    if (btn) {
+        // nothing is previewing: the button previews the selected preset first; while previewing it sets (keeps) it
+        btn.textContent = !state.livePrev ? 'Preview Text preset' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Apply');
+        btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead before setting it';
+    }
+    const title = bar.querySelector('.stage-live-txt b');
+    if (title) title.textContent = state.livePrev ? 'Previewing in Resolve' : (state.liveApplied ? 'Applied to the timeline' : 'Preview in Resolve');
+    const note = bar.querySelector('.live-note');
+    if (note) note.style.display = state.livePrev ? '' : 'none';
+    if (!state.livePrev) liveCard(state.liveApplied
+        ? 'The Text+ and its sound stay on the timeline. Pick another text preset to preview it on the subtitle at the playhead.'
+        : 'Click any text preset to preview it on the subtitle at the playhead.');
+    const adv = $('liveAdviceU');
+    if (adv) adv.innerHTML = state.liveUI
+        ? 'Click any text preset to preview it. Playing, pausing or moving the playhead never starts a preview. <b>Remove preview</b> brings the player back.'
+        : 'Preview in Resolve starts only when you click <b>▶ Preview in Resolve</b>. Playing, pausing or moving the playhead never starts it.';
+}
+function exitLiveSession() {
+    state.liveApplied = false;
+    setLiveUI(false);
+    redrawStages();
+}
+// "Set <preset>" with no preview running: previews the selected preset on the playhead's subtitle and applies it at once.
+async function setPresetNow() {
+    if (state.livePrev || state.busy) return;
+    await startLivePreview();
+    for (let i = 0; i < 80 && state.livePrev; i++) {
+        if (state.livePrev.hasClip && !state.livePrev.busy) break;
+        await new Promise(r => setTimeout(r, 250));
+    }
+    if (state.livePrev && state.livePrev.hasClip) await endLivePreview(true);
+    else if (state.livePrev) setStatus('Move the playhead onto a subtitle; the preview appears there. Then press Set again.', '');
 }
 function liveCard(msg) {
     const s = document.querySelector('#stageLiveU .stage-live-txt span');
@@ -3432,7 +3476,7 @@ async function addLiveClip(sub, keepPlayhead) {
         p.hasClip = true;
         p.clipS = res.start; p.clipE = res.start + res.frames;
         p.key = JSON.stringify(liveReq(m, a, p.text));
-        liveCard('In/Out are on the clip and play loops inside them. Move the playhead to another subtitle and the In/Out move there; the preview clip is removed when you leave it.');
+        liveCard('The Text+ and its sound are on the timeline, with In/Out around the Text+. Move or trim the sound in Resolve if you like. Move the playhead to another subtitle and both move there.');
         setStatus('Previewing in Resolve · V' + res.videoTrack, 'ok');
         state.liveBg.key = '';
     } else {
@@ -3448,6 +3492,10 @@ async function startLivePreview() {
     liveCard('Waiting for a subtitle: move the playhead onto one.');
     window.sa.liveLoopOn(placeOptions().loopOn).then((lr) => { if (lr && lr.viaKey) setStatus('Sent Cmd+/ to Resolve to toggle Loop. Check the loop button is red; if not, press Cmd+/ once.', ''); else if (lr && lr.ok === false) setStatus('Could not switch on Resolve\'s Loop (' + (lr.error || 'allow Accessibility for this app in System Settings') + '). The panel still loops the clip itself.', ''); }).catch(() => {});
     const s = L.subtitle;
+    state.livePrev.busy = true;
+    try { state.livePrev.sfxPath = await buildFadedSfx(m); } catch (e) { state.livePrev.sfxPath = null; }      // cut + faded once, reused for every caption
+    if (state.livePrev) state.livePrev.busy = false;
+    if (!state.livePrev) return;
     if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, false);
     else if (!s) {
         // no subtitle track: preview at the playhead for 3 seconds
@@ -3472,7 +3520,8 @@ async function endLivePreview(keep) {
     }
     if (keep && res && !res.ok && !res.gone) { p.busy = false; setStatus((res && res.error) || 'Could not apply', 'bad'); return; }
     state.livePrev = null;
-    setLiveUI(false);
+    state.liveApplied = !!(keep && res && res.ok) || (keep ? state.liveApplied : false);
+    setLiveUI(keep);                 // Apply: the bar stays. Remove preview: back to the player.
     try { window.sa.liveLoopRestore(); } catch (e) { /* ignore */ }
     if (state.use) { state.use.renderReq = null; }
     state.liveBg.key = '';
@@ -3480,6 +3529,7 @@ async function endLivePreview(keep) {
     if (keep && res && res.ok) {
         const parts = ['Applied on V' + res.videoTrack, res.frames + ' frames'];
         if (res.audioTrack) parts.push('sound on A' + res.audioTrack + (res.linked ? ' (linked)' : ''));
+        parts.push('click any text preset to preview it');
         setStatus(parts.join(' · ') + (res.warnings && res.warnings.length ? ' · ' + res.warnings.join(' ') : ''), res.warnings && res.warnings.length ? '' : 'ok');
     } else setStatus(keep ? ((res && res.error) || 'The preview clip was gone') : 'Preview removed.', keep ? 'bad' : 'ok');
     try { const r = await window.sa.getLib(); if (r && r.lib) { state.lib = r.lib; syncUse(false); renderAll(); } } catch (e) { /* ignore */ }
@@ -3517,8 +3567,8 @@ function bindLivePreview() {
         const t = e.target.closest && e.target.closest('#stageLiveBtnU, #liveRemoveU, #liveApplyU');
         if (!t) return;
         if (t.id === 'stageLiveBtnU') startLivePreview();
-        else if (t.id === 'liveRemoveU') endLivePreview(false);
-        else endLivePreview(true);
+        else if (t.id === 'liveRemoveU') { if (state.livePrev) endLivePreview(false); else exitLiveSession(); }
+        else { if (state.livePrev) endLivePreview(true); else startLivePreview(); }
     });
     // The preview stays on while you play or scrub: the clip is removed when the playhead leaves it and added again on
     // the next subtitle the playhead reaches. Edits made in the panel are pushed to the clip while it is there.
@@ -3531,13 +3581,14 @@ function bindLivePreview() {
             const keepHad = p.hasClip;
             p.animId = m.id;
             a = libEntry(p.animId);
-            if (keepHad) {
-                p.busy = true;
-                try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ }
-                p.busy = false;
-                p.hasClip = false; p.key = '';
-                await addLiveClip({ start: p.start, end: p.end, text: p.text }, true);
-            }
+            // the new preset brings its own sound (its saved one, or the default): the old preset's sound is dropped with the old clip
+            p.busy = true;
+            if (keepHad) { try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ } }
+            try { p.sfxPath = await buildFadedSfx(m); } catch (e) { p.sfxPath = null; }
+            p.busy = false;
+            p.hasClip = false; p.key = '';
+            if (!state.livePrev) return;
+            if (keepHad) await addLiveClip({ start: p.start, end: p.end, text: p.text }, true);
             return;
         }
         if (!m || !a || m.id !== p.animId) { endLivePreview(false); return; }
@@ -3547,6 +3598,22 @@ function bindLivePreview() {
         if (p.hasClip) {
             if (f < p.clipS || f >= p.clipE) {
                 if (playWatch.playing) return;             // playing (looping) - the clip is only moved when the playhead is moved by hand
+                if (playWatch.still < 2) return;           // still being dragged: wait until it rests
+                const ns = L.subtitle;
+                if (ns && f >= ns.start && f < ns.end && ns.start !== p.subStart) {
+                    // another caption: the same Text+ and sound are moved onto it (much quicker than removing and inserting again)
+                    p.start = ns.start; p.end = ns.end; p.subStart = ns.start; p.text = ns.text || $('subText').value;
+                    p.busy = true;
+                    const mres = await window.sa.liveUpdate(liveReq(m, a, p.text));
+                    p.busy = false;
+                    if (mres && mres.busy) { p.subStart = null; return; }
+                    if (mres && mres.gone) { p.hasClip = false; p.key = ''; liveCard('The clip was removed. Waiting for a subtitle.'); return; }
+                    if (mres && !mres.ok) { p.subStart = null; setStatus(mres.error || 'Could not move the preview', 'bad'); return; }
+                    if (mres && mres.frames) { p.clipS = mres.start; p.clipE = mres.start + mres.frames; }
+                    p.key = JSON.stringify(liveReq(m, a, p.text));
+                    setStatus('Preview moved to this subtitle' + (mres.warnings && mres.warnings.length ? ' · ' + mres.warnings.join(' ') : ''), 'ok');
+                    return;
+                }
                 p.busy = true;
                 try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ }
                 p.busy = false;
@@ -3574,7 +3641,7 @@ function bindLivePreview() {
             // only once the playhead has stopped moving (a clip is inserted at the playhead, so never while it is dragged)
             if (s && f >= s.start && f < s.end && !playWatch.playing && playWatch.still >= 3) await addLiveClip({ start: s.start, end: s.end, text: s.text || $('subText').value }, true);
         }
-    }, 350);
+    }, 250);
 }
 
 let dblClickResetBound = false;
@@ -5677,6 +5744,8 @@ function renderAnimations() {
             state.selectedId = a.id;
             syncUse(true);
             renderAll();
+            refreshLiveBar();
+            if (state.liveUI && !state.livePrev && !state.busy) startLivePreview();      // bar is on: a clicked preset is previewed
         });
         grid.appendChild(c);
     }
@@ -5794,8 +5863,9 @@ function renderSettings() {
     renderUseSummary();
 }
 
-function setAdjustOpen(open) {
-    state.adjustOpen = open;
+function setAdjustOpen(wanted) {
+    state.adjustOpen = wanted;
+    const open = !!wanted && !state.livePrev;
     if ($('adjustBodyU')) $('adjustBodyU').classList.toggle('hidden', !open);
     if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('open', !!open);
     if ($('adjustToggle')) {
@@ -6178,7 +6248,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     renderAll();
     fitWindowToContent();
 
-    $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
+    $('adjustToggle').addEventListener('click', () => { if (state.livePrev) return; stopPreview(); setAdjustOpen(!state.adjustOpen); });
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
     if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
     if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });

@@ -1191,12 +1191,18 @@ async function apply(event, req) {
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can
         //    otherwise stay blank on a freshly imported comp).
         try {
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise(r => setTimeout(r, 120));
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* the clip is placed; this is only a safety refresh */ }
 
         if (live) {
-            liveSession = { itemId, compName, compPath, animId: anim.id, origTC };
+            let liveSfxId = null;
+            try {
+                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId);
+                if (r) { liveSfxId = r.id; sfxTrack = r.track; }
+                else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
+            } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
+            liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath };
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }
@@ -1286,6 +1292,43 @@ async function loopRestore() {
     return await clickLoopMenu();
 }
 
+async function findAudioItemById(tl, id) {
+    if (!id) return null;
+    const tracks = (await tl.GetTrackCount('audio')) || 0;
+    for (let t = 1; t <= tracks; t++) {
+        for (const it of ((await tl.GetItemListInTrack('audio', t)) || [])) {
+            try { if (String(await it.GetUniqueId()) === String(id)) return it; } catch (e) { /* ignore */ }
+        }
+    }
+    return null;
+}
+// The sound of a Preview in Resolve: a real clip on the timeline, linked to the Text+ unless linking is off; it can still be moved / trimmed by hand.
+async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId) {
+    if (!sfxPath || req.useSfx === false || !fs.existsSync(sfxPath)) return null;
+    const tlStart = await tl.GetStartFrame();
+    const { mp, item: mpi } = await importSfx(project, sfxPath);
+    if (!mpi) return null;
+    const sfxFrames = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+    const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
+    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + sfxFrames, 1, notes);
+    const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: sfxStart, startFrame: 0, endFrame: sfxFrames }]);
+    if (!placed || !placed.length) return null;
+    const it = placed[0];
+    const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim && anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+    try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+    const id = String(await it.GetUniqueId());
+    regAdd(id);
+    // linked with the Text+ by default (the "Link text + sound" choice), so they move together in Resolve
+    let linked = false;
+    if (req.linked !== false && videoItem) {
+        try {
+            if (typeof tl.SetClipsLinked === 'function') linked = !!(await tl.SetClipsLinked([videoItem, it], true));
+            if (!linked && videoId) linked = !!(await bridgeCall('link_clips', { videoId: String(videoId), audioId: id, linked: true, volume: vol }));
+        } catch (e) { linked = false; }
+    }
+    return { item: it, id, track, linked };
+}
+
 async function findItemById(tl, id) {
     const tracks = (await tl.GetTrackCount('video')) || 0;
     for (let t = 1; t <= tracks; t++) {
@@ -1327,15 +1370,37 @@ async function liveUpdate(event, req) {
         const textStart = Math.max(tlStart, Math.round(req.start + (req.textOffset || 0)));
         const want = Math.max(5, Math.round(req.end + (req.tail || 0)) - textStart);
         const warnings = [];
-        const cutBefore = await cutSnapshot(tl);
         const ti = await item.GetTrackTypeAndIndex();
         let track = ti ? ti[1] : 1;
         if (req.textTrack > 0 && req.textTrack !== track) {
             const ok = req.textTrack >= 2 && await trackUsable(tl, 'video', req.textTrack) && req.textTrack <= (await tl.GetTrackCount('video'));
             if (ok) track = req.textTrack; else warnings.push('V' + req.textTrack + ' is locked or disabled, so the clip stayed where it is.');
         }
+        // Another caption: the same Text+ (and its sound) is moved there, nothing is deleted or inserted again. The layer
+        // is chosen with the Placement options, like a fresh insert.
+        const moved = (await item.GetStart()) !== textStart;
+        if (moved) {
+            await liveClearMarks(tl);
+            // the old sound goes first: a linked sound would otherwise be dragged along onto whatever is at the new place
+            try {
+                const old = liveSession.sfxId ? await findAudioItemById(tl, liveSession.sfxId) : null;
+                if (old) { const ok = await tl.DeleteClips([old], false); if (ok) regDel(liveSession.sfxId); }
+                liveSession.sfxId = null;
+            } catch (e) { /* the sweep removes it later */ }
+            if (!(req.textTrack > 0)) {
+                try { const t2 = await pickTrack(tl, 'video', 0, textStart, textStart + want, 2, [], req.place); if (t2 >= 2) track = t2; } catch (e) { /* keep the current layer */ }
+            }
+        }
+        if ((await item.GetDuration()) > want) await fitDuration(item, want);          // shorter first, so it cannot run into a neighbour
+        if (track >= 2 && (moved || (ti && ti[1] !== track))) await item.SetPosition({ trackIndex: track, startFrame: textStart });
         if ((await item.GetDuration()) !== want) await fitDuration(item, want);
-        if (track >= 2 && ((await item.GetStart()) !== textStart || (ti && ti[1] !== track))) await item.SetPosition({ trackIndex: track, startFrame: textStart });
+        let sfxMoved = false;
+        if (moved) {
+            try {
+                const r = await placeLiveSfx(tl, project, meta, liveSession.sfxPath, req, anim, textStart, [], item, liveSession.itemId);
+                if (r) { liveSession.sfxId = r.id; sfxMoved = true; }
+            } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
+        }
         const compPath = liveSession.compPath, compName = liveSession.compName, itemId = liveSession.itemId;
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null);
         const text = String(req.text || '').trim() || SAMPLE_TEXTS[0];
@@ -1349,8 +1414,7 @@ async function liveUpdate(event, req) {
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
         try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ }
         await liveSetMarks(tl, item);
-        { const w = cutCheck('live-update', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
-        return { ok: true, warnings, start: textStart, frames: want, track };
+        return { ok: true, warnings, start: textStart, frames: want, track, moved, sfxMoved };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e) };
     } finally { applying = false; }
@@ -1368,10 +1432,10 @@ async function liveRemove(keepMarks) {
         else if (tl && keepMarks) await liveClearMarks(tl);       // the clip is gone: its In/Out must not stay behind on the old caption
         if (tl && s) {
             const item = await findItemById(tl, s.itemId);
-            const cutBefore = await cutSnapshot(tl);
-            if (item) { const ok = await tl.DeleteClips([item], false); if (ok) regDel(s.itemId); }
-            else regDel(s.itemId);
-            cutCheck('live-remove', cutBefore, await cutSnapshot(tl));
+            const sfxItem = s.sfxId ? await findAudioItemById(tl, s.sfxId) : null;
+            const gone = [item, sfxItem].filter(Boolean);
+            if (gone.length) { const ok = await tl.DeleteClips(gone, false); if (ok) { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); } }
+            else { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); }
         }
     } catch (e) { /* the registry sweep removes it next time */ }
     subCache.at = 0;
@@ -1407,7 +1471,23 @@ async function liveFinish(event, req) {
         else { const n = req.sfx || anim.sfx || lib.defaultSfx; if (n) sfxPath = path.join(SFX_DIR, n); }
         let sfxTrack = null, clipsLinked = false;
         const trackNotes = [];
-        if (req.useSfx !== false && sfxPath) {
+        if (s.sfxId) {
+            // the sound is already on the timeline from the preview (maybe moved or trimmed by hand): keep it as it is
+            const sfxItem = await findAudioItemById(tl, s.sfxId);
+            regDel(s.sfxId);
+            if (sfxItem) {
+                lastPlacedAudioId = String(s.sfxId);
+                try { const ti2 = await sfxItem.GetTrackTypeAndIndex(); sfxTrack = ti2 ? ti2[1] : null; } catch (e) { /* ignore */ }
+                const wantLink = req.linked !== false;
+                const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+                try {
+                    let ok = false;
+                    if (typeof tl.SetClipsLinked === 'function') ok = await tl.SetClipsLinked([item, sfxItem], wantLink);
+                    if (!ok) ok = await bridgeCall('link_clips', { videoId: itemId, audioId: String(s.sfxId), linked: wantLink, volume: vol });
+                    clipsLinked = !!(wantLink && ok);
+                } catch (e) { warnings.push('Could not link text and sound clips: ' + e.message); }
+            }
+        } else if (req.useSfx !== false && sfxPath) {
             if (!fs.existsSync(sfxPath)) warnings.push('The sound effect file is missing.');
             else {
                 const { mp, item: mpi } = await importSfx(project, sfxPath);
@@ -2198,14 +2278,16 @@ function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(Stri
 function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id))); }
 async function sweepTempClips(tl) {
     const ids = new Set(regRead());
-    if (liveSession) ids.delete(String(liveSession.itemId));      // the clip of a running Resolve preview stays
+    if (liveSession) { ids.delete(String(liveSession.itemId)); if (liveSession.sfxId) ids.delete(String(liveSession.sfxId)); }      // the clip of a running Resolve preview stays
     if (!ids.size || !tl) return;
     try {
         const stray = [], seen = new Set();
-        const tracks = (await tl.GetTrackCount('video')) || 0;
-        for (let t = 1; t <= tracks; t++) {
-            for (const it of ((await tl.GetItemListInTrack('video', t)) || [])) {
-                try { const id = String(await it.GetUniqueId()); if (ids.has(id)) { stray.push(it); seen.add(id); } } catch (e) { /* ignore */ }
+        for (const kind of ['video', 'audio']) {
+            const tracks = (await tl.GetTrackCount(kind)) || 0;
+            for (let t = 1; t <= tracks; t++) {
+                for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
+                    try { const id = String(await it.GetUniqueId()); if (ids.has(id)) { stray.push(it); seen.add(id); } } catch (e) { /* ignore */ }
+                }
             }
         }
         if (stray.length) { try { await tl.DeleteClips(stray, false); } catch (e) { return; } }

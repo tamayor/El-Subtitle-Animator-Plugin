@@ -4042,3 +4042,9 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 .stage-box.hidden { display: none; }
 
 .stage-live-txt .live-note { opacity: 1; color: #f0c674; font-weight: 600; }
+
+/* Preview in Resolve: Alignment is collapsed and disabled (the sound is edited on the Resolve timeline) */
+.adjust-wrap.live-locked { opacity: .45; pointer-events: none; }
+
+.live-advice { font-size: 11.5px; line-height: 1.45; opacity: .7; padding: 2px 4px 0; }
+.live-advice b { font-weight: 600; opacity: 1; }

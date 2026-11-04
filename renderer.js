@@ -150,8 +150,8 @@ function currentSfxPath(a) {
     return state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
 }
 
-// shape: { frac } = how much of the sound is shown (the rest is trimmed away), { fade } = fraction of the shown
-// width that fades out at the end.
+// shape: { from, frac } = the part of the sound that is shown (the rest is trimmed away),
+// { fade } = fraction of the shown width that fades out at the end (drawn like Resolve: a ramp and a shaded corner).
 function drawWave(canvas, wave, volumeDb, shape) {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round((canvas.clientWidth || 100) * dpr));
@@ -162,7 +162,8 @@ function drawWave(canvas, wave, volumeDb, shape) {
     if (!wave || !wave.peaks.length) return;
     g.fillStyle = '#9be29d';
     const n = wave.peaks.length;
-    const frac = shape && shape.frac > 0 ? Math.min(1, shape.frac) : 1;
+    const from = shape && shape.from > 0 ? Math.min(1, shape.from) : 0;
+    const frac = shape && shape.frac > 0 ? Math.min(1 - from, shape.frac) : 1 - from;
     const fade = shape && shape.fade > 0 ? Math.min(1, shape.fade) : 0;
     const db = (volumeDb !== undefined && volumeDb !== null) ? Number(volumeDb) : 0;
     const linearGain = Math.pow(10, db / 20);
@@ -170,19 +171,18 @@ function drawWave(canvas, wave, volumeDb, shape) {
     const ampScale = Math.max(0.04, Math.min(1.0, 0.68 * linearGain));
     const fadeX = w * (1 - fade);
     for (let x = 0; x < w; x++) {
-        const v = wave.peaks[Math.min(n - 1, Math.floor(x / w * frac * n))];
+        const v = wave.peaks[Math.min(n - 1, Math.floor((from + x / w * frac) * n))];
         const mult = (fade > 0 && x > fadeX) ? Math.max(0, (w - x) / (w * fade)) : 1;
         const bar = Math.max(2 * dpr, v * h * ampScale) * mult;
         if (bar < 1) continue;
         g.fillRect(x, (h - bar) / 2, 1, bar);
     }
     if (fade > 0) {
-        g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        g.fillStyle = 'rgba(0, 0, 0, 0.32)';
+        g.beginPath(); g.moveTo(fadeX, 0); g.lineTo(w, 0); g.lineTo(w, h); g.closePath(); g.fill();
+        g.strokeStyle = 'rgba(255, 255, 255, 0.6)';
         g.lineWidth = Math.max(1, dpr);
-        g.beginPath();
-        g.moveTo(fadeX, 3 * dpr); g.lineTo(w, h / 2);
-        g.moveTo(fadeX, h - 3 * dpr); g.lineTo(w, h / 2);
-        g.stroke();
+        g.beginPath(); g.moveTo(fadeX, 0); g.lineTo(w, h); g.stroke();
     }
 }
 
@@ -963,7 +963,7 @@ const CTX = {
                 syncVarButtons('C', m);
             }
             saveField(m.id, {
-                textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail, linked: m.linked !== false,
+                textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxTrimIn: m.sfxTrimIn || 0, sfxLen: m.sfxLen === undefined ? null : m.sfxLen, sfxFade: m.sfxFade === undefined ? null : m.sfxFade, tail: m.tail, linked: m.linked !== false,
                 sfxVolume: m.sfxVolume, useSfx: m.useSfx !== false, textTrack: m.textTrack, sfxTrack: m.sfxTrack,
                 posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
                 scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
@@ -992,6 +992,7 @@ function syncUse(force) {
         state.use = {
             id: a.id, name: a.name, dirty: false, adjusted: false, designDirty: false,
             textOffset: a.textOffset, sfxOffset: a.sfxOffset, tail: a.tail, linked: a.linked !== false,
+            sfxTrimIn: a.sfxTrimIn, sfxLen: a.sfxLen, sfxFade: a.sfxFade,
             sfxVolume: a.sfxVolume, useSfx: a.useSfx !== false, textTrack: a.textTrack, sfxTrack: a.sfxTrack,
             posX: Number(a.posX) || 0, posY: Number(a.posY) || 0,
             scale: Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
@@ -1039,11 +1040,16 @@ function geometry(m) {
     const sfxFull = Math.max(2, Math.round(((wave && wave.seconds) || 0.5) * fps));
     const textS = m.textOffset;
     const textE = span.dur + m.tail;
-    const sfxS = textS + m.sfxOffset;
-    // The sound is cut where the subtitle ends (never shorter than 5 frames) and fades out over its last second.
-    const sfxFrames = Math.max(Math.min(sfxFull, 5), Math.min(sfxFull, Math.round(textE - sfxS)));
-    const fadeFrames = Math.min(sfxFrames, Math.round(fps));
-    return { span, fps, sfxFull, sfxFrames, fadeFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames };
+    const sfxS = textS + m.sfxOffset;                       // where the sound clip starts (after any trim at its start)
+    const tin = clamp(Math.round(Number(m.sfxTrimIn) || 0), 0, Math.max(0, sfxFull - 2));   // frames cut off the start of the file
+    const maxLen = Math.max(2, sfxFull - tin);
+    // Length: set by dragging its end; until then the sound is cut where the subtitle ends (never under 5 frames).
+    const sfxFrames = (m.sfxLen === null || m.sfxLen === undefined)
+        ? Math.max(Math.min(maxLen, 5), Math.min(maxLen, Math.round(textE - sfxS)))
+        : clamp(Math.round(Number(m.sfxLen)), 2, maxLen);
+    // Fade-out: 1 second unless changed.
+    const fadeFrames = clamp((m.sfxFade === null || m.sfxFade === undefined) ? Math.round(fps) : Math.round(Number(m.sfxFade)), 0, sfxFrames);
+    return { span, fps, sfxFull, sfxTrimIn: tin, sfxFrames, fadeFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames, srcS: sfxS - tin };
 }
 
 function loadWaveCached(m) {
@@ -1056,7 +1062,7 @@ function loadWaveCached(m) {
 
 function windowFor(g) {
     const lo = Math.min(0, g.textS, g.sfxS) - 12;
-    const hi = Math.max(g.span.dur, g.textE, g.sfxS + g.sfxFull) + 12;
+    const hi = Math.max(g.span.dur, g.textE, g.srcS + g.sfxFull) + 12;
     return { lo, hi };
 }
 
@@ -1111,20 +1117,29 @@ function renderTimeline(ctx) {
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name || ''; tb.appendChild(nm);
     const hl = add('handle l', tb), hr = add('handle r', tb);
 
-    // the sound's full length, as a faint ghost behind the trimmed bar
-    if (m.useSfx !== false && currentSfxPath(m) && g.sfxFull > g.sfxFrames) {
+    // the sound's full length, as a faint ghost behind the (trimmed) bar
+    const hasSfx = m.useSfx !== false && !!currentSfxPath(m);
+    if (hasSfx && (g.sfxTrimIn > 0 || g.sfxFrames < g.sfxFull)) {
         const gs = add('sfx-ghost', laneS);
-        gs.style.left = X(g.sfxS) + 'px'; gs.style.width = Math.max(6, g.sfxFull * ppf) + 'px';
+        gs.style.left = X(g.srcS) + 'px'; gs.style.width = Math.max(6, g.sfxFull * ppf) + 'px';
         const gcv = document.createElement('canvas'); gs.appendChild(gcv);
         drawWave(gcv, loadWaveCached(m), m.sfxVolume);
     }
 
-    // sound bar
+    // sound bar: drag it to move, drag its ends to trim or extend (up to the file's full length), drag the corner to set the fade-out
     const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : ''), laneS);
-    sb.style.left = X(g.sfxS) + 'px'; sb.style.width = Math.max(6, g.sfxFrames * ppf) + 'px';
+    const sbW = Math.max(6, g.sfxFrames * ppf);
+    sb.style.left = X(g.sfxS) + 'px'; sb.style.width = sbW + 'px';
     const cv = document.createElement('canvas'); sb.appendChild(cv);
-    drawWave(cv, loadWaveCached(m), m.sfxVolume, { frac: g.sfxFrames / g.sfxFull, fade: g.fadeFrames / g.sfxFrames });
-    sb.title = (g.sfxFrames < g.sfxFull ? 'Trimmed to the subtitle length. ' : '') + 'Fades out over the last ' + (g.fadeFrames / g.fps).toFixed(g.fadeFrames % Math.round(g.fps) === 0 ? 0 : 1) + ' s';
+    drawWave(cv, loadWaveCached(m), m.sfxVolume, { from: g.sfxTrimIn / g.sfxFull, frac: g.sfxFrames / g.sfxFull, fade: g.sfxFrames ? g.fadeFrames / g.sfxFrames : 0 });
+    const secs = (f) => (f / g.fps).toFixed(f % Math.round(g.fps) === 0 ? 0 : 2) + ' s';
+    sb.title = 'Sound ' + secs(g.sfxFrames) + ' of ' + secs(g.sfxFull) + ' · fade out ' + secs(g.fadeFrames);
+    const shl = add('handle l', sb), shr = add('handle r', sb);
+    shl.title = 'Drag to trim or extend the start (double-click to restore)';
+    shr.title = 'Drag to trim or extend the end (double-click: cut at the subtitle end)';
+    const fh = add('fade-h', sb);
+    fh.style.left = Math.max(0, Math.min(sbW - 10, (g.sfxFrames - g.fadeFrames) * ppf - 5)) + 'px';
+    fh.title = 'Drag to change the fade-out length (double-click: 1 s)';
 
     // dashed link between the start of the text and the sound
     if (m.linked !== false) {
@@ -1139,15 +1154,38 @@ function renderTimeline(ctx) {
     }
     add('pv');
 
+    // The timeline is redrawn after every press, so a double press is detected here instead of with dblclick.
+    const resets = {};
     const begin = (kind) => (e) => {
         e.preventDefault(); e.stopPropagation();
         stopPreview();
-        state.drag = { ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail } };
+        const now = performance.now();
+        if (resets[kind] && state.lastPress && state.lastPress.kind === kind && now - state.lastPress.t < 400) {
+            state.lastPress = null;
+            resets[kind]();
+            ctx.changed(m);
+            renderTimeline(ctx);
+            return;
+        }
+        state.lastPress = { kind, t: now };
+        state.drag = { ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
+            g0: { tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS } };
     };
     tb.addEventListener('pointerdown', begin('text'));
     hl.addEventListener('pointerdown', begin('textStart'));
     hr.addEventListener('pointerdown', begin('textEnd'));
     sb.addEventListener('pointerdown', begin('sfx'));
+    shl.addEventListener('pointerdown', begin('sfxIn'));
+    shr.addEventListener('pointerdown', begin('sfxOut'));
+    fh.addEventListener('pointerdown', begin('sfxFade'));
+    resets.sfxIn = () => {
+        const keepEnd = !(m.sfxLen === null || m.sfxLen === undefined);
+        const t = g.sfxTrimIn;
+        m.sfxOffset = clamp(m.sfxOffset - t, -300, 300); m.sfxTrimIn = 0;
+        if (keepEnd) m.sfxLen = g.sfxFrames + t;
+    };
+    resets.sfxOut = () => { m.sfxLen = null; };
+    resets.sfxFade = () => { m.sfxFade = null; };
     syncNumbers(ctx);
 }
 
@@ -1177,6 +1215,23 @@ function onDragMove(e) {
         if (Math.abs(v) <= 1) v = 0;                                // snap to Text+ start
         else if (Math.abs(o.textOffset + v) <= 1) v = -o.textOffset; // secondary snap to subtitle start
         m.sfxOffset = clamp(v, -300, 300);
+    } else if (d.kind === 'sfxIn') {
+        // Start of the sound: trims it (or brings back what was trimmed). The sound itself stays where it is in time.
+        const q = d.g0;
+        const dd = clamp(df, -q.tin, q.len - 2);
+        m.sfxTrimIn = q.tin + dd;
+        m.sfxOffset = clamp(o.sfxOffset + dd, -300, 300);
+        m.sfxLen = q.len - dd;                               // the end stays put
+    } else if (d.kind === 'sfxOut') {
+        const q = d.g0;
+        let len = clamp(q.len + df, 2, q.full - q.tin);
+        if (Math.abs(q.sfxS + len - q.textE) <= 1 && q.textE - q.sfxS >= 2 && q.textE - q.sfxS <= q.full - q.tin) len = q.textE - q.sfxS;   // snap to the subtitle end
+        m.sfxLen = len;
+    } else if (d.kind === 'sfxFade') {
+        const q = d.g0;
+        let f = clamp(q.fade - df, 0, q.len);                // dragging the corner left makes the fade longer
+        if (Math.abs(f - Math.round(q.fps)) <= 1) f = Math.round(q.fps);   // snap to 1 s
+        m.sfxFade = f;
     } else if (d.kind === 'text') {
         // Moving the whole Text+ bar shifts both its start and end together so its duration is preserved.
         let ts = o.textOffset + df;
@@ -3021,7 +3076,7 @@ function runPreview(ctx, loop = false) {
                     if (state.audio && state.audio !== sfxEl) state.audio.pause();
                     state.audio = sfxEl;
                     sfxEl.volume = baseVol;
-                    sfxEl.currentTime = 0;
+                    sfxEl.currentTime = g.sfxTrimIn / g.fps;
                     const pr = sfxEl.play();
                     if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
                 } catch (e) { /* ignore */ }
@@ -5509,9 +5564,11 @@ async function buildFadedSfx(m) {
     let buf;
     try { buf = await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); } finally { ac.close(); }
     const sr = buf.sampleRate, ch = Math.min(2, buf.numberOfChannels);
-    const trimSec = Math.max(5 / g.fps, Math.min(buf.duration, (g.textE - g.sfxS) / g.fps));
-    const n = Math.max(1, Math.round(trimSec * sr));
-    const fadeN = Math.min(n, Math.round(sr));              // 1 second
+    const startSec = Math.min(g.sfxTrimIn / g.fps, Math.max(0, buf.duration - 2 / g.fps));
+    const lenSec = Math.max(2 / g.fps, Math.min(g.sfxFrames / g.fps, buf.duration - startSec));
+    const i0 = Math.round(startSec * sr);
+    const n = Math.max(1, Math.round(lenSec * sr));
+    const fadeN = Math.min(n, Math.round(g.fadeFrames / g.fps * sr));
     const data = new Uint8Array(44 + n * ch * 2);
     const dv = new DataView(data.buffer);
     const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
@@ -5522,8 +5579,8 @@ async function buildFadedSfx(m) {
     for (let c = 0; c < ch; c++) {
         const src = buf.getChannelData(c);
         for (let i = 0; i < n; i++) {
-            let v = i < src.length ? src[i] : 0;
-            if (i >= n - fadeN) v *= (n - i) / fadeN;
+            let v = (i0 + i) < src.length ? src[i0 + i] : 0;
+            if (fadeN > 0 && i >= n - fadeN) v *= (n - i) / fadeN;
             v = Math.max(-1, Math.min(1, v));
             dv.setInt16(44 + (i * ch + c) * 2, v < 0 ? v * 32768 : v * 32767, true);
         }

@@ -1377,7 +1377,7 @@ async function updateLatest(event, req) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === req.animationId);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes'];
     for (const k of allowed) if (k in req && req[k] !== undefined) a[k] = req[k];
     if (req.sfxPath) {
         try { a.sfx = copySfx(req.sfxPath); } catch (e) { /* ignore */ }
@@ -1534,7 +1534,7 @@ function updateAnimation(event, id, patch) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
     if ('tags' in patch) {
         const known = new Set(lib.tags.map(t => t.id));

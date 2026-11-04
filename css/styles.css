@@ -3969,3 +3969,9 @@ body.lib-dragging { cursor: grabbing; user-select: none; }
 /* the sound's full length, 10% opacity, behind the trimmed bar */
 .tl .lane.sfx .sfx-ghost { position: absolute; top: 14px; bottom: 4px; opacity: 0.1; border-radius: 6px; background: #9be29d; border: 1px solid #9be29d; pointer-events: none; overflow: hidden; }
 .tl .lane.sfx .sfx-ghost canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+
+/* sound bar: trim handles and the fade-out corner */
+.tl .bar.sfx .handle { background: rgba(155, 226, 157, 0.18); width: 7px; }
+.tl .bar.sfx .handle:hover { background: rgba(155, 226, 157, 0.4); }
+.tl .bar.sfx .fade-h { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, 0.45); cursor: ew-resize; z-index: 3; }
+.tl .bar.sfx .fade-h:hover { background: var(--matcha); }

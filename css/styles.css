@@ -3975,3 +3975,9 @@ body.lib-dragging { cursor: grabbing; user-select: none; }
 .tl .bar.sfx .handle:hover { background: rgba(155, 226, 157, 0.4); }
 .tl .bar.sfx .fade-h { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, 0.45); cursor: ew-resize; z-index: 3; }
 .tl .bar.sfx .fade-h:hover { background: var(--matcha); }
+
+/* Sound length mode under the alignment timeline; an estimated end is drawn dashed */
+.row.sfxlen { align-items: center; gap: 8px; margin-top: 8px; }
+.sfxlen-lbl { font-size: 12px; color: var(--dim); white-space: nowrap; }
+.row.sfxlen select { flex: 1; min-width: 0; }
+.tl .bar.sfx.est { border-right: 1px dashed var(--matcha); }

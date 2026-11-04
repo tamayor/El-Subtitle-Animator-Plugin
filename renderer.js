@@ -397,6 +397,14 @@ const ALIGN_HTML = (S) => `
     </label>
 </div>
 <div id="tl${S}" class="tl"></div>
+<div class="row sfxlen">
+    <label class="sfxlen-lbl" for="sfxLenMode${S}" title="How long the sound is when it is added to the timeline">Sound length</label>
+    <select id="sfxLenMode${S}">
+        <option value="estimate">Estimate (follows the caption)</option>
+        <option value="fixed">Fixed (keeps this length)</option>
+    </select>
+</div>
+<div class="hint" id="sfxLenHint${S}"></div>
 <div class="hint">Drag the sound to line it up. Drag the text to move both (when linked), or its edges to change when it starts and ends.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
 <div class="row nums">
     <label title="Double-click to reset to default (0f)">Text start <input id="textOffset${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
@@ -963,7 +971,7 @@ const CTX = {
                 syncVarButtons('C', m);
             }
             saveField(m.id, {
-                textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxTrimIn: m.sfxTrimIn || 0, sfxLen: m.sfxLen === undefined ? null : m.sfxLen, sfxFade: m.sfxFade === undefined ? null : m.sfxFade, tail: m.tail, linked: m.linked !== false,
+                textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxTrimIn: m.sfxTrimIn || 0, sfxLen: m.sfxLen === undefined ? null : m.sfxLen, sfxLenMode: sfxLenMode(m), sfxFade: m.sfxFade === undefined ? null : m.sfxFade, tail: m.tail, linked: m.linked !== false,
                 sfxVolume: m.sfxVolume, useSfx: m.useSfx !== false, textTrack: m.textTrack, sfxTrack: m.sfxTrack,
                 posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
                 scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
@@ -992,7 +1000,7 @@ function syncUse(force) {
         state.use = {
             id: a.id, name: a.name, dirty: false, adjusted: false, designDirty: false,
             textOffset: a.textOffset, sfxOffset: a.sfxOffset, tail: a.tail, linked: a.linked !== false,
-            sfxTrimIn: a.sfxTrimIn, sfxLen: a.sfxLen, sfxFade: a.sfxFade,
+            sfxTrimIn: a.sfxTrimIn, sfxLen: a.sfxLen, sfxLenMode: a.sfxLenMode, sfxFade: a.sfxFade,
             sfxVolume: a.sfxVolume, useSfx: a.useSfx !== false, textTrack: a.textTrack, sfxTrack: a.sfxTrack,
             posX: Number(a.posX) || 0, posY: Number(a.posY) || 0,
             scale: Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
@@ -1033,6 +1041,13 @@ function subSpan() {
     return { base: 0, dur: 75 };
 }
 
+// 'estimate' = the end follows the real caption length when added (cut shorter, or extended up to the sound's full
+// length); 'fixed' = exactly the length set here, even when the caption is longer. Older presets with a set length are fixed.
+function sfxLenMode(m) {
+    if (m.sfxLenMode === 'fixed' || m.sfxLenMode === 'estimate') return m.sfxLenMode;
+    return (m.sfxLen !== null && m.sfxLen !== undefined) ? 'fixed' : 'estimate';
+}
+
 function geometry(m) {
     const span = subSpan();
     const fps = fpsNow();
@@ -1044,12 +1059,13 @@ function geometry(m) {
     const tin = clamp(Math.round(Number(m.sfxTrimIn) || 0), 0, Math.max(0, sfxFull - 2));   // frames cut off the start of the file
     const maxLen = Math.max(2, sfxFull - tin);
     // Length: set by dragging its end; until then the sound is cut where the subtitle ends (never under 5 frames).
-    const sfxFrames = (m.sfxLen === null || m.sfxLen === undefined)
-        ? Math.max(Math.min(maxLen, 5), Math.min(maxLen, Math.round(textE - sfxS)))
-        : clamp(Math.round(Number(m.sfxLen)), 2, maxLen);
+    const mode = sfxLenMode(m);
+    const sfxFrames = (mode === 'fixed' && m.sfxLen !== null && m.sfxLen !== undefined)
+        ? clamp(Math.round(Number(m.sfxLen)), 2, maxLen)
+        : Math.max(Math.min(maxLen, 5), Math.min(maxLen, Math.round(textE - sfxS)));
     // Fade-out: 1 second unless changed.
     const fadeFrames = clamp((m.sfxFade === null || m.sfxFade === undefined) ? Math.round(fps) : Math.round(Number(m.sfxFade)), 0, sfxFrames);
-    return { span, fps, sfxFull, sfxTrimIn: tin, sfxFrames, fadeFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames, srcS: sfxS - tin };
+    return { span, fps, sfxFull, sfxTrimIn: tin, sfxLenMode: mode, sfxFrames, fadeFrames, textS, textE, sfxS, sfxE: sfxS + sfxFrames, srcS: sfxS - tin };
 }
 
 function loadWaveCached(m) {
@@ -1127,13 +1143,13 @@ function renderTimeline(ctx) {
     }
 
     // sound bar: drag it to move, drag its ends to trim or extend (up to the file's full length), drag the corner to set the fade-out
-    const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : ''), laneS);
+    const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : '') + (g.sfxLenMode === 'estimate' ? ' est' : ''), laneS);
     const sbW = Math.max(6, g.sfxFrames * ppf);
     sb.style.left = X(g.sfxS) + 'px'; sb.style.width = sbW + 'px';
     const cv = document.createElement('canvas'); sb.appendChild(cv);
     drawWave(cv, loadWaveCached(m), m.sfxVolume, { from: g.sfxTrimIn / g.sfxFull, frac: g.sfxFrames / g.sfxFull, fade: g.sfxFrames ? g.fadeFrames / g.sfxFrames : 0 });
     const secs = (f) => (f / g.fps).toFixed(f % Math.round(g.fps) === 0 ? 0 : 2) + ' s';
-    sb.title = 'Sound ' + secs(g.sfxFrames) + ' of ' + secs(g.sfxFull) + ' · fade out ' + secs(g.fadeFrames);
+    sb.title = (g.sfxLenMode === 'estimate' ? 'Estimated end (set from the real caption when added). ' : 'Fixed length. ') + 'Sound ' + secs(g.sfxFrames) + ' of ' + secs(g.sfxFull) + ' · fade out ' + secs(g.fadeFrames);
     const shl = add('handle l', sb), shr = add('handle r', sb);
     shl.title = 'Drag to trim or extend the start (double-click to restore)';
     shr.title = 'Drag to trim or extend the end (double-click: cut at the subtitle end)';
@@ -1169,7 +1185,7 @@ function renderTimeline(ctx) {
         }
         state.lastPress = { kind, t: now };
         state.drag = { ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
-            g0: { tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS } };
+            g0: { mode: g.sfxLenMode, tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS } };
     };
     tb.addEventListener('pointerdown', begin('text'));
     hl.addEventListener('pointerdown', begin('textStart'));
@@ -1179,18 +1195,27 @@ function renderTimeline(ctx) {
     shr.addEventListener('pointerdown', begin('sfxOut'));
     fh.addEventListener('pointerdown', begin('sfxFade'));
     resets.sfxIn = () => {
-        const keepEnd = !(m.sfxLen === null || m.sfxLen === undefined);
+        const keepEnd = g.sfxLenMode === 'fixed';
         const t = g.sfxTrimIn;
         m.sfxOffset = clamp(m.sfxOffset - t, -300, 300); m.sfxTrimIn = 0;
         if (keepEnd) m.sfxLen = g.sfxFrames + t;
     };
-    resets.sfxOut = () => { m.sfxLen = null; };
+    resets.sfxOut = () => { m.sfxLen = null; m.sfxLenMode = 'estimate'; };
     resets.sfxFade = () => { m.sfxFade = null; };
     syncNumbers(ctx);
 }
 
 function syncNumbers(ctx) {
     const m = ctx.model(); if (!m) return;
+    const lm = $('sfxLenMode' + ctx.s);
+    if (lm) {
+        const mode = sfxLenMode(m);
+        if (document.activeElement !== lm) lm.value = mode;
+        const hint = $('sfxLenHint' + ctx.s);
+        if (hint) hint.textContent = mode === 'fixed'
+            ? 'Keeps exactly this length, even when the caption is longer.'
+            : 'Starts here. The end is set from the real caption length when added: cut shorter, or extended up to the sound\'s full length.';
+    }
     for (const f of ['textOffset', 'sfxOffset', 'tail']) {
         const el = $(f + ctx.s);
         if (el && document.activeElement !== el) el.value = m[f];
@@ -1221,12 +1246,13 @@ function onDragMove(e) {
         const dd = clamp(df, -q.tin, q.len - 2);
         m.sfxTrimIn = q.tin + dd;
         m.sfxOffset = clamp(o.sfxOffset + dd, -300, 300);
-        m.sfxLen = q.len - dd;                               // the end stays put
+        if (q.mode === 'fixed') m.sfxLen = q.len - dd;       // fixed: the end stays put (estimate: it keeps following the caption)
     } else if (d.kind === 'sfxOut') {
         const q = d.g0;
         let len = clamp(q.len + df, 2, q.full - q.tin);
         if (Math.abs(q.sfxS + len - q.textE) <= 1 && q.textE - q.sfxS >= 2 && q.textE - q.sfxS <= q.full - q.tin) len = q.textE - q.sfxS;   // snap to the subtitle end
         m.sfxLen = len;
+        m.sfxLenMode = 'fixed';                              // dragging the end sets a fixed length
     } else if (d.kind === 'sfxFade') {
         const q = d.g0;
         let f = clamp(q.fade - df, 0, q.len);                // dragging the corner left makes the fade longer
@@ -4500,6 +4526,15 @@ function bindAdjust(ctx) {
     });
     $('textTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number($('textTrack' + S).value); ctx.changed(m); } });
     $('sfxTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number($('sfxTrack' + S).value); ctx.changed(m); } });
+    const lenSel = $('sfxLenMode' + S);
+    if (lenSel) lenSel.addEventListener('change', () => {
+        const m = ctx.model(); if (!m) return;
+        stopPreview();
+        if (lenSel.value === 'fixed') { m.sfxLen = geometry(m).sfxFrames; m.sfxLenMode = 'fixed'; }   // freezes the length shown now
+        else { m.sfxLen = null; m.sfxLenMode = 'estimate'; }
+        ctx.changed(m);
+        renderTimeline(ctx);
+    });
     const alnPlay = $('alnPlay' + S), alnMode = $('alnMode' + S);
     if (alnPlay) alnPlay.addEventListener('click', () => {
         const pv = state.preview;

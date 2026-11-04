@@ -4142,4 +4142,30 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 .sfx-orig-dropdown-item:hover { background: rgba(255, 255, 255, 0.08); }
 .sfx-orig-dropdown-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Revert to original text preset styling */
+.td-btn-revert {
+    margin-left: auto;
+    color: var(--dim, #a0ada3);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+.td-btn-revert:hover {
+    color: var(--text);
+    border-color: var(--line-active, #44544a);
+    background: rgba(255, 255, 255, 0.05);
+}
+#revertOrigEditor {
+    font-size: 11px;
+    padding: 3px 8px;
+    color: var(--dim, #a0ada3);
+    margin-left: 8px;
+}
+#revertOrigEditor:hover {
+    color: var(--text);
+    border-color: var(--matcha-border);
+}
+
+
 

@@ -25,20 +25,45 @@ let isQuitting = false;
 // ------------------------------------------------------------------ library on disk
 const DATA_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator');
 const ANIM_DIR = path.join(DATA_DIR, 'animations');
+const ANIM_ORIG_DIR = path.join(DATA_DIR, 'animations_orig');
 const SFX_DIR = path.join(DATA_DIR, 'sfx');
 const PREV_DIR = path.join(DATA_DIR, 'previews');
 const FONTS_DIR = path.join(DATA_DIR, 'fonts');
 const LIB_FILE = path.join(DATA_DIR, 'library.json');
 
 function ensureDirs() {
-    for (const d of [DATA_DIR, ANIM_DIR, SFX_DIR, PREV_DIR, FONTS_DIR]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, PREV_DIR, FONTS_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
 function newAnimation(name, file, defaults) {
+    const fileOrig = (defaults && defaults.fileOrig) || file;
+    const origSnapshot = (defaults && defaults.orig) ? JSON.parse(JSON.stringify(defaults.orig)) : {
+        name: name,
+        file: fileOrig,
+        textDesign: (defaults && defaults.textDesign) ? JSON.parse(JSON.stringify(defaults.textDesign)) : null,
+        boxes: (defaults && defaults.boxes) ? JSON.parse(JSON.stringify(defaults.boxes)) : {},
+        posX: defaults && defaults.posX !== undefined ? defaults.posX : 0,
+        posY: defaults && defaults.posY !== undefined ? defaults.posY : 0,
+        scale: defaults && defaults.scale !== undefined ? defaults.scale : 1,
+        rotation: defaults && defaults.rotation !== undefined ? defaults.rotation : 0,
+        textOffset: defaults && defaults.textOffset !== undefined ? defaults.textOffset : 0,
+        sfxOffset: defaults && defaults.sfxOffset !== undefined ? defaults.sfxOffset : 0,
+        sfxVolume: defaults && defaults.sfxVolume !== undefined ? defaults.sfxVolume : 0,
+        tail: defaults && defaults.tail !== undefined ? defaults.tail : 0,
+        textTrack: defaults && defaults.textTrack !== undefined ? defaults.textTrack : 0,
+        sfxTrack: defaults && defaults.sfxTrack !== undefined ? defaults.sfxTrack : 0,
+        useSfx: defaults && defaults.useSfx !== undefined ? defaults.useSfx : true,
+        linked: defaults && defaults.linked !== undefined ? defaults.linked : true,
+        sfx: (defaults && defaults.sfx) || null,
+        sfxOrig: (defaults && defaults.sfxOrig) || (defaults && defaults.sfx) || null
+    };
+
     return Object.assign({
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         name: name,
         file: file,          // file name inside animations/
+        fileOrig: fileOrig,  // preserved original template file inside animations_orig/
+        orig: origSnapshot,  // original baseline settings to revert to
         sfx: null,           // current attached audio file inside sfx/
         sfxOrig: null,       // preserved original audio file inside sfx/
         useSfx: true,
@@ -61,8 +86,47 @@ function newAnimation(name, file, defaults) {
 let libMigratedOnce = false;
 function migrateAndCleanLib(lib) {
     if (!lib || !Array.isArray(lib.animations)) return;
+    ensureDirs();
     let changed = false;
     for (const a of lib.animations) {
+        if (a.file) {
+            const curPath = path.join(ANIM_DIR, a.file);
+            const origFile = a.fileOrig || a.file;
+            const origPath = path.join(ANIM_ORIG_DIR, origFile);
+            if (!a.fileOrig) {
+                a.fileOrig = origFile;
+                changed = true;
+            }
+            if (!fs.existsSync(origPath) && fs.existsSync(curPath)) {
+                try {
+                    fs.copyFileSync(curPath, origPath);
+                    changed = true;
+                } catch (e) { /* ignore */ }
+            }
+            if (!a.orig) {
+                a.orig = {
+                    name: a.name,
+                    file: a.fileOrig || a.file,
+                    textDesign: a.textDesign ? JSON.parse(JSON.stringify(a.textDesign)) : null,
+                    boxes: a.boxes ? JSON.parse(JSON.stringify(a.boxes)) : {},
+                    posX: a.posX || 0,
+                    posY: a.posY || 0,
+                    scale: a.scale !== undefined ? a.scale : 1,
+                    rotation: a.rotation || 0,
+                    textOffset: a.textOffset || 0,
+                    sfxOffset: a.sfxOffset || 0,
+                    sfxVolume: a.sfxVolume || 0,
+                    tail: a.tail || 0,
+                    textTrack: a.textTrack || 0,
+                    sfxTrack: a.sfxTrack || 0,
+                    useSfx: a.useSfx !== false,
+                    linked: a.linked !== false,
+                    sfx: a.sfxOrig || a.sfx || null,
+                    sfxOrig: a.sfxOrig || a.sfx || null
+                };
+                changed = true;
+            }
+        }
         if (!a.sfxOrig && a.sfx) {
             const ext = path.extname(a.sfx);
             const stem = path.basename(a.sfx, ext);
@@ -695,8 +759,12 @@ function libForUI() {
             const exists = fs.existsSync(animPath);
             const textDesign = parseTextStyle(exists ? animPath : null, a.textDesign);
             const sfxOrig = a.sfxOrig || a.sfx || null;
+            const fileOrig = a.fileOrig || a.file;
+            const hasOriginal = fs.existsSync(path.join(ANIM_ORIG_DIR, fileOrig));
             return Object.assign({}, a, {
                 missing: !exists,
+                fileOrig,
+                hasOriginal,
                 nodes: exists ? nodesWithDesign(animPath) : [],
                 textDesign,
                 textStyle: textDesign,
@@ -2377,11 +2445,13 @@ async function createCombo(event, req) {
     if (req.fromSelection) {
         const ex = await exportSelectedClip(label);
         file = ex.file; fromItem = ex.itemId; clipProps = ex.props;
+        try { fs.copyFileSync(path.join(ANIM_DIR, file), path.join(ANIM_ORIG_DIR, file)); } catch (e) {}
     } else if (req.animPath) {
         const ext = path.extname(req.animPath).toLowerCase();
         if (!['.comp', '.setting'].includes(ext)) return { error: 'The text animation must be a Fusion .comp or .setting file' };
         file = uniqueName(ANIM_DIR, label + ext);
         fs.copyFileSync(req.animPath, path.join(ANIM_DIR, file));
+        try { fs.copyFileSync(req.animPath, path.join(ANIM_ORIG_DIR, file)); } catch (e) {}
     } else {
         return { error: 'Add the text animation first: drop a .comp file, or use the Text+ selected on your timeline' };
     }
@@ -2414,6 +2484,7 @@ async function createCombo(event, req) {
 async function saveSelectedAsAnimation(event, name) {
     const label = String(name || '').trim() || 'My animation';
     const ex = await exportSelectedClip(label);
+    try { fs.copyFileSync(path.join(ANIM_DIR, ex.file), path.join(ANIM_ORIG_DIR, ex.file)); } catch (e) {}
     const lib = loadLib();
     const a = newAnimation(label, ex.file);
     if (ex.props) {
@@ -2434,6 +2505,7 @@ function addAnimationFile(event, p) {
     ensureDirs();
     const file = uniqueName(ANIM_DIR, path.basename(p));
     fs.copyFileSync(p, path.join(ANIM_DIR, file));
+    try { fs.copyFileSync(p, path.join(ANIM_ORIG_DIR, file)); } catch (e) {}
     const lib = loadLib();
     const a = newAnimation(path.basename(file, path.extname(file)), file);
     lib.animations.push(a);
@@ -2501,6 +2573,7 @@ function saveAnimationVariant(event, req) {
     const newFile = uniqueName(ANIM_DIR, newName + ext);
     if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, path.join(ANIM_DIR, newFile));
+        try { fs.copyFileSync(srcPath, path.join(ANIM_ORIG_DIR, newFile)); } catch (e) {}
     }
     let sfxOrigFile = src.sfxOrig || src.sfx || null;
     let sfxFile = src.sfx;
@@ -2799,6 +2872,12 @@ function removeAnimation(event, id) {
     const a = lib.animations.find(x => x.id === id);
     if (a) {
         try { fs.unlinkSync(path.join(ANIM_DIR, a.file)); } catch (e) { /* ignore */ }
+        if (a.fileOrig) {
+            const otherUsesOrig = lib.animations.some(other => other.id !== a.id && (other.fileOrig === a.fileOrig || other.file === a.fileOrig));
+            if (!otherUsesOrig) {
+                try { fs.unlinkSync(path.join(ANIM_ORIG_DIR, a.fileOrig)); } catch (e) { /* ignore */ }
+            }
+        }
         // When deleting a text preset, delete the attached SFX too
         if (a.sfx) {
             try {
@@ -2819,6 +2898,77 @@ function removeAnimation(event, id) {
     lib.animations = lib.animations.filter(x => x.id !== id);
     saveLib(lib);
     return { lib: libForUI() };
+}
+
+function revertAnimation(event, id) {
+    const lib = loadLib();
+    const a = lib.animations.find(x => x.id === id);
+    if (!a) return { error: 'Animation not found' };
+    ensureDirs();
+
+    const origFile = a.fileOrig || a.file;
+    const origPath = path.join(ANIM_ORIG_DIR, origFile);
+    const curPath = path.join(ANIM_DIR, a.file);
+
+    // 1. Restore the original .setting / .comp file contents if present
+    if (fs.existsSync(origPath)) {
+        try {
+            fs.copyFileSync(origPath, curPath);
+        } catch (e) {
+            return { error: 'Failed to restore original file: ' + e.message };
+        }
+    }
+
+    // 2. Clean up any trimmed audio file attached to this preset that was not the original
+    if (a.sfx && a.sfxOrig && a.sfx !== a.sfxOrig) {
+        try {
+            const trimmedPath = path.join(SFX_DIR, a.sfx);
+            if (fs.existsSync(trimmedPath)) fs.rmSync(trimmedPath, { force: true });
+        } catch (e) { /* ignore */ }
+    }
+
+    // 3. Restore metadata
+    const snap = a.orig;
+    if (snap) {
+        a.name = snap.name || a.name;
+        a.textDesign = snap.textDesign ? JSON.parse(JSON.stringify(snap.textDesign)) : null;
+        a.boxes = snap.boxes ? JSON.parse(JSON.stringify(snap.boxes)) : {};
+        a.posX = snap.posX || 0;
+        a.posY = snap.posY || 0;
+        a.scale = snap.scale !== undefined ? snap.scale : 1;
+        a.rotation = snap.rotation || 0;
+        a.textOffset = snap.textOffset || 0;
+        a.sfxOffset = snap.sfxOffset || 0;
+        a.sfxTrimIn = 0;
+        a.sfxLen = 0;
+        a.tail = snap.tail || 0;
+        a.sfxVolume = snap.sfxVolume || 0;
+        a.textTrack = snap.textTrack || 0;
+        a.sfxTrack = snap.sfxTrack || 0;
+        a.useSfx = snap.useSfx !== false;
+        a.linked = snap.linked !== false;
+        a.sfx = snap.sfxOrig || snap.sfx || a.sfxOrig || null;
+        a.sfxOrig = snap.sfxOrig || a.sfxOrig || null;
+    } else {
+        a.textDesign = null;
+        a.boxes = {};
+        a.posX = 0; a.posY = 0; a.scale = 1; a.rotation = 0;
+        a.textOffset = 0; a.sfxOffset = 0; a.sfxTrimIn = 0; a.sfxLen = 0; a.tail = 0;
+        a.sfxVolume = 0;
+        a.sfx = a.sfxOrig || null;
+    }
+
+    nodeDesignCache.clear();
+    saveLib(lib);
+
+    try {
+        fs.rmSync(path.join(PREV_DIR, a.id), { recursive: true, force: true });
+        a.preview = null;
+    } catch (e) { /* ignore */ }
+
+    copyFontsForSetting(curPath, a.textDesign).catch(() => {});
+
+    return { ok: true, lib: libForUI(), revertedId: a.id };
 }
 
 function setDefaultSfx(event, p) {
@@ -3575,6 +3725,7 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:saveVariant', wrap(saveAnimationVariant));
     ipcMain.handle('lib:capture', wrap(captureFromSelection));
     ipcMain.handle('lib:update', wrap(updateAnimation));
+    ipcMain.handle('lib:revert', wrap(revertAnimation));
     ipcMain.handle('lib:remove', wrap(removeAnimation));
     ipcMain.handle('lib:saveTags', wrap(saveTags));
     ipcMain.handle('lib:reorder', wrap(reorderAnimations));

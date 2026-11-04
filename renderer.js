@@ -915,6 +915,7 @@ const SAVE_BAR_HTML = (S) => `
     <div class="row td-btn-row">
         <button type="button" id="tdSaveVar${S}" class="td-btn-new" title="Save this alignment, Text+ design, and sound as a new preset in your library">+ Create v2</button>
         <button type="button" id="tdUpdateLatest${S}" class="td-btn-upd" title="Update this preset and the latest Text+ subtitle clip on your timeline">Update latest</button>
+        <button type="button" id="tdRevertOrig${S}" class="ghost sm-btn td-btn-revert" title="Revert this preset to its original .settings, text design, alignment, and sound">↺ Revert to original</button>
     </div>
 </div>`;
 
@@ -4503,6 +4504,30 @@ function bindTextDesign(ctx) {
         });
     }
 
+    const btnRevertOrig = $('tdRevertOrig' + S);
+    if (btnRevertOrig) {
+        btnRevertOrig.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const m = ctx.model();
+            if (!m) return;
+            const targetId = m.id || (S === 'C' ? state.createId : state.selectedId);
+            const a = libEntry(targetId);
+            if (!a) return;
+            openConfirmPop(btnRevertOrig, {
+                title: 'Revert to original version?',
+                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
+                confirmText: 'Revert',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAnimation(a.id);
+                    if (takeLib(res)) {
+                        setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                    }
+                }
+            });
+        });
+    }
+
     bindFontPicker($('tdFont' + S));
     const applyFont = (typedOnly) => {
         const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
@@ -5872,6 +5897,25 @@ function openRowMenu(anchor, a) {
         el.appendChild(nt);
         const sep = document.createElement('div'); sep.className = 'pop-sep';
         el.appendChild(sep);
+        const rev = document.createElement('button');
+        rev.className = 'pop-item';
+        rev.innerHTML = '<span class="pop-check">↺</span><span class="pop-label">Revert to original version</span>';
+        rev.addEventListener('click', () => {
+            closePop();
+            openConfirmPop(anchor, {
+                title: 'Revert to original version?',
+                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
+                confirmText: 'Revert',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAnimation(a.id);
+                    if (takeLib(res)) {
+                        setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                    }
+                }
+            });
+        });
+        el.appendChild(rev);
         const del = document.createElement('button');
         del.className = 'pop-item danger';
         del.innerHTML = '<span class="pop-check">🗑</span><span class="pop-label">Delete preset</span>';
@@ -6959,6 +7003,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('pin').addEventListener('click', async () => takeLib(await window.sa.setOnTop(state.lib.alwaysOnTop === false)));
     $('openFolder').addEventListener('click', () => window.sa.openFolder());
     if ($('openFontsFolder')) $('openFontsFolder').addEventListener('click', () => window.sa.openFontsFolder());
+    const revertOrigEditor = $('revertOrigEditor');
+    if (revertOrigEditor) {
+        revertOrigEditor.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(revertOrigEditor, {
+                title: 'Revert to original version?',
+                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
+                confirmText: 'Revert',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAnimation(a.id);
+                    if (takeLib(res)) {
+                        setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                    }
+                }
+            });
+        });
+    }
     $('tagsToggle').addEventListener('click', () => setTagsOpen(!tagUI.open));
     $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
     setTagsOpen(false);

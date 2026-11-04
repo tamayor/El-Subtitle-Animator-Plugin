@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('sa', {
     createCombo: (req) => ipcRenderer.invoke('lib:create', req),
     saveVariant: (req) => ipcRenderer.invoke('lib:saveVariant', req),
     updateAnimation: (id, patch) => ipcRenderer.invoke('lib:update', id, patch),
+    revertAnimation: (id) => ipcRenderer.invoke('lib:revert', id),
     removeAnimation: (id) => ipcRenderer.invoke('lib:remove', id),
     saveTags: (tags) => ipcRenderer.invoke('lib:saveTags', tags),
     reorderAnimations: (ids) => ipcRenderer.invoke('lib:reorder', ids),

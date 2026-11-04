@@ -2622,6 +2622,9 @@ let liveSyncPending = null;
 async function triggerLiveSync(m, S) {
     const tabKey = S || (state.tab === 'library' ? 'C' : 'U');
     if (!state.liveSyncEnabled || !state.liveSyncEnabled[tabKey]) return;
+    // While Preview in Resolve runs, its own clip is the one that is updated; touching the selected / latest Text+ as well
+    // would queue a second heavy update in Resolve and could change a subtitle that was already applied.
+    if (state.livePrev || state.idle) return;
     if (!m) return;
     const a = libEntry(m.id) || m;
     const subTextVal = $('subText') ? $('subText').value : '';
@@ -3713,7 +3716,7 @@ document.addEventListener('click', async (e) => {
     colorPanelBusy = false;
     colorPanelUntil = Date.now() + 400;
     dbg('panel returned ' + JSON.stringify(r));
-    await new Promise(res => setTimeout(res, 0));      // let the window settle before the change is applied
+    await new Promise(res => setTimeout(res, 150));    // let the window settle before the change is applied
     if (r && r.busy) return;
     setStatus('', '');
     if (r && r.ok && r.hex) {
@@ -3722,8 +3725,7 @@ document.addEventListener('click', async (e) => {
             dbg('applying ' + r.hex);
             t.dispatchEvent(new Event('input', { bubbles: true }));
             dbg('input handled');
-            t.dispatchEvent(new Event('change', { bubbles: true }));
-            dbg('change handled');
+            setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);      // boxes that listen for 'change' follow right after
         }
     } else if (!(r && r.ok)) {
         try { if (t.showPicker) t.showPicker(); } catch (err) { /* ignore */ }

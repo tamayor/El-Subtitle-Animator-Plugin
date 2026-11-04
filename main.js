@@ -725,6 +725,33 @@ async function getSubtitles(tl, force) {
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
 let colorPanelOpen = false, colorChild = null;
 function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } return true; }
+// The Colors panel script is compiled once (osacompile) and warmed up when the app starts, so a click only has to run it:
+// no compiling and no cold start of the AppleScript runtime on the click.
+const COLOR_SCRIPT_LINES = [
+    'on run argv',
+    'if (count of argv) < 3 then return "warm"',
+    'tell current application to activate',
+    'set c to choose color default color {(item 1 of argv as integer), (item 2 of argv as integer), (item 3 of argv as integer)}',
+    'return (item 1 of c as text) & "," & (item 2 of c as text) & "," & (item 3 of c as text)',
+    'end run'
+];
+let colorScriptPath = null, colorScriptPromise = null;
+function prepareColorScript() {
+    if (colorScriptPromise) return colorScriptPromise;
+    colorScriptPromise = new Promise((resolve) => {
+        if (process.platform !== 'darwin') return resolve(null);
+        try {
+            ensureDirs();
+            const h = require('crypto').createHash('sha1').update(COLOR_SCRIPT_LINES.join('\n')).digest('hex').slice(0, 8);
+            const file = path.join(DATA_DIR, 'pick-color-' + h + '.scpt');
+            const warm = () => execFile('/usr/bin/osascript', [file], { timeout: 20000 }, () => { colorScriptPath = file; resolve(file); });
+            if (fs.existsSync(file)) return warm();
+            const args = ['-o', file]; for (const l of COLOR_SCRIPT_LINES) args.push('-e', l);
+            execFile('/usr/bin/osacompile', args, { timeout: 20000 }, (err) => { if (err) return resolve(null); warm(); });
+        } catch (e) { resolve(null); }
+    });
+    return colorScriptPromise;
+}
 function pickNativeColor(event, hex) {
     return new Promise((resolve) => {
         if (process.platform !== 'darwin') return resolve({ ok: false, unsupported: true });
@@ -738,7 +765,9 @@ function pickNativeColor(event, hex) {
             'set c to choose color default color {' + c.join(', ') + '}',
             'return (item 1 of c as text) & "," & (item 2 of c as text) & "," & (item 3 of c as text)'
         ].join('\n');
-        colorChild = execFile('/usr/bin/osascript', ['-e', script], { timeout: 15 * 60 * 1000 }, (err, out) => {
+        // the precompiled script when it is ready, otherwise the same thing inline
+        const osaArgs = colorScriptPath ? [colorScriptPath, String(c[0]), String(c[1]), String(c[2])] : ['-e', script];
+        colorChild = execFile('/usr/bin/osascript', osaArgs, { timeout: 15 * 60 * 1000 }, (err, out) => {
             colorPanelOpen = false;
             colorChild = null;
             try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } } catch (e) { /* ignore */ }      // the panel closed: the app is in front again
@@ -2043,7 +2072,7 @@ async function updateLatest(event, req) {
 }
 
 async function syncLiveTransform(event, req) {
-    if (applying) return { ok: false };
+    if (applying || liveSession) return { ok: false };      // a Resolve preview is running: only its own clip is updated
     try {
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
@@ -2907,6 +2936,7 @@ app.whenReady().then(() => {
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('color:pick', pickNativeColor);
+    setTimeout(() => { prepareColorScript(); }, 1500);      // compiled and warmed once, so the first click is quick too
     ipcMain.handle('color:cancel', cancelNativeColor);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));

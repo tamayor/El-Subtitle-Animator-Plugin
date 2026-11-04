@@ -238,7 +238,13 @@ function cloneTextDesign(td) {
 
 const ALIGN_HTML = (S) => `
 <div class="row between">
-    <span class="label">Alignment timeline</span>
+    <span class="aln-title">
+        <span class="label">Alignment timeline</span>
+        <span class="aln-play">
+            <button type="button" id="alnPlay${S}" class="ghost aln-btn" title="Play once with its sound (click again to pause)">▶</button>
+            <button type="button" id="alnMode${S}" class="ghost aln-btn" title="Loop the animation with its sound">🔁</button>
+        </span>
+    </span>
     <label class="check" title="When on, moving the text carries the sound with it, and links the clips on the Resolve timeline">
         <input id="linked${S}" type="checkbox" checked> Link text + sound
     </label>
@@ -2732,12 +2738,32 @@ function onStageDragEnd() {
     }
 }
 
+// Alignment header: ▶ plays once (click again to pause / resume), 🔁 loops with the sound until clicked again.
+function syncPlayUI() {
+    for (const S of ['U', 'C']) {
+        const pb = $('alnPlay' + S), mb = $('alnMode' + S);
+        const pv = state.preview && state.preview.ctx && state.preview.ctx.s === S ? state.preview : null;
+        const playing = !!pv && !pv.paused;
+        if (pb) {
+            pb.textContent = playing ? '⏸' : '▶';
+            pb.classList.toggle('on', !!pv && !pv.loop);
+            pb.title = playing ? 'Pause' : (pv && !pv.loop ? 'Resume' : 'Play once with its sound');
+        }
+        if (mb) {
+            mb.textContent = '🔁';
+            mb.classList.toggle('on', !!pv && pv.loop);
+            mb.title = pv && pv.loop ? 'Stop looping' : 'Loop the animation with its sound';
+        }
+    }
+}
+
 function stopPreview() {
     if (!state.preview) return;
     cancelAnimationFrame(state.preview.raf);
     if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }
     const { ctx, anim } = state.preview;
     state.preview = null;
+    syncPlayUI();
     const pv = document.querySelector('#tl' + ctx.s + ' .pv');
     if (pv) pv.style.display = 'none';
     const prevBtn = $('prev' + ctx.s);
@@ -2747,7 +2773,7 @@ function stopPreview() {
         loopBtn.classList.remove('on');
         loopBtn.textContent = '🔁 Live Loop';
     }
-    drawStage(ctx.s, ctx.model() || anim, null);
+    drawStage(ctx.s, anim || ctx.model(), null);
 }
 
 // Plays the animation frames and the sound against the Text+ alignment, so you hear and see where they land.
@@ -2767,7 +2793,25 @@ function runPreview(ctx, loop = false) {
     let t0 = performance.now();
     let fired = false;
     let loopCount = 0;
-    state.preview = { ctx, anim: a || m, raf: 0, loop: !!loop };
+    state.preview = { ctx, anim: a || m, raf: 0, loop: !!loop, paused: false };
+    let heldMs = 0;
+    state.preview.pause = () => {
+        if (!state.preview || state.preview.paused) return;
+        state.preview.paused = true;
+        heldMs = performance.now() - t0;
+        cancelAnimationFrame(state.preview.raf);
+        if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }
+        syncPlayUI();
+    };
+    state.preview.resume = () => {
+        if (!state.preview || !state.preview.paused) return;
+        state.preview.paused = false;
+        t0 = performance.now() - heldMs;
+        if (fired && state.audio && !state.audio.ended) { try { state.audio.play(); } catch (e) { /* ignore */ } }
+        syncPlayUI();
+        frame();
+    };
+    syncPlayUI();
 
     const prevBtn = $('prev' + ctx.s);
     const loopBtn = $('loop' + ctx.s);
@@ -2777,9 +2821,28 @@ function runPreview(ctx, loop = false) {
     }
     if (prevBtn) prevBtn.textContent = '⏹ Stop';
 
+    // The sound is loaded before the clock starts, so it begins exactly at its offset instead of a moment late.
+    const sfx0 = currentSfxPath(m);
+    let sfxEl = null;
+    if (sfx0) {
+        try {
+            sfxEl = new Audio(fileUrl(sfx0));
+            sfxEl.preload = 'auto';
+            if (m.sfxVolume !== undefined && m.sfxVolume !== null) sfxEl.volume = clamp(Math.pow(10, Number(m.sfxVolume) / 20), 0, 1);
+            sfxEl.load();
+        } catch (e) { sfxEl = null; }
+    }
+    const startedAt = performance.now();
+
     const frame = () => {
         if (!state.preview) return;
         const curM = ctx.model() || m;
+        // The picture and the sound start together: wait (up to 1.5 s) until the rendered frames are decoded.
+        if (a && a.preview && window.SAThumbs && SAThumbs.ready && performance.now() - startedAt < 1500) {
+            let view = a;
+            try { view = (ctx.s === 'U') ? useView(a) : a; } catch (e) { view = a; }
+            if (!SAThumbs.ready(view)) { t0 = performance.now(); state.preview.raf = requestAnimationFrame(frame); return; }
+        }
         let tf = from + (performance.now() - t0) / 1000 * fps;
         if (tf > to) {
             if (state.preview.loop) {
@@ -2794,13 +2857,21 @@ function runPreview(ctx, loop = false) {
         }
         const pv = document.querySelector('#tl' + ctx.s + ' .pv');
         if (pv && ctx.scale) { pv.style.display = 'block'; pv.style.left = ((tf - ctx.scale.lo) * ctx.scale.ppf) + 'px'; }
-        if (!fired && tf >= g.sfxS && (!state.preview.loop || loopCount === 0)) {
+        if (!fired && tf >= g.sfxS) {
             fired = true;
-            const sfx = currentSfxPath(curM);
-            if (sfx) play(sfx, curM && curM.sfxVolume);
+            if (sfxEl) {
+                try {
+                    if (state.audio && state.audio !== sfxEl) state.audio.pause();
+                    state.audio = sfxEl;
+                    sfxEl.currentTime = 0;
+                    const pr = sfxEl.play();
+                    if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
+                } catch (e) { /* ignore */ }
+            }
         }
         const relFrame = (tf < g.textS) ? -1 : Math.max(0, Math.floor(tf - g.textS));
-        drawStage(ctx.s, curM, relFrame);
+        // The preset entry (not the editing copy) carries the rendered Fusion frames, so the play button shows the real preview.
+        drawStage(ctx.s, a || curM, relFrame);
         state.preview.raf = requestAnimationFrame(frame);
     };
     frame();
@@ -4210,6 +4281,18 @@ function bindAdjust(ctx) {
     });
     $('textTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number($('textTrack' + S).value); ctx.changed(m); } });
     $('sfxTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number($('sfxTrack' + S).value); ctx.changed(m); } });
+    const alnPlay = $('alnPlay' + S), alnMode = $('alnMode' + S);
+    if (alnPlay) alnPlay.addEventListener('click', () => {
+        const pv = state.preview;
+        if (pv && pv.ctx === ctx && !pv.loop) { if (pv.paused) pv.resume(); else pv.pause(); }
+        else runPreview(ctx, false);                      // plays once from the start (also replaces a running loop)
+    });
+    if (alnMode) alnMode.addEventListener('click', () => {
+        const pv = state.preview;
+        if (pv && pv.ctx === ctx && pv.loop) stopPreview();
+        else runPreview(ctx, true);                       // loops, sound included, until clicked again
+    });
+    syncPlayUI();
     $('prev' + S).addEventListener('click', () => {
         if (state.preview) stopPreview();
         else runPreview(ctx, false);
@@ -4504,7 +4587,11 @@ function renderTagFilter(key, boxId) {
                 const n = document.createElement('span');
                 n.className = 'pop-label';
                 n.textContent = t.name;
-                it.append(ck, d, n);
+                const rm = document.createElement('span');
+                rm.className = 'pop-rm'; rm.textContent = '×'; rm.title = 'Delete tag'; rm.setAttribute('role', 'button');
+                rm.addEventListener('mousedown', (ev) => ev.stopPropagation());
+                rm.addEventListener('click', (ev) => { ev.stopPropagation(); closePop(); deleteTagWithConfirm(t); });
+                it.append(ck, d, n, rm);
                 it.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     const cur = tagUI.filter[key];
@@ -4531,6 +4618,54 @@ function renderTagFilter(key, boxId) {
         });
         box.appendChild(clearBtn);
     }
+}
+
+// In-panel confirmation dialog (resolves true when the confirm button is pressed).
+function confirmDialog(opts) {
+    return new Promise((resolve) => {
+        const ov = document.createElement('div');
+        ov.className = 'sa-dlg-ov';
+        const box = document.createElement('div');
+        box.className = 'sa-dlg';
+        box.setAttribute('role', 'alertdialog');
+        const h = document.createElement('div'); h.className = 'sa-dlg-title'; h.textContent = opts.title || 'Are you sure?';
+        const m = document.createElement('div'); m.className = 'sa-dlg-msg'; m.textContent = opts.message || '';
+        const row = document.createElement('div'); row.className = 'sa-dlg-btns';
+        const no = document.createElement('button'); no.className = 'ghost'; no.textContent = opts.cancelLabel || 'Cancel';
+        const yes = document.createElement('button'); yes.className = 'sa-dlg-danger'; yes.textContent = opts.confirmLabel || 'Delete';
+        row.append(no, yes);
+        box.append(h, m, row);
+        ov.appendChild(box);
+        const done = (v) => { document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); };
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+            else if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); done(true); }
+        };
+        document.addEventListener('keydown', onKey, true);
+        no.addEventListener('click', () => done(false));
+        yes.addEventListener('click', () => done(true));
+        ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(false); });
+        document.body.appendChild(ov);
+        no.focus();
+    });
+}
+
+function tagUseCount(id) { return state.lib.animations.filter(a => (a.tags || []).includes(id)).length; }
+
+// Asks first, then removes the tag from the list (and from every preset that has it).
+async function deleteTagWithConfirm(t) {
+    const n = tagUseCount(t.id);
+    const ok = await confirmDialog({
+        title: 'Delete tag "' + t.name + '"?',
+        message: n ? ('It will be removed from ' + n + ' preset' + (n === 1 ? '' : 's') + '. The presets themselves are not deleted.')
+                   : 'No presets use this tag. This cannot be undone.',
+        confirmLabel: 'Delete tag'
+    });
+    if (!ok) return false;
+    tagUI.filter.use = tagUI.filter.use.filter(id => id !== t.id);
+    tagUI.filter.lib = tagUI.filter.lib.filter(id => id !== t.id);
+    await saveTagList(allTags().filter(y => y.id !== t.id));
+    return true;
 }
 
 async function saveTagList(tags) {
@@ -4829,11 +4964,7 @@ function renderTags() {
         cnt.className = 'tag-count'; cnt.textContent = counts[t.id] || ''; cnt.title = (counts[t.id] || 0) + ' preset(s)';
         const x = document.createElement('button');
         x.className = 'ghost'; x.textContent = '×'; x.title = 'Delete tag';
-        x.addEventListener('click', () => {
-            const n = counts[t.id] || 0;
-            if (n && !confirm('Delete tag "' + t.name + '"? It will be removed from ' + n + ' preset(s).')) return;
-            saveTagList(allTags().filter(y => y.id !== t.id));
-        });
+        x.addEventListener('click', () => { deleteTagWithConfirm(t); });
         row.append(handle, orderWrap, col, nm, cnt, x);
         list.appendChild(row);
     }
@@ -4892,13 +5023,6 @@ function renderAnimations() {
         c.append(nm, sub);
         const dots = tagDotsEl(a);
         if (dots) c.appendChild(dots);
-        const sp = soundOf(a);
-        if (sp) {
-            const pl = document.createElement('button');
-            pl.className = 'ghost play'; pl.textContent = '▶'; pl.title = 'Hear the sound';
-            pl.addEventListener('click', (e) => { e.stopPropagation(); play(sp); });
-            c.appendChild(pl);
-        }
         c.addEventListener('click', () => {
             stopPreview();
             state.selectedId = a.id;
@@ -4963,11 +5087,9 @@ function renderCreate() {
         t.append(b, s);
         const dots = tagDotsEl(a);
         if (dots) row.appendChild(dots);
-        const pl = document.createElement('button'); pl.className = 'ghost'; pl.textContent = '▶'; pl.title = 'Hear the sound';
-        pl.addEventListener('click', (e) => { e.stopPropagation(); const p = soundOf(a) || (a.useSfx === false ? null : null); if (p) play(p); });
         const more = document.createElement('button'); more.className = 'ghost more'; more.textContent = '⋯'; more.title = 'Tags and more';
         more.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(more, a); });
-        row.append(t, pl, more);
+        row.append(t, more);
         row.addEventListener('click', () => {
             stopPreview();
             state.createAdjusted = false;

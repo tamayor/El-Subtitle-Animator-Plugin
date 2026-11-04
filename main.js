@@ -1050,24 +1050,35 @@ async function apply(event, req) {
         if (req.live) await liveClearMarks(tl);      // no In/Out while Resolve inserts the title
         const tlEnd = await tl.GetEndFrame();
         await sweepTempClips(tl);
-        const ins = await insertTitleAtEnd(tl, meta, tlEnd);
-        if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
-        const item = ins.item;
-        let insertedId = null;
-        try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
-        if (!item) {
-            await tl.SetCurrentTimecode(origTC);
-            throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
-        }
-        if (!(await fitDuration(item, want))) {
-            warnings.push('The clip could not be trimmed to the subtitle length (it is ' + (await item.GetDuration()) + ' frames).');
-        }
-        const finalLen = await item.GetDuration();
-        const mv = await moveTitleSafe(tl, item, vTrack, textStart, tlEnd);
-        try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
-        if (!mv.ok) {
-            if (!mv.leftOnTrack) regDel(insertedId);
-            throw new Error(mv.error);
+        // Direct placement (no playhead move, no ripple): a reusable Text+/Fusion template clip from the Media Pool is
+        // appended onto the chosen track at the caption's exact frame. Used when a template exists and checks out.
+        let item = await directPlaceTitle(tl, project, vTrack, textStart, want);
+        let insertedId = null, finalLen = null;
+        if (item) {
+            try { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } catch (e) { /* ignore */ }
+            finalLen = want;
+        } else {
+            // Fallback: Resolve can only insert a title at the playhead on V1, so it is parked at the end and moved up.
+            const ins = await insertTitleAtEnd(tl, meta, tlEnd);
+            if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
+            item = ins.item;
+            try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
+            if (!item) {
+                await tl.SetCurrentTimecode(origTC);
+                throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
+            }
+            if (!(await fitDuration(item, want))) {
+                warnings.push('The clip could not be trimmed to the subtitle length (it is ' + (await item.GetDuration()) + ' frames).');
+            }
+            finalLen = await item.GetDuration();
+            const mv = await moveTitleSafe(tl, item, vTrack, textStart, tlEnd);
+            try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
+            if (!mv.ok) {
+                if (!mv.leftOnTrack) regDel(insertedId);
+                throw new Error(mv.error);
+            }
+            // If Resolve hands out a Media Pool item for this title, keep it as a template for direct placement next time.
+            if (!autoTemplate && !templateBroken) { try { const mpi = await item.GetMediaPoolItem(); if (mpi) autoTemplate = mpi; } catch (e) { /* not available */ } }
         }
 
         if (!live) regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
@@ -1290,6 +1301,63 @@ async function loopRestore() {
     if (!loopToggled) return { ok: true };
     loopToggled = false;
     return await clickLoopMenu();
+}
+
+
+// ---- Direct placement of a Text+ from a template clip in the Media Pool
+// AppendToTimeline takes a track and a record frame, so a template clip can go exactly where the caption is: no playhead
+// move, no ripple. The template is a clip named "Subtitle Animator Template" in the Media Pool (a Fusion Composition or
+// Text+ clip), or one Resolve handed out earlier in this session. The result is checked (track, start, length, no real
+// clip moved); on any doubt it is taken out again and the app falls back to the park-at-the-end insert for good.
+let autoTemplate = null, templateBroken = false, templateGood = 0;      // templateGood: successful placements so far (3 proven = the clip-boundary snapshots are skipped to save time)
+async function findTextTemplate(project) {
+    try {
+        const mp = await project.GetMediaPool();
+        const root = await mp.GetRootFolder();
+        const folders = [root];
+        for (const f of ((await root.GetSubFolderList()) || [])) folders.push(f);
+        for (const f of folders) {
+            for (const c of ((await f.GetClipList()) || [])) {
+                try { if (/^subtitle animator template$/i.test(String(await c.GetName()))) return c; } catch (e) { /* ignore */ }
+            }
+        }
+    } catch (e) { /* ignore */ }
+    return null;
+}
+async function directPlaceTitle(tl, project, track, start, want) {
+    if (templateBroken || !(track >= 2)) return null;
+    const tpl = (await findTextTemplate(project)) || autoTemplate;
+    if (!tpl) return null;
+    let item = null;
+    const undo = async () => { if (item) { try { await tl.DeleteClips([item], false); } catch (e) { /* the sweep removes it later */ } } };
+    try {
+        const mp = await project.GetMediaPool();
+        const full = templateGood < 3;
+        const before = full ? await cutSnapshot(tl) : null;
+        const placed = await mp.AppendToTimeline([{ mediaPoolItem: tpl, mediaType: 1, trackIndex: track, recordFrame: start, startFrame: 0, endFrame: want }]);
+        item = placed && placed[0];
+        let ok = !!item, why = 'no clip returned';
+        if (ok) {
+            const ti = await item.GetTrackTypeAndIndex();
+            if (!ti || ti[0] !== 'video' || ti[1] !== track) { ok = false; why = 'landed on ' + JSON.stringify(ti); }
+            else if ((await item.GetStart()) !== start) { ok = false; why = 'start ' + (await item.GetStart()); }
+            else if ((await item.GetDuration()) !== want) { ok = false; why = 'length ' + (await item.GetDuration()); }
+            else if (typeof item.GetFusionCompCount === 'function' && !((await item.GetFusionCompCount()) >= 1)) { ok = false; why = 'no Fusion comp on it'; }
+        }
+        if (ok && full) {
+            const after = await cutSnapshot(tl);
+            if (before && after && (before.length !== after.length || before.some(x => !after.includes(x)))) { ok = false; why = 'real clips changed'; }
+        }
+        if (!ok) { dlog('TEMPLATE-FAIL', why); await undo(); templateBroken = true; return null; }
+        templateGood++;
+        if (templateGood <= 3) dlog('TEMPLATE-OK', { track, start, want });
+        return item;
+    } catch (e) {
+        dlog('TEMPLATE-ERROR', String(e && e.message || e));
+        await undo();
+        templateBroken = true;
+        return null;
+    }
 }
 
 async function findAudioItemById(tl, id) {
@@ -2321,15 +2389,26 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         await sweepTempClips(tl);
         origTC = await tl.GetCurrentTimecode();
         endBefore = await tl.GetEndFrame();
-        const ins = await insertTitleAtEnd(tl, meta, endBefore);
-        if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
-        item = ins.item;
-        try { if (item) { itemId = String(await item.GetUniqueId()); regAdd(itemId); } } catch (e) { /* ignore */ }
-        // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
-        // instead of for the whole render (the frames are exported from the clip, not from the playhead).
-        try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* restored again below */ }
-        if (!item) throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
-        await fitDuration(item, Math.round(meta.fps * 3));
+        // The render clip goes past the old end of the timeline on a free layer, straight from the template when there is
+        // one (no playhead move, no ripple). Otherwise the title is inserted at the end of V1 as before.
+        const renderLen = Math.round(meta.fps * 3);
+        try {
+            const rt = await pickTrack(tl, 'video', 0, endBefore, endBefore + renderLen, 2, []);
+            item = await directPlaceTitle(tl, project, rt, endBefore, renderLen);
+        } catch (e) { item = null; }
+        if (item) {
+            try { itemId = String(await item.GetUniqueId()); regAdd(itemId); } catch (e) { /* ignore */ }
+        } else {
+            const ins = await insertTitleAtEnd(tl, meta, endBefore);
+            if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
+            item = ins.item;
+            try { if (item) { itemId = String(await item.GetUniqueId()); regAdd(itemId); } } catch (e) { /* ignore */ }
+            // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
+            // instead of for the whole render (the frames are exported from the clip, not from the playhead).
+            try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* restored again below */ }
+            if (!item) throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
+            await fitDuration(item, renderLen);
+        }
         itemId = String(await item.GetUniqueId());
 
         const before = (await item.GetFusionCompNameList()) || [];

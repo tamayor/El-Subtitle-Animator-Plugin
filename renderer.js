@@ -1372,6 +1372,7 @@ function redrawStages() {
 }
 
 async function refreshLiveBg() {
+    if (state.idle) return;
     const L = state.live;
     if (!L || !L.ok) return;
     if (L.width && L.height) {
@@ -1805,6 +1806,7 @@ if (window.sa && window.sa.onPreviewDraft) window.sa.onPreviewDraft((d) => {
 
 // Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
 function ensureUsePreview(a) {
+    if (state.idle) return;
     if (state.livePrev) return;
     const u = state.use;
     if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
@@ -1861,6 +1863,7 @@ const designRev = new Map();      // preset id -> number of design edits this se
 const lastRendered = new Map();   // preset id -> 'text|revision' last rendered successfully
 // Create tab: renders the preset's default preview with its sample text when its default design is edited.
 function ensureRealPreview(a, m) {
+    if (state.idle) return;
     if (!a || a.missing || !window.sa || !window.sa.makePreview) return;
     const want = '';
     const rev = designRev.get(a.id) || 0;
@@ -3606,7 +3609,7 @@ function bindLivePreview() {
     // the next subtitle the playhead reaches. Edits made in the panel are pushed to the clip while it is there.
     setInterval(async () => {
         const p = state.livePrev;
-        if (!p || p.busy || state.busy) return;
+        if (state.idle || !p || p.busy || state.busy) return;
         let m = state.use, a = libEntry(p.animId);
         if (m && m.id !== p.animId && libEntry(m.id)) {
             // another preset was picked: the clip at the playhead is swapped for the new animation, same subtitle
@@ -3683,6 +3686,33 @@ function bindLivePreview() {
         }
     }, 250);
 }
+
+// Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
+// web colour picker instead. If the system panel cannot open, the web picker is used.
+let colorPanelBusy = false, colorPanelUntil = 0;
+document.addEventListener('click', async (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // one panel only: further clicks (and the click a label passes on to its box) are ignored while it is open
+    if (colorPanelBusy || Date.now() < colorPanelUntil) return;
+    colorPanelBusy = true;
+    let r = null;
+    try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
+    colorPanelBusy = false;
+    colorPanelUntil = Date.now() + 400;
+    if (r && r.busy) return;
+    if (r && r.ok && r.hex) {
+        if (r.hex !== t.value) {
+            t.value = r.hex;
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+            t.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    } else if (!(r && r.ok)) {
+        try { if (t.showPicker) t.showPicker(); } catch (err) { /* ignore */ }
+    }
+}, true);
 
 let dblClickResetBound = false;
 function bindDblClickReset() {
@@ -6015,8 +6045,22 @@ function renderAll() {
     renderLive();
 }
 
+// ---------------------------------------------------------------- minimized: real-time rendering paused
+// The main process reports when the window is minimized or hidden. Polling Resolve, rendering previews and the Resolve
+// preview's follow-the-playhead all stop; when the window is back everything is refreshed once.
+state.idle = false;
+if (window.sa && window.sa.onWinIdle) window.sa.onWinIdle((idle) => {
+    state.idle = !!idle;
+    if (idle) { setStatus('Minimized: real-time rendering is paused.', ''); return; }
+    setStatus('Back: real-time rendering resumed.', 'ok');
+    state.liveBg.key = '';
+    try { redrawStages(); } catch (e) { /* ignore */ }
+    try { refreshLiveBg(); } catch (e) { /* ignore */ }
+});
+
 // ---------------------------------------------------------------- live subtitle
 async function tick() {
+    if (state.idle) { setTimeout(tick, 500); return; }          // minimized: no real-time polling of Resolve
     if (!state.busy && !state.drag) {
         try { state.live = await window.sa.poll(false); } catch (e) { state.live = { ok: false, reason: 'Not connected' }; }
         watchPlayback(state.live);

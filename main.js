@@ -721,8 +721,44 @@ async function getSubtitles(tl, force) {
     return list;
 }
 
+// Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
+// macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
+let colorPanelOpen = false;
+function pickNativeColor(event, hex) {
+    return new Promise((resolve) => {
+        if (process.platform !== 'darwin') return resolve({ ok: false, unsupported: true });
+        if (colorPanelOpen) return resolve({ ok: true, busy: true });      // one Colors panel at a time
+        colorPanelOpen = true;
+        const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+        const v = m ? m[1] : 'ffffff';
+        const c = [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16) * 257);
+        const script = [
+            'tell current application to activate',
+            'set c to choose color default color {' + c.join(', ') + '}',
+            'return (item 1 of c as text) & "," & (item 2 of c as text) & "," & (item 3 of c as text)'
+        ].join('\n');
+        execFile('/usr/bin/osascript', ['-e', script], { timeout: 15 * 60 * 1000 }, (err, out) => {
+            colorPanelOpen = false;
+            if (err) {
+                if (/-128|User canceled/i.test(String(err.message || err))) return resolve({ ok: true, cancelled: true });
+                return resolve({ ok: false, error: String(err.message || err).split('\n')[0] });
+            }
+            const p = String(out || '').trim().split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257))));
+            if (p.length !== 3 || p.some(x => !Number.isFinite(x))) return resolve({ ok: false, error: 'Unexpected colour answer' });
+            resolve({ ok: true, hex: '#' + p.map(x => x.toString(16).padStart(2, '0')).join('') });
+        });
+    });
+}
+let appIdle = false;
+function setAppIdle(v) {
+    v = !!v;
+    if (appIdle === v) return;
+    appIdle = v;
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('win:idle', v); } catch (e) { /* ignore */ }
+}
 async function poll(event, force) {
     if (applying && lastPoll) return lastPoll;
+    if (appIdle && lastPoll && !force) return lastPoll;
     try {
         const project = await getProject();
         if (!project) return { ok: false, reason: 'Open a project in Resolve' };
@@ -2846,6 +2882,10 @@ function createWindow() {
     // Dropping a file must never navigate the window away from the panel.
     mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
     mainWindow.on('close', () => quitPlugin());
+    mainWindow.on('minimize', () => setAppIdle(true));
+    mainWindow.on('hide', () => setAppIdle(true));
+    mainWindow.on('restore', () => setAppIdle(false));
+    mainWindow.on('show', () => setAppIdle(mainWindow.isMinimized()));
     applyOnTop(loadLib().alwaysOnTop !== false);   // stays above Resolve by default
     mainWindow.loadFile('index.html');
 }
@@ -2860,6 +2900,7 @@ app.whenReady().then(() => {
     ipcMain.handle('fonts:list', async () => await listSystemFonts());
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
+    ipcMain.handle('color:pick', pickNativeColor);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));
     ipcMain.handle('app:getVersion', wrap(getAppVersion));

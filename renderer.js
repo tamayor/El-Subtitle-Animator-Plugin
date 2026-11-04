@@ -1436,8 +1436,11 @@ function cardView(a) {
 (function () {
     let lastSub = '', subSince = 0, lastFrame = null, frameSince = 0, running = false;
     const failed = new Set();
+    // Cards keep their default look (sample text). Only the selected preset is rendered, by the viewer below.
+    const RENDER_ALL_CARDS_WITH_SUBTITLE = false;
     setInterval(async () => {
         try {
+            if (!RENDER_ALL_CARDS_WITH_SUBTITLE) return;
             const want = normSub(currentSubText());
             const now = Date.now();
             if (want !== lastSub) { lastSub = want; subSince = now; }
@@ -1448,7 +1451,7 @@ function cardView(a) {
             const u = state.use;
             if (state.busy || state.drag || state.stageDrag || state.preview || (u && (u._timer || u.rendering)) || (subPv && subPv.running)) return;
             if (window.SAThumbs && SAThumbs.isBusy && state.lib.animations.some(x => SAThumbs.isBusy(x.id))) return;
-            const next = state.lib.animations.find(x => !x.missing && !(u && u.id === x.id)
+            const next = state.lib.animations.find(x => !x.missing && !(u && u.id === x.id) && passesTagFilter(x, 'use')
                 && !failed.has(x.id + '\u0000' + want) && !(subCards.get(x.id) && subCards.get(x.id).text === want));
             if (!next) return;
             running = true;
@@ -1485,6 +1488,14 @@ function boxRenderList(m, a, sub, withText) {
     try { return JSON.parse(JSON.stringify(SABoxes.payload(m, a, sub, withText))); } catch (e) { return null; }
 }
 
+// A quick low-resolution draft of the Use tab render arrives first; the full-size render replaces it when done.
+if (window.sa && window.sa.onPreviewDraft) window.sa.onPreviewDraft((d) => {
+    const u = state.use;
+    if (!u || !d || !d.temp || u.id !== d.id || !u.rendering || u.renderReq !== d.key) return;
+    u.tempPreview = d.temp;
+    redrawStages();
+});
+
 // Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
 function ensureUsePreview(a) {
     const u = state.use;
@@ -1508,7 +1519,7 @@ function ensureUsePreview(a) {
         setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true), { maxDim: stageDim('U') }); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true), { maxDim: stageDim('U'), draftKey: reqKey }); } catch (e) { res = { error: String(e && e.message || e) }; }
         u.rendering = false;
         if (res && res.error) {
             if (/busy/i.test(res.error)) u.renderReq = null;      // try again shortly
@@ -1519,7 +1530,7 @@ function ensureUsePreview(a) {
         if (state.use === u && res && res.temp) u.tempPreview = res.temp;
         setStatus('Preview ready.', 'ok');
         redrawStages();
-    }, 600);
+    }, 250);
 }
 function syncStageOverlay(S, on) {
     const box = $('stageBox' + S);
@@ -1581,7 +1592,7 @@ function ensureRealPreview(a, m) {
         setStatus('Preview ready.', 'ok');
         renderAll();
         redrawStages();
-    }, 600);
+    }, 250);
 }
 
 // idx: which frame to show, null = the last frame (the finished look), -1 = nothing

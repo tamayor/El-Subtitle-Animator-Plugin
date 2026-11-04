@@ -703,6 +703,12 @@ def op_capture(a):
     cancel_path = a.get("cancelPath")
     try:
         if out_dir and step == 1 and a.get("unique"):
+            if a.get("matteBg"):
+                # A draft render before this one leaves the preview background white: black first, always.
+                try:
+                    set_bg_colour(a["item"], a.get("comp"), a["matteBg"], [0.0, 0.0, 0.0])
+                except Exception:
+                    pass
             n = min(count, duration)
             src_map = capture_unique(item, n, max_dim, out_dir, int(a.get("hold") or 1), cancel_path)
             link_held(out_dir, src_map)

@@ -1213,6 +1213,11 @@
         return wrap;
     }
 
+    // Only presets shown by the current tag filter are rendered automatically.
+    function inFilter(a) {
+        try { return typeof passesTagFilter !== 'function' || passesTagFilter(a, state.tab === 'library' ? 'lib' : 'use'); } catch (e) { return true; }
+    }
+
     function needsPreview(a) {
         if (!a || a.missing) return false;
         if (!a.preview || !a.previewFiles || !a.previewFiles.length) return true;
@@ -1226,14 +1231,14 @@
     function syncHeader() {
         const btn = document.getElementById('makePrevAll');
         if (!btn) return;
-        const missing = state.lib.animations.filter(needsPreview);
+        const missing = state.lib.animations.filter(x => needsPreview(x) && inFilter(x));
         btn.classList.toggle('hidden', !missing.length && !batch);
         btn.disabled = !!busy.size;
         btn.textContent = batch ? 'Rendering ' + Math.min(batch.done + 1, batch.total) + '/' + batch.total + '…' : 'Make previews';
         if (!btn._bound) {
             btn._bound = true;
             btn.addEventListener('click', () => {
-                const ids = state.lib.animations.filter(needsPreview).map(a => a.id);
+                const ids = state.lib.animations.filter(x => needsPreview(x) && inFilter(x)).map(a => a.id);
                 if (ids.length) { ids.forEach(i => failed.delete(i)); render(ids); }
             });
         }
@@ -1246,7 +1251,8 @@
     setInterval(() => {
         if (busy.size || batch || state.busy || !state.live || !state.live.ok) return;
         const sig = (a) => a.preview ? String(a.preview.stamp || 0) : 'none';
-        const next = state.lib.animations.find(a => needsPreview(a) && !failed.has(a.id) && autoTried.get(a.id) !== sig(a));
+        const wantId = state.tab === 'library' ? state.createId : state.selectedId;
+        const next = state.lib.animations.find(a => a.id === wantId && needsPreview(a) && inFilter(a) && !failed.has(a.id) && autoTried.get(a.id) !== sig(a));
         if (!next) return;
         autoTried.set(next.id, sig(next));
         render(next.id).then(() => {

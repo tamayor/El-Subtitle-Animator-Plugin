@@ -641,10 +641,14 @@ async function getProject() {
 const pad = (n) => String(n).padStart(2, '0');
 
 async function timelineMeta(tl) {
-    const fps = parseFloat(await tl.GetSetting('timelineFrameRate')) || 25;
-    const df = String(await tl.GetSetting('timelineDropFrameTimecode')) === '1';
-    const width = parseInt(await tl.GetSetting('timelineResolutionWidth'), 10) || 1920;
-    const height = parseInt(await tl.GetSetting('timelineResolutionHeight'), 10) || 1080;
+    const [rate, dfs, w, h] = await Promise.all([
+        tl.GetSetting('timelineFrameRate'), tl.GetSetting('timelineDropFrameTimecode'),
+        tl.GetSetting('timelineResolutionWidth'), tl.GetSetting('timelineResolutionHeight')
+    ]);
+    const fps = parseFloat(rate) || 25;
+    const df = String(dfs) === '1';
+    const width = parseInt(w, 10) || 1920;
+    const height = parseInt(h, 10) || 1080;
     return { fps, nominal: Math.round(fps), df, width, height };
 }
 
@@ -1059,9 +1063,12 @@ function frameList(dir, prefix, info) {
 // shows), hold is the preset's Stop Motion frame repeat, matteBg the preview background node used for the white pass.
 async function capturePreview(animId, itemId, text, designKey, tempDir, opts) {
     opts = opts || {};
-    const project = await getProject();
-    const tl = project && await project.GetCurrentTimeline();
-    const meta = tl ? await timelineMeta(tl) : { fps: 25 };
+    let meta = opts.meta;
+    if (!meta) {
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        meta = tl ? await timelineMeta(tl) : { fps: 25 };
+    }
     const fps = Math.round(meta.fps || 25);
     const targetCount = Math.round(fps * 3);
     const dir = tempDir || path.join(PREV_DIR, animId);
@@ -1631,13 +1638,83 @@ function previewBackground(compPath, design, boxList) {
     } catch (e) { return 'black'; }
 }
 
+// ------------------------------------------------------------------ preview cache
+// A finished one-time preview (Use tab / subtitle cards) is kept on disk by what it was rendered from, so going back
+// to a text, design or size that was already rendered shows instantly instead of rendering again.
+const PREV_CACHE_DIR = path.join(PREV_DIR, '_cache');
+const PREV_CACHE_MAX = 24;
+function previewCacheKey(animId, anim, compPath, customText, design, boxList, temp, opts, meta) {
+    let st = null;
+    try { const x = fs.statSync(compPath); st = [x.mtimeMs, x.size]; } catch (e) { return null; }
+    const h = require('crypto').createHash('sha1');
+    h.update(JSON.stringify([animId, anim.file, st, customText || null, design || null, anim.textDesign || null, boxList || null,
+        String(temp), opts && opts.maxDim || 0, meta.fps, meta.width, meta.height, 1]));
+    return h.digest('hex').slice(0, 24);
+}
+function linkOrCopy(src, dst) {
+    try { fs.rmSync(dst, { force: true }); } catch (e) { /* ignore */ }
+    try { fs.linkSync(src, dst); } catch (e) { fs.copyFileSync(src, dst); }
+}
+function previewCacheGet(key, animId, temp) {
+    if (!key) return null;
+    try {
+        const cdir = path.join(PREV_CACHE_DIR, key);
+        const info = JSON.parse(fs.readFileSync(path.join(cdir, 'info.json'), 'utf8'));
+        const first = path.join(cdir, 'p00.png'), lastF = path.join(cdir, 'p' + String(info.count - 1).padStart(2, '0') + '.png');
+        if (!fs.existsSync(first) || !fs.existsSync(lastF)) return null;
+        const dir = path.join(PREV_DIR, animId + (temp === 'sub' ? '__sub' : '__use'));
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir, { recursive: true });
+        for (const f of fs.readdirSync(cdir)) if (/^[pw]\d+\.png$/.test(f)) linkOrCopy(path.join(cdir, f), path.join(dir, f));
+        if (info.matte && !fs.existsSync(path.join(dir, 'w00.png'))) return null;
+        info.stamp = Date.now();
+        try { const now = new Date(); fs.utimesSync(cdir, now, now); } catch (e) { /* ignore */ }
+        return { preview: info, previewFiles: frameList(dir, 'p', info), previewWhite: info.matte ? frameList(dir, 'w', info) : null };
+    } catch (e) { return null; }
+}
+function previewCachePut(key, t) {
+    if (!key || !t || !t.preview || !t.previewFiles || !t.previewFiles.length) return;
+    try {
+        const cdir = path.join(PREV_CACHE_DIR, key);
+        fs.rmSync(cdir, { recursive: true, force: true });
+        fs.mkdirSync(cdir, { recursive: true });
+        const dir = path.dirname(t.previewFiles[0]);
+        for (const f of fs.readdirSync(dir)) if (/^[pw]\d+\.png$/.test(f)) linkOrCopy(path.join(dir, f), path.join(cdir, f));
+        fs.writeFileSync(path.join(cdir, 'info.json'), JSON.stringify(t.preview));
+        const all = fs.readdirSync(PREV_CACHE_DIR).map(n => ({ n, t: fs.statSync(path.join(PREV_CACHE_DIR, n)).mtimeMs })).sort((a, b) => b.t - a.t);
+        for (const o of all.slice(PREV_CACHE_MAX)) fs.rmSync(path.join(PREV_CACHE_DIR, o.n), { recursive: true, force: true });
+    } catch (e) { /* the cache is only a shortcut */ }
+}
+
+// Deletes preview Text+ clips that are still on the timeline: the render clip itself (by id), and any Text+ that
+// starts at or after the old end of the timeline (only the app puts clips there). Returns true when nothing is left.
+async function removePreviewLeftovers(tl, endBefore, itemId) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const stray = [];
+        const tracks = (await tl.GetTrackCount('video')) || 0;
+        for (let t = 1; t <= tracks; t++) {
+            for (const it of ((await tl.GetItemListInTrack('video', t)) || [])) {
+                try {
+                    const id = String(await it.GetUniqueId());
+                    const isMine = itemId && id === String(itemId);
+                    const pastEnd = endBefore != null && (await it.GetStart()) >= endBefore && String(await it.GetName()).startsWith('Text+');
+                    if (isMine || pastEnd) stray.push(it);
+                } catch (e) { /* ignore */ }
+            }
+        }
+        if (!stray.length) return true;
+        try { await tl.DeleteClips(stray, false); } catch (e) { /* retried once */ }
+    }
+    return false;
+}
+
 let previewRunning = null;
 async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList, opts) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
     clearCancel();
     lastCaptureStats = null;
-    let tl = null, item = null, origTC = null, leftover = false;
+    let tl = null, item = null, origTC = null, leftover = false, endBefore = null, itemId = null, ckey = null;
     try {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === animId);
@@ -1648,15 +1725,21 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         tl = project && await project.GetCurrentTimeline();
         if (!tl) throw new Error('Open a timeline in Resolve');
         const meta = await timelineMeta(tl);
+        if (temp) {
+            ckey = previewCacheKey(animId, anim, compPath, customText, design, boxList, temp, opts, meta);
+            const hit = previewCacheGet(ckey, animId, temp);
+            if (hit) { lastCaptureStats = { ms: 0, cached: true }; return { ok: true, temp: hit }; }
+        }
         origTC = await tl.GetCurrentTimecode();
-        await tl.SetCurrentTimecode(frameToTC(await tl.GetEndFrame(), meta));
+        endBefore = await tl.GetEndFrame();
+        await tl.SetCurrentTimecode(frameToTC(endBefore, meta));
         item = await tl.InsertFusionTitleIntoTimeline('Text+');
         // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
         // instead of for the whole render (the frames are exported from the clip, not from the playhead).
         try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* restored again below */ }
         if (!item) throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
         await fitDuration(item, Math.round(meta.fps * 3));
-        const itemId = String(await item.GetUniqueId());
+        itemId = String(await item.GetUniqueId());
 
         const before = (await item.GetFusionCompNameList()) || [];
         await item.ImportFusionComp(compPath);
@@ -1713,9 +1796,22 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         }
         previewBgNext = matteBg ? bg : bg;
         const spec = parseTextStyle(compPath, null).animSpec || {};
-        const copts = { comp: compName, matteBg, maxDim: opts && opts.maxDim, hold: spec.frameRepeatVar ? 1 : (spec.frameRepeat || 1) };
+        const copts = { comp: compName, matteBg, meta, maxDim: opts && opts.maxDim, hold: spec.frameRepeatVar ? 1 : (spec.frameRepeat || 1) };
         if (temp) {
+            // Big viewer: a small, quick version goes to the panel first (about a tenth of the pixels), then the
+            // full-size one replaces it.
+            if (temp === true && opts && opts.draftKey && Number(opts.maxDim) >= 800 && event && event.sender) {
+                const keepBg = previewBgNext;
+                try {
+                    const dt = await capturePreview(animId, itemId, sampleText || '', designKey, path.join(PREV_DIR, animId + '__draft'), Object.assign({}, copts, { maxDim: 480 }));
+                    if (!event.sender.isDestroyed()) event.sender.send('preview:draft', { key: opts.draftKey, id: animId, temp: dt });
+                } catch (e) {
+                    if (/cancelled/i.test(String(e && e.message || e))) throw e;     // a draft is optional; anything else is ignored
+                }
+                previewBgNext = keepBg;
+            }
             const t = await capturePreview(animId, itemId, sampleText || '', designKey, path.join(PREV_DIR, animId + (temp === 'sub' ? '__sub' : '__use')), copts);
+            previewCachePut(ckey, t);
             return { ok: true, temp: t };
         }
         await capturePreview(animId, itemId, sampleText || '', designKey, null, copts);
@@ -1726,6 +1822,9 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
     } finally {
         clearCancel();
         try { if (item) { const ok = await tl.DeleteClips([item], false); if (!ok) leftover = true; } } catch (e) { leftover = true; }
+        // Make sure the render clip is really gone: whatever this render (or an interrupted earlier one) left at the
+        // end of the timeline is found again and deleted.
+        try { if (tl && item && await removePreviewLeftovers(tl, endBefore, itemId)) leftover = false; } catch (e) { /* ignore */ }
         try { if (tl && origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
         applying = false;
         if (leftover) console.error('Preview clip could not be removed from the timeline');
@@ -2094,6 +2193,7 @@ app.whenReady().then(() => {
     createWindow();
     checkResolveAlive();
     resolveWatchTimer = setInterval(checkResolveAlive, 1500);
+    setTimeout(() => { bridgeCall('ping', {}, 30000).catch(() => { /* only a warm-up */ }); }, 1200);
 });
 
 app.on('window-all-closed', () => quitPlugin());

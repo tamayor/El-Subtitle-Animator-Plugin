@@ -780,14 +780,27 @@ async function trackIsFree(tl, kind, t, s, e) {
     return true;
 }
 
-// Auto = the LOWEST free track above your footage (V2, then V3, ...), so the Text+ sits right on top
-// of the picture. A new track is only added when every existing track is busy at that moment.
+// Auto (video) = the top: one track above the highest track that has a clip at that moment, never a gap lower
+// down. A new track is added when there is none above. Auto (audio) = the lowest free audio track.
 async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes) {
     const n = await tl.GetTrackCount(kind);
     const label = (kind === 'audio' ? 'A' : 'V');
     if (wanted > 0 && wanted <= n) {
         if (await trackIsFree(tl, kind, wanted, s, e)) return wanted;
         notes.push(label + wanted + ' is busy there, so the lowest free track was used');
+    }
+    if (kind === 'video') {
+        // Text+ always goes on top: one track above the highest track that has a clip anywhere in this time span.
+        // Empty tracks lower down (V2 empty, V3 busy) are skipped on purpose.
+        let top = 0;
+        for (let t = n; t >= 1; t--) {
+            if (!(await trackIsFree(tl, kind, t, s, e))) { top = t; break; }
+        }
+        const target = Math.max(firstAuto, top + 1);
+        if (target <= n) return target;
+        for (let t = n + 1; t <= target; t++) await tl.AddTrack('video');
+        notes.push('placed on top, added ' + label + target);
+        return target;
     }
     for (let t = firstAuto; t <= n; t++) {
         if (await trackIsFree(tl, kind, t, s, e)) return t;

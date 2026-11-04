@@ -3241,7 +3241,7 @@ function attachHexFields() {
 
 function fillTrackSelect(sel, prefix, value) {
     sel.textContent = '';
-    const opts = [[0, 'Auto (free track)']];
+    const opts = [[0, prefix === 'A' ? 'Auto (free track)' : 'Auto (top layer)']];
     for (let i = 1; i <= 12; i++) opts.push([i, prefix + i]);
     for (const [v, t] of opts) {
         const o = document.createElement('option');

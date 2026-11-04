@@ -1695,7 +1695,7 @@ body.tab-library {
 @media (min-width: 760px) {
     .tab-columns {
         display: grid;
-        grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.22fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.22fr);
         gap: 14px;
         align-items: start;
     }
@@ -1743,13 +1743,14 @@ body.tab-library {
 /* Ultra-Wide Screens: Side-by-side inspector */
 @media (min-width: 1160px) {
     .tab-columns {
-        grid-template-columns: minmax(360px, 1.05fr) minmax(640px, 1.95fr);
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.95fr);
         gap: 16px;
     }
 
     .inspector-grid {
         display: grid;
-        grid-template-columns: minmax(320px, 1fr) minmax(340px, 1.15fr);
+        /* two columns only while each one has room (320px); otherwise they stack */
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
         gap: 14px;
         align-items: start;
     }
@@ -1828,7 +1829,7 @@ body.inspector-collapse .collapse-expand-bar {
 /* Explicit Sidebar Mode: place drawers to the right of preview */
 .inspector-grid.layout-sidebar {
     display: grid !important;
-    grid-template-columns: minmax(320px, 1.15fr) minmax(320px, 1fr) !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)) !important;   /* wraps to one column when narrow */
     gap: 14px !important;
     align-items: start !important;
 }
@@ -1840,11 +1841,15 @@ body.inspector-collapse .collapse-expand-bar {
     min-width: 0 !important;
 }
 
-body.inspector-sidebar .tab-columns {
-    display: grid !important;
-    grid-template-columns: minmax(300px, 1fr) minmax(700px, 2.2fr) !important;
-    gap: 16px !important;
-    align-items: start !important;
+/* The wide sidebar arrangement only where there is room for it (Use tab, window 1000px or wider); narrower
+   windows keep the normal one- or two-column layout instead of spilling sideways. */
+@media (min-width: 1000px) {
+    body.tab-apply.inspector-sidebar .tab-columns {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr) !important;
+        gap: 16px !important;
+        align-items: start !important;
+    }
 }
 
 /* =====================================================================
@@ -3981,3 +3986,13 @@ body.lib-dragging { cursor: grabbing; user-select: none; }
 .sfxlen-lbl { font-size: 12px; color: var(--dim); white-space: nowrap; }
 .row.sfxlen select { flex: 1; min-width: 0; }
 .tl .bar.sfx.est { border-right: 1px dashed var(--matcha); }
+
+/* ---------- overall responsiveness: nothing is wider than its column ---------- */
+.tab-col-main, .tab-col-side, .inspector-pane, .inspector-grid > *, #libList, #editor, section { min-width: 0; }
+canvas, select, input[type="text"], input[type="number"], textarea { max-width: 100%; }
+.row, .row.two, .row.between { flex-wrap: wrap; }
+.row.between > *, .row.two > * { min-width: 0; }
+@media (max-width: 520px) {
+    .row.nums { flex-wrap: wrap; }
+    .row.nums label { flex: 1 1 90px; }
+}

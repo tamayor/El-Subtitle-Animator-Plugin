@@ -910,15 +910,9 @@
             jy = Math.cos(step * 2.1 + 0.3) * px * 0.025;
             rot += Math.sin(step * 1.3) * 0.005;
         }
-        const st = String(td.style || 'Bold').toLowerCase();
-        let weight = '700';
-        if (/black|heavy/.test(st)) weight = '900';
-        else if (/extrabold|ultrabold/.test(st)) weight = '800';
-        else if (/semibold|demi/.test(st)) weight = '600';
-        else if (/medium/.test(st)) weight = '500';
-        else if (/light|thin/.test(st)) weight = '300';
-        else if (/regular|normal/.test(st)) weight = '400';
-        const italic = /italic|oblique/.test(st) ? 'italic ' : '';
+        const _css = (typeof saStyleToCss === 'function') ? saStyleToCss(td.style === '' ? 'Regular' : (td.style || 'Bold')) : { weight: '700', italic: false };
+        const weight = _css.weight;
+        const italic = _css.italic ? 'italic ' : '';
 
         const subText = (customSub !== undefined && customSub !== null && String(customSub).trim() !== '')
             ? String(customSub).trim()

@@ -326,6 +326,23 @@ function bindFontPicker(inp) {
     window.addEventListener('scroll', () => { if (pop) close(); }, true);
 }
 
+function saStyleToCss(style) {
+    // Font style name (as the Mac / Resolve lists it) -> CSS weight + italic, for the canvas preview.
+    const raw = String(style === undefined || style === null ? 'Bold' : style).toLowerCase();
+    const s = raw.replace(/[\s_-]+/g, '');
+    let w = 400;
+    if (/hairline|thin/.test(s)) w = 100;
+    else if (/extralight|ultralight/.test(s)) w = 200;
+    else if (/light/.test(s)) w = 300;
+    else if (/semibold|demibold|demi/.test(s)) w = 600;
+    else if (/extrabold|ultrabold/.test(s)) w = 800;
+    else if (/black|heavy|ultra/.test(s)) w = 900;
+    else if (/bold/.test(s)) w = 700;
+    else if (/medium/.test(s)) w = 500;
+    else if (/regular|book|roman|normal|italic|oblique|^$/.test(s)) w = 400;
+    return { weight: String(w), italic: /italic|oblique/.test(s) };
+}
+
 const STYLE_OPTIONS = [
     'Regular', 'Light', 'Medium', 'SemiBold', 'Bold', 'ExtraBold', 'Black', 'Italic', 'Bold Italic'
 ];
@@ -2154,15 +2171,9 @@ function drawStage(S, a, idx) {
             const defaultTxt = (a && Array.isArray(a.nodes) && a.nodes.length && a.nodes[0].defaultText) || '';
             const txt = activeSubText || defaultTxt || 'Sample text';
             const lines = wrapToLines(String(txt));
-            const styleLow = String(td.style === '' ? 'Regular' : (td.style || 'Bold')).toLowerCase();
-            let weight = '700';
-            if (styleLow.includes('black') || styleLow.includes('heavy')) weight = '900';
-            else if (styleLow.includes('extrabold') || styleLow.includes('ultrabold')) weight = '800';
-            else if (styleLow.includes('semibold') || styleLow.includes('demi')) weight = '600';
-            else if (styleLow.includes('medium')) weight = '500';
-            else if (styleLow.includes('light') || styleLow.includes('thin')) weight = '300';
-            else if (styleLow.includes('regular') || styleLow.includes('normal')) weight = '400';
-            const isItalic = styleLow.includes('italic') || styleLow.includes('oblique');
+            const _css = saStyleToCss(td.style === '' ? 'Regular' : (td.style || 'Bold'));
+            const weight = _css.weight;
+            const isItalic = _css.italic;
 
             const spec = td.animSpec || (a && a.textDesign && a.textDesign.animSpec) || null;
             const frameRepeat = Math.max(1, Number(spec && spec.frameRepeat) || (td.wiggle ? 4 : 1));
@@ -3433,7 +3444,7 @@ function setLiveUI(on) {
     if (bar) bar.classList.toggle('hidden', !on);
     if ($('stageMsgU')) $('stageMsgU').classList.toggle('hidden', on);
     const b = $('stageLiveBtnU'); if (b) b.disabled = on;
-    $('create').disabled = state.busy || !selected() || !!state.livePrev;
+    $('create').disabled = state.busy || !selected();
     // Alignment is collapsed and disabled while a preview runs: the sound is moved / trimmed on the Resolve timeline itself.
     if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('live-locked', !!state.livePrev);
     setAdjustOpen(state.adjustOpen);
@@ -3448,6 +3459,12 @@ function refreshLiveBar() {
         // nothing is previewing: the button previews the selected preset first; while previewing it sets (keeps) it
         btn.textContent = !state.livePrev ? 'Preview Text preset' : (state.livePrev.removed ? 'Preview again' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Apply'));
         btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead before setting it';
+    }
+    // While a preview runs, "Add to timeline" is the same green button as Apply: it keeps the previewed Text+.
+    const addBtn = $('create');
+    if (addBtn) {
+        addBtn.textContent = (state.livePrev && btn) ? btn.textContent : 'Add to timeline';
+        addBtn.title = state.livePrev ? 'Keep the previewed Text+ on the timeline (with its sound)' : '';
     }
     const title = bar.querySelector('.stage-live-txt b');
     if (title) title.textContent = state.livePrev ? 'Previewing in Resolve' : (state.liveApplied ? 'Applied to the timeline' : 'Preview in Resolve');
@@ -3569,6 +3586,7 @@ async function endLivePreview(keep) {
     state.livePrev = null;
     state.liveApplied = !!(keep && res && res.ok) || (keep ? state.liveApplied : false);
     setLiveUI(keep);                 // Apply: the bar stays. Remove preview: back to the player.
+    if (keep && res && res.ok) parkAfterPlace();
     try { window.sa.liveLoopRestore(); } catch (e) { /* ignore */ }
     if (state.use) { state.use.renderReq = null; }
     state.liveBg.key = '';
@@ -6064,7 +6082,7 @@ function renderLive() {
         ? '#' + s.index + ' of ' + L.count + ' · ' + (L.source === 'selection' ? 'selected' : 'at playhead')
         : (L.count ? 'no subtitle at the playhead' : 'this timeline has no subtitles');
     $('subHint').textContent = s ? '' : 'You can still type text here and it will be placed at the playhead for 3 seconds.';
-    $('create').disabled = state.busy || !selected() || !!state.livePrev;
+    $('create').disabled = state.busy || !selected();
     if (changed || state.lastFrame !== L.frame) {
         state.lastFrame = L.frame;
         if (!state.drag && !state.preview) renderTimelines();
@@ -6088,9 +6106,10 @@ function renderAll() {
 // The main process reports when the window is minimized or hidden. Polling Resolve, rendering previews and the Resolve
 // preview's follow-the-playhead all stop; when the window is back everything is refreshed once.
 state.idle = false;
-if (window.sa && window.sa.onWinIdle) window.sa.onWinIdle((idle) => {
+function parkAfterPlace() { try { if (window.sa && window.sa.parkUntilFocus) window.sa.parkUntilFocus(); } catch (e) { /* ignore */ } }
+if (window.sa && window.sa.onWinIdle) window.sa.onWinIdle((idle, why) => {
     state.idle = !!idle;
-    if (idle) { setStatus('Minimized: real-time rendering is paused.', ''); return; }
+    if (idle) { setStatus(why === 'parked' ? 'Done: real-time rendering is paused until you come back to this window.' : 'Minimized: real-time rendering is paused.', ''); return; }
     setStatus('Back: real-time rendering resumed.', 'ok');
     state.liveBg.key = '';
     try { redrawStages(); } catch (e) { /* ignore */ }
@@ -6162,6 +6181,10 @@ async function buildFadedSfx(m, span) {
 }
 
 async function create() {
+    if (state.livePrev) {       // a Preview in Resolve is running: this button does what the Apply button does
+        if (state.livePrev.removed) previewAgain(); else endLivePreview(true);
+        return;
+    }
     const a = selected();
     const m = state.use;
     const L = state.live;
@@ -6196,6 +6219,7 @@ async function create() {
         setStatus(parts.join(' · ') + (res.warnings.length ? ' · ' + res.warnings.join(' ') : ''), res.warnings.length ? '' : 'ok');
         // a preview may have been captured while placing it
         try { const r = await window.sa.getLib(); if (r && r.lib) { state.lib = r.lib; syncUse(false); renderAll(); } } catch (e) { /* ignore */ }
+        parkAfterPlace();
     } else {
         setStatus((res && res.error) || 'Something went wrong', 'bad');
     }

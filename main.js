@@ -522,16 +522,28 @@ function detectNodes(filePath) {
 
 // Only the Text+ design values you actually changed are sent to Fusion. Everything the preset file already says
 // (including animated sizes and shading) is left exactly as the preset made it.
-function designForFusion(compPath, wanted, toolName) {
+function designForFusion(compPath, wanted, toolName, force) {
+    // force: the design goes onto a clip that already exists (live preview), which still carries the previous values -
+    // so the text values are sent even when they equal the preset file's.
     if (!wanted || typeof wanted !== 'object') return null;
     const base = parseTextStyle(compPath && fs.existsSync(compPath) ? compPath : null, null, toolName);
     const out = {};
     for (const k of ['font', 'style', 'size', 'tracking', 'lineSpacing', 'vAnchor', 'vJustify', 'hAnchor', 'hJustify', 'direction', 'lineDirection', 'strikeout', 'underline']) {
         if (wanted[k] === undefined || wanted[k] === null) continue;
         const differs = typeof base[k] === 'number' ? Math.abs(Number(wanted[k]) - base[k]) > 1e-6 : String(wanted[k]) !== String(base[k]);
-        if (differs) out[k] = wanted[k];
+        if (differs || (force && ['font', 'style', 'size', 'tracking', 'lineSpacing'].includes(k))) out[k] = wanted[k];
     }
     // A new font must come with a style that font really has, or Resolve shows "Font Not Found".
+    // A preset file with no Font input of its own: the chosen font is sent even when it equals the built-in default (Poppins),
+    // so picking Poppins really changes Resolve. Presets that state their font keep the old, lighter behaviour.
+    if (wanted.font && !out.font && !force) {
+        let fileHasFont = true;
+        try {
+            const raw = (compPath && fs.existsSync(compPath)) ? fs.readFileSync(compPath, 'utf8') : '';
+            fileHasFont = /\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"/.test(textPlusChunk(raw, toolName));
+        } catch (e) { fileHasFont = true; }
+        if (!fileHasFont) out.font = wanted.font;      // the preset states no font: Resolve's default would win otherwise
+    }
     if (out.font || (wanted.font && out.style)) {
         const f = out.font || wanted.font;
         const st = validFontStyle(f, out.style || wanted.style || base.style);
@@ -552,7 +564,7 @@ function designForFusion(compPath, wanted, toolName) {
                 const same = (typeof el[k] === 'number' && typeof b[k] === 'number')
                     ? Math.abs(el[k] - b[k]) <= 1e-6
                     : String(el[k]).toLowerCase() === String(b[k]).toLowerCase();
-                if (!same) diff[k] = el[k];
+                if (!same || (force && ['color', 'color2', 'enabled', 'opacity', 'softness', 'thickness', 'offsetX', 'offsetY'].includes(k))) diff[k] = el[k];
             }
             // A gradient is sent whole (type + both colours), so changing one stop or switching to Gradient
             // always gives exactly the gradient shown in the panel.
@@ -584,11 +596,11 @@ function primaryTextPlus(nodes) {
     const n = (nodes || []).find(x => x && x.kind === 'textplus' && !x.nested);
     return n ? n.id : null;
 }
-function fusionBoxes(compPath, list) {
+function fusionBoxes(compPath, list, force) {
     if (!Array.isArray(list)) return list;
     return list.map(b => {
         if (!b || !b.design || typeof b.design !== 'object' || b.kind !== 'textplus') return b ? Object.assign({}, b, { design: null }) : b;
-        return Object.assign({}, b, { design: designForFusion(compPath, b.design, b.tool) || {} });
+        return Object.assign({}, b, { design: designForFusion(compPath, b.design, b.tool, force) || {} });
     });
 }
 const nodeDesignCache = new Map();
@@ -879,11 +891,20 @@ function pickNativeColor(event, hex) {
     });
 }
 let appIdle = false;
-function setAppIdle(v) {
+let parkArmed = false, appIdleReason = '';
+function setAppIdle(v, reason) {
     v = !!v;
     if (appIdle === v) return;
     appIdle = v;
-    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('win:idle', v); } catch (e) { /* ignore */ }
+    appIdleReason = v ? (reason || 'minimized') : '';
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('win:idle', v, appIdleReason); } catch (e) { /* ignore */ }
+}
+// After Add to timeline / Apply: real-time work stays paused from the moment the window loses focus (the user went back
+// to Resolve) until the window gets focus again.
+function parkUntilFocus() {
+    parkArmed = true;
+    try { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) setAppIdle(true, 'parked'); } catch (e) { /* ignore */ }
+    return { ok: true };
 }
 async function poll(event, force) {
     if (applying && lastPoll) return lastPoll;
@@ -1680,11 +1701,11 @@ async function liveUpdate(event, req) {
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
         }
         const compPath = liveSession.compPath, compName = liveSession.compName, itemId = liveSession.itemId;
-        const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null);
+        const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null, undefined, true);
         const text = String(req.text || '').trim() || SAMPLE_TEXTS[0];
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign });
+                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign });
             } else {
                 await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign });
             }
@@ -2247,7 +2268,7 @@ async function syncLiveTransform(event, req) {
         if (req.textDesign) {
             const animE = req.id ? loadLib().animations.find(x => x.id === req.id) : null;
             const cp = animE ? path.join(ANIM_DIR, animE.file) : null;
-            liveDesign = (cp && fs.existsSync(cp)) ? designForFusion(cp, req.textDesign) : null;
+            liveDesign = (cp && fs.existsSync(cp)) ? designForFusion(cp, req.textDesign, undefined, true) : null;
         }
         if (liveDesign) {
             const itemId = String(await item.GetUniqueId());
@@ -2258,7 +2279,7 @@ async function syncLiveTransform(event, req) {
                 await bridgeCall('set_boxes', {
                     item: itemId,
                     comp: compName,
-                    boxes: fusionBoxes(cp, req.boxList),
+                    boxes: fusionBoxes(cp, req.boxList, true),
                     textDesign: liveDesign
                 }, 4000);
             } else {
@@ -3064,7 +3085,9 @@ function createWindow() {
     mainWindow.on('close', () => quitPlugin());
     mainWindow.on('minimize', () => setAppIdle(true));
     mainWindow.on('hide', () => setAppIdle(true));
-    mainWindow.on('restore', () => setAppIdle(false));
+    mainWindow.on('restore', () => { parkArmed = false; setAppIdle(false); });
+    mainWindow.on('blur', () => { if (parkArmed) setAppIdle(true, 'parked'); });
+    mainWindow.on('focus', () => { parkArmed = false; if (appIdle && !mainWindow.isMinimized()) setAppIdle(false); });
     mainWindow.on('show', () => setAppIdle(mainWindow.isMinimized()));
     applyOnTop(loadLib().alwaysOnTop !== false);   // stays above Resolve by default
     mainWindow.loadFile('index.html');
@@ -3077,6 +3100,7 @@ app.on('before-quit', () => { stopJxaHelper(); cleanup(); });
 
 app.whenReady().then(() => {
     ensureDirs();
+    ipcMain.handle('win:park', () => parkUntilFocus());
     ipcMain.handle('fonts:list', async () => await listSystemFonts());
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);

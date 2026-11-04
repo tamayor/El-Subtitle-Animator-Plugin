@@ -175,6 +175,14 @@ def apply_text_design(tool, td):
         put("CharacterSpacing", float(td["tracking"]))
     if td.get("lineSpacing") is not None:
         put("LineSpacing", float(td["lineSpacing"]))
+    for k, iid in (("vAnchor", "VerticalTopCenterBottom"), ("vJustify", "VerticallyJustified"),
+                   ("hAnchor", "HorizontalLeftCenterRight"), ("hJustify", "HorizontallyJustified")):
+        if td.get(k) is not None:
+            put(iid, float(td[k]))
+    for k, iid in (("direction", "Direction"), ("lineDirection", "LineDirection"),
+                   ("strikeout", "Strikeout"), ("underline", "Underline")):
+        if td.get(k) is not None:
+            put(iid, int(round(float(td[k]))))
 
     elements = td.get("elements")
     if not isinstance(elements, list):

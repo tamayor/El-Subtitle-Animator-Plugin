@@ -343,6 +343,8 @@ function defaultElementsList() {
     ];
 }
 
+const TD_EXTRA = ['vAnchor', 'vJustify', 'hAnchor', 'hJustify', 'direction', 'lineDirection', 'strikeout', 'underline'];
+
 function cloneTextDesign(td) {
     const base = {
         font: 'Poppins',
@@ -350,6 +352,7 @@ function cloneTextDesign(td) {
         size: 0.12,
         tracking: 1.0,
         lineSpacing: 1.0,
+        vAnchor: 0, vJustify: 0, hAnchor: 0, hJustify: 0, direction: 0, lineDirection: 0, strikeout: 0, underline: 0,
         wiggle: false,
         animSpec: null,
         selectedElement: 1,
@@ -362,6 +365,7 @@ function cloneTextDesign(td) {
     if (copy.size !== undefined) base.size = Number(copy.size) || base.size;
     if (copy.tracking !== undefined) base.tracking = Number(copy.tracking);
     if (copy.lineSpacing !== undefined) base.lineSpacing = Number(copy.lineSpacing);
+    for (const k of TD_EXTRA) if (copy[k] !== undefined && !isNaN(Number(copy[k]))) base[k] = Number(copy[k]);
     base.wiggle = !!copy.wiggle;
     base.animSpec = copy.animSpec || null;
     base.selectedElement = Number(copy.selectedElement) || 1;
@@ -480,6 +484,53 @@ const TEXT_DESIGN_HTML = (S) => `
             <label title="Double-click to reset to default (1.00)">Line Spacing <span class="val" id="vTdLine${S}">1.00</span></label>
             <input id="tdLine${S}" type="range" min="0.50" max="2.00" step="0.01" value="1.00" data-default="1.00">
         </div>
+    </div>
+    <div class="td-textplus">
+    <div class="td-line">
+        <span class="td-lbl">V Anchor</span>
+        <div class="td-btns" id="tdVAncBtns${S}"><button type="button" class="td-ibtn" data-anchor="v" data-val="-1" title="Top"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2h12M2 14h12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="5" y="2" width="6" height="3" rx=".5" fill="currentColor"/></svg></button><button type="button" class="td-ibtn" data-anchor="v" data-val="0" title="Center"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2h12M2 14h12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="5" y="7" width="6" height="3" rx=".5" fill="currentColor"/></svg></button><button type="button" class="td-ibtn" data-anchor="v" data-val="1" title="Bottom"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2h12M2 14h12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="5" y="12" width="6" height="3" rx=".5" fill="currentColor"/></svg></button></div>
+        <div class="td-slwrap">
+            <input id="tdVAnc${S}" type="range" min="-1" max="1" step="0.01" value="0" data-default="0" title="Double-click to reset to default (0)">
+            <div class="td-sllbl"><span>Top</span><span>Bottom</span></div>
+        </div>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">V Justify</span>
+        <div class="td-slwrap full">
+            <input id="tdVJust${S}" type="range" min="0" max="1" step="0.01" value="0" data-default="0" title="Double-click to reset to default (0)">
+        </div>
+        <span class="val td-num" id="vTdVJust${S}">0.00</span>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">H Anchor</span>
+        <div class="td-btns" id="tdHAncBtns${S}"><button type="button" class="td-ibtn" data-anchor="h" data-val="-1" title="Left"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2v12M14 2v12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="3" y="6" width="4" height="4" rx=".5" fill="currentColor"/></svg></button><button type="button" class="td-ibtn" data-anchor="h" data-val="0" title="Center"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2v12M14 2v12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="6" y="6" width="4" height="4" rx=".5" fill="currentColor"/></svg></button><button type="button" class="td-ibtn" data-anchor="h" data-val="1" title="Right"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2v12M14 2v12" stroke="currentColor" stroke-width="1" opacity=".35"/><rect x="9" y="6" width="4" height="4" rx=".5" fill="currentColor"/></svg></button></div>
+        <div class="td-slwrap">
+            <input id="tdHAnc${S}" type="range" min="-1" max="1" step="0.01" value="0" data-default="0" title="Double-click to reset to default (0)">
+            <div class="td-sllbl"><span>Left</span><span>Right</span></div>
+        </div>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">H Justify</span>
+        <div class="td-slwrap full">
+            <input id="tdHJust${S}" type="range" min="0" max="1" step="0.01" value="0" data-default="0" title="Double-click to reset to default (0)">
+        </div>
+        <span class="val td-num" id="vTdHJust${S}">0.00</span>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">Direction</span>
+        <select id="tdDir${S}" class="td-sel" data-default="0"><option value="0">Automatic</option><option value="1">Horizontal</option><option value="2">Reversed Horizontal</option><option value="3">Vertical</option><option value="4">Reversed Vertical</option></select>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">Line Direction</span>
+        <select id="tdLDir${S}" class="td-sel" data-default="0"><option value="0">Automatic</option><option value="1">Top Down</option><option value="2">Bottom Up</option></select>
+    </div>
+    <div class="td-line">
+        <span class="td-lbl">Emphasis</span>
+        <div class="td-btns">
+            <button type="button" class="td-ibtn" id="tdStrike${S}" title="Strikeout"><svg viewBox="0 0 16 16" width="14" height="14"><text x="3" y="12" font-size="11" font-weight="700" fill="currentColor">S</text><path d="M1 8h14" stroke="currentColor" stroke-width="1.3"/></svg></button>
+            <button type="button" class="td-ibtn" id="tdUnder${S}" title="Underline"><svg viewBox="0 0 16 16" width="14" height="14"><text x="3.5" y="11" font-size="11" font-weight="700" fill="currentColor">U</text><path d="M2 14h12" stroke="currentColor" stroke-width="1.3"/></svg></button>
+        </div>
+    </div>
     </div>
 
     </div>
@@ -3299,13 +3350,45 @@ function getDefaultValue(inp) {
     return null;
 }
 
+
+// ---- Placement pop-up beside "Add to timeline" (all unchecked by default; remembered per computer)
+const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty' };
+function placeOptions() {
+    const o = {};
+    for (const k in PLACE_IDS) { const e = $(PLACE_IDS[k]); o[k] = !!(e && e.checked); }
+    return o;
+}
+function bindPlacementMenu() {
+    const btn = $('placeBtn'), menu = $('placeMenu');
+    if (!btn || !menu) return;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('sa.place') || '{}') || {}; } catch (e) { saved = {}; }
+    for (const k in PLACE_IDS) {
+        const e = $(PLACE_IDS[k]); if (!e) continue;
+        e.checked = !!saved[k];
+        e.addEventListener('change', () => {
+            try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
+            syncPlaceBtn();
+        });
+    }
+    const syncPlaceBtn = () => {
+        const n = Object.values(placeOptions()).filter(Boolean).length;
+        btn.textContent = 'Placement' + (n ? ' (' + n + ')' : '') + ' ▴';
+    };
+    const setOpen = (open) => { menu.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.classList.contains('hidden')); });
+    document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) setOpen(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+    syncPlaceBtn();
+}
+
 let dblClickResetBound = false;
 function bindDblClickReset() {
     if (dblClickResetBound) return;
     dblClickResetBound = true;
     document.addEventListener('dblclick', (e) => {
         // Find if target is a label or inside a label
-        const label = e.target.closest('label, .xform-lbl, .sh-lbl, .rv-lbl');
+        const label = e.target.closest('label, .xform-lbl, .sh-lbl, .rv-lbl, .td-lbl');
         if (!label) return;
 
         // Do not trigger if user was double clicking inside an input box to select text
@@ -3321,7 +3404,7 @@ function bindDblClickReset() {
             if (!inputs.includes(inp)) inputs.push(inp);
         });
 
-        const row = label.closest('.xform-grid-row, .ctl, .row, .sh-border-box, .sh-soft-row, .td-color-size, .rv-row');
+        const row = label.closest('.xform-grid-row, .ctl, .row, .sh-border-box, .sh-soft-row, .td-color-size, .rv-row, .td-line');
         if (row) {
             row.querySelectorAll('input, select').forEach(inp => {
                 if (!inputs.includes(inp)) inputs.push(inp);
@@ -3522,6 +3605,20 @@ function fillTextDesign(ctx) {
     const lspEl = $('tdLine' + S);
     if (lspEl && document.activeElement !== lspEl) lspEl.value = lsp;
     if ($('vTdLine' + S)) $('vTdLine' + S).textContent = lsp.toFixed(2);
+
+    {
+        const setR = (id, v, valId) => { const e = $(id + S); if (e && document.activeElement !== e) e.value = v; if (valId && $(valId + S)) $(valId + S).textContent = Number(v).toFixed(2); };
+        setR('tdVAnc', td.vAnchor ?? 0); setR('tdVJust', td.vJustify ?? 0, 'vTdVJust');
+        setR('tdHAnc', td.hAnchor ?? 0); setR('tdHJust', td.hJustify ?? 0, 'vTdHJust');
+        if ($('tdDir' + S)) $('tdDir' + S).value = String(Math.round(td.direction ?? 0));
+        if ($('tdLDir' + S)) $('tdLDir' + S).value = String(Math.round(td.lineDirection ?? 0));
+        if ($('tdStrike' + S)) $('tdStrike' + S).classList.toggle('on', !!td.strikeout);
+        if ($('tdUnder' + S)) $('tdUnder' + S).classList.toggle('on', !!td.underline);
+        for (const b of document.querySelectorAll('#tdVAncBtns' + S + ' .td-ibtn, #tdHAncBtns' + S + ' .td-ibtn')) {
+            const cur = b.dataset.anchor === 'v' ? Number(td.vAnchor ?? 0) : Number(td.hAnchor ?? 0);
+            b.classList.toggle('on', Math.abs(cur - Number(b.dataset.val)) < 0.005);
+        }
+    }
 
     fillLayout(S, td);
     applyTdTab(S);
@@ -3953,6 +4050,42 @@ function bindTextDesign(ctx) {
         if ($('vTdLine' + S)) $('vTdLine' + S).textContent = td.lineSpacing.toFixed(2);
         commit();
     });
+
+    {
+        const slider = (id, key, valId) => $(id + S).addEventListener('input', () => {
+            const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+            td[key] = Number($(id + S).value);
+            if (valId && $(valId + S)) $(valId + S).textContent = td[key].toFixed(2);
+            commit();
+            if (!valId) for (const b of document.querySelectorAll('#td' + (key === 'vAnchor' ? 'V' : 'H') + 'AncBtns' + S + ' .td-ibtn')) b.classList.toggle('on', Math.abs(td[key] - Number(b.dataset.val)) < 0.005);
+        });
+        slider('tdVAnc', 'vAnchor'); slider('tdHAnc', 'hAnchor');
+        slider('tdVJust', 'vJustify', 'vTdVJust'); slider('tdHJust', 'hJustify', 'vTdHJust');
+        for (const b of document.querySelectorAll('#tdVAncBtns' + S + ' .td-ibtn, #tdHAncBtns' + S + ' .td-ibtn')) {
+            b.addEventListener('click', () => {
+                const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+                td[b.dataset.anchor === 'v' ? 'vAnchor' : 'hAnchor'] = Number(b.dataset.val);
+                commit();
+                fillTextDesign(ctx);
+            });
+        }
+        $('tdDir' + S).addEventListener('change', () => {
+            const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+            td.direction = Number($('tdDir' + S).value); commit();
+        });
+        $('tdLDir' + S).addEventListener('change', () => {
+            const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+            td.lineDirection = Number($('tdLDir' + S).value); commit();
+        });
+        for (const [id, key] of [['tdStrike', 'strikeout'], ['tdUnder', 'underline']]) {
+            $(id + S).addEventListener('click', () => {
+                const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
+                td[key] = td[key] ? 0 : 1;
+                $(id + S).classList.toggle('on', !!td[key]);
+                commit();
+            });
+        }
+    }
 
     bindLayout(ctx, commit);
 
@@ -5641,7 +5774,7 @@ async function create() {
     const res = await window.sa.apply({
         animationId: a.id, text, start, end, sfxPath: sfxClip || undefined,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
-        textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false,
+        textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false, place: placeOptions(),
         linked: m.linked !== false,
         posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
@@ -5948,6 +6081,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
     setTagsOpen(false);
     $('rescan').addEventListener('click', async () => { state.live = await window.sa.poll(true); renderLive(); setStatus('Subtitles re-read.', 'ok'); });
+    bindPlacementMenu();
     $('create').addEventListener('click', create);
 
     tick();

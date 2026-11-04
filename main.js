@@ -268,6 +268,9 @@ function textPlusChunk(raw, toolName) {
 }
 
 // toolName: read the design of that Text+ (a preset with several Text+ has one Text Design per Text+).
+// Text tab controls: model field -> Fusion Text+ input id
+const TEXT_EXTRA_IDS = [['vAnchor', 'VerticalTopCenterBottom'], ['vJustify', 'VerticallyJustified'], ['hAnchor', 'HorizontalLeftCenterRight'], ['hJustify', 'HorizontallyJustified'], ['direction', 'Direction'], ['lineDirection', 'LineDirection'], ['strikeout', 'Strikeout'], ['underline', 'Underline']];
+
 function parseTextStyle(filePath, savedDesign, toolName) {
     const def = {
         font: 'Poppins',
@@ -275,6 +278,7 @@ function parseTextStyle(filePath, savedDesign, toolName) {
         size: 0.12,
         tracking: 1.0,
         lineSpacing: 1.0,
+        vAnchor: 0, vJustify: 0, hAnchor: 0, hJustify: 0, direction: 0, lineDirection: 0, strikeout: 0, underline: 0,
         wiggle: false,
         animSpec: null,
         selectedElement: 1,
@@ -309,6 +313,7 @@ function parseTextStyle(filePath, savedDesign, toolName) {
             if (trk !== null) def.tracking = trk;
             const lsp = num('LineSpacing');
             if (lsp !== null) def.lineSpacing = lsp;
+            for (const [k, key] of TEXT_EXTRA_IDS) { const v = num(key); if (v !== null) def[k] = v; }
             // Layout tab. Inputs driven by a spline / path (keyframed) are listed as animated and never overridden.
             const animatedIn = (key) => new RegExp('\\b' + key + '\\s*=\\s*Input\\s*\\{\\s*SourceOp').test(chunk);
             const L = def.layout;
@@ -402,6 +407,7 @@ function parseTextStyle(filePath, savedDesign, toolName) {
         if (savedDesign.size !== undefined) def.size = Number(savedDesign.size) || def.size;
         if (savedDesign.tracking !== undefined) def.tracking = Number(savedDesign.tracking);
         if (savedDesign.lineSpacing !== undefined) def.lineSpacing = Number(savedDesign.lineSpacing);
+        for (const [k] of TEXT_EXTRA_IDS) if (savedDesign[k] !== undefined && !isNaN(Number(savedDesign[k]))) def[k] = Number(savedDesign[k]);
         if (savedDesign.selectedElement) def.selectedElement = Number(savedDesign.selectedElement) || 1;
         if (savedDesign.layout && typeof savedDesign.layout === 'object') {
             for (const k of ['type', 'centerZ', 'pivotX', 'pivotY', 'pivotZ', 'size', 'perspective']) {
@@ -520,7 +526,7 @@ function designForFusion(compPath, wanted, toolName) {
     if (!wanted || typeof wanted !== 'object') return null;
     const base = parseTextStyle(compPath && fs.existsSync(compPath) ? compPath : null, null, toolName);
     const out = {};
-    for (const k of ['font', 'style', 'size', 'tracking', 'lineSpacing']) {
+    for (const k of ['font', 'style', 'size', 'tracking', 'lineSpacing', 'vAnchor', 'vJustify', 'hAnchor', 'hJustify', 'direction', 'lineDirection', 'strikeout', 'underline']) {
         if (wanted[k] === undefined || wanted[k] === null) continue;
         const differs = typeof base[k] === 'number' ? Math.abs(Number(wanted[k]) - base[k]) > 1e-6 : String(wanted[k]) !== String(base[k]);
         if (differs) out[k] = wanted[k];
@@ -777,6 +783,38 @@ async function poll(event, force) {
 }
 
 // ------------------------------------------------------------------ building the clip
+// Placement options (all off by default), set from the pop-up beside "Add to timeline":
+//   locked        a locked track counts as occupying its layer (Text+ then goes above it)
+//   disabledTrack a disabled track counts as occupying its layer
+//   disabledClip  a disabled clip counts as occupying its track
+//   firstEmpty    use the lowest empty layer instead of the top one
+// Text+ is never put onto a locked or disabled track itself (it cannot be placed / would be invisible).
+function placeOpts(o) { o = o || {}; return { locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }; }
+
+async function trackUsable(tl, kind, t) {
+    try { if (await tl.GetIsTrackLocked(kind, t)) return false; } catch (e) { /* ignore */ }
+    try { if ((await tl.GetIsTrackEnabled(kind, t)) === false) return false; } catch (e) { /* ignore */ }
+    return true;
+}
+
+// Does this track hold something in [s, e) that counts under the placement options?
+async function trackHasClip(tl, kind, t, s, e, po) {
+    try {
+        if (!po.locked && await tl.GetIsTrackLocked(kind, t)) return false;
+        if (!po.disabledTrack && (await tl.GetIsTrackEnabled(kind, t)) === false) return false;
+    } catch (err) { /* ignore */ }
+    for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
+        if (!((await it.GetStart()) < e && (await it.GetEnd()) > s)) continue;
+        if (!po.disabledClip) {
+            let on = true;
+            try { on = (await it.GetClipEnabled()) !== false; } catch (err) { on = true; }
+            if (!on) continue;
+        }
+        return true;
+    }
+    return false;
+}
+
 async function trackIsFree(tl, kind, t, s, e) {
     if (await tl.GetIsTrackLocked(kind, t)) return false;
     const items = (await tl.GetItemListInTrack(kind, t)) || [];
@@ -786,27 +824,37 @@ async function trackIsFree(tl, kind, t, s, e) {
     return true;
 }
 
-// Auto (video) = the top: one track above the highest track that has a clip at that moment, never a gap lower
-// down. A new track is added when there is none above. Auto (audio) = the lowest free audio track.
-async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes) {
+// Auto (video) = the top: one track above the highest track that counts as occupied at that moment (see the
+// placement options), never a gap lower down; or the lowest empty layer with "first empty layer". A new track is
+// added when there is none. Auto (audio) = the lowest free audio track.
+async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
     const n = await tl.GetTrackCount(kind);
     const label = (kind === 'audio' ? 'A' : 'V');
+    const po = placeOpts(placeIn);
     if (wanted > 0 && wanted <= n) {
         if (await trackIsFree(tl, kind, wanted, s, e)) return wanted;
         notes.push(label + wanted + ' is busy there, so the lowest free track was used');
     }
     if (kind === 'video') {
-        // Text+ always goes on top: one track above the highest track that has a clip anywhere in this time span.
-        // Empty tracks lower down (V2 empty, V3 busy) are skipped on purpose.
+        if (po.firstEmpty) {
+            for (let t = Math.max(1, firstAuto); t <= n; t++) {
+                if (!(await trackUsable(tl, kind, t))) continue;
+                if (!(await trackHasClip(tl, kind, t, s, e, po))) return t;
+            }
+            await tl.AddTrack('video');
+            notes.push('no empty layer, added ' + label + (n + 1));
+            return n + 1;
+        }
         let top = 0;
         for (let t = n; t >= 1; t--) {
-            if (!(await trackIsFree(tl, kind, t, s, e))) { top = t; break; }
+            if (await trackHasClip(tl, kind, t, s, e, po)) { top = t; break; }
         }
-        const target = Math.max(firstAuto, top + 1);
+        let target = Math.max(firstAuto, top + 1);
+        while (target <= n && !(await trackUsable(tl, kind, target))) target++;
         if (target <= n) return target;
-        for (let t = n + 1; t <= target; t++) await tl.AddTrack('video');
-        notes.push('placed on top, added ' + label + target);
-        return target;
+        await tl.AddTrack('video');
+        notes.push('placed on top, added ' + label + (n + 1));
+        return n + 1;
     }
     for (let t = firstAuto; t <= n; t++) {
         if (await trackIsFree(tl, kind, t, s, e)) return t;
@@ -878,7 +926,7 @@ async function apply(event, req) {
         const want = Math.max(5, textEnd - textStart);
 
         const trackNotes = [];
-        const vTrack = await pickTrack(tl, 'video', req.textTrack || 0, textStart, textStart + want, 2, trackNotes);
+        const vTrack = await pickTrack(tl, 'video', req.textTrack || 0, textStart, textStart + want, 2, trackNotes, req.place);
 
         // Prepare SFX before touching the timeline playhead so playhead time at tlEnd is minimal.
         let sfxInfo = null;
@@ -909,7 +957,10 @@ async function apply(event, req) {
         // 1. Insert at the very end of the timeline, trim, move to vTrack at textStart, and immediately restore playhead.
         const tlEnd = await tl.GetEndFrame();
         await tl.SetCurrentTimecode(frameToTC(tlEnd, meta));
+        await sweepTempClips(tl);
         const item = await tl.InsertFusionTitleIntoTimeline('Text+');
+        let insertedId = null;
+        try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
         if (!item) {
             await tl.SetCurrentTimecode(origTC);
             throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
@@ -922,9 +973,11 @@ async function apply(event, req) {
         await tl.SetCurrentTimecode(origTC);
         const landed = await item.GetTrackTypeAndIndex();
         if (!moved || !landed || landed[1] !== vTrack) {
+            try { if (await tl.DeleteClips([item], false)) regDel(insertedId); } catch (e) { /* swept next time */ }
             throw new Error('Could not move the title to track V' + vTrack + '. It was left at the end of V1 (frame ' + tlEnd + '); delete it and try again.');
         }
 
+        regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
         // 2. Import the animation Fusion comp onto the clip and set the subtitle text.
         const itemId = String(await item.GetUniqueId());
         lastPlacedItemId = itemId;
@@ -1797,6 +1850,31 @@ async function removePreviewLeftovers(tl, endBefore, itemId) {
     return false;
 }
 
+// Ids of the temporary Text+ clips this app has put on the timeline. They are written to disk the moment a clip is
+// inserted and forgotten only once it is deleted, so a clip left behind by a crash, a quit, a cancelled render or a
+// failed "Add to timeline" is found and removed by the next sweep (start of every preview / apply).
+const CLIP_REG = path.join(DATA_DIR, 'temp-clips.json');
+function regRead() { try { const a = JSON.parse(fs.readFileSync(CLIP_REG, 'utf8')); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } }
+function regWrite(a) { try { fs.writeFileSync(CLIP_REG, JSON.stringify(a)); } catch (e) { /* best effort */ } }
+function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(String(id))) { a.push(String(id)); regWrite(a); } }
+function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id))); }
+async function sweepTempClips(tl) {
+    const ids = new Set(regRead());
+    if (!ids.size || !tl) return;
+    try {
+        const stray = [], seen = new Set();
+        const tracks = (await tl.GetTrackCount('video')) || 0;
+        for (let t = 1; t <= tracks; t++) {
+            for (const it of ((await tl.GetItemListInTrack('video', t)) || [])) {
+                try { const id = String(await it.GetUniqueId()); if (ids.has(id)) { stray.push(it); seen.add(id); } } catch (e) { /* ignore */ }
+            }
+        }
+        if (stray.length) { try { await tl.DeleteClips(stray, false); } catch (e) { return; } }
+        // Entries not on this timeline any more (already deleted, or on another timeline) are dropped once checked.
+        regWrite(regRead().filter(x => !seen.has(x)).slice(-60));
+    } catch (e) { /* ignore */ }
+}
+
 let previewRunning = null;
 async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList, opts) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
@@ -1819,10 +1897,12 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
             const hit = previewCacheGet(ckey, animId, temp);
             if (hit) { lastCaptureStats = { ms: 0, cached: true }; return { ok: true, temp: hit }; }
         }
+        await sweepTempClips(tl);
         origTC = await tl.GetCurrentTimecode();
         endBefore = await tl.GetEndFrame();
         await tl.SetCurrentTimecode(frameToTC(endBefore, meta));
         item = await tl.InsertFusionTitleIntoTimeline('Text+');
+        try { if (item) { itemId = String(await item.GetUniqueId()); regAdd(itemId); } } catch (e) { /* ignore */ }
         // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
         // instead of for the whole render (the frames are exported from the clip, not from the playhead).
         try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* restored again below */ }
@@ -1914,6 +1994,7 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         // Make sure the render clip is really gone: whatever this render (or an interrupted earlier one) left at the
         // end of the timeline is found again and deleted.
         try { if (tl && item && await removePreviewLeftovers(tl, endBefore, itemId)) leftover = false; } catch (e) { /* ignore */ }
+        if (!leftover && itemId) regDel(itemId);
         try { if (tl && origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
         applying = false;
         if (leftover) console.error('Preview clip could not be removed from the timeline');

@@ -318,7 +318,18 @@
 
     <footer id="footerUse">
         <div class="footer-inner">
-            <button id="create" class="primary" disabled>Add to timeline</button>
+            <div class="create-row">
+                <div class="place-wrap">
+                    <button type="button" id="placeBtn" class="place-btn" aria-haspopup="true" aria-expanded="false" title="Where the Text+ is placed on the timeline">Placement ▴</button>
+                    <div id="placeMenu" class="place-menu hidden" role="menu">
+                        <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
+                        <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
+                        <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>
+                        <label title="Instead of the top layer, put the Text+ on the lowest layer that is empty during the subtitle (filling gaps). Locked and disabled tracks are still never used."><input type="checkbox" id="placeFirstEmpty"> <span>Place on the first empty layer</span></label>
+                    </div>
+                </div>
+                <button id="create" class="primary" disabled>Add to timeline</button>
+            </div>
             <div id="status" class="status"></div>
         </div>
     </footer>

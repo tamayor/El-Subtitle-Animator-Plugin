@@ -723,7 +723,8 @@ async function getSubtitles(tl, force) {
 
 // Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
-let colorPanelOpen = false;
+let colorPanelOpen = false, colorChild = null;
+function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } return true; }
 function pickNativeColor(event, hex) {
     return new Promise((resolve) => {
         if (process.platform !== 'darwin') return resolve({ ok: false, unsupported: true });
@@ -737,10 +738,12 @@ function pickNativeColor(event, hex) {
             'set c to choose color default color {' + c.join(', ') + '}',
             'return (item 1 of c as text) & "," & (item 2 of c as text) & "," & (item 3 of c as text)'
         ].join('\n');
-        execFile('/usr/bin/osascript', ['-e', script], { timeout: 15 * 60 * 1000 }, (err, out) => {
+        colorChild = execFile('/usr/bin/osascript', ['-e', script], { timeout: 15 * 60 * 1000 }, (err, out) => {
             colorPanelOpen = false;
+            colorChild = null;
+            try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } } catch (e) { /* ignore */ }      // the panel closed: the app is in front again
             if (err) {
-                if (/-128|User canceled/i.test(String(err.message || err))) return resolve({ ok: true, cancelled: true });
+                if (err.killed || err.signal || /-128|User canceled/i.test(String(err.message || err))) return resolve({ ok: true, cancelled: true });
                 return resolve({ ok: false, error: String(err.message || err).split('\n')[0] });
             }
             const p = String(out || '').trim().split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257))));
@@ -2428,7 +2431,9 @@ async function sweepTempClips(tl) {
 
 let previewRunning = null;
 async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList, opts) {
-    if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
+    if (applying) { dlog('[render] refused: Resolve busy (another step is running)'); return { error: 'Resolve is busy. Try again in a moment.' }; }
+    const tRender = Date.now();
+    dlog('[render] start', animId, 'temp=' + String(temp));
     applying = true;
     clearCancel();
     lastCaptureStats = null;
@@ -2552,6 +2557,7 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         const msg = String(e && e.message || e);
         return { error: /cancelled/i.test(msg) ? 'Resolve is busy (replaced by a newer change).' : msg };
     } finally {
+        dlog('[render] end', animId, (Date.now() - tRender) + ' ms');
         clearCancel();
         try { if (item) { const ok = await tl.DeleteClips([item], false); if (!ok) leftover = true; } } catch (e) { leftover = true; }
         // Make sure the render clip is really gone: whatever this render (or an interrupted earlier one) left at the
@@ -2901,6 +2907,7 @@ app.whenReady().then(() => {
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('color:pick', pickNativeColor);
+    ipcMain.handle('color:cancel', cancelNativeColor);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));
     ipcMain.handle('app:getVersion', wrap(getAppVersion));

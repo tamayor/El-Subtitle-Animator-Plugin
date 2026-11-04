@@ -1094,6 +1094,7 @@ const saveField = debounce(async (id, patch) => {
 
 // ---------------------------------------------------------------- alignment timeline
 // Frames on the timeline are relative to the subtitle's first frame (0 = where the subtitle starts).
+let waveSecOverride = null;      // the real length of the sound being cut, used until its waveform has been loaded
 let spanOverride = null;      // the caption a sound is being cut for (Preview in Resolve), instead of the one under the playhead
 function subSpan() {
     if (spanOverride) return spanOverride;
@@ -1114,7 +1115,7 @@ function geometry(m) {
     const span = subSpan();
     const fps = fpsNow();
     const wave = loadWaveCached(m);
-    const sfxFull = Math.max(2, Math.round(((wave && wave.seconds) || 0.5) * fps));
+    const sfxFull = Math.max(2, Math.round(((wave && wave.seconds) || waveSecOverride || 0.5) * fps));
     const textS = m.textOffset;
     const textE = span.dur + m.tail;
     const sfxS = textS + m.sfxOffset;                       // where the sound clip starts (after any trim at its start)
@@ -3689,25 +3690,40 @@ function bindLivePreview() {
 
 // Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
 // web colour picker instead. If the system panel cannot open, the web picker is used.
-let colorPanelBusy = false, colorPanelUntil = 0;
+let colorPanelBusy = false, colorPanelUntil = 0, colorPanelSince = 0;
 document.addEventListener('click', async (e) => {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
     e.preventDefault();
     e.stopPropagation();
     // one panel only: further clicks (and the click a label passes on to its box) are ignored while it is open
-    if (colorPanelBusy || Date.now() < colorPanelUntil) return;
+    if (colorPanelBusy) {
+        // a panel that has been open a while (maybe hidden behind another window) is closed by clicking the box again
+        if (Date.now() - colorPanelSince > 1500) { try { window.sa.cancelColor(); } catch (err) { /* ignore */ } }
+        return;
+    }
+    if (Date.now() < colorPanelUntil) return;
     colorPanelBusy = true;
+    colorPanelSince = Date.now();
+    const dbg = (msg) => { try { window.sa.dlog('[color] ' + msg + ' (' + (Date.now() - colorPanelSince) + ' ms) id=' + (t.id || '?') + ' from=' + t.value); } catch (err) { /* ignore */ } };
+    dbg('panel opening');
+    setStatus('Choose a color in the macOS Colors panel, then press OK. Click the color box again to close the panel.', '');
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
     colorPanelBusy = false;
     colorPanelUntil = Date.now() + 400;
+    dbg('panel returned ' + JSON.stringify(r));
+    await new Promise(res => setTimeout(res, 0));      // let the window settle before the change is applied
     if (r && r.busy) return;
+    setStatus('', '');
     if (r && r.ok && r.hex) {
         if (r.hex !== t.value) {
             t.value = r.hex;
+            dbg('applying ' + r.hex);
             t.dispatchEvent(new Event('input', { bubbles: true }));
+            dbg('input handled');
             t.dispatchEvent(new Event('change', { bubbles: true }));
+            dbg('change handled');
         }
     } else if (!(r && r.ok)) {
         try { if (t.showPicker) t.showPicker(); } catch (err) { /* ignore */ }
@@ -6075,13 +6091,17 @@ async function tick() {
 async function buildFadedSfx(m, span) {
     const p = currentSfxPath(m);
     if (!p || m.useSfx === false) return null;
-    let g;
-    if (span) { spanOverride = span; try { g = geometry(m); } finally { spanOverride = null; } } else g = geometry(m);
     const bytes = await window.sa.readSfx(p);
     if (!(bytes instanceof Uint8Array)) return null;
     const ac = new (window.AudioContext || window.webkitAudioContext)();
     let buf;
     try { buf = await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); } finally { ac.close(); }
+    // The length comes from the decoded sound itself, so a Fixed length set in Alignment is honoured even when the
+    // Alignment panel has never been opened (its waveform is then not loaded yet).
+    let g;
+    waveSecOverride = buf.duration;
+    if (span) spanOverride = span;
+    try { g = geometry(m); } finally { waveSecOverride = null; spanOverride = null; }
     const sr = buf.sampleRate, ch = Math.min(2, buf.numberOfChannels);
     const startSec = Math.min(g.sfxTrimIn / g.fps, Math.max(0, buf.duration - 2 / g.fps));
     const lenSec = Math.max(2 / g.fps, Math.min(g.sfxFrames / g.fps, buf.duration - startSec));

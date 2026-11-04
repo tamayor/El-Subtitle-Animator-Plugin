@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('sa', {
     liveRemove: () => ipcRenderer.invoke('live:remove'),
     liveDrop: () => ipcRenderer.invoke('live:drop'),
     onWinIdle: (cb) => ipcRenderer.on('win:idle', (e, v) => { try { cb(!!v); } catch (err) { /* ignore */ } }),
+    onColorLive: (cb) => ipcRenderer.on('color:live', (e, hex) => { try { cb(hex); } catch (err) { /* ignore */ } }),
     cancelColor: () => ipcRenderer.invoke('color:cancel'),
     pickColor: (hex) => ipcRenderer.invoke('color:pick', hex),
     liveAlive: () => ipcRenderer.invoke('live:alive'),

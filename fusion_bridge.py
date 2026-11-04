@@ -574,11 +574,11 @@ class Cancelled(Exception):
     pass
 
 
-def capture_unique(item, n, max_dim, out_dir, hold, cancel_path):
+def capture_unique(item, n, max_dim, out_dir, hold, cancel_path, pre="p"):
     """Exports frames 0..n-1 as p%02d.png but renders each distinct picture only once. A preset that holds every
     picture for `hold` frames (Stop Motion) is checked once and then rendered every `hold` frames; otherwise
     runs of identical frames are skipped by probing ahead. Returns frame -> rendered frame index."""
-    def path_of(i, pre="p"):
+    def path_of(i):
         return os.path.join(out_dir, "%s%02d.png" % (pre, i))
 
     def render(i):
@@ -723,13 +723,14 @@ def op_capture(a):
             if a.get("matteBg"):
                 # Same frames again on white: black + white give the text's real colour and transparency.
                 set_bg_colour(a["item"], a.get("comp"), a["matteBg"], [1.0, 1.0, 1.0])
-                for k in sorted(set(src_map)):
-                    if cancel_path and os.path.exists(cancel_path):
-                        raise Cancelled("cancelled")
-                    fp = os.path.join(out_dir, "w%02d.png" % k)
-                    r = item.ExportFrame(k, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
-                    if not r or not r.get("success"):
-                        raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+                # Dark text on the black pass (or light text on white) is invisible, so frames that look identical there
+                # may differ on the other: the white pass is de-duplicated on its own and the two are merged.
+                src_w = capture_unique(item, n, max_dim, out_dir, int(a.get("hold") or 1), cancel_path, "w")
+                link_held(out_dir, src_w, "w")
+                seen, merged = {}, []
+                for i in range(n):
+                    merged.append(seen.setdefault((src_map[i], src_w[i]), i))
+                src_map = merged
                 matte = True
             frames = list(range(n))
             off = duration

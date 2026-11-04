@@ -1487,6 +1487,7 @@ self.onmessage = (ev) => {
 };`;
     let pool = null, rr = 0, seq = 0;
     const pending = new Map();
+    let broken = false;
     function ensure() {
         if (pool) return pool;
         pool = [];
@@ -1497,7 +1498,10 @@ self.onmessage = (ev) => {
             for (let i = 0; i < n; i++) {
                 const w = new Worker(url);
                 w.onmessage = (ev) => { const f = pending.get(ev.data.id); if (f) { pending.delete(ev.data.id); f(ev.data); } };
-                w.onerror = () => { /* the frame falls back to keying on this thread */ };
+                w.onerror = () => {      // workers cannot run here: every waiting frame falls back to keying on this thread at once
+                    broken = true;
+                    for (const [pid, f] of pending) { pending.delete(pid); try { f(null); } catch (e) { /* ignore */ } }
+                };
                 pool.push(w);
             }
         } catch (e) { pool = []; }
@@ -1506,19 +1510,19 @@ self.onmessage = (ev) => {
     // Resolves to { bitmap, bounds } or null (no workers: the caller keys on this thread instead).
     async function key(im, white, bg) {
         const P = ensure();
-        if (!P.length) return null;
+        if (!P.length || broken) return null;
         try {
             const [b, w] = await Promise.all([createImageBitmap(im), white ? createImageBitmap(white) : Promise.resolve(null)]);
             const id = ++seq;
             const wk = P[rr++ % P.length];
             return await new Promise((res) => {
-                const timer = setTimeout(() => { pending.delete(id); res(null); }, 15000);
+                const timer = setTimeout(() => { pending.delete(id); res(null); }, 4000);
                 pending.set(id, (m) => { clearTimeout(timer); res(m && m.bitmap ? m : null); });
                 wk.postMessage({ id, b, w, bg }, w ? [b, w] : [b]);
             });
         } catch (e) { return null; }
     }
-    return { key, available: () => ensure().length > 0 };
+    return { key, available: () => ensure().length > 0 && !broken };
 })();
 
 // Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.
@@ -1827,13 +1831,17 @@ function ensureUsePreview(a) {
             || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || state.tab !== 'apply') return;
         u.renderReq = reqKey;
         u.rendering = true;
+        u.renderStart = Date.now();
         setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
         try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true), { maxDim: stageDim('U'), draftKey: reqKey }); } catch (e) { res = { error: String(e && e.message || e) }; }
         u.rendering = false;
         if (res && res.error) {
-            if (/busy/i.test(res.error)) u.renderReq = null;      // try again shortly
+            if (/busy/i.test(res.error)) {
+                u.renderReq = null;      // try again shortly: a single change (e.g. from the macOS colour panel) gives no later redraw, so one is scheduled
+                setTimeout(() => { if (state.use === u && !u.rendering) redrawStages(); }, 700);
+            }
             else setStatus(res.error, 'bad');
             redrawStages();
             return;
@@ -3693,7 +3701,16 @@ function bindLivePreview() {
 
 // Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
 // web colour picker instead. If the system panel cannot open, the web picker is used.
-let colorPanelBusy = false, colorPanelUntil = 0, colorPanelSince = 0;
+let colorPanelBusy = false, colorPanelUntil = 0, colorPanelSince = 0, colorLiveTarget = null, colorLiveApplied = false, colorLiveTimer = 0, colorLiveLast = 0;
+if (window.sa && window.sa.onColorLive) window.sa.onColorLive((hex) => {
+    // the Colors panel changes the colour while you drag in it: the settings and the preview follow at once (no OK needed)
+    const t = colorLiveTarget;
+    if (!t || !colorPanelBusy || hex === t.value) return;
+    const run = () => { colorLiveTimer = 0; colorLiveLast = Date.now(); if (t.value === hex) return; t.value = hex; colorLiveApplied = true; t.dispatchEvent(new Event('input', { bubbles: true })); };
+    clearTimeout(colorLiveTimer);
+    const wait = Math.max(0, 150 - (Date.now() - colorLiveLast));
+    colorLiveTimer = setTimeout(() => { if (t.value !== hex) { t.value = hex; colorLiveApplied = true; colorLiveLast = Date.now(); colorLiveTimer = 0; t.dispatchEvent(new Event('input', { bubbles: true })); } }, wait);
+});
 document.addEventListener('click', async (e) => {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
@@ -3708,12 +3725,14 @@ document.addEventListener('click', async (e) => {
     if (Date.now() < colorPanelUntil) return;
     colorPanelBusy = true;
     colorPanelSince = Date.now();
+    colorLiveTarget = t; colorLiveApplied = false;
     const dbg = (msg) => { try { window.sa.dlog('[color] ' + msg + ' (' + (Date.now() - colorPanelSince) + ' ms) id=' + (t.id || '?') + ' from=' + t.value); } catch (err) { /* ignore */ } };
     dbg('panel opening');
-    setStatus('Choose a color in the macOS Colors panel, then press OK. Click the color box again to close the panel.', '');
+    setStatus('Pick a color in the macOS Colors panel: it applies as you pick. Close the panel (or click the color box again) when done.', '');
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
     colorPanelBusy = false;
+    clearTimeout(colorLiveTimer); colorLiveTimer = 0;
     colorPanelUntil = Date.now() + 400;
     dbg('panel returned ' + JSON.stringify(r));
     await new Promise(res => setTimeout(res, 150));    // let the window settle before the change is applied
@@ -3726,6 +3745,8 @@ document.addEventListener('click', async (e) => {
             t.dispatchEvent(new Event('input', { bubbles: true }));
             dbg('input handled');
             setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);      // boxes that listen for 'change' follow right after
+        } else if (colorLiveApplied) {
+            setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);
         }
     } else if (!(r && r.ok)) {
         try { if (t.showPicker) t.showPicker(); } catch (err) { /* ignore */ }
@@ -6075,6 +6096,16 @@ if (window.sa && window.sa.onWinIdle) window.sa.onWinIdle((idle) => {
     try { redrawStages(); } catch (e) { /* ignore */ }
     try { refreshLiveBg(); } catch (e) { /* ignore */ }
 });
+
+// A render that has not come back after a minute is given up, so the preview never stays stuck on "Updating…": the next
+// change (or the retry below) renders again.
+setInterval(() => {
+    const u = state.use;
+    if (!u || !u.rendering || !u.renderStart || Date.now() - u.renderStart < 60000) return;
+    u.rendering = false; u.renderReq = null; u.renderStart = 0;
+    setStatus('The preview took too long, trying again.', '');
+    try { redrawStages(); } catch (e) { /* ignore */ }
+}, 5000);
 
 // ---------------------------------------------------------------- live subtitle
 async function tick() {

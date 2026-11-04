@@ -724,7 +724,8 @@ async function getSubtitles(tl, force) {
 // Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
 let colorPanelOpen = false, colorChild = null;
-function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } return true; }
+function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } try { if (colorViaHelper) { stopJxaHelper(); setTimeout(startJxaHelper, 300); } } catch (e) { /* ignore */ } return true; }
+let colorViaHelper = false;
 // The Colors panel script is compiled once (osacompile) and warmed up when the app starts, so a click only has to run it:
 // no compiling and no cold start of the AppleScript runtime on the click.
 const COLOR_SCRIPT_LINES = [
@@ -752,6 +753,86 @@ function prepareColorScript() {
     });
     return colorScriptPromise;
 }
+
+// A persistent helper (JXA) keeps AppleScript's runtime loaded, so the Colors panel opens at once.
+// If it is not ready or does not answer quickly, the per-click script below is used as before.
+const JXA_HELPER = [
+    "ObjC.import('Foundation'); ObjC.import('AppKit');",
+    "var app = Application.currentApplication(); app.includeStandardAdditions = true;",
+    "var sin = $.NSFileHandle.fileHandleWithStandardInput, sout = $.NSFileHandle.fileHandleWithStandardOutput;",
+    "function say(t) { sout.writeData($(t + '\\n').dataUsingEncoding($.NSUTF8StringEncoding)); }",
+    "say('READY');",
+    "while (true) {",
+    "  var d = sin.availableData; if (d.length == 0) break;",
+    "  var txt = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(d, $.NSUTF8StringEncoding)) || '';",
+    "  var lines = txt.split('\\n');",
+    "  for (var i = 0; i < lines.length; i++) {",
+    "    var ln = lines[i].trim(); if (ln.indexOf('SHOW') !== 0) continue;",
+    "    var a = ln.split(' ').slice(1).map(function (x) { return parseInt(x, 10); });",
+    "    try {",
+    "      var NSApp = $.NSApplication.sharedApplication; NSApp.setActivationPolicy(1);",
+    "      var panel = $.NSColorPanel.sharedColorPanel; panel.setShowsAlpha(false);",
+    "      panel.setColor($.NSColor.colorWithSRGBRedGreenBlueAlpha(a[0] / 65535, a[1] / 65535, a[2] / 65535, 1));",
+    "      panel.setMode(1); panel.setContentSize($.NSMakeSize(264, 372)); panel.center();",
+    "      panel.makeKeyAndOrderFront(null); NSApp.activateIgnoringOtherApps(true); say('SHOWN');",
+    "      var last = '', cur = '';",
+    "      while (panel.isVisible) {",
+    "        var ev = NSApp.nextEventMatchingMaskUntilDateInModeDequeue(4294967295, $.NSDate.dateWithTimeIntervalSinceNow(0.06), $.NSDefaultRunLoopMode, true);",
+    "        if (ev) NSApp.sendEvent(ev);",
+    "        var c = panel.color.colorUsingColorSpace($.NSColorSpace.sRGBColorSpace);",
+    "        cur = [c.redComponent, c.greenComponent, c.blueComponent].map(function (x) { return Math.round(x * 65535); }).join(',');",
+    "        if (cur !== last) { last = cur; say('LIVE ' + cur); }",
+    "      }",
+    "      say('COLOR ' + (cur || a.join(',')));",
+    "    } catch (e) { say('ERR ' + e); }",
+    "  }",
+    "}"
+].join('\n');
+let jxa = null, jxaReady = false, jxaWait = null, jxaBuf = '';
+function jxaLine(line) {
+    line = line.trim(); if (!line) return;
+    if (line === 'READY') { jxaReady = true; return; }
+    if (jxaWait) jxaWait(line);
+}
+function startJxaHelper() {
+    if (process.platform !== 'darwin' || jxa) return;
+    try {
+        ensureDirs();
+        const file = path.join(DATA_DIR, 'color-helper.js');
+        fs.writeFileSync(file, JXA_HELPER);
+        jxaReady = false; jxaBuf = '';
+        const ch = require('child_process').spawn('/usr/bin/osascript', ['-l', 'JavaScript', file], { stdio: ['pipe', 'pipe', 'ignore'] });
+        jxa = ch;
+        ch.stdout.on('data', (b) => { jxaBuf += b.toString(); let i; while ((i = jxaBuf.indexOf('\n')) >= 0) { const l = jxaBuf.slice(0, i); jxaBuf = jxaBuf.slice(i + 1); jxaLine(l); } });
+        const gone = () => { if (jxa === ch) { jxa = null; jxaReady = false; if (jxaWait) { const w = jxaWait; w('CANCEL'); } } };
+        ch.on('exit', gone); ch.on('error', gone);
+        ch.stdin.on('error', () => { });
+    } catch (e) { jxa = null; }
+}
+function stopJxaHelper() { try { if (jxa) jxa.kill('SIGTERM'); } catch (e) { /* ignore */ } jxa = null; jxaReady = false; }
+// resolves null when the helper cannot be used (caller falls back), otherwise {hex} / {cancelled}
+function pickViaHelper(c, onLive) {
+    return new Promise((resolve) => {
+        if (!jxa) startJxaHelper();
+        const t0 = Date.now();
+        const go = () => {
+            if (!jxa) return resolve(null);
+            if (!jxaReady) { if (Date.now() - t0 > 6000) { stopJxaHelper(); return resolve(null); } return setTimeout(go, 50); }
+            let shown = false, done = false;
+            const fin = (v) => { if (done) return; done = true; clearTimeout(st); jxaWait = null; resolve(v); };
+            const st = setTimeout(() => { if (!shown) { stopJxaHelper(); fin(null); } }, 4000);
+            jxaWait = (line) => {
+                if (line === 'SHOWN') { shown = true; clearTimeout(st); return; }
+                if (line === 'CANCEL') return fin({ cancelled: true, shown });
+                if (line.indexOf('ERR') === 0) { if (!shown) { stopJxaHelper(); return fin(null); } return fin({ cancelled: true, shown }); }
+                if (line.indexOf('LIVE ') === 0) { try { onLive && onLive(line.slice(5)); } catch (e) { /* ignore */ } return; }
+                if (line.indexOf('COLOR ') === 0) return fin({ rgb: line.slice(6) });
+            };
+            try { jxa.stdin.write('SHOW ' + c.join(' ') + '\n'); } catch (e) { stopJxaHelper(); fin(null); }
+        };
+        go();
+    });
+}
 function pickNativeColor(event, hex) {
     return new Promise((resolve) => {
         if (process.platform !== 'darwin') return resolve({ ok: false, unsupported: true });
@@ -760,6 +841,21 @@ function pickNativeColor(event, hex) {
         const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
         const v = m ? m[1] : 'ffffff';
         const c = [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16) * 257);
+        const finishH = (r) => {
+            colorPanelOpen = false; colorViaHelper = false;
+            try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } } catch (e) { /* ignore */ }
+            if (r.cancelled) return resolve({ ok: true, cancelled: true });
+            const p = String(r.rgb || '').split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257))));
+            if (p.length !== 3 || p.some(x => !Number.isFinite(x))) return resolve({ ok: false, error: 'Unexpected colour answer' });
+            resolve({ ok: true, hex: '#' + p.map(x => x.toString(16).padStart(2, '0')).join('') });
+        };
+        colorViaHelper = true;
+        pickViaHelper(c, (rgb) => { try { const q = rgb.split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257)))); if (q.length === 3 && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('color:live', '#' + q.map(x => x.toString(16).padStart(2, '0')).join('')); } catch (e) { /* ignore */ } }).then((r) => {
+            if (r) return finishH(r);
+            colorViaHelper = false;
+            runOsaFallback();
+        });
+        const runOsaFallback = () => {
         const script = [
             'tell current application to activate',
             'set c to choose color default color {' + c.join(', ') + '}',
@@ -779,6 +875,7 @@ function pickNativeColor(event, hex) {
             if (p.length !== 3 || p.some(x => !Number.isFinite(x))) return resolve({ ok: false, error: 'Unexpected colour answer' });
             resolve({ ok: true, hex: '#' + p.map(x => x.toString(16).padStart(2, '0')).join('') });
         });
+        };
     });
 }
 let appIdle = false;
@@ -1360,7 +1457,47 @@ function clickLoopMenu() {
         });
     });
 }
+// The Loop button in Resolve's viewer is a check box, so its real state can be read (value 1 = on) instead of toggling blind.
+function readLoopState() {
+    return new Promise((resolve) => {
+        if (process.platform !== 'darwin') return resolve('unknown');
+        const script = [
+            'tell application "System Events"',
+            '  try',
+            '    set p to first process whose name contains "DaVinci Resolve"',
+            '    set found to (every UI element of entire contents of window 1 of p whose role is "AXCheckBox" and name is "Loop")',
+            '    if (count of found) is 0 then return "unknown"',
+            '    set v to value of item 1 of found',
+            '    if v is 1 or v is true then return "on"',
+            '    return "off"',
+            '  on error',
+            '    return "unknown"',
+            '  end try',
+            'end tell'
+        ].join('\n');
+        execFile('/usr/bin/osascript', ['-e', script], { timeout: 12000 }, (err, out) => {
+            const t = String(out || '').trim();
+            resolve(!err && (t === 'on' || t === 'off') ? t : 'unknown');
+        });
+    });
+}
 async function loopOn(alreadyOn) {
+    const st = await readLoopState();
+    dlog('[loop] state before: ' + st + ' alreadyOn=' + alreadyOn + ' toggled=' + loopToggled);
+    if (st === 'on') return { ok: true, skipped: true };
+    if (st === 'off') {
+        const r = await clickLoopMenu();
+        if (!r.ok) return r;
+        const st2 = await readLoopState();
+        dlog('[loop] state after click: ' + st2);
+        if (st2 === 'off') {            // the click did nothing: try the shortcut as well
+            const key = 'tell application "DaVinci Resolve" to activate\ndelay 0.3\ntell application "System Events" to keystroke "/" using command down';
+            await new Promise((res) => execFile('/usr/bin/osascript', ['-e', key], { timeout: 8000 }, () => res()));
+        }
+        loopToggled = true;
+        return r;
+    }
+    // state cannot be read: the old blind behaviour
     if (alreadyOn || loopToggled) return { ok: true, skipped: true };
     const r = await clickLoopMenu();
     if (r.ok) loopToggled = true;
@@ -1369,6 +1506,8 @@ async function loopOn(alreadyOn) {
 async function loopRestore() {
     if (!loopToggled) return { ok: true };
     loopToggled = false;
+    const st = await readLoopState();
+    if (st === 'off') return { ok: true };       // already off: nothing to undo
     return await clickLoopMenu();
 }
 
@@ -2298,7 +2437,9 @@ const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line']
 // design / designKey (optional): the panel's current, maybe unsaved, text design to render with.
 // temp: render a one-time preview (Use tab) into its own folder; the preset's default preview is not changed.
 // Diagnostics: one line per event in _debug/preview-log.txt inside the plugin folder.
-const DEBUG_LOG = path.join(__dirname, '_debug', 'preview-log.txt');
+// The log goes to the project folder in Documents when it exists (easy to find and share), otherwise next to the plugin.
+const DEV_DEBUG_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator Plugin', '_debug');
+const DEBUG_LOG = fs.existsSync(path.dirname(DEV_DEBUG_DIR)) ? path.join(DEV_DEBUG_DIR, 'preview-log.txt') : path.join(__dirname, '_debug', 'preview-log.txt');
 function dlog(...parts) {
     try {
         fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
@@ -2659,7 +2800,11 @@ function bridgeCall(op, args, timeoutMs) {
     if (!bridge) bridge = startBridge();
     const id = bridgeSeq++;
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { bridgePending.delete(id); reject(new Error('The Fusion helper did not answer')); }, timeoutMs || 20000);
+        const timer = setTimeout(() => {
+            bridgePending.delete(id);
+            reject(new Error('The Fusion helper did not answer'));
+            if (op === 'capture') { try { if (bridge) bridge.kill(); } catch (e) { /* ignore */ } bridge = null; }      // a stuck render: the helper is started fresh next time
+        }, op === 'capture' ? Math.min(timeoutMs || 90000, 90000) : (timeoutMs || 20000));
         bridgePending.set(id, { resolve, reject, timer });
         try { bridge.stdin.write(JSON.stringify({ id, op, args }) + '\n'); } catch (e) { bridgePending.delete(id); clearTimeout(timer); reject(e); }
     });
@@ -2928,7 +3073,7 @@ function createWindow() {
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     try { process.on(sig, () => quitPlugin()); } catch (e) { /* ignore */ }
 }
-app.on('before-quit', () => cleanup());
+app.on('before-quit', () => { stopJxaHelper(); cleanup(); });
 
 app.whenReady().then(() => {
     ensureDirs();
@@ -2936,7 +3081,8 @@ app.whenReady().then(() => {
     setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('color:pick', pickNativeColor);
-    setTimeout(() => { prepareColorScript(); }, 1500);      // compiled and warmed once, so the first click is quick too
+    setTimeout(() => { prepareColorScript(); }, 1500);
+    setTimeout(() => { startJxaHelper(); }, 800);      // compiled and warmed once, so the first click is quick too
     ipcMain.handle('color:cancel', cancelNativeColor);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));

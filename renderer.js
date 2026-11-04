@@ -1094,7 +1094,9 @@ const saveField = debounce(async (id, patch) => {
 
 // ---------------------------------------------------------------- alignment timeline
 // Frames on the timeline are relative to the subtitle's first frame (0 = where the subtitle starts).
+let spanOverride = null;      // the caption a sound is being cut for (Preview in Resolve), instead of the one under the playhead
 function subSpan() {
+    if (spanOverride) return spanOverride;
     const L = state.live;
     if (L && L.ok && L.subtitle) return { base: L.subtitle.start, dur: Math.max(1, L.subtitle.end - L.subtitle.start) };
     if (L && L.ok) return { base: L.frame, dur: Math.round(L.fps * 3) };
@@ -1244,8 +1246,10 @@ function renderTimeline(ctx) {
             return;
         }
         state.lastPress = { kind, t: now };
-        state.drag = { ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
-            g0: { mode: g.sfxLenMode, tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS } };
+        state.drag = {
+            ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
+            g0: { mode: g.sfxLenMode, tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS }
+        };
     };
     tb.addEventListener('pointerdown', begin('text'));
     hl.addEventListener('pointerdown', begin('textStart'));
@@ -3427,7 +3431,7 @@ function refreshLiveBar() {
     const btn = $('liveApplyU');
     if (btn) {
         // nothing is previewing: the button previews the selected preset first; while previewing it sets (keeps) it
-        btn.textContent = !state.livePrev ? 'Preview Text preset' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Apply');
+        btn.textContent = !state.livePrev ? 'Preview Text preset' : (state.livePrev.removed ? 'Preview again' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Apply'));
         btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead before setting it';
     }
     const title = bar.querySelector('.stage-live-txt b');
@@ -3462,6 +3466,36 @@ function liveCard(msg) {
     const s = document.querySelector('#stageLiveU .stage-live-txt span');
     if (s) s.textContent = msg;
 }
+// The sound for one caption: cut to THAT caption's length (Estimate) or to the fixed length, with its fade, like Add to
+// timeline. Remembered per caption length and sound settings, so moving between captions stays quick.
+const liveSfxCache = new Map();
+async function liveSfxFor(m, start, end) {
+    if (!m || m.useSfx === false) return null;
+    const span = { base: start, dur: Math.max(1, end - start) };
+    const key = [currentSfxPath(m), span.dur, m.sfxTrimIn, m.sfxLen, sfxLenMode(m), m.sfxFade, m.textOffset, m.sfxOffset, m.tail, fpsNow()].join('|');
+    if (liveSfxCache.has(key)) return liveSfxCache.get(key);
+    let out = null;
+    try { out = await buildFadedSfx(m, span); } catch (e) { out = null; }
+    if (out) liveSfxCache.set(key, out);
+    return out;
+}
+// The preview clip was deleted by hand: the button offers "Preview again" and nothing is put back by itself.
+function markRemoved(p) {
+    p.hasClip = false; p.key = ''; p.removed = true;
+    liveCard('The preview clip was removed. Click Preview again to put it back on the subtitle at the playhead.');
+    setStatus('Preview clip removed.', '');
+    refreshLiveBar();
+}
+async function previewAgain() {
+    const p = state.livePrev, L = state.live;
+    if (!p || p.busy || state.busy) return;
+    if (!L || !L.ok) { setStatus('Resolve is not reachable right now.', 'bad'); return; }
+    p.removed = false;
+    refreshLiveBar();
+    const s = L.subtitle;
+    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, true);
+    else await addLiveClip({ start: L.frame, end: L.frame + Math.round(L.fps * 3), text: $('subText').value }, true);
+}
 // Puts the preview clip on the subtitle `sub` ({start, end, text}).
 async function addLiveClip(sub, keepPlayhead) {
     const p = state.livePrev, a = libEntry(p.animId), m = state.use;
@@ -3469,6 +3503,7 @@ async function addLiveClip(sub, keepPlayhead) {
     p.busy = true;
     p.start = sub.start; p.end = sub.end; p.subStart = sub.start; p.text = sub.text || '';
     setStatus('Putting the Text+ on the timeline…');
+    p.sfxPath = await liveSfxFor(m, sub.start, sub.end);
     const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
     p.busy = false;
     if (!state.livePrev) return;
@@ -3490,16 +3525,13 @@ async function startLivePreview() {
     state.livePrev = { animId: a.id, hasClip: false, busy: false, key: '', start: 0, end: 0, subStart: null, text: '', clipS: 0, clipE: 0 };
     setLiveUI(true);
     liveCard('Waiting for a subtitle: move the playhead onto one.');
-    window.sa.liveLoopOn(placeOptions().loopOn).then((lr) => { if (lr && lr.viaKey) setStatus('Sent Cmd+/ to Resolve to toggle Loop. Check the loop button is red; if not, press Cmd+/ once.', ''); else if (lr && lr.ok === false) setStatus('Could not switch on Resolve\'s Loop (' + (lr.error || 'allow Accessibility for this app in System Settings') + '). The panel still loops the clip itself.', ''); }).catch(() => {});
+    window.sa.liveLoopOn(placeOptions().loopOn).then((lr) => { if (lr && lr.viaKey) setStatus('Sent Cmd+/ to Resolve to toggle Loop. Check the loop button is red; if not, press Cmd+/ once.', ''); else if (lr && lr.ok === false) setStatus('Could not switch on Resolve\'s Loop (' + (lr.error || 'allow Accessibility for this app in System Settings') + '). The panel still loops the clip itself.', ''); }).catch(() => { });
     const s = L.subtitle;
-    state.livePrev.busy = true;
-    try { state.livePrev.sfxPath = await buildFadedSfx(m); } catch (e) { state.livePrev.sfxPath = null; }      // cut + faded once, reused for every caption
-    if (state.livePrev) state.livePrev.busy = false;
     if (!state.livePrev) return;
-    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, false);
+    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, true);
     else if (!s) {
         // no subtitle track: preview at the playhead for 3 seconds
-        await addLiveClip({ start: L.frame, end: L.frame + Math.round(L.fps * 3), text: $('subText').value }, false);
+        await addLiveClip({ start: L.frame, end: L.frame + Math.round(L.fps * 3), text: $('subText').value }, true);
     }
 }
 async function endLivePreview(keep) {
@@ -3568,7 +3600,7 @@ function bindLivePreview() {
         if (!t) return;
         if (t.id === 'stageLiveBtnU') startLivePreview();
         else if (t.id === 'liveRemoveU') { if (state.livePrev) endLivePreview(false); else exitLiveSession(); }
-        else { if (state.livePrev) endLivePreview(true); else startLivePreview(); }
+        else { if (state.livePrev) { if (state.livePrev.removed) previewAgain(); else endLivePreview(true); } else startLivePreview(); }
     });
     // The preview stays on while you play or scrub: the clip is removed when the playhead leaves it and added again on
     // the next subtitle the playhead reaches. Edits made in the panel are pushed to the clip while it is there.
@@ -3584,7 +3616,7 @@ function bindLivePreview() {
             // the new preset brings its own sound (its saved one, or the default): the old preset's sound is dropped with the old clip
             p.busy = true;
             if (keepHad) { try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ } }
-            try { p.sfxPath = await buildFadedSfx(m); } catch (e) { p.sfxPath = null; }
+            p.sfxPath = await liveSfxFor(m, p.start, p.end);
             p.busy = false;
             p.hasClip = false; p.key = '';
             if (!state.livePrev) return;
@@ -3596,7 +3628,14 @@ function bindLivePreview() {
         if (!L || !L.ok) return;
         const f = L.frame;
         if (p.hasClip) {
-            if (f < p.clipS || f >= p.clipE) {
+            const tNow = Date.now();
+            if (tNow - (p.aliveAt || 0) > 900) {
+                p.aliveAt = tNow;
+                let al = null;
+                try { al = await window.sa.liveAlive(); } catch (e) { al = null; }
+                if (al && al.alive === false && !al.none) { markRemoved(p); return; }
+            }
+            if ((f < p.clipS || f >= p.clipE) && !(f >= p.start && f < p.end)) {
                 if (playWatch.playing) return;             // playing (looping) - the clip is only moved when the playhead is moved by hand
                 if (playWatch.still < 2) return;           // still being dragged: wait until it rests
                 const ns = L.subtitle;
@@ -3604,10 +3643,11 @@ function bindLivePreview() {
                     // another caption: the same Text+ and sound are moved onto it (much quicker than removing and inserting again)
                     p.start = ns.start; p.end = ns.end; p.subStart = ns.start; p.text = ns.text || $('subText').value;
                     p.busy = true;
+                    p.sfxPath = await liveSfxFor(m, ns.start, ns.end);
                     const mres = await window.sa.liveUpdate(liveReq(m, a, p.text));
                     p.busy = false;
                     if (mres && mres.busy) { p.subStart = null; return; }
-                    if (mres && mres.gone) { p.hasClip = false; p.key = ''; liveCard('The clip was removed. Waiting for a subtitle.'); return; }
+                    if (mres && mres.gone) { markRemoved(p); return; }
                     if (mres && !mres.ok) { p.subStart = null; setStatus(mres.error || 'Could not move the preview', 'bad'); return; }
                     if (mres && mres.frames) { p.clipS = mres.start; p.clipE = mres.start + mres.frames; }
                     p.key = JSON.stringify(liveReq(m, a, p.text));
@@ -3632,14 +3672,14 @@ function bindLivePreview() {
             p.busy = false;
             if (res && res.busy) return;                   // Resolve was busy: same change is tried again
             p.key = key;
-            if (res && res.gone) { p.hasClip = false; p.key = ''; liveCard('The clip was removed. Waiting for a subtitle.'); return; }
+            if (res && res.gone) { markRemoved(p); return; }
             if (res && !res.ok) { setStatus(res.error || 'Could not update the preview', 'bad'); return; }
             if (res && res.frames) { p.clipS = res.start; p.clipE = res.start + res.frames; }
             setStatus('Preview in Resolve updated' + (res.warnings && res.warnings.length ? ' · ' + res.warnings.join(' ') : ''), 'ok');
         } else {
             const s = L.subtitle;
             // only once the playhead has stopped moving (a clip is inserted at the playhead, so never while it is dragged)
-            if (s && f >= s.start && f < s.end && !playWatch.playing && playWatch.still >= 3) await addLiveClip({ start: s.start, end: s.end, text: s.text || $('subText').value }, true);
+            if (s && f >= s.start && f < s.end && !p.removed && !playWatch.playing && playWatch.still >= 3) await addLiveClip({ start: s.start, end: s.end, text: s.text || $('subText').value }, true);
         }
     }, 250);
 }
@@ -5307,7 +5347,7 @@ async function deleteTagWithConfirm(t) {
     const ok = await confirmDialog({
         title: 'Delete tag "' + t.name + '"?',
         message: n ? ('It will be removed from ' + n + ' preset' + (n === 1 ? '' : 's') + '. The presets themselves are not deleted.')
-                   : 'No presets use this tag. This cannot be undone.',
+            : 'No presets use this tag. This cannot be undone.',
         confirmLabel: 'Delete tag'
     });
     if (!ok) return false;
@@ -5988,10 +6028,11 @@ async function tick() {
 // ---------------------------------------------------------------- actions
 // The sound that goes on the timeline: cut where the subtitle ends and faded out over its last second. Made here
 // (the panel can decode any audio file), saved by the app as a WAV, and imported into Resolve in place of the original.
-async function buildFadedSfx(m) {
+async function buildFadedSfx(m, span) {
     const p = currentSfxPath(m);
     if (!p || m.useSfx === false) return null;
-    const g = geometry(m);
+    let g;
+    if (span) { spanOverride = span; try { g = geometry(m); } finally { spanOverride = null; } } else g = geometry(m);
     const bytes = await window.sa.readSfx(p);
     if (!(bytes instanceof Uint8Array)) return null;
     const ac = new (window.AudioContext || window.webkitAudioContext)();

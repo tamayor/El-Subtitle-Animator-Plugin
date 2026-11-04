@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('sa', {
     liveUpdate: (req) => ipcRenderer.invoke('live:update', req),
     liveRemove: () => ipcRenderer.invoke('live:remove'),
     liveDrop: () => ipcRenderer.invoke('live:drop'),
+    liveAlive: () => ipcRenderer.invoke('live:alive'),
     liveLoopOn: (already) => ipcRenderer.invoke('live:loopOn', !!already),
     liveLoopRestore: () => ipcRenderer.invoke('live:loopRestore'),
     liveFinish: (req) => ipcRenderer.invoke('live:finish', req),

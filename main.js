@@ -1213,10 +1213,11 @@ async function apply(event, req) {
                 if (r) { liveSfxId = r.id; sfxTrack = r.track; }
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
-            liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath };
+            liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item };
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }
+            else { try { if ((await tl.GetCurrentTimecode()) !== origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } }      // the preview goes where the playhead is; the playhead stays
         }
         { const w = cutCheck(live ? 'apply-live' : 'apply', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
         subCache.at = 0;
@@ -1433,6 +1434,7 @@ async function liveUpdate(event, req) {
         if (!tl) throw new Error('Open a timeline in Resolve');
         const item = await findItemById(tl, liveSession.itemId);
         if (!item) { liveSession = null; return { ok: false, gone: true, error: 'The preview clip is no longer on the timeline' }; }
+        const tc0 = await tl.GetCurrentTimecode();      // the playhead stays where it is while the clip is moved
         const meta = await timelineMeta(tl);
         const tlStart = await tl.GetStartFrame();
         const textStart = Math.max(tlStart, Math.round(req.start + (req.textOffset || 0)));
@@ -1465,6 +1467,7 @@ async function liveUpdate(event, req) {
         let sfxMoved = false;
         if (moved) {
             try {
+                if (req.sfxPath) liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
                 const r = await placeLiveSfx(tl, project, meta, liveSession.sfxPath, req, anim, textStart, [], item, liveSession.itemId);
                 if (r) { liveSession.sfxId = r.id; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
@@ -1482,10 +1485,30 @@ async function liveUpdate(event, req) {
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
         try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ }
         await liveSetMarks(tl, item);
+        try { if ((await tl.GetCurrentTimecode()) !== tc0) await tl.SetCurrentTimecode(tc0); } catch (e) { /* ignore */ }
         return { ok: true, warnings, start: textStart, frames: want, track, moved, sfxMoved };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e) };
     } finally { applying = false; }
+}
+
+// Is the preview clip still on the timeline? When it was deleted by hand, its sound and In/Out are cleaned up too.
+async function liveAlive() {
+    if (!liveSession) return { ok: true, alive: false, none: true };
+    if (applying) return { ok: true, alive: true };
+    try {
+        let ok = false;
+        try { const st = await liveSession.item.GetStart(); ok = typeof st === 'number' && st >= 0; } catch (e) { ok = false; }
+        if (!ok) {
+            const project = await getProject();
+            const tl = project && await project.GetCurrentTimeline();
+            if (!tl) return { ok: true, alive: true };            // cannot tell: assume it is there
+            ok = !!(await findItemById(tl, liveSession.itemId));
+        }
+        if (ok) return { ok: true, alive: true };
+        await liveRemove(true);
+        return { ok: true, alive: false };
+    } catch (e) { return { ok: true, alive: true }; }
 }
 
 // Removes the preview clip again and puts the playhead back.
@@ -1496,6 +1519,8 @@ async function liveRemove(keepMarks) {
     try {
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
+        let tcR = null;
+        try { if (tl) tcR = await tl.GetCurrentTimecode(); } catch (e) { tcR = null; }
         if (tl && !keepMarks) await liveRestoreMarks(tl);
         else if (tl && keepMarks) await liveClearMarks(tl);       // the clip is gone: its In/Out must not stay behind on the old caption
         if (tl && s) {
@@ -1505,6 +1530,7 @@ async function liveRemove(keepMarks) {
             if (gone.length) { const ok = await tl.DeleteClips(gone, false); if (ok) { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); } }
             else { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); }
         }
+        try { if (tl && tcR && (await tl.GetCurrentTimecode()) !== tcR) await tl.SetCurrentTimecode(tcR); } catch (e) { /* ignore */ }
     } catch (e) { /* the registry sweep removes it next time */ }
     subCache.at = 0;
     return { ok: true };
@@ -2857,6 +2883,7 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:previewData', wrap(previewData));
     ipcMain.handle('act:apply', apply);
     ipcMain.handle('live:update', liveUpdate);
+    ipcMain.handle('live:alive', liveAlive);
     ipcMain.handle('live:remove', () => liveRemove(false));
     ipcMain.handle('live:drop', () => liveRemove(true));
     ipcMain.handle('live:loopOn', (e, already) => loopOn(!!already));

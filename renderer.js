@@ -10,6 +10,7 @@ const state = {
     tdOpen: false,         // is the text design panel in the Use tab expanded
     createAdjustOpen: true,// is the alignment panel in the Create tab expanded
     createTdOpen: false,   // is the text design panel in the Create tab expanded
+    sfxOrigOpen: false,    // is the SFX originals library accordion expanded
     live: null,            // last poll result
     shownKey: null,        // which subtitle the text box is currently showing
     busy: false,
@@ -144,10 +145,18 @@ async function loadWave(p) {
     }
 }
 
+function origSfxPath(a) {
+    if (!a || a.useSfx === false) return null;
+    if (a.sfxOrigPath) return a.sfxOrigPath;
+    if (a.sfxOrig && state.lib && state.lib.dataDir) return state.lib.dataDir + '/sfx/' + a.sfxOrig;
+    return currentSfxPath(a);
+}
+
 function currentSfxPath(a) {
     if (!a || a.useSfx === false) return null;
     if (a.sfxPath) return a.sfxPath;
-    return state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
+    if (a.sfx && state.lib && state.lib.dataDir) return state.lib.dataDir + '/sfx/' + a.sfx;
+    return state.lib && state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
 }
 
 // shape: { from, frac } = the part of the sound that is shown (the rest is trimmed away),
@@ -435,12 +444,17 @@ const ALIGN_HTML = (S) => `
 
 <div class="row between sfxhead">
     <label class="check"><input id="useSfx${S}" type="checkbox" checked> Sound effect</label>
-    <button type="button" id="sfxClear${S}" class="ghost sm-btn" title="Revert to default sound">Use default sound</button>
+    <div class="sfx-head-actions">
+        <button type="button" id="sfxOrigBtn${S}" class="ghost sm-btn" title="Choose from stored original sounds">From Originals ▾</button>
+        <button type="button" id="sfxClear${S}" class="ghost sm-btn" title="Revert to default sound">Use default sound</button>
+    </div>
 </div>
+<div id="sfxOrigDropdown${S}" class="sfx-orig-dropdown hidden"></div>
 <div id="sfxDrop${S}" class="sfxrow drop" title="Drop a sound file here or click Choose">
     <button type="button" id="sfxPlay${S}" class="ghost" title="Preview sound">▶</button>
     <span id="sfxName${S}" class="grow">Drop a sound file here</span>
     <button type="button" id="sfxPick${S}" class="ghost">Choose…</button>
+    <button type="button" id="sfxDel${S}" class="ghost sfx-del-btn" title="Remove sound effect">🗑</button>
 </div>
 <input type="file" id="sfxFileInput${S}" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
 <div class="ctl">
@@ -1067,6 +1081,74 @@ function renderTimelines() {
     for (const c of [CTX.U, CTX.C]) if (ctxVisible(c)) renderTimeline(c);
 }
 
+// Renders trimmed & faded PCM 16-bit WAV audio data based on the preserved original sound.
+async function renderTrimmedWav(m, span) {
+    const p = origSfxPath(m) || currentSfxPath(m);
+    if (!p || m.useSfx === false) return null;
+    const bytes = await window.sa.readSfx(p);
+    if (!(bytes instanceof Uint8Array)) return null;
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    let buf;
+    try { buf = await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); } finally { ac.close(); }
+    let g;
+    waveSecOverride = buf.duration;
+    if (span) spanOverride = span;
+    try { g = geometry(m); } finally { waveSecOverride = null; spanOverride = null; }
+    const sr = buf.sampleRate, ch = Math.min(2, buf.numberOfChannels);
+    const startSec = Math.min(g.sfxTrimIn / g.fps, Math.max(0, buf.duration - 2 / g.fps));
+    const lenSec = Math.max(2 / g.fps, Math.min(g.sfxFrames / g.fps, buf.duration - startSec));
+    const i0 = Math.round(startSec * sr);
+    const n = Math.max(1, Math.round(lenSec * sr));
+    const fadeN = Math.min(n, Math.round(g.fadeFrames / g.fps * sr));
+    const data = new Uint8Array(44 + n * ch * 2);
+    const dv = new DataView(data.buffer);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true); dv.setUint32(24, sr, true);
+    dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true);
+    str(36, 'data'); dv.setUint32(40, n * ch * 2, true);
+    for (let c = 0; c < ch; c++) {
+        const src = buf.getChannelData(c);
+        for (let i = 0; i < n; i++) {
+            let v = (i0 + i) < src.length ? src[i0 + i] : 0;
+            if (fadeN > 0 && i >= n - fadeN) v *= (n - i) / fadeN;
+            v = Math.max(-1, Math.min(1, v));
+            dv.setInt16(44 + (i * ch + c) * 2, v < 0 ? v * 32768 : v * 32767, true);
+        }
+    }
+    return { data, origPath: p, g };
+}
+
+let syncSfxBusy = false;
+async function syncAttachedSfx(m, span) {
+    if (!m || !m.id || m.useSfx === false) return null;
+    if (syncSfxBusy) return null;
+    syncSfxBusy = true;
+    try {
+        const p = origSfxPath(m) || currentSfxPath(m);
+        if (!p) return null;
+        const rendered = await renderTrimmedWav(m, span);
+        if (!rendered || !rendered.data) return null;
+        const res = await window.sa.saveAttachedClip(m.id, rendered.data, baseName(rendered.origPath));
+        if (res && res.sfx) {
+            m.sfx = res.sfx;
+            m.sfxPath = res.sfxPath;
+            if (res.sfxOrig) {
+                m.sfxOrig = res.sfxOrig;
+                m.sfxOrigPath = res.sfxOrigPath;
+            }
+            if (res.lib) {
+                state.lib = res.lib;
+            }
+        }
+        return res;
+    } catch (e) {
+        return null;
+    } finally {
+        syncSfxBusy = false;
+    }
+}
+
 // The Use tab works on a copy, so changes there never touch the saved default.
 function syncUse(force) {
     const a = selected();
@@ -1083,7 +1165,10 @@ function syncUse(force) {
             scale: Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
             textDesign: cloneTextDesign(a.textDesign),
             boxes: window.SABoxes ? SABoxes.cloneBoxes(a) : {},
-            sfxPath: a.sfxPath
+            sfx: a.sfx,
+            sfxPath: a.sfxPath,
+            sfxOrig: a.sfxOrig,
+            sfxOrigPath: a.sfxOrigPath
         };
         if (keepRender) {
             state.use.tempPreview = keepRender.tempPreview;
@@ -1097,6 +1182,12 @@ function syncUse(force) {
 }
 
 const saveField = debounce(async (id, patch) => {
+    const m = libEntry(id);
+    if (m && m.useSfx !== false && (m.sfx || m.sfxOrig)) {
+        await syncAttachedSfx(m);
+        if (m.sfx) patch.sfx = m.sfx;
+        if (m.sfxOrig) patch.sfxOrig = m.sfxOrig;
+    }
     const res = await window.sa.updateAnimation(id, patch);
     // Do not swap the data under a drag in progress; the saved values are already what the user sees.
     if (res && res.lib && !state.drag && !state.stageDrag) {
@@ -1149,7 +1240,7 @@ function geometry(m) {
 }
 
 function loadWaveCached(m) {
-    const p = currentSfxPath(m);
+    const p = origSfxPath(m) || currentSfxPath(m);
     if (!p) return null;
     const w = state.waves.get(p);
     if (w === undefined) loadWave(p);
@@ -1281,9 +1372,10 @@ function renderTimeline(ctx) {
         const t = g.sfxTrimIn;
         m.sfxOffset = clamp(m.sfxOffset - t, -300, 300); m.sfxTrimIn = 0;
         if (keepEnd) m.sfxLen = g.sfxFrames + t;
+        syncAttachedSfx(m);
     };
-    resets.sfxOut = () => { m.sfxLen = null; m.sfxLenMode = 'estimate'; };
-    resets.sfxFade = () => { m.sfxFade = null; };
+    resets.sfxOut = () => { m.sfxLen = null; m.sfxLenMode = 'estimate'; syncAttachedSfx(m); };
+    resets.sfxFade = () => { m.sfxFade = null; syncAttachedSfx(m); };
     syncNumbers(ctx);
 }
 
@@ -1370,7 +1462,12 @@ function onDragEnd() {
     state.drag = null;
     if (d) {
         const m = d.ctx.model();
-        if (m) d.ctx.changed(m);
+        if (m) {
+            d.ctx.changed(m);
+            if (d.kind && d.kind.startsWith('sfx')) {
+                syncAttachedSfx(m);
+            }
+        }
         renderTimeline(d.ctx);
     }
 }
@@ -3150,7 +3247,7 @@ function runPreview(ctx, loop = false) {
     if (prevBtn) prevBtn.textContent = '⏹ Stop';
 
     // The sound is loaded before the clock starts, so it begins exactly at its offset instead of a moment late.
-    const sfx0 = currentSfxPath(m);
+    const sfx0 = origSfxPath(m) || currentSfxPath(m);
     let sfxEl = null;
     if (sfx0) {
         try {
@@ -4306,12 +4403,14 @@ function bindTextDesign(ctx) {
             if (!m) return;
             const customName = ($('tdVarName' + S) && $('tdVarName' + S).value.trim()) || nextVersionNameUI(m.name);
             notifyMsg('Creating "' + customName + '"…');
+            const origSfx = m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null;
             const res = await window.sa.saveVariant({
                 sourceId: m.id,
                 boxes: m.boxes || {},
                 name: customName,
                 useSfx: m.useSfx !== false,
                 linked: m.linked !== false,
+                sfxOrig: origSfx,
                 sfx: m.sfx !== undefined ? m.sfx : null,
                 sfxPath: m.sfxPath || null,
                 textOffset: m.textOffset,
@@ -4338,6 +4437,10 @@ function bindTextDesign(ctx) {
                 state.lib = res.lib;
                 state.selectedId = res.createdId;
                 if (S === 'C') state.createId = res.createdId;
+                const newM = libEntry(res.createdId);
+                if (newM && newM.useSfx !== false && (newM.sfx || newM.sfxOrig)) {
+                    await syncAttachedSfx(newM);
+                }
                 syncUse(true);
                 renderAll();
                 notifyMsg('Created new preset "' + res.createdName + '".', 'ok');
@@ -4350,6 +4453,9 @@ function bindTextDesign(ctx) {
         btnUpd.addEventListener('click', async () => {
             const m = ctx.model();
             if (!m) return;
+            if (m.useSfx !== false && (m.sfx || m.sfxOrig)) {
+                await syncAttachedSfx(m);
+            }
             notifyMsg('Updating "' + m.name + '"…');
             const res = await window.sa.updateLatest({
                 animationId: m.id,
@@ -4359,6 +4465,7 @@ function bindTextDesign(ctx) {
                 boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, $('subText') ? $('subText').value : '', S === 'U') : [],
                 useSfx: m.useSfx !== false,
                 linked: m.linked !== false,
+                sfxOrig: m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null,
                 sfx: m.sfx !== undefined ? m.sfx : null,
                 sfxPath: m.sfxPath || null,
                 textOffset: m.textOffset,
@@ -5000,14 +5107,26 @@ function fillAdjust(ctx) {
     $('useSfx' + S).checked = m.useSfx !== false;
     $('sfxVolume' + S).value = m.sfxVolume; $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
     const a = libEntry(m.id);
+    const origFile = m.sfxOrig || (a && a.sfxOrig);
     const curFile = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (a && a.sfx));
     const defFile = state.lib.defaultSfx ? state.lib.defaultSfx.file : null;
     const sfxNameEl = $('sfxName' + S);
     if (sfxNameEl) {
-        sfxNameEl.textContent = curFile ? 'Sound: ' + curFile : (defFile ? 'Sound: default (' + defFile + ')' : 'Drop a sound file here');
+        if (origFile && curFile && curFile !== origFile) {
+            sfxNameEl.textContent = 'Sound: ' + origFile + ' (' + curFile + ')';
+        } else if (origFile || curFile) {
+            sfxNameEl.textContent = 'Sound: ' + (origFile || curFile);
+        } else if (defFile) {
+            sfxNameEl.textContent = 'Sound: default (' + defFile + ')';
+        } else {
+            sfxNameEl.textContent = 'Drop a sound file here';
+        }
     }
     if ($('sfxClear' + S)) {
         $('sfxClear' + S).style.visibility = curFile ? 'visible' : 'hidden';
+    }
+    if ($('sfxDel' + S)) {
+        $('sfxDel' + S).style.visibility = curFile ? 'visible' : 'hidden';
     }
     fillTrackSelect($('textTrack' + S), 'V', m.textTrack);
     fillTrackSelect($('sfxTrack' + S), 'A', m.sfxTrack);
@@ -5055,6 +5174,7 @@ function bindAdjust(ctx) {
         if (lenSel.value === 'fixed') { m.sfxLen = geometry(m).sfxFrames; m.sfxLenMode = 'fixed'; }   // freezes the length shown now
         else { m.sfxLen = null; m.sfxLenMode = 'estimate'; }
         ctx.changed(m);
+        syncAttachedSfx(m);
         renderTimeline(ctx);
     });
     const alnPlay = $('alnPlay' + S), alnMode = $('alnMode' + S);
@@ -5094,24 +5214,30 @@ function bindAdjust(ctx) {
             const res = await window.sa.setAnimationSfx(m.id, filePath);
             if (takeLib(res)) {
                 const ca = libEntry(state.createId);
-                if (ca) ca.adjusted = true;
+                if (ca) {
+                    ca.adjusted = true;
+                    await syncAttachedSfx(ca);
+                }
                 setCreateStatus('Sound updated for "' + m.name + '"', 'ok');
                 fillAdjust(ctx);
                 renderAnimations();
                 renderCreateSummary();
             }
         } else {
+            m.sfxOrigPath = filePath;
+            m.sfxOrig = baseName(filePath);
             m.sfxPath = filePath;
             m.sfx = baseName(filePath);
             m.dirty = true;
             m.adjusted = true;
             m.useSfx = true;
             $('useSfx' + S).checked = true;
+            await syncAttachedSfx(m);
             fillAdjust(ctx);
             renderUseSummary();
             renderAnimations();
             syncVarButtons('U', m);
-            setStatus('Sound selected: ' + m.sfx + ' (save via "+ Create" or "Update").', 'ok');
+            setStatus('Sound selected: ' + (m.sfxOrig || m.sfx) + ' (save via "+ Create" or "Update").', 'ok');
         }
     };
 
@@ -5142,33 +5268,144 @@ function bindAdjust(ctx) {
         });
     }
 
+    const doClearSfx = async () => {
+        const m = ctx.model();
+        if (!m) return;
+        if (S === 'C') {
+            state.createAdjusted = true;
+            const res = await window.sa.setAnimationSfx(m.id, null);
+            if (takeLib(res)) {
+                const ca = libEntry(state.createId);
+                if (ca) ca.adjusted = true;
+                setCreateStatus('Reverted to default sound for "' + m.name + '"', 'ok');
+                fillAdjust(ctx);
+                renderAnimations();
+                renderCreateSummary();
+            }
+        } else {
+            m.sfxPath = null;
+            m.sfx = null;
+            m.sfxOrig = null;
+            m.sfxOrigPath = null;
+            m.dirty = true;
+            m.adjusted = true;
+            fillAdjust(ctx);
+            renderUseSummary();
+            renderAnimations();
+            syncVarButtons('U', m);
+            setStatus('Sound effect removed.', 'ok');
+        }
+    };
+
     const sfxClearBtn = $('sfxClear' + S);
     if (sfxClearBtn) {
-        sfxClearBtn.addEventListener('click', async (e) => {
+        sfxClearBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const m = ctx.model();
             if (!m) return;
-            if (S === 'C') {
-                state.createAdjusted = true;
-                const res = await window.sa.setAnimationSfx(m.id, null);
-                if (takeLib(res)) {
-                    const ca = libEntry(state.createId);
-                    if (ca) ca.adjusted = true;
-                    setCreateStatus('Reverted to default sound for "' + m.name + '"', 'ok');
-                    fillAdjust(ctx);
-                    renderAnimations();
-                    renderCreateSummary();
-                }
+            const cur = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (libEntry(m.id) && libEntry(m.id).sfx));
+            if (!cur) return;
+            openConfirmPop(sfxClearBtn, {
+                title: 'Revert to default sound?',
+                message: 'Remove attached sound from "' + (m.name || 'preset') + '" and revert to default sound?',
+                confirmText: 'Revert',
+                danger: false,
+                onConfirm: doClearSfx
+            });
+        });
+    }
+
+    const sfxDelBtn = $('sfxDel' + S);
+    if (sfxDelBtn) {
+        sfxDelBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const m = ctx.model();
+            if (!m) return;
+            const cur = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (libEntry(m.id) && libEntry(m.id).sfx));
+            if (!cur) return;
+            openConfirmPop(sfxDelBtn, {
+                title: 'Delete attached sound?',
+                message: 'Remove attached sound "' + cur + '" from "' + (m.name || 'preset') + '"?',
+                confirmText: 'Delete',
+                danger: true,
+                onConfirm: doClearSfx
+            });
+        });
+    }
+
+    const sfxOrigBtn = $('sfxOrigBtn' + S);
+    const sfxOrigDrop = $('sfxOrigDropdown' + S);
+    if (sfxOrigBtn && sfxOrigDrop) {
+        const closeOrigDropdown = () => { sfxOrigDrop.classList.add('hidden'); };
+        sfxOrigBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isHidden = sfxOrigDrop.classList.contains('hidden');
+            if (!isHidden) { closeOrigDropdown(); return; }
+            sfxOrigDrop.innerHTML = '';
+            const originals = (state.lib && state.lib.sfxOriginals) || [];
+            if (!originals.length) {
+                const empty = document.createElement('div');
+                empty.className = 'hint';
+                empty.style.padding = '6px 10px';
+                empty.textContent = 'No stored original sounds. Add some in the Library tab!';
+                sfxOrigDrop.appendChild(empty);
             } else {
-                m.sfxPath = null;
-                m.sfx = null;
-                m.dirty = true;
-                m.adjusted = true;
-                fillAdjust(ctx);
-                renderUseSummary();
-                renderAnimations();
-                syncVarButtons('U', m);
-                setStatus('Reverted to default sound.', 'ok');
+                for (const item of originals) {
+                    const dItem = document.createElement('div');
+                    dItem.className = 'sfx-orig-dropdown-item';
+
+                    const pBtn = document.createElement('button');
+                    pBtn.type = 'button';
+                    pBtn.className = 'ghost sm-btn';
+                    pBtn.textContent = '▶';
+                    pBtn.title = 'Preview sound';
+                    pBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        play(item.path);
+                    });
+
+                    const label = document.createElement('span');
+                    label.className = 'sfx-orig-dropdown-name grow';
+                    label.textContent = item.file;
+                    label.title = item.file;
+
+                    const delOrigBtn = document.createElement('button');
+                    delOrigBtn.type = 'button';
+                    delOrigBtn.className = 'ghost sm-btn sfx-del-btn';
+                    delOrigBtn.textContent = '🗑';
+                    delOrigBtn.title = 'Delete original sound';
+                    delOrigBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        openConfirmPop(delOrigBtn, {
+                            title: 'Delete original sound?',
+                            message: 'Permanently delete "' + item.file + '" from originals library? Presets already using it will retain their audio.',
+                            confirmText: 'Delete',
+                            danger: true,
+                            onConfirm: async () => {
+                                const res = await window.sa.removeSfxOriginal(item.file);
+                                if (takeLib(res)) {
+                                    setStatus('Deleted "' + item.file + '" from originals library.', 'ok');
+                                }
+                            }
+                        });
+                    });
+
+                    dItem.appendChild(pBtn);
+                    dItem.appendChild(label);
+                    dItem.appendChild(delOrigBtn);
+                    dItem.addEventListener('click', async (ev) => {
+                        if (ev.target.closest('.sfx-del-btn') || ev.target.closest('button')) return;
+                        closeOrigDropdown();
+                        await handleSfxFile(item.path);
+                    });
+                    sfxOrigDrop.appendChild(dItem);
+                }
+            }
+            sfxOrigDrop.classList.remove('hidden');
+        });
+        document.addEventListener('click', (e) => {
+            if (!sfxOrigDrop.contains(e.target) && e.target !== sfxOrigBtn) {
+                closeOrigDropdown();
             }
         });
     }
@@ -5493,6 +5730,49 @@ function openPop(anchor, cls, build) {
     document.addEventListener('keydown', popKey, true);
     window.addEventListener('resize', closePop);
     return el;
+}
+
+function openConfirmPop(anchor, opts) {
+    const { title = 'Confirm', message = '', confirmText = 'Delete', danger = true, onConfirm } = opts || {};
+    return openPop(anchor, 'pop-confirm', (el) => {
+        const t = document.createElement('div');
+        t.className = 'pop-confirm-title';
+        t.textContent = title;
+        el.appendChild(t);
+
+        if (message) {
+            const m = document.createElement('div');
+            m.className = 'pop-confirm-msg';
+            m.textContent = message;
+            el.appendChild(m);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'pop-confirm-actions';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'ghost sm-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closePop();
+        });
+
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = (danger ? 'danger sm-btn' : 'ghost sm-btn');
+        okBtn.textContent = confirmText;
+        okBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            closePop();
+            if (typeof onConfirm === 'function') await onConfirm();
+        });
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(okBtn);
+        el.appendChild(actions);
+    });
 }
 
 // "New tag" popover: pick a color, type a name. assignTo = preset id that gets the new tag right away.
@@ -6039,6 +6319,166 @@ function setCreateTdOpen(open) {
     redrawStages();
 }
 
+function setSfxOrigAccordionOpen(open) {
+    state.sfxOrigOpen = open;
+    const body = $('sfxOrigAccordionBody');
+    const wrap = $('sfxOrigAccordionWrap');
+    const toggle = $('sfxOrigAccordionToggle');
+    if (body) body.classList.toggle('hidden', !open);
+    if (wrap) wrap.classList.toggle('open', !!open);
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = toggle.querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (bytes / Math.pow(k, i)).toFixed(i ? 1 : 0) + ' ' + sizes[i];
+}
+
+async function attachOriginalSfx(item) {
+    if (!item || !item.path) return;
+    if (state.tab === 'create' && state.createId) {
+        const ca = libEntry(state.createId);
+        if (ca) {
+            const res = await window.sa.setAnimationSfx(ca.id, item.path);
+            if (takeLib(res)) {
+                const updated = libEntry(ca.id);
+                if (updated) {
+                    updated.adjusted = true;
+                    await syncAttachedSfx(updated);
+                }
+                fillAdjust(CTX.C);
+                renderAnimations();
+                renderCreateSummary();
+                setStatus('Sound "' + item.file + '" attached to "' + ca.name + '".', 'ok');
+            }
+            return;
+        }
+    }
+    if (state.use) {
+        const m = state.use;
+        m.sfxOrigPath = item.path;
+        m.sfxOrig = item.file;
+        m.sfxPath = item.path;
+        m.sfx = item.file;
+        m.dirty = true;
+        m.adjusted = true;
+        m.useSfx = true;
+        if ($('useSfxU')) $('useSfxU').checked = true;
+        await syncAttachedSfx(m);
+        fillAdjust(CTX.U);
+        renderUseSummary();
+        renderAnimations();
+        syncVarButtons('U', m);
+        setStatus('Sound "' + item.file + '" attached to active preset.', 'ok');
+    } else if (state.selectedId) {
+        const a = libEntry(state.selectedId);
+        if (a) {
+            const res = await window.sa.setAnimationSfx(a.id, item.path);
+            if (takeLib(res)) {
+                syncUse(true);
+                fillAdjust(CTX.U);
+                renderAnimations();
+                renderUseSummary();
+                setStatus('Sound "' + item.file + '" attached to "' + a.name + '".', 'ok');
+            }
+        }
+    }
+}
+
+function renderSfxOriginals() {
+    const listEl = $('sfxOrigList');
+    const countEl = $('sfxOrigCount');
+    const originals = (state.lib && state.lib.sfxOriginals) || [];
+    if (countEl) countEl.textContent = originals.length ? '(' + originals.length + ')' : '(0)';
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!originals.length) {
+        const empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.style.padding = '8px 12px';
+        empty.textContent = 'No stored original sounds yet. Drop sounds above or browse to store them.';
+        listEl.appendChild(empty);
+        return;
+    }
+    const currentOrig = (state.use && (state.use.sfxOrig || state.use.sfx)) ||
+                        (selected() && (selected().sfxOrig || selected().sfx));
+    for (const item of originals) {
+        const row = document.createElement('div');
+        row.className = 'sfx-orig-item' + (currentOrig === item.file ? ' attached' : '');
+
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'ghost sm-btn';
+        playBtn.title = 'Preview sound';
+        playBtn.textContent = '▶';
+        playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            play(item.path);
+        });
+
+        const info = document.createElement('div');
+        info.className = 'sfx-orig-info grow';
+        const name = document.createElement('div');
+        name.className = 'sfx-orig-name';
+        name.textContent = item.file;
+        name.title = item.file;
+        const meta = document.createElement('div');
+        meta.className = 'hint sm';
+        meta.textContent = (item.ext ? item.ext + ' · ' : '') + formatBytes(item.size);
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'sfx-orig-actions';
+
+        const attachBtn = document.createElement('button');
+        attachBtn.type = 'button';
+        attachBtn.className = 'ghost sm-btn';
+        attachBtn.title = 'Attach this sound to active preset';
+        attachBtn.textContent = currentOrig === item.file ? 'Attached' : 'Attach';
+        attachBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            attachOriginalSfx(item);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'ghost sm-btn sfx-orig-del';
+        delBtn.title = 'Delete original sound';
+        delBtn.textContent = '🗑';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openConfirmPop(delBtn, {
+                title: 'Delete original sound?',
+                message: 'Permanently delete "' + item.file + '" from your originals library? Presets already using it will retain their audio.',
+                confirmText: 'Delete',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.removeSfxOriginal(item.file);
+                    if (takeLib(res)) {
+                        setStatus('Deleted "' + item.file + '" from originals library.', 'ok');
+                    }
+                }
+            });
+        });
+
+        actions.appendChild(attachBtn);
+        actions.appendChild(delBtn);
+
+        row.appendChild(playBtn);
+        row.appendChild(info);
+        row.appendChild(actions);
+        listEl.appendChild(row);
+    }
+}
+
 function renderDefaultSfx() {
     const d = state.lib.defaultSfx;
     $('defName').textContent = d ? d.file : 'Drop a sound file here';
@@ -6096,6 +6536,7 @@ function renderAll() {
     renderAnimations();
     renderSettings();
     renderDefaultSfx();
+    renderSfxOriginals();
     renderCreate();
     renderTags();
     renderPin();
@@ -6141,42 +6582,15 @@ async function tick() {
 // The sound that goes on the timeline: cut where the subtitle ends and faded out over its last second. Made here
 // (the panel can decode any audio file), saved by the app as a WAV, and imported into Resolve in place of the original.
 async function buildFadedSfx(m, span) {
-    const p = currentSfxPath(m);
+    const p = origSfxPath(m) || currentSfxPath(m);
     if (!p || m.useSfx === false) return null;
-    const bytes = await window.sa.readSfx(p);
-    if (!(bytes instanceof Uint8Array)) return null;
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    let buf;
-    try { buf = await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); } finally { ac.close(); }
-    // The length comes from the decoded sound itself, so a Fixed length set in Alignment is honoured even when the
-    // Alignment panel has never been opened (its waveform is then not loaded yet).
-    let g;
-    waveSecOverride = buf.duration;
-    if (span) spanOverride = span;
-    try { g = geometry(m); } finally { waveSecOverride = null; spanOverride = null; }
-    const sr = buf.sampleRate, ch = Math.min(2, buf.numberOfChannels);
-    const startSec = Math.min(g.sfxTrimIn / g.fps, Math.max(0, buf.duration - 2 / g.fps));
-    const lenSec = Math.max(2 / g.fps, Math.min(g.sfxFrames / g.fps, buf.duration - startSec));
-    const i0 = Math.round(startSec * sr);
-    const n = Math.max(1, Math.round(lenSec * sr));
-    const fadeN = Math.min(n, Math.round(g.fadeFrames / g.fps * sr));
-    const data = new Uint8Array(44 + n * ch * 2);
-    const dv = new DataView(data.buffer);
-    const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
-    str(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
-    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true); dv.setUint32(24, sr, true);
-    dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true);
-    str(36, 'data'); dv.setUint32(40, n * ch * 2, true);
-    for (let c = 0; c < ch; c++) {
-        const src = buf.getChannelData(c);
-        for (let i = 0; i < n; i++) {
-            let v = (i0 + i) < src.length ? src[i0 + i] : 0;
-            if (fadeN > 0 && i >= n - fadeN) v *= (n - i) / fadeN;
-            v = Math.max(-1, Math.min(1, v));
-            dv.setInt16(44 + (i * ch + c) * 2, v < 0 ? v * 32768 : v * 32767, true);
-        }
+    const rendered = await renderTrimmedWav(m, span);
+    if (!rendered || !rendered.data) return null;
+    if (m && m.id && !span) {
+        const res = await window.sa.saveAttachedClip(m.id, rendered.data, baseName(p));
+        return (res && (res.sfxPath || res.path)) || null;
     }
-    const res = await window.sa.saveSfxClip(baseName(p), data);
+    const res = await window.sa.saveSfxClip(baseName(p), rendered.data);
     return (res && res.path) || null;
 }
 
@@ -6414,6 +6828,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
     if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
     if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });
+    if ($('sfxOrigAccordionToggle')) $('sfxOrigAccordionToggle').addEventListener('click', () => {
+        setSfxOrigAccordionOpen(!state.sfxOrigOpen);
+    });
     $('subText').addEventListener('input', () => redrawStages());
     $('resetU').addEventListener('click', () => {
         syncUse(true);
@@ -6451,6 +6868,42 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('defPlay').addEventListener('click', () => play(state.lib.defaultSfx && state.lib.defaultSfx.path));
     $('defClear').addEventListener('click', async () => takeLib(await window.sa.setDefaultSfx(null)));
     dropZone($('defSfx'), async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
+
+    if ($('sfxOrigDrop')) {
+        dropZone($('sfxOrigDrop'), async (p) => {
+            const res = await window.sa.addSfxOriginal(p);
+            if (takeLib(res)) {
+                setStatus('Added "' + baseName(p) + '" to originals library.', 'ok');
+            }
+        });
+    }
+    const sfxOrigPick = $('sfxOrigPick');
+    const sfxOrigFileIn = $('sfxOrigFileInput');
+    if (sfxOrigPick && sfxOrigFileIn) {
+        sfxOrigPick.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sfxOrigFileIn.click();
+        });
+        sfxOrigFileIn.addEventListener('change', async () => {
+            if (sfxOrigFileIn.files && sfxOrigFileIn.files.length) {
+                for (const f of sfxOrigFileIn.files) {
+                    const p = window.sa.pathForFile(f);
+                    if (p) {
+                        const res = await window.sa.addSfxOriginal(p);
+                        takeLib(res);
+                    }
+                }
+                setStatus('Original sounds added.', 'ok');
+            }
+            sfxOrigFileIn.value = '';
+        });
+    }
+    if ($('sfxOrigDrop') && sfxOrigFileIn) {
+        $('sfxOrigDrop').addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            sfxOrigFileIn.click();
+        });
+    }
 
     const browse = (el, kind, handler) => {
         const go = async (e) => {
@@ -6505,6 +6958,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     $('pin').addEventListener('click', async () => takeLib(await window.sa.setOnTop(state.lib.alwaysOnTop === false)));
     $('openFolder').addEventListener('click', () => window.sa.openFolder());
+    if ($('openFontsFolder')) $('openFontsFolder').addEventListener('click', () => window.sa.openFontsFolder());
     $('tagsToggle').addEventListener('click', () => setTagsOpen(!tagUI.open));
     $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
     setTagsOpen(false);

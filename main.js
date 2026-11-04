@@ -27,10 +27,11 @@ const DATA_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator');
 const ANIM_DIR = path.join(DATA_DIR, 'animations');
 const SFX_DIR = path.join(DATA_DIR, 'sfx');
 const PREV_DIR = path.join(DATA_DIR, 'previews');
+const FONTS_DIR = path.join(DATA_DIR, 'fonts');
 const LIB_FILE = path.join(DATA_DIR, 'library.json');
 
 function ensureDirs() {
-    for (const d of [DATA_DIR, ANIM_DIR, SFX_DIR, PREV_DIR]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [DATA_DIR, ANIM_DIR, SFX_DIR, PREV_DIR, FONTS_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
 function newAnimation(name, file, defaults) {
@@ -38,7 +39,8 @@ function newAnimation(name, file, defaults) {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         name: name,
         file: file,          // file name inside animations/
-        sfx: null,           // file name inside sfx/, or null to use the default SFX
+        sfx: null,           // current attached audio file inside sfx/
+        sfxOrig: null,       // preserved original audio file inside sfx/
         useSfx: true,
         preview: null,       // { count, step, fps } once frames have been captured for the preview
         linked: true,        // moving the text on the alignment timeline carries the sound with it
@@ -56,6 +58,64 @@ function newAnimation(name, file, defaults) {
     }, defaults || {});
 }
 
+let libMigratedOnce = false;
+function migrateAndCleanLib(lib) {
+    if (!lib || !Array.isArray(lib.animations)) return;
+    let changed = false;
+    for (const a of lib.animations) {
+        if (!a.sfxOrig && a.sfx) {
+            const ext = path.extname(a.sfx);
+            const stem = path.basename(a.sfx, ext);
+            const trimMatch = stem.match(/^(.+?)-(\d{8}[-_]\d{6})$/);
+            if (trimMatch) {
+                const origStem = trimMatch[1];
+                for (const e of ['.mp3', '.wav', '.m4a', '.aif', '.aiff', '.flac', '.ogg']) {
+                    if (fs.existsSync(path.join(SFX_DIR, origStem + e))) {
+                        a.sfxOrig = origStem + e;
+                        changed = true;
+                        break;
+                    }
+                }
+            } else {
+                const cleanStem = stem.replace(/(\s+\d+)+$/, '');
+                if (cleanStem !== stem && fs.existsSync(path.join(SFX_DIR, cleanStem + ext))) {
+                    a.sfxOrig = cleanStem + ext;
+                    a.sfx = cleanStem + ext;
+                    changed = true;
+                } else {
+                    a.sfxOrig = a.sfx;
+                    changed = true;
+                }
+            }
+        }
+    }
+    if (changed) {
+        try {
+            const tmp = LIB_FILE + '.tmp';
+            fs.writeFileSync(tmp, JSON.stringify(lib, null, 2));
+            fs.renameSync(tmp, LIB_FILE);
+        } catch (e) { /* ignore */ }
+    }
+    // Clean up orphaned duplicates in SFX_DIR
+    try {
+        const inUse = new Set();
+        if (lib.defaultSfx) inUse.add(lib.defaultSfx);
+        for (const a of lib.animations) {
+            if (a.sfx) inUse.add(a.sfx);
+            if (a.sfxOrig) inUse.add(a.sfxOrig);
+        }
+        for (const file of fs.readdirSync(SFX_DIR)) {
+            if (inUse.has(file)) continue;
+            const ext = path.extname(file);
+            const stem = path.basename(file, ext);
+            const cleanStem = stem.replace(/(\s+\d+)+$/, '');
+            if (cleanStem !== stem && fs.existsSync(path.join(SFX_DIR, cleanStem + ext))) {
+                try { fs.rmSync(path.join(SFX_DIR, file), { force: true }); } catch (e) { /* ignore */ }
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
+
 function loadLib() {
     ensureDirs();
     let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
@@ -63,6 +123,10 @@ function loadLib() {
         lib = Object.assign(lib, JSON.parse(fs.readFileSync(LIB_FILE, 'utf8')));
     } catch (e) { /* first run */ }
     if (!Array.isArray(lib.tags)) lib.tags = [];
+    if (!libMigratedOnce) {
+        libMigratedOnce = true;
+        migrateAndCleanLib(lib);
+    }
     return lib;
 }
 
@@ -625,10 +689,12 @@ function libForUI() {
         alwaysOnTop: lib.alwaysOnTop !== false,
         defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: path.join(SFX_DIR, lib.defaultSfx) } : null,
         tags: lib.tags,
+        sfxOriginals: listSfxOriginals(),
         animations: lib.animations.map(a => {
             const animPath = path.join(ANIM_DIR, a.file);
             const exists = fs.existsSync(animPath);
             const textDesign = parseTextStyle(exists ? animPath : null, a.textDesign);
+            const sfxOrig = a.sfxOrig || a.sfx || null;
             return Object.assign({}, a, {
                 missing: !exists,
                 nodes: exists ? nodesWithDesign(animPath) : [],
@@ -636,7 +702,10 @@ function libForUI() {
                 textStyle: textDesign,
                 previewFiles: a.preview ? frameList(path.join(PREV_DIR, a.id), 'p', a.preview) : [],
                 previewWhite: (a.preview && a.preview.matte) ? frameList(path.join(PREV_DIR, a.id), 'w', a.preview) : null,
-                sfxPath: a.sfx ? path.join(SFX_DIR, a.sfx) : null
+                sfx: a.sfx || null,
+                sfxOrig,
+                sfxPath: a.sfx ? path.join(SFX_DIR, a.sfx) : null,
+                sfxOrigPath: sfxOrig ? path.join(SFX_DIR, sfxOrig) : null
             });
         })
     };
@@ -1888,6 +1957,303 @@ function validFontStyle(font, wanted) {
     return list[0];
 }
 
+function resolveFontFiles(fontsList) {
+    return new Promise((resolve) => {
+        if (!Array.isArray(fontsList) || !fontsList.length) return resolve({});
+        if (process.platform !== 'darwin') {
+            const found = {};
+            const dirs = process.platform === 'win32'
+                ? [path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts'), path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Windows', 'Fonts')]
+                : ['/usr/share/fonts', '/usr/local/share/fonts', path.join(os.homedir(), '.fonts'), path.join(os.homedir(), '.local/share/fonts')];
+            for (const item of fontsList) {
+                const fam = String(item.family || '').trim();
+                if (!fam) continue;
+                for (const d of dirs) {
+                    if (!fs.existsSync(d)) continue;
+                    try {
+                        for (const f of fs.readdirSync(d)) {
+                            if (f.toLowerCase().includes(fam.toLowerCase())) {
+                                found[fam + '|' + (item.style || '')] = path.join(d, f);
+                                break;
+                            }
+                        }
+                    } catch (e) { /* ignore */ }
+                    if (found[fam + '|' + (item.style || '')]) break;
+                }
+            }
+            return resolve(found);
+        }
+
+        const js = `
+ObjC.import("AppKit");
+ObjC.import("CoreText");
+(function() {
+    const items = ${JSON.stringify(fontsList)};
+    const fm = $.NSFontManager.sharedFontManager;
+    const out = {};
+    for (const it of items) {
+        const family = it.family;
+        const style = it.style || "";
+        if (!family) continue;
+        let postscript = null;
+        let members = [];
+        try { members = ObjC.deepUnwrap(fm.availableMembersOfFontFamily($(family))) || []; } catch (e) {}
+        if (style && members.length) {
+            const sLow = String(style).toLowerCase();
+            for (const m of members) {
+                if (String(m[1]).toLowerCase() === sLow) {
+                    postscript = String(m[0]);
+                    break;
+                }
+            }
+        }
+        if (!postscript && members.length) {
+            postscript = String(members[0][0]);
+        }
+        if (!postscript) {
+            postscript = family;
+        }
+
+        const nf = $.NSFont.fontWithNameSize($(postscript), 12);
+        if (!nf || !nf.fontName) {
+            const nfFam = $.NSFont.fontWithNameSize($(family), 12);
+            if (nfFam && nfFam.fontName) postscript = family;
+            else continue;
+        }
+
+        const ct = $.CTFontCreateWithName($(postscript), 12, null);
+        if (!ct) continue;
+        const url = $.CTFontCopyAttribute(ct, $.kCTFontURLAttribute);
+        if (url && url.path) {
+            out[family + "|" + style] = String(ObjC.unwrap(url.path));
+        }
+    }
+    return JSON.stringify(out);
+})();`;
+
+        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+            if (err || !stdout) return resolve({});
+            try {
+                const map = JSON.parse(String(stdout).trim());
+                resolve(map || {});
+            } catch (e) {
+                resolve({});
+            }
+        });
+    });
+}
+
+async function copyFontsForSetting(settingFilePath, textDesign) {
+    try {
+        ensureDirs();
+        const fontsToCheck = [];
+        const seen = new Set();
+        const add = (fam, sty) => {
+            if (!fam) return;
+            const key = fam.trim() + '|' + (sty || 'Regular').trim();
+            if (seen.has(key.toLowerCase())) return;
+            seen.add(key.toLowerCase());
+            fontsToCheck.push({ family: fam.trim(), style: (sty || 'Regular').trim() });
+        };
+
+        if (textDesign && textDesign.font) {
+            add(textDesign.font, textDesign.style);
+        }
+        if (settingFilePath && fs.existsSync(settingFilePath)) {
+            try {
+                const raw = fs.readFileSync(settingFilePath, 'utf8');
+                const fontMatches = [...raw.matchAll(/\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
+                const styleMatches = [...raw.matchAll(/\bStyle\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
+                for (let i = 0; i < fontMatches.length; i++) {
+                    add(fontMatches[i], styleMatches[i] || 'Regular');
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        if (!fontsToCheck.length) return [];
+
+        const map = await resolveFontFiles(fontsToCheck);
+        const copied = [];
+        for (const [key, srcPath] of Object.entries(map)) {
+            if (!srcPath || !fs.existsSync(srcPath)) continue;
+            const destName = path.basename(srcPath);
+            const destPath = path.join(FONTS_DIR, destName);
+            try {
+                if (!fs.existsSync(destPath)) {
+                    fs.copyFileSync(srcPath, destPath);
+                    dlog('[fonts] Saved font to fonts folder:', destName, 'from', srcPath);
+                }
+                copied.push(destName);
+            } catch (e) {
+                dlog('[fonts] Failed copying font:', srcPath, e.message);
+            }
+        }
+        return copied;
+    } catch (err) {
+        dlog('[fonts] Error in copyFontsForSetting:', err.message);
+        return [];
+    }
+}
+
+async function syncAllPresetFonts() {
+    try {
+        ensureDirs();
+        const lib = loadLib();
+        const fontsToCheck = [];
+        const seen = new Set();
+        const add = (fam, sty) => {
+            if (!fam) return;
+            const key = fam.trim() + '|' + (sty || 'Regular').trim();
+            if (seen.has(key.toLowerCase())) return;
+            seen.add(key.toLowerCase());
+            fontsToCheck.push({ family: fam.trim(), style: (sty || 'Regular').trim() });
+        };
+
+        for (const a of lib.animations) {
+            if (a.textDesign && a.textDesign.font) {
+                add(a.textDesign.font, a.textDesign.style);
+            }
+            if (a.file) {
+                const fp = path.join(ANIM_DIR, a.file);
+                if (fs.existsSync(fp)) {
+                    try {
+                        const raw = fs.readFileSync(fp, 'utf8');
+                        const fontMatches = [...raw.matchAll(/\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
+                        const styleMatches = [...raw.matchAll(/\bStyle\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
+                        for (let i = 0; i < fontMatches.length; i++) {
+                            add(fontMatches[i], styleMatches[i] || 'Regular');
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+            }
+        }
+
+        if (fontsToCheck.length) {
+            const map = await resolveFontFiles(fontsToCheck);
+            for (const [key, srcPath] of Object.entries(map)) {
+                if (!srcPath || !fs.existsSync(srcPath)) continue;
+                const destName = path.basename(srcPath);
+                const destPath = path.join(FONTS_DIR, destName);
+                try {
+                    if (!fs.existsSync(destPath)) {
+                        fs.copyFileSync(srcPath, destPath);
+                        dlog('[fonts] Synced font:', destName);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function formatAudioDateTime(d = new Date()) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+function cleanAudioStem(name) {
+    const base = path.basename(String(name || 'audio'));
+    const ext = path.extname(base);
+    let stem = base.slice(0, base.length - ext.length);
+    stem = stem.replace(/-\d{8}[-_]\d{6}$/, '');
+    stem = stem.replace(/(\s+\d+)+$/, '');
+    return stem.replace(/[^\w.\- ]+/g, '_').trim().slice(0, 50) || 'audio';
+}
+
+function listSfxOriginals() {
+    ensureDirs();
+    const files = fs.readdirSync(SFX_DIR);
+    const out = [];
+    for (const f of files) {
+        const ext = path.extname(f).toLowerCase();
+        if (!['.mp3', '.wav', '.m4a', '.aif', '.aiff', '.flac', '.ogg'].includes(ext)) continue;
+        if (/-\d{8}[-_]\d{6}\.wav$/i.test(f) || /\(trim [a-f0-9]+\)\.wav$/i.test(f)) continue;
+        const full = path.join(SFX_DIR, f);
+        try {
+            const stat = fs.statSync(full);
+            out.push({
+                file: f,
+                name: path.basename(f, ext),
+                ext: ext.slice(1).toUpperCase(),
+                size: stat.size,
+                path: full,
+                mtime: stat.mtimeMs
+            });
+        } catch (e) { /* ignore */ }
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+    return out;
+}
+
+function addSfxOriginal(event, p) {
+    if (!p) return { error: 'Pick an audio file first' };
+    try {
+        const file = copySfx(p);
+        return { ok: true, file, lib: libForUI() };
+    } catch (e) {
+        return { error: e.message };
+    }
+}
+
+function removeSfxOriginal(event, name) {
+    if (!name) return { error: 'No file specified' };
+    const p = path.join(SFX_DIR, name);
+    if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (e) { return { error: e.message }; }
+    }
+    const lib = loadLib();
+    let changed = false;
+    for (const a of lib.animations) {
+        if (a.sfxOrig === name) {
+            a.sfxOrig = null;
+            changed = true;
+        }
+        if (a.sfx === name) {
+            a.sfx = null;
+            changed = true;
+        }
+    }
+    if (lib.defaultSfx === name) {
+        lib.defaultSfx = null;
+        changed = true;
+    }
+    if (changed) saveLib(lib);
+    return { ok: true, lib: libForUI() };
+}
+
+// Stores the trimmed/adjusted audio attached to a preset (.setting) inside sfx/.
+// Based on the preserved original audio; overwrites previous attached trimmed audio on every alignment manipulation.
+function saveAttachedClip(event, animId, bytes, origName) {
+    ensureDirs();
+    const lib = loadLib();
+    const a = animId ? lib.animations.find(x => x.id === animId) : null;
+    let orig = (a && a.sfxOrig) ? a.sfxOrig : (origName || (a && a.sfx) || null);
+    if (orig) orig = path.basename(orig);
+
+    const stem = cleanAudioStem(orig || (a && a.name) || 'audio');
+    const newFileName = `${stem}-${formatAudioDateTime()}.wav`;
+    const newPath = path.join(SFX_DIR, newFileName);
+    const buf = Buffer.from(bytes);
+    fs.writeFileSync(newPath, buf);
+
+    if (a) {
+        // If the preset has an existing attached audio that is not the original, delete it to prevent bloat
+        const oldSfx = a.sfx;
+        if (oldSfx && oldSfx !== newFileName && oldSfx !== a.sfxOrig && (!orig || oldSfx !== orig)) {
+            const oldPath = path.join(SFX_DIR, oldSfx);
+            if (fs.existsSync(oldPath)) {
+                try { fs.rmSync(oldPath, { force: true }); } catch (e) { /* ignore */ }
+            }
+        }
+        if (!a.sfxOrig && orig) {
+            a.sfxOrig = orig;
+        }
+        a.sfx = newFileName;
+        saveLib(lib);
+        return { ok: true, sfx: a.sfx, sfxPath: newPath, sfxOrig: a.sfxOrig, sfxOrigPath: a.sfxOrig ? path.join(SFX_DIR, a.sfxOrig) : null, path: newPath, lib: libForUI() };
+    }
+    return { ok: true, path: newPath, file: newFileName };
+}
+
 // A trimmed copy of a sound effect (made in the panel, with its fade-out already applied) is stored here; the
 // name carries a hash of its content, so the same trim is only imported into Resolve once.
 function saveSfxClip(event, name, bytes) {
@@ -2027,9 +2393,14 @@ async function createCombo(event, req) {
         if (clipProps.ZoomX !== undefined && !isNaN(Number(clipProps.ZoomX))) a.scale = Math.round(Number(clipProps.ZoomX) * 1000) / 1000;
         if (clipProps.RotationAngle !== undefined && !isNaN(Number(clipProps.RotationAngle))) a.rotation = Math.round(Number(clipProps.RotationAngle) * 1000) / 1000;
     }
-    if (req.sfxPath) a.sfx = copySfx(req.sfxPath);
+    if (req.sfxPath) {
+        const origFile = copySfx(req.sfxPath);
+        a.sfxOrig = origFile;
+        a.sfx = origFile;
+    }
     lib.animations.push(a);
     saveLib(lib);
+    copyFontsForSetting(path.join(ANIM_DIR, a.file), a.textDesign).catch(() => {});
     if (fromItem) {
         try {
             await makePreview(null, a.id);
@@ -2053,6 +2424,7 @@ async function saveSelectedAsAnimation(event, name) {
     }
     lib.animations.push(a);
     saveLib(lib);
+    copyFontsForSetting(path.join(ANIM_DIR, a.file), a.textDesign).catch(() => {});
     return { lib: libForUI() };
 }
 
@@ -2063,15 +2435,48 @@ function addAnimationFile(event, p) {
     const file = uniqueName(ANIM_DIR, path.basename(p));
     fs.copyFileSync(p, path.join(ANIM_DIR, file));
     const lib = loadLib();
-    lib.animations.push(newAnimation(path.basename(file, path.extname(file)), file));
+    const a = newAnimation(path.basename(file, path.extname(file)), file);
+    lib.animations.push(a);
     saveLib(lib);
+    copyFontsForSetting(path.join(ANIM_DIR, a.file), a.textDesign).catch(() => {});
     return { lib: libForUI() };
 }
 
 function copySfx(p) {
+    if (!p) return null;
     const ext = path.extname(p).toLowerCase();
     if (!['.wav', '.mp3', '.aif', '.aiff', '.m4a', '.flac', '.ogg'].includes(ext)) throw new Error('Drop an audio file (wav, mp3, aif, m4a, flac)');
     ensureDirs();
+    const resolved = path.resolve(String(p));
+    // If file is already inside sfx dir, do not copy again
+    if (resolved.startsWith(SFX_DIR + path.sep)) {
+        return path.relative(SFX_DIR, resolved);
+    }
+    const base = path.basename(p);
+    const existing = path.join(SFX_DIR, base);
+    if (fs.existsSync(existing)) {
+        try {
+            const statSrc = fs.statSync(resolved);
+            const statDst = fs.statSync(existing);
+            if (statSrc.size === statDst.size) {
+                return base;
+            }
+        } catch (e) { /* ignore */ }
+    }
+    // Check if an existing file has identical content
+    try {
+        const buf = fs.readFileSync(resolved);
+        const h = require('crypto').createHash('sha1').update(buf).digest('hex');
+        for (const f of fs.readdirSync(SFX_DIR)) {
+            const fp = path.join(SFX_DIR, f);
+            if (fs.statSync(fp).isFile()) {
+                const fbuf = fs.readFileSync(fp);
+                if (fbuf.length === buf.length && require('crypto').createHash('sha1').update(fbuf).digest('hex') === h) {
+                    return f;
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
     const file = uniqueName(SFX_DIR, path.basename(p));
     fs.copyFileSync(p, path.join(SFX_DIR, file));
     return file;
@@ -2097,14 +2502,21 @@ function saveAnimationVariant(event, req) {
     if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, path.join(ANIM_DIR, newFile));
     }
+    let sfxOrigFile = src.sfxOrig || src.sfx || null;
     let sfxFile = src.sfx;
     if (req.sfxPath) {
-        try { sfxFile = copySfx(req.sfxPath); } catch (e) { /* ignore */ }
+        try {
+            sfxOrigFile = copySfx(req.sfxPath);
+            sfxFile = sfxOrigFile;
+        } catch (e) { /* ignore */ }
+    } else if (req.sfxOrig !== undefined) {
+        sfxOrigFile = req.sfxOrig;
     } else if (req.sfx !== undefined) {
         sfxFile = req.sfx;
     }
     const newAnim = newAnimation(newName, newFile, {
         sfx: sfxFile,
+        sfxOrig: sfxOrigFile,
         useSfx: req.useSfx !== undefined ? !!req.useSfx : src.useSfx !== false,
         linked: req.linked !== undefined ? !!req.linked : src.linked !== false,
         textOffset: req.textOffset !== undefined ? Number(req.textOffset) || 0 : src.textOffset,
@@ -2127,6 +2539,7 @@ function saveAnimationVariant(event, req) {
     }
     lib.animations.push(newAnim);
     saveLib(lib);
+    copyFontsForSetting(path.join(ANIM_DIR, newAnim.file), newAnim.textDesign).catch(() => {});
     return { ok: true, lib: libForUI(), createdId: newAnim.id, createdName: newName };
 }
 
@@ -2168,13 +2581,18 @@ async function updateLatest(event, req) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === req.animationId);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'sfxOrig'];
     for (const k of allowed) if (k in req && req[k] !== undefined) a[k] = req[k];
     if (req.sfxPath) {
-        try { a.sfx = copySfx(req.sfxPath); } catch (e) { /* ignore */ }
+        try {
+            const f = copySfx(req.sfxPath);
+            if (!a.sfxOrig) a.sfxOrig = f;
+            a.sfx = f;
+        } catch (e) { /* ignore */ }
     } else if (req.sfx !== undefined) {
         a.sfx = req.sfx;
     }
+    if (req.sfxOrig !== undefined) a.sfxOrig = req.sfxOrig;
     saveLib(lib);
 
     let updatedClip = false;
@@ -2315,6 +2733,12 @@ async function syncLiveTransform(event, req) {
             } catch (e) { /* ignore */ }
         }
 
+        if (req.textDesign) {
+            const animId = req.animId;
+            const a = animId ? loadLib().animations.find(x => x.id === animId) : null;
+            if (a) copyFontsForSetting(path.join(ANIM_DIR, a.file), req.textDesign).catch(() => {});
+        }
+
         return { ok: true };
     } catch (e) {
         return { ok: false, error: e.message };
@@ -2325,13 +2749,16 @@ function updateAnimation(event, id, patch) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
     if ('tags' in patch) {
         const known = new Set(lib.tags.map(t => t.id));
         a.tags = Array.isArray(a.tags) ? Array.from(new Set(a.tags)).filter(id => known.has(id)) : [];
     }
     saveLib(lib);
+    if (patch.textDesign || a.textDesign) {
+        copyFontsForSetting(path.join(ANIM_DIR, a.file), a.textDesign).catch(() => {});
+    }
     return { lib: libForUI() };
 }
 
@@ -2370,7 +2797,24 @@ function reorderAnimations(event, ids) {
 function removeAnimation(event, id) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
-    if (a) { try { fs.unlinkSync(path.join(ANIM_DIR, a.file)); } catch (e) { /* ignore */ } }
+    if (a) {
+        try { fs.unlinkSync(path.join(ANIM_DIR, a.file)); } catch (e) { /* ignore */ }
+        // When deleting a text preset, delete the attached SFX too
+        if (a.sfx) {
+            try {
+                const sfxPath = path.join(SFX_DIR, a.sfx);
+                if (a.sfx !== a.sfxOrig || /-\d{8}[-_]\d{6}\.wav$/i.test(a.sfx)) {
+                    if (fs.existsSync(sfxPath)) fs.rmSync(sfxPath, { force: true });
+                } else {
+                    const otherUses = lib.animations.some(other => other.id !== a.id && (other.sfx === a.sfx || other.sfxOrig === a.sfx));
+                    const isDefault = lib.defaultSfx === a.sfx;
+                    if (!otherUses && !isDefault) {
+                        if (fs.existsSync(sfxPath)) fs.rmSync(sfxPath, { force: true });
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+    }
     try { fs.rmSync(path.join(PREV_DIR, id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     lib.animations = lib.animations.filter(x => x.id !== id);
     saveLib(lib);
@@ -2388,7 +2832,17 @@ function setAnimationSfx(event, id, p) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
-    a.sfx = p ? copySfx(p) : null;
+    if (a.sfx && a.sfxOrig && a.sfx !== a.sfxOrig) {
+        try { fs.rmSync(path.join(SFX_DIR, a.sfx), { force: true }); } catch (e) { /* ignore */ }
+    }
+    if (!p) {
+        a.sfx = null;
+        a.sfxOrig = null;
+    } else {
+        const file = copySfx(p);
+        a.sfxOrig = file;
+        a.sfx = file;
+    }
     saveLib(lib);
     return { lib: libForUI() };
 }
@@ -2425,6 +2879,7 @@ function replaceAnimationFile(event, id, p, keep) {
     a.preview = null;
     try { fs.rmSync(path.join(PREV_DIR, a.id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     saveLib(lib);
+    copyFontsForSetting(path.join(ANIM_DIR, a.file), null).catch(() => {});
     return { ok: true, lib: libForUI(), kept, oldCount: oldNodes.length, newCount: newNodes.length };
 }
 
@@ -2860,10 +3315,10 @@ async function seek(event, frame) {
     return await tl.SetCurrentTimecode(frameToTC(frame, meta));
 }
 
-// The panel draws the waveform itself; it only gets bytes of files inside the library's sfx folder.
+// The panel draws the waveform itself; it gets bytes of library or dropped sound files.
 function readSfx(event, p) {
     const full = path.resolve(String(p));
-    if (!full.startsWith(SFX_DIR + path.sep)) throw new Error('Not a library sound');
+    if (!fs.existsSync(full)) throw new Error('Sound file not found: ' + full);
     return fs.readFileSync(full);
 }
 
@@ -3110,6 +3565,7 @@ app.whenReady().then(() => {
     ipcMain.handle('color:cancel', cancelNativeColor);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));
+    ipcMain.handle('app:openFontsFolder', () => shell.openPath(FONTS_DIR));
     ipcMain.handle('app:getVersion', wrap(getAppVersion));
     ipcMain.handle('app:setVersion', wrap(setAppVersion));
     ipcMain.handle('lib:get', wrap(() => ({ lib: libForUI() })));
@@ -3142,6 +3598,10 @@ app.whenReady().then(() => {
     ipcMain.handle('act:seek', wrap(seek));
     ipcMain.handle('sfx:read', wrap(readSfx));
     ipcMain.handle('sfx:saveClip', wrap(saveSfxClip));
+    ipcMain.handle('sfx:saveAttachedClip', wrap(saveAttachedClip));
+    ipcMain.handle('sfx:listOriginals', wrap(listSfxOriginals));
+    ipcMain.handle('sfx:addOriginal', wrap(addSfxOriginal));
+    ipcMain.handle('sfx:removeOriginal', wrap(removeSfxOriginal));
     ipcMain.handle('win:setOnTop', wrap(setOnTop));
     ipcMain.handle('win:setLayoutMode', wrap(setLayoutMode));
     ipcMain.handle('win:fitWidth', wrap(fitWidth));
@@ -3151,6 +3611,7 @@ app.whenReady().then(() => {
     checkResolveAlive();
     resolveWatchTimer = setInterval(checkResolveAlive, 1500);
     setTimeout(() => { bridgeCall('ping', {}, 30000).catch(() => { /* only a warm-up */ }); }, 1200);
+    setTimeout(() => { syncAllPresetFonts(); }, 2000);
 });
 
 app.on('window-all-closed', () => quitPlugin());

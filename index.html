@@ -149,7 +149,10 @@
                 <section>
                     <div class="row between">
                         <span class="label">Your library</span>
-                        <button id="openFolder" class="ghost">Open folder</button>
+                        <div class="row" style="gap:6px">
+                            <button type="button" id="openFontsFolder" class="ghost" title="Open the folder containing all fonts saved with your presets">Fonts</button>
+                            <button type="button" id="openFolder" class="ghost">Open folder</button>
+                        </div>
                     </div>
                     <div id="tagsWrap" class="adjust-wrap tags-wrap">
                         <div class="tags-head">
@@ -230,6 +233,28 @@
                         </div>
                     </div>
                 </section>
+                    </div>
+                </section>
+
+                <section class="lib-sfx-section">
+                    <div id="sfxOrigAccordionWrap" class="adjust-wrap sfx-orig-accordion">
+                        <button type="button" id="sfxOrigAccordionToggle" class="adjust" aria-expanded="false">
+                            <span class="chev">▸</span>
+                            <span class="adj-title">SFX Originals Library</span>
+                            <span id="sfxOrigCount" class="adj-sum"></span>
+                        </button>
+                        <div id="sfxOrigAccordionBody" class="adjust-body hidden">
+                            <div class="sfx-accordion-header">
+                                <span class="hint">Stored original sound effects. Click "Attach" to pair with current text preset, or drop new sounds below.</span>
+                                <div class="sfx-drop-mini drop" id="sfxOrigDrop" title="Drop sound files here to add to originals library">
+                                    <span class="cr-ico sm">♪</span>
+                                    <span><b>Drop sound files</b> or click to store originals</span>
+                                    <button type="button" id="sfxOrigPick" class="ghost sm-btn">Browse…</button>
+                                </div>
+                                <input type="file" id="sfxOrigFileInput" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" multiple style="display:none">
+                            </div>
+                            <div id="sfxOrigList" class="sfx-orig-list"></div>
+                        </div>
                     </div>
                 </section>
             </div>

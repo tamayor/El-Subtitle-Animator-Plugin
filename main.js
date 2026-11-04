@@ -831,6 +831,7 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
     const n = await tl.GetTrackCount(kind);
     const label = (kind === 'audio' ? 'A' : 'V');
     const po = placeOpts(placeIn);
+    if (kind === 'video' && wanted === 1) { notes.push('V1 is never used for Text+ (it would cut the clips), so the top layer was used'); wanted = 0; }
     if (wanted > 0 && wanted <= n) {
         if (await trackIsFree(tl, kind, wanted, s, e)) return wanted;
         notes.push(label + wanted + ' is busy there, so the lowest free track was used');
@@ -903,6 +904,94 @@ async function importSfx(project, sfxPath) {
     return { mp, item: items && items[0] };
 }
 
+
+// InsertFusionTitleIntoTimeline drops the title at the PLAYHEAD as a ripple insert. If the playhead is dragged while
+// it is being parked at the end, the title would cut and push the real clips. So the playhead is checked after it is
+// moved, the insert is refused when it is not at the end, and an insert that still landed early is ripple-deleted.
+async function parkPlayhead(tl, frame, meta) {
+    for (let i = 0; i < 4; i++) {
+        try {
+            await tl.SetCurrentTimecode(frameToTC(frame, meta));
+            await new Promise(r => setTimeout(r, 40));
+            if (tcToFrame(await tl.GetCurrentTimecode(), meta) === frame) return true;
+        } catch (e) { /* retry */ }
+        await new Promise(r => setTimeout(r, 120));
+    }
+    return false;
+}
+async function insertTitleAtEnd(tl, meta, endFrame) {
+    if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the Text+ was being added, so nothing was inserted. Try again.' };
+    const item = await tl.InsertFusionTitleIntoTimeline('Text+');
+    if (item) {
+        let st = endFrame;
+        try { st = await item.GetStart(); } catch (e) { /* ignore */ }
+        if (st < endFrame - 1) {
+            try { await tl.DeleteClips([item], true); } catch (e) { /* ignore */ }       // ripple delete closes the gap it made
+            return { error: 'Resolve put the Text+ at the playhead instead of the end, so it was taken out again. Check the timeline around the playhead and try again.' };
+        }
+    }
+    return { item };
+}
+
+
+// Cut guard: the boundaries of the real clips (V1 and every audio track, Text+ ignored) are noted before and after
+// each step this plugin takes on the timeline. A difference is written to _debug/preview-log.txt and shown as a
+// warning, so any cut the plugin could cause is caught the moment it happens.
+async function cutSnapshot(tl) {
+    const out = [];
+    try {
+        const na = (await tl.GetTrackCount('audio')) || 0;
+        const tracks = [['video', 1]];
+        for (let t = 1; t <= na; t++) tracks.push(['audio', t]);
+        for (const [kind, t] of tracks) {
+            for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
+                try {
+                    const nm = String(await it.GetName());
+                    if (/^Text\+/.test(nm)) continue;
+                    out.push(kind[0] + t + ':' + (await it.GetStart()) + '-' + (await it.GetEnd()));
+                } catch (e) { /* ignore */ }
+            }
+        }
+    } catch (e) { return null; }
+    return out;
+}
+function cutCheck(label, before, after) {
+    if (!before || !after) return null;
+    const b = new Set(before), a = new Set(after);
+    const gone = before.filter(x => !a.has(x)), added = after.filter(x => !b.has(x));
+    // A sound effect this plugin places on purpose is the only expected addition.
+    if (!gone.length && !added.length) return null;
+    dlog('CUTGUARD', label, { removed: gone.slice(0, 20), added: added.slice(0, 20) });
+    return gone.length ? 'Warning: clips on the timeline changed during this step (' + gone.length + ' boundaries moved). Details in _debug/preview-log.txt.' : null;
+}
+
+
+// Moves the freshly inserted title (it sits at the END of V1) to its own track, in two steps. Step 1 changes only the
+// track and keeps the start at the end of the timeline, so no real clip can be cut or pushed even if Resolve refuses
+// the move. Step 2 slides it along that track (an overwrite track that is free there). A title that did not leave V1
+// is deleted, with a ripple delete if it had already pushed clips.
+async function moveTitleSafe(tl, item, track, textStart, endFrame) {
+    const fail = async (msg) => {
+        let st = endFrame;
+        try { st = await item.GetStart(); } catch (e) { /* ignore */ }
+        try { await tl.DeleteClips([item], st < endFrame - 1); } catch (e) { /* the sweep removes it later */ }
+        return { ok: false, error: msg };
+    };
+    if (!(track >= 2)) return await fail('Text+ is never placed on V1 (it would cut your clips).');
+    let ok = false;
+    try { ok = await item.SetPosition({ trackIndex: track, startFrame: endFrame }); } catch (e) { ok = false; }
+    let landed = null;
+    try { landed = await item.GetTrackTypeAndIndex(); } catch (e) { landed = null; }
+    if (!ok || !landed || landed[1] !== track) return await fail('Could not move the title to track V' + track + '. It was taken out again and nothing else was changed.');
+    if (textStart !== endFrame) {
+        try { ok = await item.SetPosition({ trackIndex: track, startFrame: textStart }); } catch (e) { ok = false; }
+        let st = null;
+        try { st = await item.GetStart(); landed = await item.GetTrackTypeAndIndex(); } catch (e) { /* ignore */ }
+        if (!ok || st !== textStart || !landed || landed[1] !== track) return { ok: false, error: 'The title is on V' + track + ' but could not be moved to the subtitle position.', leftOnTrack: true };
+    }
+    return { ok: true };
+}
+
 async function apply(event, req) {
     const warnings = [];
     applying = true;
@@ -919,6 +1008,7 @@ async function apply(event, req) {
         const meta = await timelineMeta(tl);
         const origTC = await tl.GetCurrentTimecode();
         const tlStart = await tl.GetStartFrame();
+        const cutBefore = await cutSnapshot(tl);
 
         // Text+ alignment is the anchor; SFX follows Text+ start + sfxOffset.
         const textStart = Math.max(tlStart, Math.round(req.start + (req.textOffset || 0)));
@@ -926,6 +1016,7 @@ async function apply(event, req) {
         const want = Math.max(5, textEnd - textStart);
 
         const trackNotes = [];
+        if (req.live && liveSession) await liveRemove();      // first, so a leftover preview clip cannot change which layer is picked
         const vTrack = await pickTrack(tl, 'video', req.textTrack || 0, textStart, textStart + want, 2, trackNotes, req.place);
 
         // Prepare SFX before touching the timeline playhead so playhead time at tlEnd is minimal.
@@ -937,7 +1028,8 @@ async function apply(event, req) {
             const sfxName = req.sfx || anim.sfx || lib.defaultSfx;
             if (sfxName) sfxPath = path.join(SFX_DIR, sfxName);
         }
-        if (req.useSfx !== false && sfxPath) {
+        const live = !!req.live;      // Preview in Resolve: no sound yet, the clip stays a temporary one until Apply
+        if (!live && req.useSfx !== false && sfxPath) {
             if (!fs.existsSync(sfxPath)) {
                 warnings.push('The sound effect file is missing.');
             } else {
@@ -955,10 +1047,12 @@ async function apply(event, req) {
         }
 
         // 1. Insert at the very end of the timeline, trim, move to vTrack at textStart, and immediately restore playhead.
+        if (req.live) await liveClearMarks(tl);      // no In/Out while Resolve inserts the title
         const tlEnd = await tl.GetEndFrame();
-        await tl.SetCurrentTimecode(frameToTC(tlEnd, meta));
         await sweepTempClips(tl);
-        const item = await tl.InsertFusionTitleIntoTimeline('Text+');
+        const ins = await insertTitleAtEnd(tl, meta, tlEnd);
+        if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
+        const item = ins.item;
         let insertedId = null;
         try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
         if (!item) {
@@ -969,15 +1063,14 @@ async function apply(event, req) {
             warnings.push('The clip could not be trimmed to the subtitle length (it is ' + (await item.GetDuration()) + ' frames).');
         }
         const finalLen = await item.GetDuration();
-        const moved = await item.SetPosition({ trackIndex: vTrack, startFrame: textStart });
-        await tl.SetCurrentTimecode(origTC);
-        const landed = await item.GetTrackTypeAndIndex();
-        if (!moved || !landed || landed[1] !== vTrack) {
-            try { if (await tl.DeleteClips([item], false)) regDel(insertedId); } catch (e) { /* swept next time */ }
-            throw new Error('Could not move the title to track V' + vTrack + '. It was left at the end of V1 (frame ' + tlEnd + '); delete it and try again.');
+        const mv = await moveTitleSafe(tl, item, vTrack, textStart, tlEnd);
+        try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
+        if (!mv.ok) {
+            if (!mv.leftOnTrack) regDel(insertedId);
+            throw new Error(mv.error);
         }
 
-        regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
+        if (!live) regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
         // 2. Import the animation Fusion comp onto the clip and set the subtitle text.
         const itemId = String(await item.GetUniqueId());
         lastPlacedItemId = itemId;
@@ -1102,13 +1195,256 @@ async function apply(event, req) {
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* the clip is placed; this is only a safety refresh */ }
 
+        if (live) {
+            liveSession = { itemId, compName, compPath, animId: anim.id, origTC };
+            try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
+            await liveSetMarks(tl, item);
+            if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }
+        }
+        { const w = cutCheck(live ? 'apply-live' : 'apply', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
         subCache.at = 0;
-        return { ok: true, videoTrack: vTrack, audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
+        return { ok: true, live, itemId, videoTrack: vTrack, audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };
     } finally {
         applying = false;
     }
+}
+
+
+// ------------------------------------------------------------------ Preview in Resolve (live Text+ on the timeline)
+
+// In/Out on the timeline around the preview clip, so Resolve plays (loops) just that range. The user's own In/Out
+// are remembered once and put back when the preview ends.
+async function liveSetMarks(tl, item) {
+    try {
+        if (liveMarks.saved === undefined) { try { liveMarks.saved = (await tl.GetMarkInOut()) || null; } catch (e) { liveMarks.saved = null; } }
+        // Resolve takes mark frames relative to the start of the timeline. The marks are only ever moved, never cleared.
+        const base = (await tl.GetStartFrame()) || 0;
+        const s = (await item.GetStart()) - base, d = await item.GetDuration();
+        await tl.SetMarkInOut(s, s + Math.max(1, d) - 1, 'all');
+    } catch (e) { /* marks are a convenience */ }
+}
+// Takes the preview's In/Out off the timeline without losing the user's own (remembered once, restored at the end).
+// Used between captions and right before a Text+ is inserted, so a stale In/Out can never influence the insert.
+async function liveClearMarks(tl) {
+    try {
+        if (liveMarks.saved === undefined) { try { liveMarks.saved = (await tl.GetMarkInOut()) || null; } catch (e) { liveMarks.saved = null; } }
+        await tl.ClearMarkInOut('all');
+    } catch (e) { /* marks are a convenience */ }
+}
+// Puts the user's own marks back, type by type. A type that had no marks before is cleared (those are ours).
+async function liveRestoreMarks(tl) {
+    if (liveMarks.saved === undefined) return;
+    const saved = liveMarks.saved;
+    liveMarks.saved = undefined;
+    for (const type of ['video', 'audio']) {
+        try {
+            const v = saved && saved[type];
+            if (v && typeof v.in === 'number' && typeof v.out === 'number' && v.out >= v.in) await tl.SetMarkInOut(v.in, v.out, type);
+            else await tl.ClearMarkInOut(type);
+        } catch (e) { /* ignore */ }
+    }
+}
+
+
+// Resolve's own Loop (Playback > Loop/Unloop, Cmd+/). The menu item is a plain toggle with no check mark, so its state
+// cannot be read: it is clicked once when a preview starts and once more when it ends (undoing only what the preview
+// did). If Loop is already on, say so in the panel and it is left alone. Needs macOS Accessibility permission.
+let loopToggled = false;
+function clickLoopMenu() {
+    return new Promise((resolve) => {
+        if (process.platform !== 'darwin') return resolve({ ok: false, error: 'Only on macOS' });
+        const script = [
+            'tell application "System Events"',
+            '  set p to first process whose name contains "DaVinci Resolve"',
+            '  tell p to click menu item "Loop/Unloop" of menu 1 of menu bar item "Playback" of menu bar 1',
+            'end tell',
+            'return "ok"'
+        ].join('\n');
+        execFile('/usr/bin/osascript', ['-e', script], { timeout: 8000 }, (err) => {
+            if (!err) return resolve({ ok: true });
+            const why = String(err.message || err).split('\n')[0];
+            // fall back to the shortcut Cmd+/ (needs Resolve in front)
+            const key = 'tell application "DaVinci Resolve" to activate\ndelay 0.3\ntell application "System Events" to keystroke "/" using command down';
+            execFile('/usr/bin/osascript', ['-e', key], { timeout: 8000 }, (err2) => {
+                if (err2) return resolve({ ok: false, error: why });
+                resolve({ ok: true, viaKey: true });
+            });
+        });
+    });
+}
+async function loopOn(alreadyOn) {
+    if (alreadyOn || loopToggled) return { ok: true, skipped: true };
+    const r = await clickLoopMenu();
+    if (r.ok) loopToggled = true;
+    return r;
+}
+async function loopRestore() {
+    if (!loopToggled) return { ok: true };
+    loopToggled = false;
+    return await clickLoopMenu();
+}
+
+async function findItemById(tl, id) {
+    const tracks = (await tl.GetTrackCount('video')) || 0;
+    for (let t = 1; t <= tracks; t++) {
+        for (const it of ((await tl.GetItemListInTrack('video', t)) || [])) {
+            try { if (String(await it.GetUniqueId()) === String(id)) return it; } catch (e) { /* ignore */ }
+        }
+    }
+    return null;
+}
+
+function transformProps(req, meta) {
+    const posX = Number(req.posX) || 0, posY = Number(req.posY) || 0;
+    const scale = Math.max(0.1, Math.min(5, Number(req.scale) || 1));
+    let pan = posX, tilt = posY;
+    if (Math.abs(pan) <= 1.0 && Math.abs(tilt) <= 1.0 && (pan !== 0 || tilt !== 0)) {
+        pan = Math.round(pan * meta.width * 100) / 100;
+        tilt = Math.round(-tilt * meta.height * 100) / 100;
+    } else { pan = Math.round(pan * 1000) / 1000; tilt = Math.round(tilt * 1000) / 1000; }
+    const zoom = Math.round(scale * 1000) / 1000;
+    return { TransformEnabled: true, Pan: pan, Tilt: tilt, ZoomGang: true, ZoomX: zoom, ZoomY: zoom, RotationAngle: Math.round((Number(req.rotation) || 0) * 1000) / 1000 };
+}
+
+// Re-applies text, Text Design, boxes, transform and timing from the panel onto the live clip.
+async function liveUpdate(event, req) {
+    if (!liveSession) return { ok: false, error: 'No Resolve preview is running', gone: true };
+    if (applying) return { ok: false, busy: true };
+    applying = true;
+    try {
+        const lib = loadLib();
+        const anim = lib.animations.find(a => a.id === liveSession.animId);
+        if (!anim) throw new Error('Preset not found');
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (!tl) throw new Error('Open a timeline in Resolve');
+        const item = await findItemById(tl, liveSession.itemId);
+        if (!item) { liveSession = null; return { ok: false, gone: true, error: 'The preview clip is no longer on the timeline' }; }
+        const meta = await timelineMeta(tl);
+        const tlStart = await tl.GetStartFrame();
+        const textStart = Math.max(tlStart, Math.round(req.start + (req.textOffset || 0)));
+        const want = Math.max(5, Math.round(req.end + (req.tail || 0)) - textStart);
+        const warnings = [];
+        const cutBefore = await cutSnapshot(tl);
+        const ti = await item.GetTrackTypeAndIndex();
+        let track = ti ? ti[1] : 1;
+        if (req.textTrack > 0 && req.textTrack !== track) {
+            const ok = req.textTrack >= 2 && await trackUsable(tl, 'video', req.textTrack) && req.textTrack <= (await tl.GetTrackCount('video'));
+            if (ok) track = req.textTrack; else warnings.push('V' + req.textTrack + ' is locked or disabled, so the clip stayed where it is.');
+        }
+        if ((await item.GetDuration()) !== want) await fitDuration(item, want);
+        if (track >= 2 && ((await item.GetStart()) !== textStart || (ti && ti[1] !== track))) await item.SetPosition({ trackIndex: track, startFrame: textStart });
+        const compPath = liveSession.compPath, compName = liveSession.compName, itemId = liveSession.itemId;
+        const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null);
+        const text = String(req.text || '').trim() || SAMPLE_TEXTS[0];
+        try {
+            if (Array.isArray(req.boxList) && req.boxList.length) {
+                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign });
+            } else {
+                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign });
+            }
+        } catch (e) { warnings.push('Could not set the text: ' + e.message); }
+        try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
+        try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ }
+        await liveSetMarks(tl, item);
+        { const w = cutCheck('live-update', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
+        return { ok: true, warnings, start: textStart, frames: want, track };
+    } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+    } finally { applying = false; }
+}
+
+// Removes the preview clip again and puts the playhead back.
+async function liveRemove(keepMarks) {
+    const s = liveSession;
+    liveSession = null;
+    if (!s && keepMarks) return { ok: true };
+    try {
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (tl && !keepMarks) await liveRestoreMarks(tl);
+        else if (tl && keepMarks) await liveClearMarks(tl);       // the clip is gone: its In/Out must not stay behind on the old caption
+        if (tl && s) {
+            const item = await findItemById(tl, s.itemId);
+            const cutBefore = await cutSnapshot(tl);
+            if (item) { const ok = await tl.DeleteClips([item], false); if (ok) regDel(s.itemId); }
+            else regDel(s.itemId);
+            cutCheck('live-remove', cutBefore, await cutSnapshot(tl));
+        }
+    } catch (e) { /* the registry sweep removes it next time */ }
+    subCache.at = 0;
+    return { ok: true };
+}
+
+// Apply: keeps the clip (it is no longer temporary) and adds the sound after it, like "Add to timeline".
+async function liveFinish(event, req) {
+    if (!liveSession) return { ok: false, error: 'No Resolve preview is running' };
+    if (applying) return { ok: false, error: 'Resolve is busy. Try again in a moment.' };
+    const s = liveSession;
+    applying = true;
+    const warnings = [];
+    try {
+        const lib = loadLib();
+        const anim = lib.animations.find(a => a.id === s.animId) || {};
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (!tl) throw new Error('Open a timeline in Resolve');
+        const item = await findItemById(tl, s.itemId);
+        if (!item) { liveSession = null; throw new Error('The preview clip is no longer on the timeline'); }
+        const meta = await timelineMeta(tl);
+        const tlStart = await tl.GetStartFrame();
+        regDel(s.itemId);
+        liveSession = null;
+        try { await item.ClearClipColor(); } catch (e) { /* ignore */ }
+        await liveRestoreMarks(tl);
+        const textStart = await item.GetStart();
+        const itemId = String(s.itemId);
+        lastPlacedItemId = itemId;
+        let sfxPath = null;
+        if (req.sfxPath && fs.existsSync(req.sfxPath)) sfxPath = req.sfxPath;
+        else { const n = req.sfx || anim.sfx || lib.defaultSfx; if (n) sfxPath = path.join(SFX_DIR, n); }
+        let sfxTrack = null, clipsLinked = false;
+        const trackNotes = [];
+        if (req.useSfx !== false && sfxPath) {
+            if (!fs.existsSync(sfxPath)) warnings.push('The sound effect file is missing.');
+            else {
+                const { mp, item: mpi } = await importSfx(project, sfxPath);
+                if (!mpi) warnings.push('Resolve could not import the sound effect.');
+                else {
+                    const sfxFrames = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+                    const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
+                    sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + sfxFrames, 1, trackNotes);
+                    const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: sfxTrack, recordFrame: sfxStart, startFrame: 0, endFrame: sfxFrames }]);
+                    if (!placed || !placed.length) warnings.push('The sound effect could not be placed.');
+                    else {
+                        const sfxItem = placed[0];
+                        const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+                        try { await sfxItem.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { warnings.push('Could not set sound volume: ' + e.message); }
+                        const sfxId = String(await sfxItem.GetUniqueId());
+                        lastPlacedAudioId = sfxId;
+                        const wantLink = req.linked !== false;
+                        try {
+                            let ok = false;
+                            if (typeof tl.SetClipsLinked === 'function') ok = await tl.SetClipsLinked([item, sfxItem], wantLink);
+                            if (!ok) ok = await bridgeCall('link_clips', { videoId: itemId, audioId: sfxId, linked: wantLink, volume: vol });
+                            clipsLinked = !!(wantLink && ok);
+                        } catch (e) { warnings.push('Could not link text and sound clips: ' + e.message); }
+                    }
+                }
+            }
+        }
+        // remember the transform / link choice on the preset, like Add to timeline does
+        try {
+            const a2 = lib.animations.find(a => a.id === s.animId);
+            if (a2) { a2.posX = Number(req.posX) || 0; a2.posY = Number(req.posY) || 0; a2.scale = Math.max(0.1, Math.min(5, Number(req.scale) || 1)); a2.rotation = Number(req.rotation) || 0; a2.linked = req.linked !== false; saveLib(lib); }
+        } catch (e) { /* ignore */ }
+        subCache.at = 0;
+        return { ok: true, videoTrack: ((await item.GetTrackTypeAndIndex()) || [0, 0])[1], audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: await item.GetDuration(), warnings, trackNotes };
+    } catch (e) {
+        return { ok: false, error: String(e && e.message || e), warnings };
+    } finally { applying = false; }
 }
 
 // ------------------------------------------------------------------ library actions
@@ -1853,6 +2189,8 @@ async function removePreviewLeftovers(tl, endBefore, itemId) {
 // Ids of the temporary Text+ clips this app has put on the timeline. They are written to disk the moment a clip is
 // inserted and forgotten only once it is deleted, so a clip left behind by a crash, a quit, a cancelled render or a
 // failed "Add to timeline" is found and removed by the next sweep (start of every preview / apply).
+let liveMarks = { saved: undefined };      // the timeline's own In/Out before the preview touched them
+let liveSession = null;      // the Text+ clip of a running "Preview in Resolve": {itemId, compName, compPath, animId, origTC}
 const CLIP_REG = path.join(DATA_DIR, 'temp-clips.json');
 function regRead() { try { const a = JSON.parse(fs.readFileSync(CLIP_REG, 'utf8')); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } }
 function regWrite(a) { try { fs.writeFileSync(CLIP_REG, JSON.stringify(a)); } catch (e) { /* best effort */ } }
@@ -1860,6 +2198,7 @@ function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(Stri
 function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id))); }
 async function sweepTempClips(tl) {
     const ids = new Set(regRead());
+    if (liveSession) ids.delete(String(liveSession.itemId));      // the clip of a running Resolve preview stays
     if (!ids.size || !tl) return;
     try {
         const stray = [], seen = new Set();
@@ -1900,8 +2239,9 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         await sweepTempClips(tl);
         origTC = await tl.GetCurrentTimecode();
         endBefore = await tl.GetEndFrame();
-        await tl.SetCurrentTimecode(frameToTC(endBefore, meta));
-        item = await tl.InsertFusionTitleIntoTimeline('Text+');
+        const ins = await insertTitleAtEnd(tl, meta, endBefore);
+        if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
+        item = ins.item;
         try { if (item) { itemId = String(await item.GetUniqueId()); regAdd(itemId); } } catch (e) { /* ignore */ }
         // The playhead is only needed for the insert itself: put it straight back, so it is away for a split second
         // instead of for the whole render (the frames are exported from the clip, not from the playhead).
@@ -2255,6 +2595,7 @@ let mainWindow = null;
 let resolveWatchTimer = null;
 
 function cleanup() {
+    try { if (liveSession) liveRemove(); } catch (e) { /* the sweep removes it next time */ }
     if (resolveWatchTimer) { clearInterval(resolveWatchTimer); resolveWatchTimer = null; }
     try { if (bridge) bridge.kill(); } catch (e) { /* ignore */ }
     try { WorkflowIntegration.CleanUp(); } catch (e) { /* ignore */ }
@@ -2354,6 +2695,12 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:makePreview', wrap(makePreview));
     ipcMain.handle('lib:previewData', wrap(previewData));
     ipcMain.handle('act:apply', apply);
+    ipcMain.handle('live:update', liveUpdate);
+    ipcMain.handle('live:remove', () => liveRemove(false));
+    ipcMain.handle('live:drop', () => liveRemove(true));
+    ipcMain.handle('live:loopOn', (e, already) => loopOn(!!already));
+    ipcMain.handle('live:loopRestore', () => loopRestore());
+    ipcMain.handle('live:finish', liveFinish);
     ipcMain.handle('act:updateLatest', wrap(updateLatest));
     ipcMain.handle('act:syncLiveTransform', wrap(syncLiveTransform));
     ipcMain.handle('act:seek', wrap(seek));

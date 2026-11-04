@@ -209,10 +209,25 @@
         g.beginPath();
         g.rect(-vp.vw / 2, -vp.vh / 2, vp.vw, vp.vh);
         g.clip();
-        g.drawImage(fr, -vp.vw / 2 + ox * vp.vw, -vp.vh / 2 + oy * vp.vh, vp.vw, vp.vh);
+        // A new render fades in over the old one (about 0.2 s) instead of cutting.
+        const sid = (g.canvas && g.canvas.id) || 'stage';
+        const stamp = a.preview ? (a.id + ':' + a.preview.stamp) : '';
+        let f = fades[sid];
+        if (!f) f = fades[sid] = { stamp, last: null, prev: null, t0: 0 };
+        if (f.stamp !== stamp) { f.prev = f.last; f.t0 = performance.now(); f.stamp = stamp; }
+        const dx = -vp.vw / 2 + ox * vp.vw, dy = -vp.vh / 2 + oy * vp.vh;
+        const k = f.prev ? Math.min(1, (performance.now() - f.t0) / 200) : 1;
+        if (k < 1) {
+            try { g.globalAlpha = 1 - k; g.drawImage(f.prev, dx, dy, vp.vw, vp.vh); } catch (e) { f.prev = null; }
+            g.globalAlpha = k;
+        } else f.prev = null;
+        g.drawImage(fr, dx, dy, vp.vw, vp.vh);
+        g.globalAlpha = 1;
+        f.last = fr;
         g.restore();
         return true;
     }
+    const fades = {};
 
     function makeBox(S, n, i) {
         const col = COLORS[i % COLORS.length];
@@ -245,6 +260,14 @@
                     }));
                 } catch (err) { /* ignore */ }
             }
+        });
+        // Hovering a box still shows the group's handles and cursors (the canvas under it does the hit-testing).
+        el.addEventListener('pointermove', (e) => {
+            if (state.stageDrag) return;
+            const cv = q('stage' + S);
+            if (!cv) return;
+            try { cv.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, pointerType: e.pointerType })); } catch (err) { /* ignore */ }
+            el.style.cursor = (cv.style.cursor && cv.style.cursor !== 'default') ? cv.style.cursor : 'grab';
         });
         return el;
     }
@@ -665,23 +688,77 @@
         if (!e) {
             e = { imgs: null };
             dataCache.set(key, e);
+            trimCache(key);
             if (a.previewFiles && a.previewFiles.length) {
-                e.imgs = a.previewFiles.map((p) => {
-                    const i = new Image();
-                    i._bg = a.preview.bg || 'black';
-                    i.src = (typeof fileUrl === 'function' ? fileUrl(p) : ('file://' + p)) + '?v=' + (a.preview.stamp || 0);
-                    return i;
+                // Held frames (Stop Motion, still tails) point at the frame they hold: each distinct picture is
+                // loaded and keyed once, however many frames show it.
+                const map = (Array.isArray(a.preview.map) && a.preview.map.length === a.previewFiles.length) ? a.preview.map : null;
+                const whites = (a.preview.matte && Array.isArray(a.previewWhite) && a.previewWhite.length === a.previewFiles.length) ? a.previewWhite : null;
+                const url = (p) => (typeof fileUrl === 'function' ? fileUrl(p) : ('file://' + p)) + '?v=' + (a.preview.stamp || 0);
+                const byIdx = new Map();
+                e.imgs = a.previewFiles.map((p, i) => {
+                    const k = map ? map[i] : i;
+                    if (byIdx.has(k)) return byIdx.get(k);
+                    const im = new Image();
+                    im._bg = whites ? 'black' : (a.preview.bg || 'black');
+                    im.src = url(a.previewFiles[k] || p);
+                    if (whites) { const wi = new Image(); wi.src = url(whites[i]); im._white = wi; }
+                    byIdx.set(k, im);
+                    return im;
                 });
+                e.imgs._cardBg = a.preview.bg || 'black';
+                prepare(e.imgs, Array.from(byIdx.values()));
             } else if (window.sa && window.sa.previewData) {
                 window.sa.previewData(a.id).then((r) => {
-                    if (r && r.frames && r.frames.length) e.imgs = r.frames.map((b64) => { const i = new Image(); i.src = 'data:image/png;base64,' + b64; return i; });
+                    if (r && r.frames && r.frames.length) {
+                        const list = r.frames.map((b64) => { const i = new Image(); i.src = 'data:image/png;base64,' + b64; return i; });
+                        prepare(list, list);
+                        e.imgs = list;
+                    }
                 }).catch(() => { dataCache.delete(key); });
             }
         }
         return e.imgs;
     }
 
-    function framesReady(imgs) { return imgs && imgs.length && imgs.every(i => i.complete && i.naturalWidth); }
+    // Keeps the last few renders in memory; older ones release their keyed images.
+    function trimCache(keep) {
+        const MAX = 10;
+        if (dataCache.size <= MAX) return;
+        for (const [k, v] of dataCache) {
+            if (dataCache.size <= MAX) break;
+            if (k === keep) continue;
+            dataCache.delete(k);
+            if (v && v.imgs) for (const im of (v.imgs._unique || v.imgs)) { try { if (im._keyed && im._keyed.close) im._keyed.close(); } catch (e) { /* ignore */ } im._keyed = null; }
+        }
+    }
+
+    // Loads every distinct frame, keys it on a worker, and only then marks the set ready, so a new render replaces
+    // the old one in a single step (the old one keeps playing until then).
+    function prepare(list, unique) {
+        list._unique = unique;
+        list._ready = false;
+        const loaded = (im) => (im.decode ? im.decode() : new Promise((res, rej) => { im.onload = res; im.onerror = rej; })).catch(() => null);
+        Promise.all(unique.map(im => Promise.all([loaded(im), im._white ? loaded(im._white) : null]))).then(async () => {
+            const useWorkers = typeof SAKey !== 'undefined' && SAKey.available();
+            if (useWorkers) {
+                await Promise.all(unique.map(async (im) => {
+                    if (!im.naturalWidth) return;
+                    const white = (im._white && im._white.naturalWidth) ? im._white : null;
+                    const r = await SAKey.key(im, white, im._bg);
+                    if (r) { r.bitmap._bounds = r.bounds; im._keyed = r.bitmap; im._kbounds = r.bounds; }
+                }));
+            }
+            list._ready = true;
+            if (typeof redrawStages === 'function') redrawStages();
+        });
+    }
+
+    function framesReady(imgs) {
+        if (!imgs || !imgs.length) return false;
+        if (imgs._ready === false) return false;
+        return (imgs._unique || imgs).every(i => i.complete && i.naturalWidth);
+    }
 
     // Scan captured frames (sampled across the animation for speed) to compute the text bounding box.
     function geometry(a, imgs) {
@@ -741,12 +818,13 @@
         const idx = frameIndex(view, imgs, t);
         const c = cv.getContext('2d');
         // Dark text is rendered on white (see previewBackground in main.js), so its card is white too.
-        c.fillStyle = imgs[idx]._bg === 'white' ? '#ffffff' : '#000';
+        c.fillStyle = (imgs._cardBg || imgs[idx]._bg) === 'white' ? '#ffffff' : '#000';
         c.fillRect(0, 0, cv.width, cv.height);
         const scale = Math.min((cv.width - 14) / g.rw, (cv.height - 10) / g.rh, 3);
         const dw = g.rw * scale, dh = g.rh * scale;
         c.imageSmoothingQuality = 'high';
-        c.drawImage(imgs[idx], g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+        const src = imgs[idx]._keyed || imgs[idx];
+        c.drawImage(src, g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
     }
 
     function frameIndex(a, imgs, t) {
@@ -1207,7 +1285,9 @@
         document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
     }
 
-    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames, drawAll, wrapToLines, markBusy, isBusy, renderOverlay };
+    // True once this view's frames are loaded and keyed (starts loading them if needed).
+    function ready(a) { return !!(a && a.preview && framesReady(frames(a))); }
+    window.SAThumbs = { thumb, syncHeader, render, bounds, keyedFrame, isBlank, hasRealFrames, drawAll, wrapToLines, markBusy, isBusy, renderOverlay, ready };
     requestAnimationFrame(loop);
 })();
 

@@ -148,6 +148,8 @@ function parseAnimSpec(raw, tpChunk) {
 
     const frMatch = /\bframeRepeat\s*=\s*Input\s*\{\s*Value\s*=\s*(\d+)/.exec(raw);
     if (frMatch) spec.frameRepeat = Math.max(1, parseInt(frMatch[1], 10));
+    const frvMatch = /\bframeRepeatVar\s*=\s*Input\s*\{\s*Value\s*=\s*([\d.]+)/.exec(raw);
+    if (frvMatch) spec.frameRepeatVar = parseFloat(frvMatch[1]);
 
     if (/\b(?:Displace|NoiseDistortion)\b/.test(raw)) {
         const fnIdx = raw.indexOf('= FastNoise');
@@ -339,6 +341,25 @@ function parseTextStyle(filePath, savedDesign, toolName) {
                 if (al !== null) el.alpha = al;
                 const ty = num('Type' + i);
                 el.type = ty !== null ? Math.round(ty) : (el.type !== undefined ? el.type : 0);
+                // Gradient stops: ShadingGradientN = Input { Value = Gradient { Colors = { [0] = { r, g, b, a }, ... } } }
+                const gIdx = chunk.search(new RegExp('\\bShadingGradient' + i + '\\s*=\\s*Input'));
+                if (gIdx >= 0) {
+                    const gb = extractBraceBlock(chunk, gIdx);
+                    const stops = [];
+                    const sre = /\[\s*([\d.\-]+)\s*\]\s*=\s*\{\s*([\d.\-e]+)\s*,\s*([\d.\-e]+)\s*,\s*([\d.\-e]+)/g;
+                    let sm;
+                    while ((sm = sre.exec(gb)) !== null) stops.push([parseFloat(sm[1]), parseFloat(sm[2]), parseFloat(sm[3]), parseFloat(sm[4])]);
+                    if (stops.length) {
+                        stops.sort((p, q) => p[0] - q[0]);
+                        const f0 = stops[0], f1 = stops[stops.length - 1];
+                        if (el.type === 2) el.color = rgbToHex(f0[1], f0[2], f0[3]);
+                        el.color2 = rgbToHex(f1[1], f1[2], f1[3]);
+                    }
+                }
+                for (const [key, fld, int] of [['MappingAngle', 'mappingAngle', false], ['MappingSize', 'mappingSize', false], ['MappingAspect', 'mappingAspect', false], ['MappingLevel', 'mappingLevel', true]]) {
+                    const v = num(key + i);
+                    if (v !== null) el[fld] = int ? Math.round(v) : v;
+                }
                 const sh = num('ElementShape' + i);
                 if (sh !== null) el.shape = Math.round(sh);
                 const th = num('Thickness' + i);
@@ -521,6 +542,14 @@ function designForFusion(compPath, wanted, toolName) {
                     : String(el[k]).toLowerCase() === String(b[k]).toLowerCase();
                 if (!same) diff[k] = el[k];
             }
+            // A gradient is sent whole (type + both colours), so changing one stop or switching to Gradient
+            // always gives exactly the gradient shown in the panel.
+            const effType = Number(el.type !== undefined ? el.type : b.type) || 0;
+            if (effType === 2 && (diff.type !== undefined || diff.color !== undefined || diff.color2 !== undefined)) {
+                diff.type = 2;
+                diff.color = el.color || b.color || '#ffffff';
+                diff.color2 = el.color2 || b.color2 || '#ffffff';
+            }
             if (Object.keys(diff).length > 2) els.push(diff);
         }
     }
@@ -581,7 +610,8 @@ function libForUI() {
                 nodes: exists ? nodesWithDesign(animPath) : [],
                 textDesign,
                 textStyle: textDesign,
-                previewFiles: a.preview ? Array.from({ length: a.preview.count }, (_, i) => path.join(PREV_DIR, a.id, 'p' + String(i).padStart(2, '0') + '.png')) : [],
+                previewFiles: a.preview ? frameList(path.join(PREV_DIR, a.id), 'p', a.preview) : [],
+                previewWhite: (a.preview && a.preview.matte) ? frameList(path.join(PREV_DIR, a.id), 'w', a.preview) : null,
                 sfxPath: a.sfx ? path.join(SFX_DIR, a.sfx) : null
             });
         })
@@ -1014,9 +1044,21 @@ function wrap(fn) {
 
 // Grabs real 25fps or 30fps frames from a clip on the timeline so the panel can preview the animation in a 3-second loop.
 // text: the exact text the frames were rendered with ('' = sample text, null = whatever the captured clip held).
-let previewBgNext = null;   // background the next captured preview was rendered on ('black' | 'white')
+let previewBgNext = null;
+let lastCaptureStats = null;   // background the next captured preview was rendered on ('black' | 'white')
 // tempDir: write the frames there and leave the preset's saved preview untouched (Use tab one-time overrides).
-async function capturePreview(animId, itemId, text, designKey, tempDir) {
+const CANCEL_FLAG = path.join(os.tmpdir(), 'sa-preview-cancel-' + process.pid);
+function clearCancel() { try { fs.rmSync(CANCEL_FLAG, { force: true }); } catch (e) { /* ignore */ } }
+function frameList(dir, prefix, info) {
+    const n = info.count;
+    const map = Array.isArray(info.map) && info.map.length === n ? info.map : null;
+    return Array.from({ length: n }, (_, i) => path.join(dir, prefix + String(map && prefix === 'w' ? map[i] : i).padStart(2, '0') + '.png'));
+}
+
+// opts: { maxDim, hold, matteBg } - maxDim is the viewer's real pixel size (no point rendering more than the screen
+// shows), hold is the preset's Stop Motion frame repeat, matteBg the preview background node used for the white pass.
+async function capturePreview(animId, itemId, text, designKey, tempDir, opts) {
+    opts = opts || {};
     const project = await getProject();
     const tl = project && await project.GetCurrentTimeline();
     const meta = tl ? await timelineMeta(tl) : { fps: 25 };
@@ -1028,17 +1070,25 @@ async function capturePreview(animId, itemId, text, designKey, tempDir) {
     // Viewer previews are taken at the timeline's own resolution (1:1 with what Resolve renders); the small
     // background card renders stay light.
     const fullDim = Math.max(meta.width || 1920, meta.height || 1080);
-    const maxDim = (tempDir && /__sub$/.test(tempDir)) ? 400 : fullDim;
-    const res = await bridgeCall('capture', { item: itemId, count: targetCount, step: 1, maxDim, outDir: dir }, 240000);
+    const want = Number(opts.maxDim) > 0 ? Math.round(Number(opts.maxDim)) : Math.min(fullDim, 1440);
+    const maxDim = (tempDir && /__sub$/.test(tempDir)) ? 400 : Math.max(480, Math.min(fullDim, want));
+    const t0 = Date.now();
+    const res = await bridgeCall('capture', {
+        item: itemId, comp: opts.comp || null, count: targetCount, step: 1, maxDim, outDir: dir,
+        unique: true, hold: Number(opts.hold) || 1, matteBg: opts.matteBg || null, cancelPath: CANCEL_FLAG
+    }, 240000);
+    lastCaptureStats = { ms: Date.now() - t0, maxDim, unique: res && res.unique, matte: !!(res && res.matte), hold: Number(opts.hold) || 1 };
     const count = (res && typeof res.count === 'number') ? res.count : ((res && res.frames) ? res.frames.length : 0);
     if (!count) throw new Error('No frames came back');
     if (res && res.frames && res.frames.length) {
         res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
     }
     const info = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null, bg: previewBgNext || 'black' };
+    if (res && Array.isArray(res.map) && res.map.length === count) info.map = res.map;
+    if (res && res.matte) info.matte = true;      // p = on black, w = on white: the panel works out the real alpha
     previewBgNext = null;
     if (tempDir) {
-        return { preview: info, previewFiles: Array.from({ length: count }, (_, i) => path.join(dir, 'p' + String(i).padStart(2, '0') + '.png')) };
+        return { preview: info, previewFiles: frameList(dir, 'p', info), previewWhite: info.matte ? frameList(dir, 'w', info) : null };
     }
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === animId);
@@ -1537,26 +1587,39 @@ function frameStats(files) {
     return { frames: hashes.length, unique: new Set(hashes).size, runs: runs.map(r => r[0] + 'x' + r[1]).join(' ') };
 }
 
-async function makePreview(event, animId, customText, design, designKey, temp, boxList) {
+async function makePreview(event, animId, customText, design, designKey, temp, boxList, opts) {
     const t0 = Date.now();
-    const r = await makePreviewInner(event, animId, customText, design, designKey, temp, boxList);
-    try {
-        const lib = loadLib();
-        const a = lib.animations.find(x => x.id === animId);
-        const files = (r && r.temp && r.temp.previewFiles) || (a && a.preview ? Array.from({ length: a.preview.count }, (_, i) => path.join(PREV_DIR, animId, 'p' + String(i).padStart(2, '0') + '.png')) : []);
-        const compPath = a ? path.join(ANIM_DIR, a.file) : null;
-        dlog('makePreview', { id: animId, name: a && a.name, temp: !!temp, text: customText || null, ms: Date.now() - t0, error: r && r.error,
-            sent: compPath ? designForFusion(compPath, (design && typeof design === 'object') ? design : (a.textDesign || null)) : null,
-            stats: r && !r.error ? frameStats(files) : null });
-    } catch (e) { dlog('makePreview log failed', String(e)); }
+    // A change you just made wins over a render that is still running: that render stops between two frames and
+    // the panel asks again a moment later. Background card renders never cancel anything.
+    if (applying && temp !== 'sub' && previewRunning && (previewRunning.temp === 'sub' || previewRunning.id === animId)) {
+        try { fs.writeFileSync(CANCEL_FLAG, '1'); } catch (e) { /* ignore */ }
+    }
+    if (!applying) previewRunning = { id: animId, temp };
+    const r = await makePreviewInner(event, animId, customText, design, designKey, temp, boxList, opts);
+    if (r && !/busy/i.test(String(r.error || ''))) previewRunning = null;
+    const ms = Date.now() - t0, cap = lastCaptureStats;
+    // The log is written after the answer goes back, so it never slows the preview down.
+    setTimeout(() => {
+        try {
+            const lib = loadLib();
+            const a = lib.animations.find(x => x.id === animId);
+            const compPath = a ? path.join(ANIM_DIR, a.file) : null;
+            dlog('makePreview', { id: animId, name: a && a.name, temp: temp || false, text: customText || null, ms, error: r && r.error, capture: cap,
+                boxes: Array.isArray(boxList) ? boxList.map(b => ({ id: b.id, text: b.text, design: b.design ? designForFusion(compPath, b.design, b.tool) : null })) : null,
+                sent: compPath ? designForFusion(compPath, (design && typeof design === 'object') ? design : (a.textDesign || null)) : null });
+        } catch (e) { dlog('makePreview log failed', String(e)); }
+    }, 50);
     return r;
 }
 
 // Preview frames come back from Resolve on black. Text that is (nearly) all dark - e.g. black words with no bright
 // outline - would vanish into that black and look like an empty, frozen render, so it is rendered on white instead.
-function previewBackground(compPath, design) {
+function previewBackground(compPath, design, boxList) {
     try {
         const td = parseTextStyle(compPath, design || null);
+        for (const b of (Array.isArray(boxList) ? boxList : [])) {
+            if (b && b.design && Array.isArray(b.design.elements)) td.elements = td.elements.concat(b.design.elements);
+        }
         const lum = (hex) => {
             const h = String(hex || '#ffffff').replace('#', '');
             const c = (k) => parseInt(h.substr(k * 2, 2), 16) / 255;
@@ -1564,13 +1627,16 @@ function previewBackground(compPath, design) {
         };
         const shown = td.elements.filter(e => e && e.enabled && Number(e.opacity ?? 1) > 0.05 && e.alpha !== 0);
         if (!shown.length) return 'black';
-        return shown.some(e => lum(e.color) > 0.3) ? 'black' : 'white';
+        return shown.some(e => lum(e.color) > 0.3 || (Number(e.type) === 2 && lum(e.color2) > 0.3)) ? 'black' : 'white';
     } catch (e) { return 'black'; }
 }
 
-async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList) {
+let previewRunning = null;
+async function makePreviewInner(event, animId, customText, design, designKey, temp, boxList, opts) {
     if (applying) return { error: 'Resolve is busy. Try again in a moment.' };
     applying = true;
+    clearCancel();
+    lastCaptureStats = null;
     let tl = null, item = null, origTC = null, leftover = false;
     try {
         const lib = loadLib();
@@ -1636,20 +1702,29 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         try {
             await bridgeCall('refresh', { item: itemId, comp: compName });
         } catch (e) { /* only a safety refresh */ }
-        let bg = previewBackground(compPath, (design && typeof design === 'object') ? design : (anim.textDesign || null));
-        if (bg === 'white') {
+        // Every preview is rendered on black and then on white. Together they give each pixel's real colour and
+        // transparency, so dark text, light text, gradients and soft shadows all show exactly, whatever their colour.
+        // The black/white choice below is only the backdrop of the small preset cards.
+        let bg = previewBackground(compPath, (design && typeof design === 'object') ? design : (anim.textDesign || null), boxList);
+        let matteBg = null;
+        try { const r = await bridgeCall('preview_bg', { item: itemId, comp: compName, color: [0, 0, 0] }); if (r && r.ok && r.bg) matteBg = r.bg; } catch (e) { matteBg = null; }
+        if (!matteBg && bg === 'white') {
             try { const r = await bridgeCall('preview_bg', { item: itemId, comp: compName, color: [1, 1, 1] }); if (!r || !r.ok) bg = 'black'; } catch (e) { bg = 'black'; }
         }
-        previewBgNext = bg;
+        previewBgNext = matteBg ? bg : bg;
+        const spec = parseTextStyle(compPath, null).animSpec || {};
+        const copts = { comp: compName, matteBg, maxDim: opts && opts.maxDim, hold: spec.frameRepeatVar ? 1 : (spec.frameRepeat || 1) };
         if (temp) {
-            const t = await capturePreview(animId, itemId, sampleText || '', designKey, path.join(PREV_DIR, animId + (temp === 'sub' ? '__sub' : '__use')));
+            const t = await capturePreview(animId, itemId, sampleText || '', designKey, path.join(PREV_DIR, animId + (temp === 'sub' ? '__sub' : '__use')), copts);
             return { ok: true, temp: t };
         }
-        await capturePreview(animId, itemId, sampleText || '', designKey);
+        await capturePreview(animId, itemId, sampleText || '', designKey, null, copts);
         return { ok: true, lib: libForUI() };
     } catch (e) {
-        return { error: String(e && e.message || e) };
+        const msg = String(e && e.message || e);
+        return { error: /cancelled/i.test(msg) ? 'Resolve is busy (replaced by a newer change).' : msg };
     } finally {
+        clearCancel();
         try { if (item) { const ok = await tl.DeleteClips([item], false); if (!ok) leftover = true; } } catch (e) { leftover = true; }
         try { if (tl && origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
         applying = false;

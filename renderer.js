@@ -1107,11 +1107,110 @@ function previewImages(a) {
     const key = a.id + ':' + a.preview.count + ':' + (a.preview.stamp || 0);
     let list = imgCache.get(key);
     if (!list) {
-        list = a.previewFiles.map(p => { const i = new Image(); i._bg = a.preview.bg || 'black'; i.src = fileUrl(p) + '?v=' + (a.preview.stamp || 0); return i; });
+        // Held frames share one image (each distinct picture is decoded once). Matte renders are on black.
+        const map = (Array.isArray(a.preview.map) && a.preview.map.length === a.previewFiles.length) ? a.preview.map : null;
+        const one = new Map();
+        list = a.previewFiles.map((p, n) => {
+            const k = map ? map[n] : n;
+            if (one.has(k)) return one.get(k);
+            const i = new Image(); i._bg = a.preview.matte ? 'black' : (a.preview.bg || 'black');
+            i.src = fileUrl(a.previewFiles[k] || p) + '?v=' + (a.preview.stamp || 0);
+            one.set(k, i);
+            return i;
+        });
         imgCache.set(key, list);
+        while (imgCache.size > 12) imgCache.delete(imgCache.keys().next().value);   // old renders are let go
     }
     return list;
 }
+
+// Background keying: preview frames are turned into transparent images on worker threads (one per spare CPU core),
+// never on the panel's own thread, so playback and dragging stay smooth while a new render comes in.
+// Frames rendered on black AND white (preview.matte) get their exact colour and transparency:
+//   on black  B = a*C,   on white  W = a*C + (1-a)*255   ->   a = 1 - (W-B)/255,  C = B/a
+// which is right for any colour, gradient, soft shadow or semi-transparent element. Older single-pass frames
+// fall back to keying out the background colour they were rendered on.
+const SAKey = (() => {
+    const code = `
+self.onmessage = (ev) => {
+    const { id, b, w, bg } = ev.data;
+    try {
+        const W = b.width, H = b.height;
+        const c = new OffscreenCanvas(W, H);
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.drawImage(b, 0, 0);
+        const img = g.getImageData(0, 0, W, H);
+        const d = img.data;
+        let wd = null;
+        if (w) { g.clearRect(0, 0, W, H); g.drawImage(w, 0, 0, W, H); wd = g.getImageData(0, 0, W, H).data; }
+        const white = bg === 'white';
+        let minX = W, minY = H, maxX = -1, maxY = -1, x = 0, y = 0;
+        for (let p = 0; p < d.length; p += 4) {
+            let a;
+            if (wd) {
+                const diff = ((wd[p] - d[p]) + (wd[p + 1] - d[p + 1]) + (wd[p + 2] - d[p + 2])) / 3;
+                a = 255 - diff;
+                if (a < 3) { d[p] = d[p + 1] = d[p + 2] = 0; d[p + 3] = 0; a = 0; }
+                else {
+                    if (a > 255) a = 255;
+                    const k = 255 / a;
+                    let r = d[p] * k, gg = d[p + 1] * k, bb = d[p + 2] * k;
+                    d[p] = r > 255 ? 255 : r; d[p + 1] = gg > 255 ? 255 : gg; d[p + 2] = bb > 255 ? 255 : bb;
+                    d[p + 3] = a;
+                }
+            } else {
+                const cr = d[p], cg = d[p + 1], cb = d[p + 2];
+                const m = white ? 255 - Math.min(cr, cg, cb) : Math.max(cr, cg, cb);
+                if (m <= 4) { d[p + 3] = 0; a = 0; }
+                else { if (m < 28) d[p + 3] = (((m - 4) * d[p + 3]) / 24) | 0; a = m; }
+            }
+            if (a > 12) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+            if (++x === W) { x = 0; y++; }
+        }
+        g.putImageData(img, 0, 0);
+        const bm = c.transferToImageBitmap();
+        b.close(); if (w) w.close();
+        const bounds = maxX >= 0
+            ? { x: minX / W, y: minY / H, w: Math.max(0.08, (maxX - minX) / W), h: Math.max(0.05, (maxY - minY) / H) }
+            : { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+        self.postMessage({ id, bitmap: bm, bounds }, [bm]);
+    } catch (e) { self.postMessage({ id, error: String(e && e.message || e) }); }
+};`;
+    let pool = null, rr = 0, seq = 0;
+    const pending = new Map();
+    function ensure() {
+        if (pool) return pool;
+        pool = [];
+        try {
+            if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function' || typeof createImageBitmap !== 'function') return pool;
+            const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+            const n = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 2));
+            for (let i = 0; i < n; i++) {
+                const w = new Worker(url);
+                w.onmessage = (ev) => { const f = pending.get(ev.data.id); if (f) { pending.delete(ev.data.id); f(ev.data); } };
+                w.onerror = () => { /* the frame falls back to keying on this thread */ };
+                pool.push(w);
+            }
+        } catch (e) { pool = []; }
+        return pool;
+    }
+    // Resolves to { bitmap, bounds } or null (no workers: the caller keys on this thread instead).
+    async function key(im, white, bg) {
+        const P = ensure();
+        if (!P.length) return null;
+        try {
+            const [b, w] = await Promise.all([createImageBitmap(im), white ? createImageBitmap(white) : Promise.resolve(null)]);
+            const id = ++seq;
+            const wk = P[rr++ % P.length];
+            return await new Promise((res) => {
+                const timer = setTimeout(() => { pending.delete(id); res(null); }, 15000);
+                pending.set(id, (m) => { clearTimeout(timer); res(m && m.bitmap ? m : null); });
+                wk.postMessage({ id, b, w, bg }, w ? [b, w] : [b]);
+            });
+        } catch (e) { return null; }
+    }
+    return { key, available: () => ensure().length > 0 };
+})();
 
 // Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.
 const keyedLRU = [];
@@ -1305,7 +1404,16 @@ function useView(a) {
     const u = state.use;
     if (!a || !u || u.id !== a.id || !u.tempPreview) return a;
     if (!normSub(currentSubText()) && !(u.designRev > 0) && !boxOverrides(u, a)) return a;   // nothing overridden: the preset as saved
-    return Object.assign({}, a, { preview: u.tempPreview.preview, previewFiles: u.tempPreview.previewFiles });
+    const t = u.tempPreview;
+    if (!u._viewCache || u._viewCache.t !== t || u._viewCache.a !== a) {
+        u._viewCache = { t, a, v: Object.assign({}, a, { preview: t.preview, previewFiles: t.previewFiles, previewWhite: t.previewWhite || null }) };
+    }
+    const v = u._viewCache.v;
+    // A new render takes over only once all its frames are loaded and keyed; until then the last one keeps playing,
+    // so the viewer never blinks or shows a half-loaded animation.
+    if (window.SAThumbs && SAThumbs.ready && !SAThumbs.ready(v)) return (u._shown && u._shown.id === a.id && SAThumbs.ready(u._shown)) ? u._shown : a;
+    u._shown = v;
+    return v;
 }
 // Preset cards show the subtitle too. The selected preset's card mirrors the viewer (subtitle + Use tab changes);
 // the other cards get a render of the subtitle with their saved design, made one at a time in the background once
@@ -1319,7 +1427,10 @@ function cardView(a) {
         if (v !== a) return v;
     }
     const c = subCards.get(a.id);
-    if (want && c && c.text === want && c.temp) return Object.assign({}, a, { preview: c.temp.preview, previewFiles: c.temp.previewFiles });
+    if (want && c && c.text === want && c.temp) {
+        if (!c.view) c.view = Object.assign({}, a, { preview: c.temp.preview, previewFiles: c.temp.previewFiles, previewWhite: c.temp.previewWhite || null });
+        if (!window.SAThumbs || !SAThumbs.ready || SAThumbs.ready(c.view)) return c.view;
+    }
     return a;
 }
 (function () {
@@ -1351,6 +1462,16 @@ function cardView(a) {
         } catch (e) { running = false; }
     }, 700);
 })();
+
+// How many pixels the viewer really shows the timeline frame at (Retina included): renders are made at that size,
+// not bigger, which is what keeps them quick. Rounded up so small layout changes reuse the same size.
+function stageDim(S) {
+    const cv = $('stage' + S);
+    const vp = cv && cv._viewport;
+    if (!vp) return 0;
+    const px = Math.max(vp.vw, vp.vh) * Math.max(1, Math.min(2, cv._zoom || 1));
+    return Math.ceil(px / 128) * 128;
+}
 
 // Several Text+: each box's own text / position / Text Design is part of what has to be rendered.
 function boxOverrides(m, a) {
@@ -1387,7 +1508,7 @@ function ensureUsePreview(a) {
         setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true)); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true), { maxDim: stageDim('U') }); } catch (e) { res = { error: String(e && e.message || e) }; }
         u.rendering = false;
         if (res && res.error) {
             if (/busy/i.test(res.error)) u.renderReq = null;      // try again shortly
@@ -1405,10 +1526,14 @@ function syncStageOverlay(S, on) {
     if (!box) return;
     let o = box.querySelector(':scope > .render-ov');
     if (on && !o && window.SAThumbs && SAThumbs.renderOverlay) {
-        o = SAThumbs.renderOverlay(false);
-        o.querySelector('.render-lbl').textContent = 'Rendering the real animation in Resolve…';
+        // While the last render keeps playing, only a small "Updating" pill shows in the corner; the full overlay
+        // is kept for the very first render, when there is nothing to show yet.
+        o = SAThumbs.renderOverlay(true);
+        o.classList.add('quiet');
+        o.querySelector('.render-lbl').textContent = 'Updating…';
         box.appendChild(o);
-    } else if (!on && o) o.remove();
+        o._delay = setTimeout(() => o.classList.add('shown'), 250);   // quick renders never flash it at all
+    } else if (!on && o) { clearTimeout(o._delay); o.remove(); }
 }
 // One render per change: a preset is re-rendered only when the subtitle text changes or you edit its design
 // (each edit bumps its design revision). Once a (text, revision) pair has been rendered it is never rendered again,
@@ -1443,7 +1568,7 @@ function ensureRealPreview(a, m) {
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, true);
         setStatus('Rendering the real animation in Resolve…');
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td), false, boxRenderList(curM || cur, cur, '', false)); } catch (e) { res = { error: String(e && e.message || e) }; }
+        try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td), false, boxRenderList(curM || cur, cur, '', false), { maxDim: Math.max(stageDim('C'), 1280) }); } catch (e) { res = { error: String(e && e.message || e) }; }
         subPv.running = false;
         subPv.key = null;
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, false);
@@ -1617,21 +1742,14 @@ function drawStage(S, a, idx) {
     syncStageOverlay(S, stageRendering(S, a));
 
     if (multiBox) {
-        cv._gizmo = null;
-        const painted = canUseCaptured && SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
-        SABoxes.draw(S, a, m, cv, { vx, vy, vw, vh }, gxy, painted);
-        g.restore();
-        g.strokeStyle = '#29302b';
-        g.lineWidth = 1;
-        g.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
-        for (const id of ['prev', 'loop']) { const e = $(id + S); if (e) e.style.display = 'none'; }
-        const bm = $('stageMsg' + S);
-        if (bm) bm.textContent = painted ? 'Drag to move all the text together. Click a box to edit that Text+ in Text Design.' : 'No animation preview yet. Press Make preview on this preset in the list.';
-        return;
-    }
-    if (window.SABoxes) SABoxes.hideLayer(S);
+        // Several Text+: the whole group gets the same move / resize / rotate handles as any other preset (drawn
+        // below); the numbered boxes only pick which Text+ the Text Design panel edits.
+        paintedSingle = canUseCaptured && SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
+        SABoxes.draw(S, a, m, cv, { vx, vy, vw, vh }, gxy, paintedSingle);
+        previewSingle = true;      // never hand-draw the first Text+ on its own over the group
+    } else if (window.SABoxes) SABoxes.hideLayer(S);
     // Plays the rendered Fusion frames when they exist and no live subtitle or design override is active; otherwise the real text overlay stands in.
-    if (canUseCaptured && window.SABoxes) {
+    if (!multiBox && canUseCaptured && window.SABoxes) {
         paintedSingle = SABoxes.paint(g, a, m, { vx, vy, vw, vh }, gxy, idx);
         previewSingle = paintedSingle;
     }
@@ -2109,7 +2227,9 @@ function drawStage(S, a, idx) {
         if (Math.abs(userScale - 1) >= 0.005) metaParts.push('Zoom ' + userScale.toFixed(3));
         if (Math.abs(userRot) >= 0.1) metaParts.push('Rot ' + userRot.toFixed(1) + '°');
         const prefix = metaParts.length ? metaParts.join(' · ') + ' — ' : '';
-        msg.textContent = prefix + 'Drag box or center to move, handles to resize, top arm to rotate.';
+        msg.textContent = prefix + (multiBox
+            ? (paintedSingle ? 'Drag to move all the text, handles to resize, top arm to rotate. Click a box to edit that Text+ in Text Design.' : 'No animation preview yet. Press Make preview on this preset in the list.')
+            : 'Drag box or center to move, handles to resize, top arm to rotate.');
     }
 }
 

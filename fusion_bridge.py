@@ -221,11 +221,34 @@ def apply_text_design(tool, td):
             put("MappingAspect%d" % idx, float(el["mappingAspect"]))
         if el.get("mappingLevel") is not None:
             put("MappingLevel%d" % idx, int(el["mappingLevel"]))
-        if el.get("type") == 2 and el.get("color") and el.get("color2"):
+        grad_type = el.get("type")
+        if grad_type is None:
             try:
-                r1, g1, b1 = hex_to_rgb(el["color"])
-                r2, g2, b2 = hex_to_rgb(el["color2"])
-                put("ShadingGradient%d" % idx, {0.0: [r1, g1, b1, 1.0], 1.0: [r2, g2, b2, 1.0]})
+                grad_type = int(get_in(tool, "Type%d" % idx) or 0)
+            except Exception:
+                grad_type = 0
+        if grad_type == 2 and (el.get("type") is not None or el.get("color") or el.get("color2")):
+            # Fusion keeps a gradient as {position: [r, g, b, a]}; both stops are always written together, so a
+            # change of only one colour (or only switching to Gradient) still gives the gradient you see in the panel.
+            try:
+                cur = get_in(tool, "ShadingGradient%d" % idx)
+                stops = {}
+                try:
+                    stops = dict(cur.Value) if cur is not None else {}
+                except Exception:
+                    stops = {}
+
+                def stop(key, fallback):
+                    v = stops.get(key)
+                    try:
+                        return [float(v[1]), float(v[2]), float(v[3])] if v is not None else fallback
+                    except Exception:
+                        return fallback
+                keys = sorted(stops.keys()) if stops else []
+                c1 = list(hex_to_rgb(el["color"])) if el.get("color") else (
+                    [float(get_in(tool, "Red%d" % idx) or 1), float(get_in(tool, "Green%d" % idx) or 1), float(get_in(tool, "Blue%d" % idx) or 1)])
+                c2 = list(hex_to_rgb(el["color2"])) if el.get("color2") else stop(keys[-1] if keys else 1.0, [1.0, 1.0, 1.0])
+                tool.SetInput("ShadingGradient%d" % idx, {0.0: c1 + [1.0], 1.0: c2 + [1.0]})
             except Exception:
                 pass
         if el.get("softness") is not None:
@@ -539,6 +562,114 @@ def capture_adaptive(item, n, max_dim, out_dir):
     return list(range(n))
 
 
+class Cancelled(Exception):
+    pass
+
+
+def capture_unique(item, n, max_dim, out_dir, hold, cancel_path):
+    """Exports frames 0..n-1 as p%02d.png but renders each distinct picture only once. A preset that holds every
+    picture for `hold` frames (Stop Motion) is checked once and then rendered every `hold` frames; otherwise
+    runs of identical frames are skipped by probing ahead. Returns frame -> rendered frame index."""
+    def path_of(i, pre="p"):
+        return os.path.join(out_dir, "%s%02d.png" % (pre, i))
+
+    def render(i):
+        if cancel_path and os.path.exists(cancel_path):
+            raise Cancelled("cancelled")
+        fp = path_of(i)
+        r = item.ExportFrame(i, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+        if not r or not r.get("success"):
+            raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+        with open(fp, "rb") as fh:
+            return fh.read()
+
+    def drop(i):
+        try:
+            os.remove(path_of(i))
+        except Exception:
+            pass
+
+    cache = {}                     # every frame rendered so far -> its PNG bytes
+
+    def get(i):
+        if i not in cache:
+            cache[i] = render(i)
+        return cache[i]
+
+    src = [0] * n
+    if n <= 0:
+        return src
+    get(0)
+    if hold > 1 and n > hold and get(hold - 1) == cache[0]:
+        # Stop Motion: one picture per `hold` frames. Checked again on the first moving groups; if a group is
+        # not one held picture after all, the general walk below takes over (nothing rendered is wasted).
+        last, checked, ok = 0, 0, True
+        for g in range(hold, n, hold):
+            d = get(g)
+            if d != cache[last]:
+                if checked < 2:
+                    end = min(g + hold - 1, n - 1)
+                    checked += 1
+                    if get(end) != d:
+                        ok = False
+                        break
+                last = g
+            for k in range(g, min(g + hold, n)):
+                src[k] = last
+        if ok:
+            for i in range(n):
+                if src[i] != i:
+                    drop(i)
+            return src
+        src = [0] * n
+    PROBE = 5
+    last, same, i = 0, 0, 1
+    while i < n:
+        d = get(i)
+        if d == cache[last]:
+            src[i] = last
+            same += 1
+        else:
+            src[i] = last = i
+            same = 0
+        i += 1
+        while same >= 2 and i < n:
+            j = min(i + PROBE - 1, n - 1)
+            if get(j) == cache[last]:
+                for k in range(i, j + 1):
+                    src[k] = last
+                i = j + 1
+                continue
+            same = 0               # it moves again in between: walk those frames one by one
+    for i in range(n):
+        if src[i] == i:
+            if not os.path.exists(path_of(i)):
+                with open(path_of(i), "wb") as fh:
+                    fh.write(cache[i])
+        else:
+            drop(i)
+    return src
+
+
+def link_held(out_dir, src, pre="p"):
+    """Every frame gets its file, as a hard link to the frame it holds (no copying, no re-render)."""
+    for i, k in enumerate(src):
+        if k == i:
+            continue
+        dst = os.path.join(out_dir, "%s%02d.png" % (pre, i))
+        srcf = os.path.join(out_dir, "%s%02d.png" % (pre, k))
+        try:
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.link(srcf, dst)
+        except Exception:
+            try:
+                with open(srcf, "rb") as fi, open(dst, "wb") as fo:
+                    fo.write(fi.read())
+            except Exception:
+                pass
+
+
 def op_capture(a):
     """Real 25fps or 30fps frames of a timeline clip over 3 seconds, for the panel's animation preview."""
     item = find_item(a["item"])
@@ -554,7 +685,7 @@ def op_capture(a):
         os.makedirs(out_dir, exist_ok=True)
         try:
             for old_f in os.listdir(out_dir):
-                if old_f.startswith("p") and old_f.endswith(".png"):
+                if (old_f.startswith("p") or old_f.startswith("w")) and old_f.endswith(".png"):
                     try:
                         os.remove(os.path.join(out_dir, old_f))
                     except Exception:
@@ -568,8 +699,27 @@ def op_capture(a):
     except Exception:
         orig_props = {}
     frames, off = [], 0
+    src_map, matte = None, False
+    cancel_path = a.get("cancelPath")
     try:
-        if out_dir and step == 1:
+        if out_dir and step == 1 and a.get("unique"):
+            n = min(count, duration)
+            src_map = capture_unique(item, n, max_dim, out_dir, int(a.get("hold") or 1), cancel_path)
+            link_held(out_dir, src_map)
+            if a.get("matteBg"):
+                # Same frames again on white: black + white give the text's real colour and transparency.
+                set_bg_colour(a["item"], a.get("comp"), a["matteBg"], [1.0, 1.0, 1.0])
+                for k in sorted(set(src_map)):
+                    if cancel_path and os.path.exists(cancel_path):
+                        raise Cancelled("cancelled")
+                    fp = os.path.join(out_dir, "w%02d.png" % k)
+                    r = item.ExportFrame(k, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+                    if not r or not r.get("success"):
+                        raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+                matte = True
+            frames = list(range(n))
+            off = duration
+        elif out_dir and step == 1:
             n = min(count, duration)
             frames = capture_adaptive(item, n, max_dim, out_dir)
             off = duration
@@ -599,7 +749,8 @@ def op_capture(a):
                 })
             except Exception:
                 pass
-    return {"step": step, "fps": fps, "count": len(frames), "frames": [] if out_dir else frames}
+    return {"step": step, "fps": fps, "count": len(frames), "frames": [] if out_dir else frames,
+            "map": src_map, "matte": matte, "unique": len(set(src_map)) if src_map else None}
 
 
 def op_live_frame(a):
@@ -651,7 +802,17 @@ def op_preview_bg(a):
         mo.Input.ConnectTo(mg.Output)
     finally:
         comp.Unlock()
-    return {"ok": True}
+    return {"ok": True, "bg": attrs(bg).get("TOOLS_Name")}
+
+
+def set_bg_colour(item_id, comp_name, bg_name, col):
+    comp = get_comp(item_id, comp_name)
+    bg = comp.FindTool(bg_name) if bg_name else None
+    if bg is None:
+        raise RuntimeError("preview background is missing")
+    bg.SetInput("TopLeftRed", float(col[0]))
+    bg.SetInput("TopLeftGreen", float(col[1]))
+    bg.SetInput("TopLeftBlue", float(col[2]))
 
 
 OPS = {"preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
@@ -664,6 +825,8 @@ def handle(req):
     for attempt in (1, 2):
         try:
             return {"id": req.get("id"), "ok": True, "result": fn(req.get("args") or {})}
+        except Cancelled:
+            return {"id": req.get("id"), "ok": False, "error": "cancelled"}
         except Exception as e:
             _items.clear()
             _comps.clear()

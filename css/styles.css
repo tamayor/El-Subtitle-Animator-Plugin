@@ -3915,3 +3915,19 @@ label:has(> .val[id^="v"]) { cursor: ew-resize; }
     border-color: var(--bx);
     background: color-mix(in srgb, var(--bx) 16%, #0e1210);
 }
+
+/* Re-render in progress while the previous render keeps playing: a small, delayed pill instead of a dimming overlay */
+.render-ov.quiet {
+    inset: auto;
+    top: 8px;
+    right: 8px;
+    padding: 4px 10px 4px 7px;
+    border-radius: 999px;
+    background: rgba(8, 10, 9, 0.62);
+    backdrop-filter: none;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    animation: none;
+}
+.render-ov.quiet.shown { opacity: 1; }

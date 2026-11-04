@@ -179,6 +179,91 @@ const FONT_OPTIONS = [
     'Helvetica Neue', 'Arial', 'Futura', 'SF Pro Display', 'Roboto', 'Oswald', 'Lato'
 ];
 
+// All fonts installed on this computer (loaded once in the background); the short list above is the fallback.
+state.fonts = FONT_OPTIONS.slice();
+(async () => {
+    try {
+        let list = null;
+        if (window.sa && window.sa.listFonts) { const r = await window.sa.listFonts(); list = r && r.fonts; }
+        if ((!list || !list.length) && typeof window.queryLocalFonts === 'function') {
+            const f = await window.queryLocalFonts();
+            list = Array.from(new Set(f.map(x => x.family))).sort((a, b) => a.localeCompare(b));
+        }
+        if (list && list.length) state.fonts = list;
+    } catch (e) { /* keep the short list */ }
+})();
+
+// Searchable font list under the Font box, like Resolve's: click to see every installed font, type to filter.
+function bindFontPicker(inp) {
+    if (!inp || inp._fontPicker) return;
+    inp._fontPicker = true;
+    let pop = null, items = [], sel = -1, typed = false;
+    const close = () => { if (pop) { pop.remove(); pop = null; } sel = -1; };
+    const choose = (f) => {
+        inp.value = f;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        close();
+        inp.blur();
+    };
+    const paint = () => {
+        if (!pop) return;
+        pop.textContent = '';
+        items.forEach((f, i) => {
+            const d = document.createElement('div');
+            d.className = 'font-item' + (i === sel ? ' sel' : '') + (f.toLowerCase() === inp.value.trim().toLowerCase() ? ' on' : '');
+            d.textContent = f;
+            d.addEventListener('mousedown', (e) => { e.preventDefault(); choose(f); });
+            pop.appendChild(d);
+        });
+        if (!items.length) {
+            const d = document.createElement('div');
+            d.className = 'font-empty';
+            d.textContent = 'No installed font matches. Press Enter to use "' + inp.value.trim() + '" as typed.';
+            pop.appendChild(d);
+        }
+        const cur = pop.querySelector('.font-item.sel');
+        if (cur) cur.scrollIntoView({ block: 'nearest' });
+    };
+    const refresh = () => {
+        const q = typed ? inp.value.trim().toLowerCase() : '';
+        let list = state.fonts.slice();
+        if (q) {
+            list = list.filter(f => f.toLowerCase().includes(q));
+            list.sort((x, y) => (x.toLowerCase().startsWith(q) ? 0 : 1) - (y.toLowerCase().startsWith(q) ? 0 : 1) || x.localeCompare(y));
+        }
+        items = list.slice(0, 200);
+        const curName = inp.value.trim().toLowerCase();
+        sel = q ? (items.length ? 0 : -1) : items.findIndex(f => f.toLowerCase() === curName);
+        paint();
+    };
+    const open = () => {
+        if (pop) return;
+        pop = document.createElement('div');
+        pop.className = 'font-pop';
+        const r = inp.getBoundingClientRect();
+        pop.style.left = r.left + 'px';
+        pop.style.width = r.width + 'px';
+        const below = window.innerHeight - r.bottom;
+        if (below < 220 && r.top > below) { pop.style.bottom = (window.innerHeight - r.top + 4) + 'px'; pop.style.maxHeight = Math.min(260, r.top - 12) + 'px'; }
+        else { pop.style.top = (r.bottom + 4) + 'px'; pop.style.maxHeight = Math.min(260, below - 12) + 'px'; }
+        document.body.appendChild(pop);
+        refresh();
+    };
+    inp.setAttribute('autocomplete', 'off');
+    inp.addEventListener('focus', () => { typed = false; open(); try { inp.select(); } catch (e) { /* ignore */ } });
+    inp.addEventListener('click', () => { if (!pop) { typed = false; open(); } });
+    inp.addEventListener('input', (e) => { if (e.inputType) { typed = true; open(); refresh(); } });
+    inp.addEventListener('blur', () => { close(); typed = false; });
+    inp.addEventListener('keydown', (e) => {
+        if (!pop) { if (e.key === 'ArrowDown') { typed = false; open(); e.preventDefault(); } return; }
+        if (e.key === 'ArrowDown') { sel = Math.min(items.length - 1, sel + 1); paint(); e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); paint(); e.preventDefault(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (sel >= 0 && items[sel]) choose(items[sel]); else { close(); inp.blur(); } }
+        else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
+    });
+    window.addEventListener('scroll', () => { if (pop) close(); }, true);
+}
+
 const STYLE_OPTIONS = [
     'Regular', 'Light', 'Medium', 'SemiBold', 'Bold', 'ExtraBold', 'Black', 'Italic', 'Bold Italic'
 ];
@@ -297,10 +382,7 @@ const TEXT_DESIGN_HTML = (S) => `
     <div class="row two">
         <div class="ctl">
             <label title="Double-click to reset to default (Poppins)">Font</label>
-            <input id="tdFont${S}" type="text" list="fontList${S}" placeholder="Poppins" data-default="Poppins">
-            <datalist id="fontList${S}">
-                ${FONT_OPTIONS.map(f => `<option value="${f}"></option>`).join('')}
-            </datalist>
+            <input id="tdFont${S}" type="text" placeholder="Search fonts…" data-default="Poppins" autocomplete="off" spellcheck="false">
         </div>
         <div class="ctl">
             <label title="Double-click to reset to default (Bold)">Style</label>
@@ -3673,11 +3755,18 @@ function bindTextDesign(ctx) {
         });
     }
 
-    $('tdFont' + S).addEventListener('input', () => {
+    bindFontPicker($('tdFont' + S));
+    const applyFont = (typedOnly) => {
         const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
-        td.font = $('tdFont' + S).value.trim() || 'Poppins';
+        let v = $('tdFont' + S).value.trim();
+        const known = state.fonts.find(f => f.toLowerCase() === v.toLowerCase());
+        if (typedOnly && !known) return;                     // half-typed names wait for Enter / a pick
+        if (known) v = known;
+        td.font = v || 'Poppins';
         commit();
-    });
+    };
+    $('tdFont' + S).addEventListener('input', (e) => applyFont(!!(e && e.inputType)));
+    $('tdFont' + S).addEventListener('change', () => applyFont(false));
     $('tdStyle' + S).addEventListener('change', () => {
         const m = ctx.model(); const td = editTD(m, S); if (!m || !td) return;
         td.style = $('tdStyle' + S).value;

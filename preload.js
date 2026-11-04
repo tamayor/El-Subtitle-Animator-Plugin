@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('sa', {
     previewData: (id) => ipcRenderer.invoke('lib:previewData', id),
     makePreview: (id, customText, design, designKey, temp, boxList, opts) => ipcRenderer.invoke('lib:makePreview', id, customText, design, designKey, temp || false, boxList || null, opts || null),
     onPreviewDraft: (cb) => ipcRenderer.on('preview:draft', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
+    listFonts: () => ipcRenderer.invoke('fonts:list'),
     scanClip: () => ipcRenderer.invoke('act:scanClip'),
     apply: (req) => ipcRenderer.invoke('act:apply', req),
     updateLatest: (req) => ipcRenderer.invoke('act:updateLatest', req),

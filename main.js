@@ -1040,6 +1040,23 @@ async function apply(event, req) {
 }
 
 // ------------------------------------------------------------------ library actions
+// Every font family installed on this Mac (what Text+ offers in its Font box), looked up once per run.
+let fontCache = null;
+function listSystemFonts() {
+    return new Promise((resolve) => {
+        if (fontCache) return resolve(fontCache);
+        if (process.platform !== 'darwin') return resolve([]);
+        const js = 'ObjC.import("AppKit"); JSON.stringify(ObjC.deepUnwrap($.NSFontManager.sharedFontManager.availableFontFamilies))';
+        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 20000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+            try {
+                const arr = JSON.parse(String(out || '').trim());
+                fontCache = Array.from(new Set(arr.filter(x => typeof x === 'string' && x && !x.startsWith('.')))).sort((a, b) => a.localeCompare(b));
+            } catch (e) { fontCache = null; }
+            resolve(fontCache || []);
+        });
+    });
+}
+
 function wrap(fn) {
     return async (...args) => {
         try { return await fn(...args); } catch (e) { return { error: String(e && e.message || e) }; }
@@ -2159,6 +2176,8 @@ app.on('before-quit', () => cleanup());
 
 app.whenReady().then(() => {
     ensureDirs();
+    ipcMain.handle('fonts:list', async () => ({ fonts: await listSystemFonts() }));
+    setTimeout(() => { listSystemFonts(); }, 800);
     ipcMain.handle('app:poll', poll);
     ipcMain.handle('app:liveFrame', wrap(liveFrame));
     ipcMain.handle('app:openFolder', () => shell.openPath(DATA_DIR));

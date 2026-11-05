@@ -444,19 +444,11 @@ const ALIGN_HTML = (S) => `
 
 <div class="row between sfxhead">
     <label class="check"><input id="useSfx${S}" type="checkbox" checked> Sound effect</label>
-    <div class="sfx-head-actions">
-        <button type="button" id="sfxOrigBtn${S}" class="ghost sm-btn" title="Choose from stored original sounds">From Originals ▾</button>
-        <button type="button" id="sfxClear${S}" class="ghost sm-btn" title="Revert to default sound">Use default sound</button>
+    <div class="sfx-attached-display">
+        <button type="button" id="sfxPlay${S}" class="ghost sfx-mini-play" title="Preview sound">▶</button>
+        <span id="sfxName${S}" class="sfx-name-badge">No sound</span>
     </div>
 </div>
-<div id="sfxOrigDropdown${S}" class="sfx-orig-dropdown hidden"></div>
-<div id="sfxDrop${S}" class="sfxrow drop" title="Drop a sound file here or click Choose">
-    <button type="button" id="sfxPlay${S}" class="ghost" title="Preview sound">▶</button>
-    <span id="sfxName${S}" class="grow">Drop a sound file here</span>
-    <button type="button" id="sfxPick${S}" class="ghost">Choose…</button>
-    <button type="button" id="sfxDel${S}" class="ghost sfx-del-btn" title="Remove sound effect">🗑</button>
-</div>
-<input type="file" id="sfxFileInput${S}" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
 <div class="ctl">
     <label title="Double-click to reset to default (0 dB)">Sound volume <span class="val" id="vSfxVolume${S}">0 dB</span></label>
     <input id="sfxVolume${S}" type="range" min="-30" max="6" step="1" value="0" data-default="0">
@@ -466,6 +458,112 @@ const ALIGN_HTML = (S) => `
     <div class="ctl"><label>Sound track</label><select id="sfxTrack${S}"></select></div>
 </div>
 ${S === 'U' ? '<div class="row"><button id="resetU" class="ghost">Reset to this item\'s default</button></div>' : ''}`;
+
+const CONFIG_HTML = () => `
+<div class="cfg-panel">
+    <div class="hint cfg-hint">
+        Manage baseline source files for this library preset (.settings and audio). Originals are preserved and can be updated or reverted.
+    </div>
+
+    <!-- 1. .SETTINGS SECTION -->
+    <div class="cfg-group">
+        <div class="cfg-group-head">
+            <div class="cfg-group-title">
+                <span class="cfg-icon">⚙</span>
+                <strong>Fusion Template (.settings)</strong>
+            </div>
+            <span id="cfgSettingStatus" class="cfg-status-pill orig">Original</span>
+        </div>
+
+        <div class="cfg-file-card">
+            <div class="cfg-file-row">
+                <span class="cfg-file-label">Active:</span>
+                <span id="cfgSettingActiveFile" class="cfg-file-name" title="Active working file in animations/">—</span>
+            </div>
+            <div class="cfg-file-row">
+                <span class="cfg-file-label">Original:</span>
+                <span id="cfgSettingOrigFile" class="cfg-file-name" title="Preserved original in animations_orig/">—</span>
+            </div>
+        </div>
+
+        <div class="cfg-action-row">
+            <button type="button" id="cfgSettingRevert" class="ghost cfg-btn-revert" title="Revert .settings and design back to original baseline">
+                ↺ Revert to original
+            </button>
+        </div>
+
+        <div class="cfg-subgroup">
+            <div class="cfg-subgroup-title">Overwrite original using:</div>
+            <div class="cfg-btn-grid">
+                <button type="button" id="cfgSettingFromTimeline" class="ghost cfg-action-btn" title="Export currently selected Text+ clip on Resolve timeline to overwrite original">
+                    <span>🎞 Selected timeline</span>
+                </button>
+                <button type="button" id="cfgSettingFromCurrent" class="ghost cfg-action-btn" title="Overwrite original with current preset settings">
+                    <span>💾 Current settings</span>
+                </button>
+            </div>
+            <div id="cfgSettingDrop" class="drop cfg-dropzone" title="Drop a .setting or .comp file or folder here to overwrite original">
+                <span class="cfg-drop-icon">📄</span>
+                <span id="cfgSettingDropText" class="grow">Drop .setting or folder here</span>
+                <button type="button" id="cfgSettingPick" class="ghost sm-btn">Pick folder / file…</button>
+            </div>
+            <input type="file" id="cfgSettingFileInput" accept=".setting,.comp" style="display:none">
+        </div>
+    </div>
+
+    <!-- 2. AUDIO SECTION -->
+    <div class="cfg-group">
+        <div class="cfg-group-head">
+            <div class="cfg-group-title">
+                <span class="cfg-icon">🔊</span>
+                <strong>Sound Effect (Audio)</strong>
+            </div>
+            <span id="cfgAudioStatus" class="cfg-status-pill none">None</span>
+        </div>
+
+        <div class="cfg-file-card">
+            <div class="cfg-file-row">
+                <span class="cfg-file-label">Active:</span>
+                <span id="cfgAudioActiveFile" class="cfg-file-name" title="Current attached audio in sfx/">—</span>
+                <button type="button" id="cfgAudioPlay" class="ghost sfx-mini-play" title="Preview audio">▶</button>
+                <button type="button" id="cfgAudioRemove" class="ghost sfx-del-btn" title="Detach sound effect">🗑</button>
+            </div>
+            <div class="cfg-file-row">
+                <span class="cfg-file-label">Original:</span>
+                <span id="cfgAudioOrigFile" class="cfg-file-name" title="Original sound file in sfx/">—</span>
+            </div>
+        </div>
+
+        <div class="cfg-action-row between">
+            <button type="button" id="cfgAudioRevert" class="ghost cfg-btn-revert" title="Revert audio back to original sound">
+                ↺ Revert to original audio
+            </button>
+            <div class="cfg-orig-picker-wrap">
+                <button type="button" id="cfgAudioOrigBtn" class="ghost sm-btn" title="Choose from stored original sounds">From SFX Originals ▾</button>
+                <div id="cfgAudioOrigDropdown" class="sfx-orig-dropdown hidden"></div>
+            </div>
+        </div>
+
+        <div class="cfg-subgroup">
+            <div class="cfg-subgroup-title">Overwrite original using:</div>
+            <div class="cfg-btn-grid">
+                <button type="button" id="cfgAudioFromTimeline" class="ghost cfg-action-btn" title="Use selected audio clip on Resolve timeline to overwrite original">
+                    <span>🎞 Selected timeline</span>
+                </button>
+                <button type="button" id="cfgAudioFromCurrent" class="ghost cfg-action-btn" title="Overwrite original audio with current audio">
+                    <span>💾 Current audio</span>
+                </button>
+            </div>
+            <div id="cfgAudioDrop" class="drop cfg-dropzone" title="Drop an audio file or folder here to overwrite original">
+                <span class="cfg-drop-icon">🎵</span>
+                <span id="cfgAudioDropText" class="grow">Drop audio or folder here</span>
+                <button type="button" id="cfgAudioPick" class="ghost sm-btn">Pick folder / file…</button>
+            </div>
+            <input type="file" id="cfgAudioFileInput" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
+        </div>
+    </div>
+</div>
+`;
 
 // ---- Resolve Inspector-style building blocks (label | control | value box)
 const TEXT_DESIGN_HTML = (S) => `
@@ -3320,10 +3418,12 @@ function mountBlocks() {
 
     if ($('adjustBodyC')) $('adjustBodyC').innerHTML = ALIGN_HTML('C');
     if ($('tdBodyC')) $('tdBodyC').innerHTML = TEXT_DESIGN_HTML('C');
+    if ($('configBodyC')) $('configBodyC').innerHTML = CONFIG_HTML();
     if ($('saveBarWrapC')) $('saveBarWrapC').innerHTML = SAVE_BAR_HTML('C');
     if ($('previewC')) $('previewC').innerHTML = PREVIEW_HTML('C');
     attachHexFields();
     bindInspectorChrome();
+    bindConfigC();
     linkNumBoxes();
     linkRgbSliders();
     bindDblClickReset();
@@ -5138,20 +5238,18 @@ function fillAdjust(ctx) {
     const sfxNameEl = $('sfxName' + S);
     if (sfxNameEl) {
         if (origFile && curFile && curFile !== origFile) {
-            sfxNameEl.textContent = 'Sound: ' + origFile + ' (' + curFile + ')';
+            sfxNameEl.textContent = origFile + ' (' + curFile + ')';
         } else if (origFile || curFile) {
-            sfxNameEl.textContent = 'Sound: ' + (origFile || curFile);
+            sfxNameEl.textContent = origFile || curFile;
         } else if (defFile) {
-            sfxNameEl.textContent = 'Sound: default (' + defFile + ')';
+            sfxNameEl.textContent = 'default (' + defFile + ')';
         } else {
-            sfxNameEl.textContent = 'Drop a sound file here';
+            sfxNameEl.textContent = 'No sound';
         }
     }
-    if ($('sfxClear' + S)) {
-        $('sfxClear' + S).style.visibility = curFile ? 'visible' : 'hidden';
-    }
-    if ($('sfxDel' + S)) {
-        $('sfxDel' + S).style.visibility = curFile ? 'visible' : 'hidden';
+    const sfxPlayBtn = $('sfxPlay' + S);
+    if (sfxPlayBtn) {
+        sfxPlayBtn.style.display = (curFile || origFile || defFile) ? 'inline-flex' : 'none';
     }
     fillTrackSelect($('textTrack' + S), 'V', m.textTrack);
     fillTrackSelect($('sfxTrack' + S), 'A', m.sfxTrack);
@@ -5230,150 +5328,403 @@ function bindAdjust(ctx) {
         if (p) play(p, m && m.sfxVolume); else setStatus('This item has no sound to play.', 'bad');
     });
 
-    const handleSfxFile = async (filePath) => {
-        if (!filePath) return;
-        const m = ctx.model();
-        if (!m) return;
-        if (S === 'C') {
-            state.createAdjusted = true;
-            const res = await window.sa.setAnimationSfx(m.id, filePath);
-            if (takeLib(res)) {
-                const ca = libEntry(state.createId);
-                if (ca) {
-                    ca.adjusted = true;
-                    await syncAttachedSfx(ca);
-                }
-                setCreateStatus('Sound updated for "' + m.name + '"', 'ok');
-                fillAdjust(ctx);
-                renderAnimations();
-                renderCreateSummary();
-            }
-        } else {
-            m.sfxOrigPath = filePath;
-            m.sfxOrig = baseName(filePath);
-            m.sfxPath = filePath;
-            m.sfx = baseName(filePath);
-            m.dirty = true;
-            m.adjusted = true;
-            m.useSfx = true;
-            $('useSfx' + S).checked = true;
-            await syncAttachedSfx(m);
-            fillAdjust(ctx);
-            renderUseSummary();
-            renderAnimations();
-            syncVarButtons('U', m);
-            setStatus('Sound selected: ' + (m.sfxOrig || m.sfx) + ' (save via "+ Create" or "Update").', 'ok');
-        }
-    };
-
-    if ($('sfxDrop' + S)) dropZone($('sfxDrop' + S), handleSfxFile);
-
-    const pickBtn = $('sfxPick' + S);
-    const fileIn = $('sfxFileInput' + S);
-    if (pickBtn && fileIn) {
-        pickBtn.addEventListener('click', (e) => { e.stopPropagation(); fileIn.click(); });
-        fileIn.addEventListener('change', () => {
-            const f = fileIn.files && fileIn.files[0];
-            if (f) {
-                const p = window.sa.pathForFile(f);
-                if (p) handleSfxFile(p);
-            }
-            fileIn.value = '';
-        });
-    }
-
     const sfxPlayBtn = $('sfxPlay' + S);
     if (sfxPlayBtn) {
         sfxPlayBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const m = ctx.model();
             const p = m && (m.sfxPath || currentSfxPath(m));
-            if (p) play(p);
+            if (p) play(p, m && m.sfxVolume);
+            else if (S === 'C') setCreateStatus('No sound file set', 'bad');
             else setStatus('No sound file set', 'bad');
         });
     }
 
-    const doClearSfx = async () => {
-        const m = ctx.model();
-        if (!m) return;
-        if (S === 'C') {
-            state.createAdjusted = true;
-            const res = await window.sa.setAnimationSfx(m.id, null);
-            if (takeLib(res)) {
-                const ca = libEntry(state.createId);
-                if (ca) ca.adjusted = true;
-                setCreateStatus('Reverted to default sound for "' + m.name + '"', 'ok');
-                fillAdjust(ctx);
-                renderAnimations();
-                renderCreateSummary();
-            }
-        } else {
-            m.sfxPath = null;
-            m.sfx = null;
-            m.sfxOrig = null;
-            m.sfxOrigPath = null;
-            m.dirty = true;
-            m.adjusted = true;
-            fillAdjust(ctx);
-            renderUseSummary();
-            renderAnimations();
-            syncVarButtons('U', m);
-            setStatus('Sound effect removed.', 'ok');
+    bindStage(ctx);
+    bindTextDesign(ctx);
+}
+
+
+// ---------------------------------------------------------------- rendering
+function renderUseSummary() {
+    const m = state.use;
+    const el = $('adjustSummary');
+    if (el) {
+        if (!m) { el.textContent = ''; }
+        else {
+            const f = (n) => sg(n) + 'f';
+            el.textContent = 'text ' + f(m.textOffset) + ' · sound ' + f(m.sfxOffset) + (m.linked !== false ? ' · linked' : '') + (m.dirty ? ' · edited' : '');
         }
+    }
+    renderTdSummary(CTX.U);
+}
+
+function renderCreateSummary() {
+    const a = libEntry(state.createId);
+    const el = $('adjustSummaryC');
+    if (el) {
+        if (!a) { el.textContent = ''; }
+        else {
+            const f = (n) => sg(n) + 'f';
+            el.textContent = 'text ' + f(a.textOffset) + ' · sound ' + f(a.sfxOffset) + (a.linked !== false ? ' · linked' : '');
+        }
+    }
+    renderTdSummary(CTX.C);
+    renderConfigSummaryC();
+}
+
+function renderConfigSummaryC() {
+    const a = libEntry(state.createId);
+    const sumEl = $('configSummaryC');
+    if (!sumEl) return;
+    if (!a) { sumEl.textContent = ''; return; }
+    const sName = a.file ? baseName(a.file) : '—';
+    const aName = a.sfx ? baseName(a.sfx) : 'no audio';
+    sumEl.textContent = sName + ' · ' + aName;
+}
+
+function renderConfigC() {
+    const a = libEntry(state.createId);
+    if (!a) return;
+
+    // 1. .settings section
+    const activeSetting = $('cfgSettingActiveFile');
+    const origSetting = $('cfgSettingOrigFile');
+    const statusSetting = $('cfgSettingStatus');
+
+    if (activeSetting) activeSetting.textContent = a.file || '—';
+    if (origSetting) origSetting.textContent = a.fileOrig || a.file || '—';
+    if (statusSetting) {
+        const isMod = a.adjusted || a.designDirty || (a.orig && (a.orig.file !== a.file || JSON.stringify(a.textDesign) !== JSON.stringify(a.orig.textDesign)));
+        statusSetting.textContent = isMod ? 'Modified' : 'Original';
+        statusSetting.className = 'cfg-status-pill ' + (isMod ? 'mod' : 'orig');
+    }
+
+    // 2. Audio section
+    const activeAudio = $('cfgAudioActiveFile');
+    const origAudio = $('cfgAudioOrigFile');
+    const statusAudio = $('cfgAudioStatus');
+    const playAudioBtn = $('cfgAudioPlay');
+    const removeAudioBtn = $('cfgAudioRemove');
+    const revertAudioBtn = $('cfgAudioRevert');
+
+    const curAudio = a.sfx || null;
+    const origAud = a.sfxOrig || null;
+
+    if (activeAudio) activeAudio.textContent = curAudio || 'No sound';
+    if (origAudio) origAudio.textContent = origAud || 'None';
+
+    if (statusAudio) {
+        if (!curAudio && !origAud) {
+            statusAudio.textContent = 'None';
+            statusAudio.className = 'cfg-status-pill none';
+        } else if (curAudio && origAud && curAudio !== origAud) {
+            statusAudio.textContent = 'Trimmed / Modified';
+            statusAudio.className = 'cfg-status-pill mod';
+        } else {
+            statusAudio.textContent = 'Original';
+            statusAudio.className = 'cfg-status-pill orig';
+        }
+    }
+
+    if (playAudioBtn) {
+        playAudioBtn.style.visibility = (curAudio || origAud) ? 'visible' : 'hidden';
+    }
+    if (removeAudioBtn) {
+        removeAudioBtn.style.visibility = (curAudio || origAud) ? 'visible' : 'hidden';
+    }
+    if (revertAudioBtn) {
+        revertAudioBtn.style.visibility = (curAudio && origAud && curAudio !== origAud) ? 'visible' : 'hidden';
+    }
+
+    renderConfigSummaryC();
+}
+
+function bindConfigC() {
+    // 1. .settings operations
+    const revertSettingBtn = $('cfgSettingRevert');
+    if (revertSettingBtn) {
+        revertSettingBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(revertSettingBtn, {
+                title: 'Revert .settings to original?',
+                message: 'Reset "' + a.name + '" back to original baseline template? Current edits will be discarded.',
+                confirmText: 'Revert to original',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAnimation(a.id);
+                    if (takeLib(res)) {
+                        a.adjusted = false;
+                        a.designDirty = false;
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Reverted "' + a.name + '" to original version', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const fromTlSettingBtn = $('cfgSettingFromTimeline');
+    if (fromTlSettingBtn) {
+        fromTlSettingBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(fromTlSettingBtn, {
+                title: 'Overwrite original from timeline?',
+                message: 'Export selected Text+ clip on Resolve timeline and overwrite original .settings baseline for "' + a.name + '"?',
+                confirmText: 'Overwrite original',
+                danger: true,
+                onConfirm: async () => {
+                    setCreateStatus('Exporting clip from Resolve timeline…');
+                    const res = await window.sa.overwriteSettingFromTimeline(a.id);
+                    if (takeLib(res)) {
+                        a.adjusted = false;
+                        a.designDirty = false;
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Overwrote original .settings from timeline for "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const fromCurSettingBtn = $('cfgSettingFromCurrent');
+    if (fromCurSettingBtn) {
+        fromCurSettingBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(fromCurSettingBtn, {
+                title: 'Save current settings as original?',
+                message: 'Make current settings and design the permanent original baseline for "' + a.name + '"?',
+                confirmText: 'Overwrite original',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.overwriteSettingFromCurrent(a.id);
+                    if (takeLib(res)) {
+                        a.adjusted = false;
+                        a.designDirty = false;
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Overwrote original with current settings for "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const settingDrop = $('cfgSettingDrop');
+    const settingPick = $('cfgSettingPick');
+
+    const handleSettingFile = (filePath) => {
+        const a = libEntry(state.createId);
+        if (!a || !filePath) return;
+        const bName = baseName(filePath);
+        openConfirmPop(settingDrop || settingPick, {
+            title: 'Overwrite original .settings?',
+            message: 'Overwrite original .settings baseline with "' + bName + '" for "' + a.name + '"?',
+            confirmText: 'Overwrite original',
+            danger: true,
+            onConfirm: async () => {
+                setCreateStatus('Updating .settings from file…');
+                const res = await window.sa.overwriteSettingFromFile(a.id, filePath);
+                if (takeLib(res)) {
+                    a.adjusted = false;
+                    a.designDirty = false;
+                    renderCreate();
+                    renderAnimations();
+                    setCreateStatus('Overwrote original .settings with "' + bName + '"', 'ok');
+                } else if (res && res.error) {
+                    setCreateStatus(res.error, 'bad');
+                }
+            }
+        });
     };
 
-    const sfxClearBtn = $('sfxClear' + S);
-    if (sfxClearBtn) {
-        sfxClearBtn.addEventListener('click', (e) => {
+    if (settingDrop) dropZone(settingDrop, handleSettingFile);
+    if (settingPick) {
+        settingPick.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const m = ctx.model();
-            if (!m) return;
-            const cur = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (libEntry(m.id) && libEntry(m.id).sfx));
-            if (!cur) return;
-            openConfirmPop(sfxClearBtn, {
-                title: 'Revert to default sound?',
-                message: 'Remove attached sound from "' + (m.name || 'preset') + '" and revert to default sound?',
-                confirmText: 'Revert',
-                danger: false,
-                onConfirm: doClearSfx
-            });
+            const p = await window.sa.pickFileOrFolder('setting');
+            if (p) handleSettingFile(p);
         });
     }
 
-    const sfxDelBtn = $('sfxDel' + S);
-    if (sfxDelBtn) {
-        sfxDelBtn.addEventListener('click', (e) => {
+    // 2. Audio operations
+    const audioPlayBtn = $('cfgAudioPlay');
+    if (audioPlayBtn) {
+        audioPlayBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const m = ctx.model();
-            if (!m) return;
-            const cur = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (libEntry(m.id) && libEntry(m.id).sfx));
-            if (!cur) return;
-            openConfirmPop(sfxDelBtn, {
-                title: 'Delete attached sound?',
-                message: 'Remove attached sound "' + cur + '" from "' + (m.name || 'preset') + '"?',
-                confirmText: 'Delete',
+            const a = libEntry(state.createId);
+            const p = a && currentSfxPath(a);
+            if (p) play(p);
+            else setCreateStatus('No audio attached', 'bad');
+        });
+    }
+
+    const audioRemoveBtn = $('cfgAudioRemove');
+    if (audioRemoveBtn) {
+        audioRemoveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a || !a.sfx) return;
+            openConfirmPop(audioRemoveBtn, {
+                title: 'Detach audio effect?',
+                message: 'Remove attached audio from preset "' + a.name + '"?',
+                confirmText: 'Remove audio',
                 danger: true,
-                onConfirm: doClearSfx
+                onConfirm: async () => {
+                    const res = await window.sa.setAnimationSfx(a.id, null);
+                    if (takeLib(res)) {
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Removed audio from "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
             });
         });
     }
 
-    const sfxOrigBtn = $('sfxOrigBtn' + S);
-    const sfxOrigDrop = $('sfxOrigDropdown' + S);
-    if (sfxOrigBtn && sfxOrigDrop) {
-        const closeOrigDropdown = () => { sfxOrigDrop.classList.add('hidden'); };
-        sfxOrigBtn.addEventListener('click', (e) => {
+    const audioRevertBtn = $('cfgAudioRevert');
+    if (audioRevertBtn) {
+        audioRevertBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isHidden = sfxOrigDrop.classList.contains('hidden');
+            const a = libEntry(state.createId);
+            if (!a || !a.sfxOrig) return;
+            openConfirmPop(audioRevertBtn, {
+                title: 'Revert audio to original sound?',
+                message: 'Discard trimmed audio adjustments and revert to original sound "' + a.sfxOrig + '"?',
+                confirmText: 'Revert audio',
+                danger: false,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAudio(a.id);
+                    if (takeLib(res)) {
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Reverted audio to original sound for "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const audioFromTlBtn = $('cfgAudioFromTimeline');
+    if (audioFromTlBtn) {
+        audioFromTlBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(audioFromTlBtn, {
+                title: 'Overwrite original audio from timeline?',
+                message: 'Use the audio clip selected on Resolve timeline as the new original sound for "' + a.name + '"?',
+                confirmText: 'Overwrite original',
+                danger: true,
+                onConfirm: async () => {
+                    setCreateStatus('Reading selected audio from timeline…');
+                    const res = await window.sa.overwriteAudioFromTimeline(a.id);
+                    if (takeLib(res)) {
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Overwrote original audio from timeline for "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const audioFromCurBtn = $('cfgAudioFromCurrent');
+    if (audioFromCurBtn) {
+        audioFromCurBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a || !a.sfx) return;
+            openConfirmPop(audioFromCurBtn, {
+                title: 'Save current audio as original?',
+                message: 'Make current audio ("' + a.sfx + '") the permanent original sound for "' + a.name + '"?',
+                confirmText: 'Overwrite original',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.overwriteAudioFromCurrent(a.id);
+                    if (takeLib(res)) {
+                        renderCreate();
+                        renderAnimations();
+                        setCreateStatus('Overwrote original audio with current audio for "' + a.name + '"', 'ok');
+                    } else if (res && res.error) {
+                        setCreateStatus(res.error, 'bad');
+                    }
+                }
+            });
+        });
+    }
+
+    const audioDrop = $('cfgAudioDrop');
+    const audioPick = $('cfgAudioPick');
+    const handleAudioFile = (filePath) => {
+        const a = libEntry(state.createId);
+        if (!a || !filePath) return;
+        const bName = baseName(filePath);
+        openConfirmPop(audioDrop || audioPick, {
+            title: 'Overwrite original audio?',
+            message: 'Overwrite original sound with "' + bName + '" for "' + a.name + '"?',
+            confirmText: 'Overwrite original',
+            danger: true,
+            onConfirm: async () => {
+                setCreateStatus('Updating audio from file…');
+                const res = await window.sa.overwriteAudioFromFile(a.id, filePath);
+                if (takeLib(res)) {
+                    renderCreate();
+                    renderAnimations();
+                    setCreateStatus('Overwrote original audio with "' + bName + '"', 'ok');
+                } else if (res && res.error) {
+                    setCreateStatus(res.error, 'bad');
+                }
+            }
+        });
+    };
+
+    if (audioDrop) dropZone(audioDrop, handleAudioFile);
+    if (audioPick) {
+        audioPick.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const p = await window.sa.pickFileOrFolder('sfx');
+            if (p) handleAudioFile(p);
+        });
+    }
+
+    // Dropdown from SFX Originals
+    const audioOrigBtn = $('cfgAudioOrigBtn');
+    const audioOrigDrop = $('cfgAudioOrigDropdown');
+    if (audioOrigBtn && audioOrigDrop) {
+        const closeOrigDropdown = () => { audioOrigDrop.classList.add('hidden'); };
+        audioOrigBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isHidden = audioOrigDrop.classList.contains('hidden');
             if (!isHidden) { closeOrigDropdown(); return; }
-            sfxOrigDrop.innerHTML = '';
+            audioOrigDrop.innerHTML = '';
             const originals = (state.lib && state.lib.sfxOriginals) || [];
             if (!originals.length) {
                 const empty = document.createElement('div');
                 empty.className = 'hint';
                 empty.style.padding = '6px 10px';
-                empty.textContent = 'No stored original sounds. Add some in the Library tab!';
-                sfxOrigDrop.appendChild(empty);
+                empty.textContent = 'No stored original sounds. Add some in the SFX Originals accordion below!';
+                audioOrigDrop.appendChild(empty);
             } else {
                 for (const item of originals) {
                     const dItem = document.createElement('div');
@@ -5409,7 +5760,7 @@ function bindAdjust(ctx) {
                             onConfirm: async () => {
                                 const res = await window.sa.removeSfxOriginal(item.file);
                                 if (takeLib(res)) {
-                                    setStatus('Deleted "' + item.file + '" from originals library.', 'ok');
+                                    setCreateStatus('Deleted "' + item.file + '" from originals library.', 'ok');
                                 }
                             }
                         });
@@ -5421,50 +5772,19 @@ function bindAdjust(ctx) {
                     dItem.addEventListener('click', async (ev) => {
                         if (ev.target.closest('.sfx-del-btn') || ev.target.closest('button')) return;
                         closeOrigDropdown();
-                        await handleSfxFile(item.path);
+                        handleAudioFile(item.path);
                     });
-                    sfxOrigDrop.appendChild(dItem);
+                    audioOrigDrop.appendChild(dItem);
                 }
             }
-            sfxOrigDrop.classList.remove('hidden');
+            audioOrigDrop.classList.remove('hidden');
         });
         document.addEventListener('click', (e) => {
-            if (!sfxOrigDrop.contains(e.target) && e.target !== sfxOrigBtn) {
+            if (!audioOrigDrop.contains(e.target) && e.target !== audioOrigBtn) {
                 closeOrigDropdown();
             }
         });
     }
-
-    bindStage(ctx);
-    bindTextDesign(ctx);
-}
-
-
-// ---------------------------------------------------------------- rendering
-function renderUseSummary() {
-    const m = state.use;
-    const el = $('adjustSummary');
-    if (el) {
-        if (!m) { el.textContent = ''; }
-        else {
-            const f = (n) => sg(n) + 'f';
-            el.textContent = 'text ' + f(m.textOffset) + ' · sound ' + f(m.sfxOffset) + (m.linked !== false ? ' · linked' : '') + (m.dirty ? ' · edited' : '');
-        }
-    }
-    renderTdSummary(CTX.U);
-}
-
-function renderCreateSummary() {
-    const a = libEntry(state.createId);
-    const el = $('adjustSummaryC');
-    if (el) {
-        if (!a) { el.textContent = ''; }
-        else {
-            const f = (n) => sg(n) + 'f';
-            el.textContent = 'text ' + f(a.textOffset) + ' · sound ' + f(a.sfxOffset) + (a.linked !== false ? ' · linked' : '');
-        }
-    }
-    renderTdSummary(CTX.C);
 }
 
 function renderTdSummary(ctx) {
@@ -6294,6 +6614,8 @@ function renderCreate() {
         if (!state.preview) drawStage('C', a, null);
         setCreateAdjustOpen(state.createAdjustOpen !== false);
         setCreateTdOpen(!!state.createTdOpen);
+        setCreateConfigOpen(!!state.createConfigOpen);
+        renderConfigC();
         renderCreateSummary();
         renderTags();
     }
@@ -6361,6 +6683,18 @@ function setCreateTdOpen(open) {
         if (chev) chev.textContent = open ? '▾' : '▸';
     }
     redrawStages();
+}
+
+function setCreateConfigOpen(open) {
+    state.createConfigOpen = open;
+    if ($('configBodyC')) $('configBodyC').classList.toggle('hidden', !open);
+    if ($('configWrapC')) $('configWrapC').classList.toggle('open', !!open);
+    if ($('configToggleC')) {
+        $('configToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('configToggleC').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+    if (open) renderConfigC();
 }
 
 function setSfxOrigAccordionOpen(open) {
@@ -6872,6 +7206,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
     if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
     if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });
+    if ($('configToggleC')) $('configToggleC').addEventListener('click', () => { stopPreview(); setCreateConfigOpen(!state.createConfigOpen); });
     if ($('sfxOrigAccordionToggle')) $('sfxOrigAccordionToggle').addEventListener('click', () => {
         setSfxOrigAccordionOpen(!state.sfxOrigOpen);
     });

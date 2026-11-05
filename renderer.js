@@ -1,4 +1,13 @@
 // Subtitle Animator - panel logic (renderer process)
+window.addEventListener('error', (e) => {
+    console.error('WINDOW ERROR:', e.message, e.filename, e.lineno, e.colno, e.error);
+    if (window.sa && window.sa.dlog) window.sa.dlog('WINDOW ERROR:', e.message, e.filename, e.lineno, e.colno);
+});
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('UNHANDLED REJECTION:', e.reason);
+    if (window.sa && window.sa.dlog) window.sa.dlog('UNHANDLED REJECTION:', String(e.reason && e.reason.stack || e.reason));
+});
+
 const $ = (id) => document.getElementById(id);
 
 const state = {

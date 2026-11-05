@@ -19,6 +19,7 @@
     const keep = { value: true };              // keep text and positions when swapping the Fusion file
     const msgs = { U: '', C: '' };
     const target = { U: null, C: null };       // which Text+ the Text Design panel edits (node id), per stage
+    const fades = {};
 
     const q = (id) => document.getElementById(id);
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -138,9 +139,11 @@
         const sub = subtitleText();
         // When the real animation is drawn on the stage, size each box to where the text actually is.
         const nb = (painted && nodes.length === 1 && window.SAThumbs) ? SAThumbs.bounds(a) : null;
-        const fr0 = window.SAThumbs ? SAThumbs.keyedFrame(a, 0, true) : null;
-        const imgW = (fr0 && (fr0.width || fr0.naturalWidth)) || 0;
-        const imgH = (fr0 && (fr0.height || fr0.naturalHeight)) || 0;
+        const pImgs = (typeof previewImages === 'function') ? previewImages(a) : null;
+        const im0 = pImgs && pImgs[0];
+        const fr0 = (im0 && im0.complete && im0.naturalWidth) ? im0 : (window.SAThumbs ? SAThumbs.keyedFrame(a, 0, true) : null);
+        const imgW = (fr0 && (fr0.naturalWidth || fr0.width)) || 0;
+        const imgH = (fr0 && (fr0.naturalHeight || fr0.height)) || 0;
         let drawW = vp.vw;
         let drawH = vp.vh;
         if (imgW > 0 && imgH > 0) {
@@ -274,7 +277,6 @@
         g.restore();
         return true;
     }
-    const fades = {};
 
     function makeBox(S, n, i) {
         const col = COLORS[i % COLORS.length];
@@ -952,11 +954,6 @@
         let rot = (spec && spec.angleKeys) ? (ev(spec.angleKeys, q, 0) * Math.PI) / 180 : 0;
         let jx = 0, jy = 0;
         const hasWiggle = !!(spec && (spec.displace || spec.perturb)) || !!td.wiggle || presetName.includes('wiggle');
-        if (hasWiggle) {
-            jx = Math.sin(step * 1.7 + 0.5) * px * 0.025;
-            jy = Math.cos(step * 2.1 + 0.3) * px * 0.025;
-            rot += Math.sin(step * 1.3) * 0.005;
-        }
         const _css = (typeof saStyleToCss === 'function') ? saStyleToCss(td.style === '' ? 'Regular' : (td.style || 'Bold')) : { weight: '700', italic: false };
         const weight = _css.weight;
         const italic = _css.italic ? 'italic ' : '';
@@ -994,6 +991,12 @@
         if (totalFullH > H * 0.82) {
             px = Math.max(10, Math.floor(px * ((H * 0.82) / totalFullH)));
             setFont();
+        }
+
+        if (hasWiggle) {
+            jx = Math.sin(step * 1.7 + 0.5) * px * 0.025;
+            jy = Math.cos(step * 2.1 + 0.3) * px * 0.025;
+            rot += Math.sin(step * 1.3) * 0.005;
         }
 
         c.textAlign = 'center';

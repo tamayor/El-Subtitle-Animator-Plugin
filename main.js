@@ -3984,6 +3984,10 @@ function createWindow() {
         webPreferences: { preload: path.join(__dirname, 'preload.js') }
     });
     mainWindow.setMenu(null);
+    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        console.log('[RENDERER]', level, message, sourceId + ':' + line);
+        dlog('[renderer console]', level, message, sourceId + ':' + line);
+    });
     // Dropping a file must never navigate the window away from the panel.
     mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
     mainWindow.on('close', () => quitPlugin());

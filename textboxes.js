@@ -1327,13 +1327,4 @@
     requestAnimationFrame(loop);
 })();
 
-// Use tab: keep the Transform sliders out of the way until you ask for them.
-window.addEventListener('DOMContentLoaded', () => {
-    const sec = document.querySelector('#previewU .xform-section');
-    const title = sec && sec.querySelector('.xform-title');
-    if (!sec || !title) return;
-    sec.classList.add('xf-collapsed');
-    title.classList.add('xf-toggle');
-    title.textContent = 'Transform';
-    title.addEventListener('click', () => sec.classList.toggle('xf-collapsed'));
-});
+

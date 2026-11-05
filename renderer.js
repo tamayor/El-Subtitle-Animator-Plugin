@@ -1030,79 +1030,14 @@ const ADJUST_HTML = ALIGN_HTML;
 
 const PREVIEW_HTML = (S) => `
 ${S === 'U' ? `<div id="stageLive${S}" class="stage-live">
-    <div class="stage-live-txt"><b>Timeline Preview</b><span>Play it in DaVinci Resolve's viewer. Alignment and Transform changes update the clip live.</span></div>
+    <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
     <div class="stage-live-btns">
         <button type="button" id="liveApply${S}" class="live-apply" title="Apply the Text+ on the timeline (with its sound)">Add to timeline</button>
         <button type="button" id="liveRemove${S}" class="live-remove" title="Delete the preview clip from the timeline">Remove preview</button>
     </div>
 </div>` : ''}
 <div id="stageMsg${S}" class="stagemsg"></div>
-<div class="xform-section">
-    <div class="xform-header">
-        <span class="xform-title">Transform</span>
-        <div class="xform-hdr-actions">
-            <button type="button" id="resetPos${S}" class="ghost reset-xform-btn" title="Reset transform">Reset</button>
-        </div>
-    </div>
-
-    <!-- Zoom row -->
-    <div class="xform-grid-row">
-        <label class="xform-lbl" for="numScale${S}" title="Double-click to reset to default (1.000)">Zoom</label>
-        <div class="xform-slider-cell">
-            <input id="scale${S}" type="range" class="rv-slider" min="0.050" max="4.000" step="0.005" value="1.000" data-default="1.000">
-        </div>
-        <div class="xform-num-cell">
-            <span class="xform-axis">X/Y</span>
-            <input id="numScale${S}" type="number" class="rv-num xform-num" min="0.01" max="10.0" step="0.001" value="1.000" data-default="1.000">
-        </div>
-    </div>
-
-    <!-- Position X row -->
-    <div class="xform-grid-row">
-        <label class="xform-lbl" for="numPosX${S}" title="Double-click to reset to default (0.000)">Position X</label>
-        <div class="xform-slider-cell">
-            <input id="posX${S}" type="range" class="rv-slider" min="-960" max="960" step="0.5" value="0" data-default="0">
-        </div>
-        <div class="xform-num-cell">
-            <span class="xform-axis">X</span>
-            <input id="numPosX${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000" data-default="0.000">
-        </div>
-    </div>
-
-    <!-- Position Y row -->
-    <div class="xform-grid-row">
-        <label class="xform-lbl" for="numPosY${S}" title="Double-click to reset to default (0.000)">Position Y</label>
-        <div class="xform-slider-cell">
-            <input id="posY${S}" type="range" class="rv-slider" min="-540" max="540" step="0.5" value="0" data-default="0">
-        </div>
-        <div class="xform-num-cell">
-            <span class="xform-axis">Y</span>
-            <input id="numPosY${S}" type="number" class="rv-num xform-num" step="0.001" value="0.000" data-default="0.000">
-        </div>
-    </div>
-
-    <!-- Rotation Angle row -->
-    <div class="xform-grid-row">
-        <label class="xform-lbl" for="numRot${S}" title="Double-click to reset to default (0.000)">Rotation Angle</label>
-        <div class="xform-slider-cell">
-            <input id="rot${S}" type="range" class="rv-slider" min="-180" max="180" step="0.1" value="0" data-default="0">
-        </div>
-        <div class="xform-num-cell">
-            <span class="xform-axis">°</span>
-            <input id="numRot${S}" type="number" class="rv-num xform-num" min="-360" max="360" step="0.001" value="0.000" data-default="0.000">
-        </div>
-    </div>
-</div>
-<div class="row actions">
-    <button id="prev${S}">▶ Preview</button>
-    <button id="loop${S}" class="ghost loop-btn" title="Toggle continuous real-time looping preview (runs at timeline frame rate)">🔁 Live Loop</button>
-    <button id="prevSfx${S}" class="ghost">▶ Sound only</button>
-    ${S === 'C' ? '<button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button>' : ''}
-</div>
-<button type="button" id="collapseExpandBtn${S}" class="collapse-expand-bar" title="Show Text & Alignment settings (switches to Default view)">
-    <span class="collapse-expand-label">Text | Alignment</span>
-    <span class="collapse-expand-chev">▾</span>
-</button>`;
+${S === 'C' ? `<div class="row actions"><button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button></div>` : ''}`;
 
 const CTX = {
     U: {
@@ -1740,6 +1675,7 @@ function syncXformUI(S, posX, posY, scale, rotation) {
     const numPyEl = $('numPosY' + S);
     const numScEl = $('numScale' + S);
     const numRotEl = $('numRot' + S);
+    if (!pxEl && !numPxEl) return;
 
     const bg = state.liveBg && state.liveBg.img;
     let tlW = (state.liveBg && state.liveBg.width) || 1920;
@@ -5230,28 +5166,34 @@ function bindAdjust(ctx) {
         }
     };
     for (const f of ['textOffset', 'sfxOffset', 'tail']) {
-        $(f + S).addEventListener('input', () => {
+        const el = $(f + S);
+        if (el) el.addEventListener('input', () => {
             const m = ctx.model(); if (!m) return;
-            const v = clamp(Math.round(Number($(f + S).value) || 0), -300, 300);
+            const v = clamp(Math.round(Number(el.value) || 0), -300, 300);
             if (f === 'textOffset' && m.linked === false) m.sfxOffset = clamp(m.sfxOffset - (v - m.textOffset), -300, 300);
             m[f] = v;
             changed();
         });
     }
-    $('linked' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.linked = $('linked' + S).checked; changed(); } });
-    $('useSfx' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.useSfx = $('useSfx' + S).checked; changed(); renderAnimations(); } });
-    $('sfxVolume' + S).addEventListener('input', () => {
+    const lkEl = $('linked' + S);
+    if (lkEl) lkEl.addEventListener('change', () => { const m = ctx.model(); if (m) { m.linked = lkEl.checked; changed(); } });
+    const sfxEl = $('useSfx' + S);
+    if (sfxEl) sfxEl.addEventListener('change', () => { const m = ctx.model(); if (m) { m.useSfx = sfxEl.checked; changed(); renderAnimations(); } });
+    const sfxVolEl = $('sfxVolume' + S);
+    if (sfxVolEl) sfxVolEl.addEventListener('input', () => {
         const m = ctx.model(); if (!m) return;
-        m.sfxVolume = Number($('sfxVolume' + S).value);
-        $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
+        m.sfxVolume = Number(sfxVolEl.value);
+        if ($('vSfxVolume' + S)) $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
         const a = libEntry(m.id);
         if (a) a.sfxVolume = m.sfxVolume;
         ctx.changed(m);
         renderTimeline(ctx);
         triggerLiveSync(m, S);
     });
-    $('textTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number($('textTrack' + S).value); ctx.changed(m); } });
-    $('sfxTrack' + S).addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number($('sfxTrack' + S).value); ctx.changed(m); } });
+    const txtTrkEl = $('textTrack' + S);
+    if (txtTrkEl) txtTrkEl.addEventListener('change', () => { const m = ctx.model(); if (m) { m.textTrack = Number(txtTrkEl.value); ctx.changed(m); } });
+    const sfxTrkEl = $('sfxTrack' + S);
+    if (sfxTrkEl) sfxTrkEl.addEventListener('change', () => { const m = ctx.model(); if (m) { m.sfxTrack = Number(sfxTrkEl.value); ctx.changed(m); } });
     const lenSel = $('sfxLenMode' + S);
     if (lenSel) lenSel.addEventListener('change', () => {
         const m = ctx.model(); if (!m) return;
@@ -5274,7 +5216,8 @@ function bindAdjust(ctx) {
         else runPreview(ctx, true);                       // loops, sound included, until clicked again
     });
     syncPlayUI();
-    $('prev' + S).addEventListener('click', () => {
+    const prevBtn = $('prev' + S);
+    if (prevBtn) prevBtn.addEventListener('click', () => {
         if (state.preview) stopPreview();
         else runPreview(ctx, false);
     });
@@ -5285,7 +5228,8 @@ function bindAdjust(ctx) {
             else runPreview(ctx, true);
         });
     }
-    $('prevSfx' + S).addEventListener('click', () => {
+    const prevSfxBtn = $('prevSfx' + S);
+    if (prevSfxBtn) prevSfxBtn.addEventListener('click', () => {
         const m = ctx.model(); const p = m && (m.useSfx === false ? null : (m.sfxPath || currentSfxPath(m)));
         if (p) play(p, m && m.sfxVolume); else setStatus('This item has no sound to play.', 'bad');
     });
@@ -7173,35 +7117,45 @@ async function initApp() {
     if ($('sfxOrigAccordionToggle')) $('sfxOrigAccordionToggle').addEventListener('click', () => {
         setSfxOrigAccordionOpen(!state.sfxOrigOpen);
     });
-    $('subText').addEventListener('input', () => redrawStages());
-    $('resetU').addEventListener('click', () => {
-        syncUse(true);
-        if (state.use) {
-            state.use.dirty = false;
-            state.use.adjusted = false;
-            state.use.designDirty = false;
-        }
-        fillAdjust(CTX.U);
-        renderUseSummary();
-        renderTimelines();
-        redrawStages();
-    });
-    $('animName').addEventListener('input', () => {
-        const a = libEntry(state.createId); if (!a) return;
-        const name = $('animName').value.trim();
-        if (!name) return;
-        a.name = name;
-        saveField(a.id, { name });
-        if ($('editTitle')) $('editTitle').textContent = name;
-        renderAnimations(); renderTimeline(CTX.C);
-        const b = document.querySelector('#libList .libitem.sel b'); if (b) b.textContent = name;
-    });
-    $('prevCapC').addEventListener('click', async () => {
-        if (!state.createId) return;
-        setCreateStatus('Taking preview frames…');
-        const res = await window.sa.capturePreview(state.createId);
-        if (takeLib(res)) setCreateStatus('Preview updated.', 'ok'); else if (res && res.error) setCreateStatus(res.error, 'bad');
-    });
+    const subTextEl = $('subText');
+    if (subTextEl) subTextEl.addEventListener('input', () => redrawStages());
+    const resetUEl = $('resetU');
+    if (resetUEl) {
+        resetUEl.addEventListener('click', () => {
+            syncUse(true);
+            if (state.use) {
+                state.use.dirty = false;
+                state.use.adjusted = false;
+                state.use.designDirty = false;
+            }
+            fillAdjust(CTX.U);
+            renderUseSummary();
+            renderTimelines();
+            redrawStages();
+        });
+    }
+    const animNameEl = $('animName');
+    if (animNameEl) {
+        animNameEl.addEventListener('input', () => {
+            const a = libEntry(state.createId); if (!a) return;
+            const name = animNameEl.value.trim();
+            if (!name) return;
+            a.name = name;
+            saveField(a.id, { name });
+            if ($('editTitle')) $('editTitle').textContent = name;
+            renderAnimations(); renderTimeline(CTX.C);
+            const b = document.querySelector('#libList .libitem.sel b'); if (b) b.textContent = name;
+        });
+    }
+    const prevCapCEl = $('prevCapC');
+    if (prevCapCEl) {
+        prevCapCEl.addEventListener('click', async () => {
+            if (!state.createId) return;
+            setCreateStatus('Taking preview frames…');
+            const res = await window.sa.capturePreview(state.createId);
+            if (takeLib(res)) setCreateStatus('Preview updated.', 'ok'); else if (res && res.error) setCreateStatus(res.error, 'bad');
+        });
+    }
 
     $('tabBtnApply').addEventListener('click', () => setTab('apply'));
     $('tabBtnLibrary').addEventListener('click', () => setTab('library'));

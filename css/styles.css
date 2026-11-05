@@ -4345,10 +4345,13 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 .stage-live.hidden { display: none; }
 .stage-live-txt { display: grid; gap: 2px; font-size: 12px; }
 .stage-live-txt span { opacity: .65; }
-.stage-live-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-.stage-live-btns button { flex: 1 1 140px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.07); color: inherit; }
+.stage-live-btns { display: flex; gap: 8px; }
+.stage-live-btns button { flex: 1 1 0; min-width: 0; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.07); color: inherit; text-align: center; }
+.stage-live-btns button.hidden { display: none !important; }
 .stage-live-btns .live-apply { background: #7bc98a; color: #10301a; border-color: transparent; font-weight: 600; }
-.stage-live-btns .live-remove:hover { background: rgba(240,123,142,.25); }
+.stage-live-btns .live-apply:hover { filter: brightness(1.08); }
+.stage-live-btns .live-remove { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.16); color: inherit; font-weight: 500; }
+.stage-live-btns .live-remove:hover { background: rgba(240,123,142,.2); border-color: rgba(240,123,142,.4); color: #ffb4bc; }
 .stage-box.hidden { display: none; }
 
 .stage-live-txt .live-note { opacity: 1; color: #f0c674; font-weight: 600; }

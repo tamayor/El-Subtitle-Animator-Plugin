@@ -41,7 +41,7 @@ body {
 }
 
 body {
-    padding: 14px 14px 124px;
+    padding: 14px 14px 44px;
 }
 
 header {
@@ -563,21 +563,23 @@ footer {
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 10px 14px 12px;
-    background: linear-gradient(to top, var(--bg) 85%, rgba(19, 22, 20, 0.95) 50%, transparent);
+    padding: 6px 14px 8px;
+    background: linear-gradient(to top, var(--bg) 92%, rgba(19, 22, 20, 0.95) 60%, transparent);
     z-index: 50;
     display: flex;
     justify-content: center;
+    pointer-events: none;
 }
 
 .footer-inner {
     width: 100%;
     max-width: 680px;
+    pointer-events: auto;
 }
 
 .status {
     min-height: 18px;
-    margin-top: 6px;
+    margin-top: 0;
     font-size: 12px;
     color: var(--dim);
 }
@@ -1614,23 +1616,82 @@ body.tab-library {
     box-shadow: 0 0 0 1px rgba(240, 123, 142, 0.2);
 }
 
-.td-var-row {
-    margin: 0 0 6px;
+.td-save-row-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
 }
 
-.td-btn-row {
+.td-save-row-top .td-btn-upd {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.td-save-row-top .td-btn-revert {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 11.5px;
+}
+
+.td-save-row-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.td-ver-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dim);
+    letter-spacing: 0.2px;
+}
+
+.td-ver-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0;
-    gap: 6px;
+}
+
+.td-ver-input-row .sh-name {
+    flex: 1 1 50%;
+    min-width: 0;
+    height: 32px;
+    padding: 4px 8px;
+    font-size: 12px;
+    box-sizing: border-box;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--line);
+    color: var(--text);
+}
+
+.td-ver-input-row .td-btn-new {
+    flex: 1 1 50%;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .td-btn-new,
 .td-btn-upd {
-    flex: 1;
-    padding: 7px 10px;
-    font-size: 12px;
-    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .td-btn-new {
@@ -1707,7 +1768,7 @@ body.tab-library {
     body.tab-apply .tab-col-side {
         position: sticky;
         top: 10px;
-        max-height: calc(100vh - 110px);
+        max-height: calc(100vh - 55px);
         overflow-y: auto;
         overscroll-behavior: contain;
         padding-right: 2px;
@@ -2724,13 +2785,70 @@ body.inspector-collapse .collapse-expand-bar {
 }
 
 
-/* ---------------------------------------------------------------- preset list: tight looping thumbnails */
-.grid {
+/* ---------------------------------------------------------------- preset list & responsive grid view */
+.view-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1px;
+    gap: 1px;
+    user-select: none;
+    -webkit-user-select: none;
+    flex: 0 0 auto;
+}
+
+.view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--dim);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+    -webkit-text-fill-color: var(--dim);
+}
+
+.view-btn svg {
+    flex: 0 0 auto;
+    opacity: 0.8;
+}
+
+.view-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+    -webkit-text-fill-color: var(--text);
+}
+
+.view-btn.on {
+    color: #e5ece7;
+    background: var(--card-inner);
+    border-color: var(--matcha-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    -webkit-text-fill-color: #e5ece7;
+}
+
+.view-btn.on svg {
+    color: var(--matcha);
+    opacity: 1;
+}
+
+/* Default / List view */
+.grid,
+.grid.view-list {
     grid-template-columns: 1fr;
     gap: 6px;
 }
 
-.card {
+.grid .card,
+.grid.view-list .card {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2738,13 +2856,16 @@ body.inspector-collapse .collapse-expand-bar {
     min-height: 0;
 }
 
-.card .thumb-wrap {
+.grid .card .thumb-wrap,
+.grid.view-list .card .thumb-wrap {
     flex: none;
     width: 104px;
 }
 
-.card .thumb,
-.card .thumb.empty {
+.grid .card .thumb,
+.grid .card .thumb.empty,
+.grid.view-list .card .thumb,
+.grid.view-list .card .thumb.empty {
     display: block;
     width: 104px;
     height: 58px;
@@ -2752,25 +2873,29 @@ body.inspector-collapse .collapse-expand-bar {
     background: #000;
 }
 
-.card .thumb.empty {
+.grid .card .thumb.empty,
+.grid.view-list .card .thumb.empty {
     display: grid;
     place-items: center;
     border: 1px dashed var(--line);
 }
 
-.card .thumb.empty button {
+.grid .card .thumb.empty button,
+.grid.view-list .card .thumb.empty button {
     font-size: 10px;
     padding: 2px 6px;
 }
 
-.card .nm {
+.grid .card .nm,
+.grid.view-list .card .nm {
     flex: 1;
     min-width: 0;
     padding: 0;
     font-size: 12.5px;
 }
 
-.card .sub {
+.grid .card .sub,
+.grid.view-list .card .sub {
     position: static;
     margin: 0;
     padding: 0;
@@ -2779,15 +2904,104 @@ body.inspector-collapse .collapse-expand-bar {
     font-size: 12px;
 }
 
-.card .sub:empty {
+.grid .card .sub:empty,
+.grid.view-list .card .sub:empty {
     display: none;
 }
 
-.card .play {
+.grid .card .play,
+.grid.view-list .card .play {
     top: 50%;
     bottom: auto;
     right: 6px;
     transform: translateY(-50%);
+}
+
+/* Responsive Grid View */
+.grid.view-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+}
+
+.grid.view-grid .card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px 6px 8px;
+    gap: 6px;
+    min-height: 0;
+    position: relative;
+}
+
+.grid.view-grid .card .thumb-wrap {
+    width: 100%;
+    aspect-ratio: 16/9;
+    flex: none;
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+}
+
+.grid.view-grid .card .thumb,
+.grid.view-grid .card .thumb.empty {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+}
+
+.grid.view-grid .card .thumb.empty {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--line);
+}
+
+.grid.view-grid .card .thumb.empty button {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.grid.view-grid .card .nm {
+    font-size: 11.5px;
+    line-height: 1.35;
+    font-weight: 600;
+    padding: 2px 18px 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.grid.view-grid .card .sub {
+    font-size: 11px;
+    color: var(--matcha);
+    padding: 0;
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+}
+
+.grid.view-grid .card .sub:empty {
+    display: none;
+}
+
+.grid.view-grid .card .tag-dots {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+}
+
+.grid.view-grid .card .play {
+    top: auto;
+    bottom: 6px;
+    right: 6px;
+    transform: none;
 }
 
 .row-end {
@@ -4082,7 +4296,36 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 .td-num { text-align: right; font-size: 11px; }
 
 
-/* Placement pop-up beside "Add to timeline" */
+/* Placement options drawer & legacy menu */
+.place-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 2px 0;
+}
+
+.place-options-list label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    color: var(--text);
+}
+
+.place-options-list label:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.place-options-list input[type="checkbox"] {
+    accent-color: var(--matcha);
+    margin: 0;
+    cursor: pointer;
+}
+
 .create-row { display: flex; gap: 8px; align-items: stretch; }
 .create-row #create { flex: 1 1 auto; min-width: 0; }
 .place-wrap { position: relative; flex: 0 0 auto; }

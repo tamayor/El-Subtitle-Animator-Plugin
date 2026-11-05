@@ -16,6 +16,8 @@ const state = {
     createId: null,        // the item opened in the Create tab
     use: null,             // working copy of the picked item's alignment (edits here are for one use only)
     adjustOpen: false,     // is the alignment panel in the Use tab expanded
+    placeOpen: false,      // is the placement panel in the Use tab expanded
+    useViewMode: 'list',   // preset viewing mode: 'list' or 'grid'
     tdOpen: false,         // is the text design panel in the Use tab expanded
     createAdjustOpen: true,// is the alignment panel in the Create tab expanded
     createTdOpen: false,   // is the text design panel in the Create tab expanded
@@ -1015,14 +1017,16 @@ const TEXT_DESIGN_HTML = (S) => `
 
 const SAVE_BAR_HTML = (S) => `
 <div id="tdSaveBar${S}" class="td-save-bar hidden">
-    <div class="row td-var-row">
-        <span class="sh-lbl">New version name</span>
-        <input id="tdVarName${S}" type="text" class="sh-name" placeholder="Name v2">
-    </div>
-    <div class="row td-btn-row">
-        <button type="button" id="tdSaveVar${S}" class="td-btn-new" title="Save this alignment, Text+ design, and sound as a new preset in your library">+ Create v2</button>
+    <div class="row td-save-row-top">
         <button type="button" id="tdUpdateLatest${S}" class="td-btn-upd" title="Update this preset and the latest Text+ subtitle clip on your timeline">Update latest</button>
         <button type="button" id="tdRevertOrig${S}" class="ghost sm-btn td-btn-revert" title="Revert this preset to its original .settings, text design, alignment, and sound">↺ Revert to original</button>
+    </div>
+    <div class="td-save-row-bottom">
+        <span class="sh-lbl td-ver-lbl">New version</span>
+        <div class="row td-ver-input-row">
+            <input id="tdVarName${S}" type="text" class="sh-name" placeholder="Name v2">
+            <button type="button" id="tdSaveVar${S}" class="td-btn-new" title="Save this alignment, Text+ design, and sound as a new preset in your library">+ Create v2</button>
+        </div>
     </div>
 </div>`;
 
@@ -1032,8 +1036,8 @@ const PREVIEW_HTML = (S) => `
 ${S === 'U' ? `<div id="stageLive${S}" class="stage-live">
     <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
     <div class="stage-live-btns">
-        <button type="button" id="liveApply${S}" class="live-apply" title="Apply the Text+ on the timeline (with its sound)">Add to timeline</button>
-        <button type="button" id="liveRemove${S}" class="live-remove" title="Delete the preview clip from the timeline">Remove preview</button>
+        <button type="button" id="liveApply${S}" class="live-apply" title="Start timeline preview for the selected text preset">Start</button>
+        <button type="button" id="liveRemove${S}" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove preview</button>
     </div>
 </div>` : ''}
 <div id="stageMsg${S}" class="stagemsg"></div>
@@ -3425,16 +3429,25 @@ function getDefaultValue(inp) {
 }
 
 
-// ---- Placement pop-up beside "Add to timeline" (all unchecked by default; remembered per computer)
+// ---- Placement drawer below Alignment (all unchecked by default; remembered per computer)
 const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty', loopOn: 'placeLoopOn' };
 function placeOptions() {
     const o = {};
     for (const k in PLACE_IDS) { const e = $(PLACE_IDS[k]); o[k] = !!(e && e.checked); }
     return o;
 }
+function setPlaceOpen(wanted) {
+    state.placeOpen = !!wanted;
+    const body = $('placeBodyU'), wrap = $('placeWrapU'), toggle = $('placeToggleU');
+    if (body) body.classList.toggle('hidden', !state.placeOpen);
+    if (wrap) wrap.classList.toggle('open', state.placeOpen);
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', state.placeOpen ? 'true' : 'false');
+        const chev = toggle.querySelector('.chev');
+        if (chev) chev.textContent = state.placeOpen ? '▾' : '▸';
+    }
+}
 function bindPlacementMenu() {
-    const btn = $('placeBtn'), menu = $('placeMenu');
-    if (!btn || !menu) return;
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem('sa.place') || '{}') || {}; } catch (e) { saved = {}; }
     for (const k in PLACE_IDS) {
@@ -3442,18 +3455,29 @@ function bindPlacementMenu() {
         e.checked = !!saved[k];
         e.addEventListener('change', () => {
             try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
-            syncPlaceBtn();
+            syncPlaceUI();
         });
     }
-    const syncPlaceBtn = () => {
+    const syncPlaceUI = () => {
         const n = Object.values(placeOptions()).filter(Boolean).length;
-        btn.textContent = 'Placement' + (n ? ' (' + n + ')' : '') + ' ▴';
+        const summary = $('placeSummaryU');
+        if (summary) summary.textContent = n ? (n + ' option' + (n > 1 ? 's' : '') + ' active') : 'Default (top layer)';
+        if ($('placeBtn')) $('placeBtn').textContent = 'Placement' + (n ? ' (' + n + ')' : '') + ' ▴';
     };
-    const setOpen = (open) => { menu.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
-    btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.classList.contains('hidden')); });
-    document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) setOpen(false); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
-    syncPlaceBtn();
+    if ($('placeToggleU')) {
+        $('placeToggleU').addEventListener('click', (e) => {
+            e.stopPropagation();
+            setPlaceOpen(!state.placeOpen);
+        });
+    }
+    const btn = $('placeBtn'), menu = $('placeMenu');
+    if (btn && menu) {
+        const setOpen = (open) => { menu.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+        btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.classList.contains('hidden')); });
+        document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) setOpen(false); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+    }
+    syncPlaceUI();
 }
 
 
@@ -3482,16 +3506,21 @@ function refreshLiveBar() {
     const bar = $('stageLiveU'); if (!bar) return;
     const a = selected();
     const btn = $('liveApplyU');
+    const remBtn = $('liveRemoveU');
+    const isLiveActive = !!(state.livePrev && state.livePrev.hasClip && !state.livePrev.removed);
     if (btn) {
-        btn.textContent = state.livePrev ? (state.livePrev.removed ? 'Preview again' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Add to timeline')) : 'Preview on Timeline';
-        btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead';
+        btn.textContent = isLiveActive ? ((state.liveApplied && a) ? 'Set ' + a.name : 'Add to timeline') : 'Start';
+        btn.title = isLiveActive ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead';
+    }
+    if (remBtn) {
+        remBtn.classList.toggle('hidden', !isLiveActive);
     }
     const addBtn = $('create');
     if (addBtn) {
         addBtn.textContent = 'Add to timeline';
     }
     const title = bar.querySelector('.stage-live-txt b');
-    if (title) title.textContent = state.livePrev ? 'Previewing on Timeline' : (state.liveApplied ? 'Applied to timeline' : 'Timeline Preview');
+    if (title) title.textContent = isLiveActive ? 'Previewing on Timeline' : (state.liveApplied ? 'Applied to timeline' : 'Timeline Preview');
 }
 function exitLiveSession() {
     state.liveApplied = false;
@@ -3525,10 +3554,10 @@ async function liveSfxFor(m, start, end) {
     if (out) liveSfxCache.set(key, out);
     return out;
 }
-// The preview clip was deleted by hand: the button offers "Preview again" and nothing is put back by itself.
+// The preview clip was deleted by hand: the button offers "Start" and nothing is put back by itself.
 function markRemoved(p) {
     p.hasClip = false; p.key = ''; p.removed = true;
-    liveCard('The preview clip was removed. Click Preview again to put it back on the subtitle at the playhead.');
+    liveCard('The preview clip was removed. Click Start to put it back on the subtitle at the playhead.');
     setStatus('Preview clip removed.', '');
     refreshLiveBar();
 }
@@ -3686,7 +3715,15 @@ function bindLivePreview() {
         if (!t) return;
         if (t.id === 'stageLiveBtnU') startLivePreview();
         else if (t.id === 'liveRemoveU') { if (state.livePrev) endLivePreview(false); else exitLiveSession(); }
-        else { if (state.livePrev) { if (state.livePrev.removed) previewAgain(); else endLivePreview(true); } else startLivePreview(); }
+        else {
+            if (state.livePrev && state.livePrev.hasClip && !state.livePrev.removed) {
+                endLivePreview(true);
+            } else if (state.livePrev && state.livePrev.removed) {
+                previewAgain();
+            } else {
+                startLivePreview();
+            }
+        }
     });
     // The preview stays on while you play or scrub: the clip is removed when the playhead leaves it and added again on
     // the next subtitle the playhead reaches. Edits made in the panel are pushed to the clip while it is there.
@@ -6337,10 +6374,33 @@ function startLibDrag(e, rowEl, a, list) {
     update();
 }
 
+function setPresetViewMode(mode) {
+    state.useViewMode = (mode === 'grid') ? 'grid' : 'list';
+    try { localStorage.setItem('sa.presetView', state.useViewMode); } catch (e) { /* ignore */ }
+    const grid = $('animGrid');
+    if (grid) {
+        grid.classList.toggle('view-grid', state.useViewMode === 'grid');
+        grid.classList.toggle('view-list', state.useViewMode === 'list');
+    }
+    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn');
+    if (listBtn) listBtn.classList.toggle('on', state.useViewMode === 'list');
+    if (gridBtn) gridBtn.classList.toggle('on', state.useViewMode === 'grid');
+}
+
+function initPresetViewMode() {
+    let saved = 'list';
+    try { saved = localStorage.getItem('sa.presetView') || 'list'; } catch (e) { saved = 'list'; }
+    setPresetViewMode(saved);
+    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn');
+    if (listBtn) listBtn.addEventListener('click', () => setPresetViewMode('list'));
+    if (gridBtn) gridBtn.addEventListener('click', () => setPresetViewMode('grid'));
+}
+
 // Use tab: the text + sound effects that are already made. Click one to pick it.
 function renderAnimations() {
     const grid = $('animGrid');
     grid.textContent = '';
+    grid.className = 'grid ' + (state.useViewMode === 'grid' ? 'view-grid' : 'view-list');
     const n = state.lib.animations.length;
     $('libCount').textContent = n ? n + ' saved' : '';
     if (window.SAThumbs) SAThumbs.syncHeader();
@@ -6379,7 +6439,7 @@ function renderAnimations() {
             syncUse(true);
             renderAll();
             refreshLiveBar();
-            if (!state.busy) startLivePreview();
+            if (state.livePrev && !state.busy) switchLivePreset(a);
         });
         grid.appendChild(c);
     }
@@ -6746,7 +6806,7 @@ function renderLive() {
         conn.textContent = L && L.reason ? L.reason : 'Not connected';
         conn.className = 'pill off';
         $('subMeta').textContent = '–';
-        $('create').disabled = true;
+        if ($('create')) $('create').disabled = true;
         return;
     }
     conn.textContent = L.timeline;
@@ -6763,7 +6823,7 @@ function renderLive() {
         ? '#' + s.index + ' of ' + L.count + ' · ' + (L.source === 'selection' ? 'selected' : 'at playhead')
         : (L.count ? 'no subtitle at the playhead' : 'this timeline has no subtitles');
     $('subHint').textContent = s ? '' : 'You can still type text here and it will be placed at the playhead for 3 seconds.';
-    $('create').disabled = state.busy || !selected();
+    if ($('create')) $('create').disabled = state.busy || !selected();
     if (changed || state.lastFrame !== L.frame) {
         state.lastFrame = L.frame;
         if (!state.drag && !state.preview) renderTimelines();
@@ -6849,7 +6909,7 @@ async function create() {
     const start = s ? s.start : L.frame;
     const end = s ? s.end : L.frame + Math.round((L.fps || 25) * 3);
     state.busy = true;
-    $('create').disabled = true;
+    if ($('create')) $('create').disabled = true;
     setStatus('Creating…');
     let sfxClip = null;
     try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }      // falls back to the original sound
@@ -7238,7 +7298,8 @@ async function initApp() {
     $('rescan').addEventListener('click', async () => { state.live = await window.sa.poll(true); renderLive(); setStatus('Subtitles re-read.', 'ok'); });
     bindPlacementMenu();
     bindLivePreview();
-    $('create').addEventListener('click', create);
+    initPresetViewMode();
+    if ($('create')) $('create').addEventListener('click', create);
 
     tick();
     } catch (err) {

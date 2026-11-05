@@ -2785,6 +2785,87 @@ body.inspector-collapse .collapse-expand-bar {
 }
 
 
+/* Preset Header & Search */
+.preset-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.preset-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.preset-search-wrap {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    max-width: 190px;
+    min-width: 120px;
+    flex: 1 1 auto;
+}
+
+.preset-search-wrap .search-ico {
+    position: absolute;
+    left: 8px;
+    pointer-events: none;
+    color: var(--dim);
+    opacity: 0.8;
+}
+
+.preset-search-wrap input[type="text"] {
+    width: 100%;
+    height: 25px;
+    padding: 2px 22px 2px 26px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    box-sizing: border-box;
+}
+
+.preset-search-wrap input[type="text"]:focus {
+    border-color: var(--matcha-border);
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: 0 0 0 1px var(--matcha-border);
+}
+
+.preset-search-wrap input[type="text"]::placeholder {
+    color: var(--dim);
+    opacity: 0.7;
+}
+
+.preset-search-wrap .search-clear {
+    position: absolute;
+    right: 4px;
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preset-search-wrap .search-clear:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.1);
+}
+
 /* ---------------------------------------------------------------- preset list & responsive grid view */
 .view-mode-toggle {
     display: inline-flex;
@@ -3002,6 +3083,257 @@ body.inspector-collapse .collapse-expand-bar {
     bottom: 6px;
     right: 6px;
     transform: none;
+}
+
+/* Gallery View (horizontal one-row carousel with dot indicators) */
+.grid.view-gallery {
+    display: block;
+    width: 100%;
+}
+
+.gallery-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    position: relative;
+}
+
+.gallery-viewport-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    position: relative;
+}
+
+.gallery-arrow {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.gallery-arrow:hover:not(:disabled) {
+    background: var(--matcha-tint);
+    border-color: var(--matcha-border);
+    color: var(--matcha);
+    transform: scale(1.08);
+}
+
+.gallery-arrow:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.gallery-arrow:disabled {
+    opacity: 0.22;
+    cursor: default;
+    pointer-events: none;
+}
+
+.gallery-track {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 4px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+
+.gallery-track::-webkit-scrollbar {
+    height: 4px;
+}
+
+.gallery-track::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gallery-track::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 2px;
+}
+
+.gallery-track:focus {
+    outline: none;
+}
+
+.grid.view-gallery .card {
+    flex: 0 0 190px;
+    max-width: 190px;
+    scroll-snap-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px 6px 8px;
+    gap: 6px;
+    min-height: 0;
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    box-sizing: border-box;
+}
+
+.grid.view-gallery .card:hover {
+    border-color: var(--line-soft);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.grid.view-gallery .card.sel {
+    border-color: var(--matcha-border);
+    background: var(--matcha-tint);
+    box-shadow: 0 0 0 1px var(--matcha-border), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.grid.view-gallery .card .thumb-wrap {
+    width: 100%;
+    aspect-ratio: 16/9;
+    flex: none;
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+}
+
+.grid.view-gallery .card .thumb,
+.grid.view-gallery .card .thumb.empty {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+}
+
+.grid.view-gallery .card .nm {
+    font-size: 11.5px;
+    line-height: 1.35;
+    font-weight: 600;
+    padding: 2px 18px 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+    color: var(--text);
+}
+
+.grid.view-gallery .card .sub {
+    font-size: 11px;
+    color: var(--matcha);
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+}
+
+.grid.view-gallery .card .tag-dots {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+}
+
+.gallery-indicator-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 0 4px;
+}
+
+.gallery-name-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 3px 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--line);
+    max-width: 90%;
+    transition: all 0.2s ease;
+}
+
+.gallery-name-pill .gallery-active-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--matcha);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.gallery-dots-scroll {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 4px 8px;
+    scrollbar-width: none;
+}
+
+.gallery-dots-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.gallery-dots {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px;
+}
+
+.gallery-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex: 0 0 auto;
+}
+
+.gallery-dot:hover {
+    background: rgba(255, 255, 255, 0.55);
+    transform: scale(1.2);
+}
+
+.gallery-dot.active {
+    background: var(--matcha);
+    width: 18px;
+    border-radius: 4px;
+    box-shadow: 0 0 6px rgba(100, 210, 150, 0.4);
 }
 
 .row-end {

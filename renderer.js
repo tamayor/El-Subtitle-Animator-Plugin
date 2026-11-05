@@ -17,7 +17,8 @@ const state = {
     use: null,             // working copy of the picked item's alignment (edits here are for one use only)
     adjustOpen: false,     // is the alignment panel in the Use tab expanded
     placeOpen: false,      // is the placement panel in the Use tab expanded
-    useViewMode: 'list',   // preset viewing mode: 'list' or 'grid'
+    useViewMode: 'list',   // preset viewing mode: 'list', 'grid', or 'gallery'
+    presetSearch: '',      // search query for filtering text presets
     tdOpen: false,         // is the text design panel in the Use tab expanded
     createAdjustOpen: true,// is the alignment panel in the Create tab expanded
     createTdOpen: false,   // is the text design panel in the Create tab expanded
@@ -6501,32 +6502,84 @@ function startLibDrag(e, rowEl, a, list) {
 }
 
 function setPresetViewMode(mode) {
-    state.useViewMode = (mode === 'grid') ? 'grid' : 'list';
+    state.useViewMode = (mode === 'grid' || mode === 'gallery') ? mode : 'list';
     try { localStorage.setItem('sa.presetView', state.useViewMode); } catch (e) { /* ignore */ }
     const grid = $('animGrid');
     if (grid) {
         grid.classList.toggle('view-grid', state.useViewMode === 'grid');
         grid.classList.toggle('view-list', state.useViewMode === 'list');
+        grid.classList.toggle('view-gallery', state.useViewMode === 'gallery');
     }
-    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn');
+    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn'), galleryBtn = $('viewGalleryBtn');
     if (listBtn) listBtn.classList.toggle('on', state.useViewMode === 'list');
     if (gridBtn) gridBtn.classList.toggle('on', state.useViewMode === 'grid');
+    if (galleryBtn) galleryBtn.classList.toggle('on', state.useViewMode === 'gallery');
+    renderAnimations();
 }
 
 function initPresetViewMode() {
     let saved = 'list';
     try { saved = localStorage.getItem('sa.presetView') || 'list'; } catch (e) { saved = 'list'; }
-    setPresetViewMode(saved);
-    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn');
-    if (listBtn) listBtn.addEventListener('click', () => setPresetViewMode('list'));
-    if (gridBtn) gridBtn.addEventListener('click', () => setPresetViewMode('grid'));
+    if (saved !== 'grid' && saved !== 'gallery' && saved !== 'list') saved = 'list';
+    state.useViewMode = saved;
+    const grid = $('animGrid');
+    if (grid) {
+        grid.classList.toggle('view-grid', state.useViewMode === 'grid');
+        grid.classList.toggle('view-list', state.useViewMode === 'list');
+        grid.classList.toggle('view-gallery', state.useViewMode === 'gallery');
+    }
+    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn'), galleryBtn = $('viewGalleryBtn');
+    if (listBtn) {
+        listBtn.classList.toggle('on', state.useViewMode === 'list');
+        listBtn.addEventListener('click', () => setPresetViewMode('list'));
+    }
+    if (gridBtn) {
+        gridBtn.classList.toggle('on', state.useViewMode === 'grid');
+        gridBtn.addEventListener('click', () => setPresetViewMode('grid'));
+    }
+    if (galleryBtn) {
+        galleryBtn.classList.toggle('on', state.useViewMode === 'gallery');
+        galleryBtn.addEventListener('click', () => setPresetViewMode('gallery'));
+    }
+
+    const searchInput = $('presetSearch');
+    const searchClear = $('presetSearchClear');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            state.presetSearch = e.target.value;
+            if (searchClear) searchClear.classList.toggle('hidden', !state.presetSearch);
+            renderAnimations();
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                searchInput.value = '';
+                state.presetSearch = '';
+                if (searchClear) searchClear.classList.add('hidden');
+                renderAnimations();
+            }
+        });
+    }
+    if (searchClear) {
+        searchClear.addEventListener('click', () => {
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+            }
+            state.presetSearch = '';
+            searchClear.classList.add('hidden');
+            renderAnimations();
+        });
+    }
 }
 
 // Use tab: the text + sound effects that are already made. Click one to pick it.
 function renderAnimations() {
     const grid = $('animGrid');
+    if (!grid) return;
     grid.textContent = '';
-    grid.className = 'grid ' + (state.useViewMode === 'grid' ? 'view-grid' : 'view-list');
+    const mode = state.useViewMode;
+    grid.className = 'grid ' + (mode === 'grid' ? 'view-grid' : (mode === 'gallery' ? 'view-gallery' : 'view-list'));
     const n = state.lib.animations.length;
     $('libCount').textContent = n ? n + ' saved' : '';
     if (window.SAThumbs) SAThumbs.syncHeader();
@@ -6536,15 +6589,224 @@ function renderAnimations() {
         d.className = 'empty';
         d.textContent = 'Nothing here yet. Open the Create tab to make your first text + sound effect.';
         grid.appendChild(d);
+        return;
     }
-    const shown = state.lib.animations.filter(a => passesTagFilter(a, 'use'));
+
+    const query = (state.presetSearch || '').trim().toLowerCase();
+    const shown = state.lib.animations.filter(a => {
+        if (!passesTagFilter(a, 'use')) return false;
+        if (query && !a.name.toLowerCase().includes(query)) return false;
+        return true;
+    });
+
     if (n && !shown.length) {
         const d = document.createElement('div');
         d.className = 'empty';
-        d.textContent = 'No presets have the selected tags.';
+        d.textContent = query
+            ? 'No presets matching "' + state.presetSearch.trim() + '".'
+            : 'No presets have the selected tags.';
         grid.appendChild(d);
+        return;
     }
     if (n && shown.length !== n) $('libCount').textContent = shown.length + ' of ' + n;
+
+    if (mode === 'gallery') {
+        const container = document.createElement('div');
+        container.className = 'gallery-container';
+
+        const stage = document.createElement('div');
+        stage.className = 'gallery-viewport-row';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'gallery-arrow gallery-prev';
+        prevBtn.title = 'Previous preset';
+        prevBtn.setAttribute('aria-label', 'Previous preset');
+        prevBtn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 2 4 8 10 14"></polyline></svg>';
+
+        const track = document.createElement('div');
+        track.className = 'gallery-track';
+        track.setAttribute('tabindex', '0');
+        track.setAttribute('role', 'region');
+        track.setAttribute('aria-label', 'Preset gallery carousel');
+
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'gallery-arrow gallery-next';
+        nextBtn.title = 'Next preset';
+        nextBtn.setAttribute('aria-label', 'Next preset');
+        nextBtn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 2 12 8 6 14"></polyline></svg>';
+
+        stage.append(prevBtn, track, nextBtn);
+
+        const footer = document.createElement('div');
+        footer.className = 'gallery-indicator-bar';
+
+        const namePill = document.createElement('div');
+        namePill.className = 'gallery-name-pill';
+        const nameText = document.createElement('span');
+        nameText.className = 'gallery-active-title';
+        namePill.appendChild(nameText);
+
+        const dotsScroll = document.createElement('div');
+        dotsScroll.className = 'gallery-dots-scroll';
+        const dotsWrap = document.createElement('div');
+        dotsWrap.className = 'gallery-dots';
+        dotsScroll.appendChild(dotsWrap);
+
+        footer.append(namePill, dotsScroll);
+        container.append(stage, footer);
+        grid.appendChild(container);
+
+        const cardEls = [];
+        const dotEls = [];
+
+        let activeIdx = shown.findIndex(a => a.id === state.selectedId);
+        if (activeIdx < 0) {
+            activeIdx = 0;
+            state.selectedId = shown[0].id;
+            syncUse(true);
+        }
+
+        const updateIndicator = (idx) => {
+            const cur = shown[idx];
+            if (!cur) return;
+            nameText.textContent = cur.name;
+            namePill.title = cur.name;
+            dotEls.forEach((dot, i) => {
+                const isActive = (i === idx);
+                dot.classList.toggle('active', isActive);
+                dot.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                if (isActive) {
+                    dot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            });
+            prevBtn.disabled = (idx <= 0);
+            nextBtn.disabled = (idx >= shown.length - 1);
+        };
+
+        const selectPreset = (idx, scrollTrack = true) => {
+            if (idx < 0 || idx >= shown.length) return;
+            activeIdx = idx;
+            const a = shown[idx];
+            state.selectedId = a.id;
+            syncUse(true);
+            cardEls.forEach((c, i) => c.classList.toggle('sel', i === idx));
+            updateIndicator(idx);
+            if (scrollTrack && cardEls[idx]) {
+                cardEls[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+            renderUseSummary();
+            refreshLiveBar();
+            if (state.livePrev && !state.busy) switchLivePreset(a);
+        };
+
+        shown.forEach((a, idx) => {
+            const c = document.createElement('div');
+            c.className = 'card' + (idx === activeIdx ? ' sel' : '') + (a.missing ? ' missing' : '');
+            const nm = document.createElement('div');
+            nm.className = 'nm'; nm.textContent = a.name;
+            const sub = document.createElement('div');
+            sub.className = 'sub';
+            const hasSound = a.useSfx !== false && (a.sfx || state.lib.defaultSfx);
+            sub.textContent = hasSound ? '\u266a' : '';
+            sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
+            if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
+            c.append(nm, sub);
+            const dots = tagDotsEl(a);
+            if (dots) c.appendChild(dots);
+
+            c.addEventListener('click', () => {
+                stopPreview();
+                selectPreset(idx, true);
+            });
+            track.appendChild(c);
+            cardEls.push(c);
+
+            const dot = document.createElement('button');
+            dot.type = 'button';
+            dot.className = 'gallery-dot' + (idx === activeIdx ? ' active' : '');
+            dot.title = a.name;
+            dot.setAttribute('aria-label', a.name);
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
+                stopPreview();
+                selectPreset(idx, true);
+            });
+            dotsWrap.appendChild(dot);
+            dotEls.push(dot);
+        });
+
+        updateIndicator(activeIdx);
+        requestAnimationFrame(() => {
+            if (cardEls[activeIdx]) {
+                cardEls[activeIdx].scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+            }
+        });
+
+        prevBtn.addEventListener('click', () => {
+            stopPreview();
+            if (activeIdx > 0) selectPreset(activeIdx - 1, true);
+        });
+        nextBtn.addEventListener('click', () => {
+            stopPreview();
+            if (activeIdx < shown.length - 1) selectPreset(activeIdx + 1, true);
+        });
+
+        track.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                stopPreview();
+                if (activeIdx > 0) selectPreset(activeIdx - 1, true);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                stopPreview();
+                if (activeIdx < shown.length - 1) selectPreset(activeIdx + 1, true);
+            }
+        });
+
+        track.addEventListener('wheel', (e) => {
+            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                e.preventDefault();
+                track.scrollLeft += e.deltaY;
+            }
+        }, { passive: false });
+
+        const getCenteredIdx = () => {
+            if (!cardEls.length) return 0;
+            const tRect = track.getBoundingClientRect();
+            const center = tRect.left + tRect.width / 2;
+            let bestIdx = 0;
+            let minDist = Infinity;
+            for (let i = 0; i < cardEls.length; i++) {
+                const r = cardEls[i].getBoundingClientRect();
+                const cCenter = r.left + r.width / 2;
+                const dist = Math.abs(cCenter - center);
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
+        };
+
+        let isScrolling = null;
+        track.addEventListener('scroll', () => {
+            const cIdx = getCenteredIdx();
+            if (cIdx !== activeIdx && cIdx >= 0 && cIdx < shown.length) {
+                activeIdx = cIdx;
+                updateIndicator(cIdx);
+            }
+            clearTimeout(isScrolling);
+            isScrolling = setTimeout(() => {
+                const finalIdx = getCenteredIdx();
+                selectPreset(finalIdx, false);
+            }, 180);
+        }, { passive: true });
+
+        return;
+    }
+
     for (const a of shown) {
         const c = document.createElement('div');
         c.className = 'card' + (a.id === state.selectedId ? ' sel' : '') + (a.missing ? ' missing' : '');

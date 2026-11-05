@@ -1254,7 +1254,7 @@ function syncUse(force) {
     if (!a) { state.use = null; return; }
     if (force || !state.use || state.use.id !== a.id || !state.use.dirty) {
         // A refresh of the same preset keeps the one-time subtitle render, so it is not rendered again.
-        const keepRender = (!force && state.use && state.use.id === a.id && !(state.use.designRev > 0)) ? state.use : null;
+        const keepRender = (!force && state.use && state.use.id === a.id) ? state.use : null;
         state.use = {
             id: a.id, name: a.name, dirty: false, adjusted: false, designDirty: false,
             textOffset: a.textOffset, sfxOffset: a.sfxOffset, tail: a.tail, linked: a.linked !== false,
@@ -1262,7 +1262,7 @@ function syncUse(force) {
             sfxVolume: a.sfxVolume, useSfx: a.useSfx !== false, textTrack: a.textTrack, sfxTrack: a.sfxTrack,
             posX: Number(a.posX) || 0, posY: Number(a.posY) || 0,
             scale: Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
-            textDesign: cloneTextDesign(a.textDesign),
+            textDesign: (keepRender && keepRender.designRev > 0 && keepRender.textDesign) ? keepRender.textDesign : cloneTextDesign(a.textDesign),
             boxes: window.SABoxes ? SABoxes.cloneBoxes(a) : {},
             sfx: a.sfx,
             sfxPath: a.sfxPath,
@@ -1273,6 +1273,9 @@ function syncUse(force) {
             state.use.tempPreview = keepRender.tempPreview;
             state.use.renderReq = keepRender.renderReq;
             state.use.rendering = keepRender.rendering;
+            state.use.designRev = keepRender.designRev || 0;
+            state.use._shown = keepRender._shown;
+            state.use._viewCache = keepRender._viewCache;
         }
     } else {
         // Keep the one-time Use tab values as they are.
@@ -2199,8 +2202,14 @@ function drawStage(S, a, idx) {
     const cssW = domRect.width > 10 ? domRect.width : 640;
     const cssH = (customH && domRect.height > 10) ? domRect.height : cssW / boxAr;
     const fit = Math.min(1, Math.max(tlW, tlH) / Math.max(cssW * dpr, cssH * dpr));
-    const targetW = Math.max(200, Math.round(cssW * dpr * fit));
-    const targetH = Math.max(120, Math.round(cssH * dpr * fit));
+    let targetW, targetH;
+    if (boxAr >= 1) {
+        targetW = Math.max(200, Math.round(cssW * dpr * fit));
+        targetH = Math.max(100, Math.round(targetW / boxAr));
+    } else {
+        targetH = Math.max(200, Math.round(cssH * dpr * fit));
+        targetW = Math.max(100, Math.round(targetH * boxAr));
+    }
     if (cv.width !== targetW || cv.height !== targetH) {
         cv.width = targetW;
         cv.height = targetH;
@@ -2353,6 +2362,23 @@ function drawStage(S, a, idx) {
         const useCapturedPreview = !!(im && canUseCaptured && !(window.SAThumbs && SAThumbs.isBlank(a)));
         if (useCapturedPreview) {
             const oc = keyedImage(im);
+            const imgW = (oc && oc.width) || (im && im.naturalWidth) || 0;
+            const imgH = (oc && oc.height) || (im && im.naturalHeight) || 0;
+            let drawW = vw;
+            let drawH = vh;
+            if (imgW > 0 && imgH > 0) {
+                const imgAr = imgW / imgH;
+                const vpAr = vw / vh;
+                if (Math.abs(imgAr - vpAr) > 0.005) {
+                    if (imgAr < vpAr) {
+                        drawH = vh;
+                        drawW = vh * imgAr;
+                    } else {
+                        drawW = vw;
+                        drawH = vw / imgAr;
+                    }
+                }
+            }
             g.save();
             g.translate(cx, cy);
             if (rotRad) g.rotate(rotRad);
@@ -2361,7 +2387,7 @@ function drawStage(S, a, idx) {
             g.beginPath();
             g.rect(-vw / 2, -vh / 2, vw, vh);
             g.clip();
-            g.drawImage(oc, -vw / 2 + layoutOx, -vh / 2 + layoutOy, vw, vh);
+            g.drawImage(oc, -drawW / 2 + layoutOx, -drawH / 2 + layoutOy, drawW, drawH);
             g.restore();
         } else {
             const defaultTxt = (a && Array.isArray(a.nodes) && a.nodes.length && a.nodes[0].defaultText) || '';
@@ -6786,7 +6812,7 @@ function renderSfxOriginals() {
         return;
     }
     const currentOrig = (state.use && (state.use.sfxOrig || state.use.sfx)) ||
-                        (selected() && (selected().sfxOrig || selected().sfx));
+        (selected() && (selected().sfxOrig || selected().sfx));
     for (const item of originals) {
         const row = document.createElement('div');
         row.className = 'sfx-orig-item' + (currentOrig === item.file ? ' attached' : '');

@@ -138,6 +138,24 @@
         const sub = subtitleText();
         // When the real animation is drawn on the stage, size each box to where the text actually is.
         const nb = (painted && nodes.length === 1 && window.SAThumbs) ? SAThumbs.bounds(a) : null;
+        const fr0 = window.SAThumbs ? SAThumbs.keyedFrame(a, 0, true) : null;
+        const imgW = (fr0 && (fr0.width || fr0.naturalWidth)) || 0;
+        const imgH = (fr0 && (fr0.height || fr0.naturalHeight)) || 0;
+        let drawW = vp.vw;
+        let drawH = vp.vh;
+        if (imgW > 0 && imgH > 0) {
+            const imgAr = imgW / imgH;
+            const vpAr = vp.vw / vp.vh;
+            if (Math.abs(imgAr - vpAr) > 0.005) {
+                if (imgAr < vpAr) {
+                    drawH = vp.vh;
+                    drawW = vp.vh * imgAr;
+                } else {
+                    drawW = vp.vw;
+                    drawH = vp.vw / imgAr;
+                }
+            }
+        }
         geo[S] = { f, vp, zoom, scale: g.scale, rot, cw: cv.width };
 
         const key = nodes.map(n => n.id).join('|');
@@ -153,8 +171,8 @@
             let rx = (b.cx - 0.5) * vp.vw * g.scale;
             let ry = -(b.cy - 0.5) * vp.vh * g.scale;
             if (nb) {
-                rx = (((nb.x0 + nb.x1) / 2 - 0.5) + (b.cx - n.cx)) * vp.vw * g.scale;
-                ry = (((nb.y0 + nb.y1) / 2 - 0.5) - (b.cy - n.cy)) * vp.vh * g.scale;
+                rx = (((nb.x0 + nb.x1) / 2 - 0.5) * drawW + (b.cx - n.cx) * vp.vw) * g.scale;
+                ry = (-((nb.y0 + nb.y1) / 2 - 0.5) * drawH - (b.cy - n.cy) * vp.vh) * g.scale;
             }
             let X = vp.vx + vp.vw * 0.5 + dxg + (rx * cos - ry * sin);
             let Y = vp.vy + vp.vh * 0.5 + dyg + (rx * sin + ry * cos);
@@ -168,8 +186,8 @@
             let w = clamp(longest * fs * 0.55 + 14, 56, cr.width * 0.98);
             let h = clamp(lines.length * fs * 1.15 + 10, 26, cr.height * 0.98);
             if (nb) {
-                w = clamp((nb.x1 - nb.x0) * vp.vw * g.scale * zoom * f + 16, 40, cr.width * 0.98);
-                h = clamp((nb.y1 - nb.y0) * vp.vh * g.scale * zoom * f + 12, 22, cr.height * 0.98);
+                w = clamp((nb.x1 - nb.x0) * drawW * g.scale * zoom * f + 16, 40, cr.width * 0.98);
+                h = clamp((nb.y1 - nb.y0) * drawH * g.scale * zoom * f + 12, 22, cr.height * 0.98);
             }
             el.style.left = ((cr.left - br.left) + X * f) + 'px';
             el.style.top = ((cr.top - br.top) + Y * f) + 'px';
@@ -198,6 +216,23 @@
             ox = b.cx - nodes[0].cx;
             oy = -(b.cy - nodes[0].cy);
         }
+        const imgW = (fr && (fr.width || fr.naturalWidth)) || 0;
+        const imgH = (fr && (fr.height || fr.naturalHeight)) || 0;
+        let drawW = vp.vw;
+        let drawH = vp.vh;
+        if (imgW > 0 && imgH > 0) {
+            const imgAr = imgW / imgH;
+            const vpAr = vp.vw / vp.vh;
+            if (Math.abs(imgAr - vpAr) > 0.005) {
+                if (imgAr < vpAr) {
+                    drawH = vp.vh;
+                    drawW = vp.vh * imgAr;
+                } else {
+                    drawW = vp.vw;
+                    drawH = vp.vw / imgAr;
+                }
+            }
+        }
         g.save();
         g.beginPath();
         g.rect(vp.vx, vp.vy, vp.vw, vp.vh);
@@ -213,17 +248,29 @@
         const sid = (g.canvas && g.canvas.id) || 'stage';
         const stamp = a.preview ? (a.id + ':' + a.preview.stamp) : '';
         let f = fades[sid];
-        if (!f) f = fades[sid] = { stamp, last: null, prev: null, t0: 0 };
-        if (f.stamp !== stamp) { f.prev = f.last; f.t0 = performance.now(); f.stamp = stamp; }
-        const dx = -vp.vw / 2 + ox * vp.vw, dy = -vp.vh / 2 + oy * vp.vh;
+        if (!f) f = fades[sid] = { stamp, last: null, prev: null, t0: 0, lastW: drawW, lastH: drawH };
+        if (f.stamp !== stamp) {
+            f.prev = f.last;
+            f.prevW = f.lastW;
+            f.prevH = f.lastH;
+            f.t0 = performance.now();
+            f.stamp = stamp;
+        }
+        const dx = -drawW / 2 + ox * vp.vw, dy = -drawH / 2 + oy * vp.vh;
         const k = f.prev ? Math.min(1, (performance.now() - f.t0) / 200) : 1;
-        if (k < 1) {
-            try { g.globalAlpha = 1 - k; g.drawImage(f.prev, dx, dy, vp.vw, vp.vh); } catch (e) { f.prev = null; }
+        if (k < 1 && f.prev) {
+            const pW = f.prevW || drawW;
+            const pH = f.prevH || drawH;
+            const pDx = -pW / 2 + ox * vp.vw;
+            const pDy = -pH / 2 + oy * vp.vh;
+            try { g.globalAlpha = 1 - k; g.drawImage(f.prev, pDx, pDy, pW, pH); } catch (e) { f.prev = null; }
             g.globalAlpha = k;
         } else f.prev = null;
-        g.drawImage(fr, dx, dy, vp.vw, vp.vh);
+        g.drawImage(fr, dx, dy, drawW, drawH);
         g.globalAlpha = 1;
         f.last = fr;
+        f.lastW = drawW;
+        f.lastH = drawH;
         g.restore();
         return true;
     }

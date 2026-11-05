@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('sa', {
     updateLatest: (req) => ipcRenderer.invoke('act:updateLatest', req),
     syncLiveTransform: (req) => ipcRenderer.invoke('act:syncLiveTransform', req),
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
+    subtitles: (force) => ipcRenderer.invoke('app:subtitles', force),
     readSfx: (p) => ipcRenderer.invoke('sfx:read', p),
     saveSfxClip: (name, bytes) => ipcRenderer.invoke('sfx:saveClip', name, bytes),
     saveAttachedClip: (animId, bytes, origName) => ipcRenderer.invoke('sfx:saveAttachedClip', animId, bytes, origName),

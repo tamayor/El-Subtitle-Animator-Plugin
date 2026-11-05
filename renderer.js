@@ -3509,10 +3509,11 @@ function refreshLiveBar() {
     const isLiveActive = !!(state.livePrev && state.livePrev.hasClip && !state.livePrev.removed);
     if (btn) {
         btn.textContent = isLiveActive ? 'Apply' : 'Start';
-        btn.title = isLiveActive ? 'Apply the Text+ on the timeline (with its sound)' : 'Start timeline preview for the selected text preset';
+        btn.title = isLiveActive ? 'Apply this caption and advance straight to the next caption' : 'Start timeline preview for the selected text preset';
     }
     if (remBtn) {
         remBtn.textContent = 'Remove';
+        remBtn.title = isLiveActive ? 'Stop preview and remove this preview clip from the timeline' : 'Remove';
         remBtn.classList.toggle('hidden', !isLiveActive);
     }
     const title = bar.querySelector('.stage-live-txt b');
@@ -3576,6 +3577,45 @@ async function previewAgain() {
     await addLiveClip({ start, end, text: defaultText }, true);
     refreshLiveBar();
 }
+async function getAllSubtitles(force) {
+    try {
+        if (window.sa && window.sa.subtitles) {
+            const res = await window.sa.subtitles(!!force);
+            if (res && res.ok && Array.isArray(res.subtitles) && res.subtitles.length) {
+                return res.subtitles;
+            }
+        }
+    } catch (e) { }
+    if (!force && state.live && Array.isArray(state.live.subtitles) && state.live.subtitles.length) {
+        return state.live.subtitles;
+    }
+    try {
+        const fresh = await window.sa.poll(!!force);
+        if (fresh && Array.isArray(fresh.subtitles) && fresh.subtitles.length) {
+            state.live = fresh;
+            return fresh.subtitles;
+        }
+    } catch (e) { }
+    return [];
+}
+
+function findNextSubtitle(subs, curStart, curEnd) {
+    if (!subs || !subs.length) return null;
+    let curIdx = subs.findIndex(s => s.start === curStart);
+    if (curIdx === -1) {
+        curIdx = subs.findIndex(s => curStart >= s.start && curStart < s.end);
+    }
+    if (curIdx !== -1 && curIdx + 1 < subs.length) {
+        return subs[curIdx + 1];
+    }
+    const after = subs.filter(s => s.start > curStart);
+    if (after.length) {
+        const nonOverlap = after.find(s => s.start >= (curEnd - 2));
+        return nonOverlap || after[0];
+    }
+    return null;
+}
+
 // Puts the preview clip on the timeline ({start, end, text}).
 async function addLiveClip(sub, keepPlayhead) {
     const p = state.livePrev, a = libEntry(p.animId), m = state.use;
@@ -3593,7 +3633,7 @@ async function addLiveClip(sub, keepPlayhead) {
         p.hasClip = true;
         p.clipS = res.start; p.clipE = res.start + res.frames;
         p.key = JSON.stringify(liveReq(m, a, p.text));
-        liveCard('The Text+ and its sound are on the timeline. Click Apply to keep it, or Remove to delete it.');
+        liveCard('The Text+ and sound are on the timeline. Click Apply to continue to next caption, or Remove to stop.');
         setStatus('Previewing in Resolve · V' + res.videoTrack, 'ok');
         state.liveBg.key = '';
     } else {
@@ -3683,7 +3723,7 @@ async function endLivePreview(keep) {
         return;
     }
     p.busy = true;
-    const a = libEntry(p.animId), m = state.use;
+    const a = libEntry(p.animId) || selected(), m = state.use;
     let res = { ok: true };
     if (keep) {
         if (!p.hasClip) { p.busy = false; setStatus('There is no preview clip right now.', 'bad'); return; }
@@ -3696,22 +3736,74 @@ async function endLivePreview(keep) {
         await window.sa.liveRemove();
     }
     if (keep && res && !res.ok && !res.gone) { p.busy = false; setStatus((res && res.error) || 'Could not apply', 'bad'); return; }
+
+    // If Remove was clicked: stop preview session, delete clip, and return to Start
+    if (!keep) {
+        state.livePrev = null;
+        state.liveApplied = false;
+        setLiveUI(false);
+        try { window.sa.liveLoopRestore(); } catch (e) { /* ignore */ }
+        if (state.use) { state.use.renderReq = null; }
+        state.liveBg.key = '';
+        refreshLiveBg();
+        liveCard('Previews and plays directly on DaVinci Resolve\'s timeline at the playhead.');
+        setStatus('Preview stopped and removed.', 'ok');
+        try { const r = await window.sa.getLib(); if (r && r.lib) { state.lib = r.lib; syncUse(false); renderAll(); } } catch (e) { /* ignore */ }
+        redrawStages();
+        refreshLiveBar();
+        return;
+    }
+
+    // Apply was clicked: detect next caption and jump there to continue!
+    const curStart = p.start;
+    const curEnd = p.end;
+    const subs = await getAllSubtitles(true);
+    const nextSub = findNextSubtitle(subs, curStart, curEnd);
+
+    if (nextSub) {
+        // Jump playhead straight to next caption
+        try { await window.sa.seek(nextSub.start); } catch (e) { /* ignore */ }
+
+        // Update UI text input if present
+        if ($('subText') && nextSub.text) {
+            $('subText').value = nextSub.text;
+        }
+
+        const nextText = String(nextSub.text || (a && a.sample) || 'Sample text').trim();
+        p.start = nextSub.start;
+        p.end = nextSub.end;
+        p.subStart = nextSub.start;
+        p.text = nextText;
+        p.clipS = nextSub.start;
+        p.clipE = nextSub.end;
+        p.hasClip = false;
+        p.key = '';
+        p.busy = false;
+
+        const capNum = nextSub.index ? `${nextSub.index}/${subs.length}` : 'next';
+        liveCard(`Applied. Previewing caption (${capNum})…`);
+        setStatus(`Applied · Jumped to next caption (${capNum})`, 'ok');
+
+        // Immediately execute preview clip on this next caption!
+        await addLiveClip({ start: nextSub.start, end: nextSub.end, text: nextText }, true);
+        refreshLiveBar();
+        return;
+    }
+
+    // Reached the end of captions or no more captions ahead:
     state.livePrev = null;
     state.liveApplied = false;
     setLiveUI(false);
-    if (keep && res && res.ok) parkAfterPlace();
+    parkAfterPlace();
     try { window.sa.liveLoopRestore(); } catch (e) { /* ignore */ }
     if (state.use) { state.use.renderReq = null; }
     state.liveBg.key = '';
     refreshLiveBg();
     liveCard('Previews and plays directly on DaVinci Resolve\'s timeline at the playhead.');
-    if (keep && res && res.ok) {
-        const parts = ['Applied on V' + res.videoTrack, res.frames + ' frames'];
-        if (res.audioTrack) parts.push('sound on A' + res.audioTrack + (res.linked ? ' (linked)' : ''));
-        setStatus(parts.join(' · ') + ' · ok', 'ok');
-    } else {
-        setStatus('Preview removed.', 'ok');
-    }
+    const parts = ['Applied on V' + res.videoTrack, res.frames + ' frames'];
+    if (res.audioTrack) parts.push('sound on A' + res.audioTrack + (res.linked ? ' (linked)' : ''));
+    parts.push('Reached last caption');
+    setStatus(parts.join(' · ') + ' · ok', 'ok');
     try { const r = await window.sa.getLib(); if (r && r.lib) { state.lib = r.lib; syncUse(false); renderAll(); } } catch (e) { /* ignore */ }
     redrawStages();
     refreshLiveBar();

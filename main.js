@@ -883,6 +883,7 @@ async function getSubtitles(tl, force) {
         }
     }
     list.sort((a, b) => a.start - b.start);
+    list.forEach((item, i) => { item.index = i + 1; });
     subCache = { key, at: Date.now(), list };
     return list;
 }
@@ -1110,7 +1111,7 @@ async function poll(event, force) {
                 source = 'playhead';
             }
         }
-        lastPoll = { ok: true, timeline: await tl.GetName(), fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub };
+        lastPoll = { ok: true, timeline: await tl.GetName(), fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub, subtitles: subs };
         return lastPoll;
     } catch (e) {
         if (hasSeenResolve) checkResolveAlive();
@@ -4119,6 +4120,18 @@ app.whenReady().then(() => {
     ipcMain.handle('live:finish', liveFinish);
     ipcMain.handle('act:updateLatest', wrap(updateLatest));
     ipcMain.handle('act:syncLiveTransform', wrap(syncLiveTransform));
+    ipcMain.handle('app:subtitles', async (e, force) => {
+        try {
+            const project = await getProject();
+            if (!project) return { ok: false, error: 'Open a project in Resolve' };
+            const tl = await project.GetCurrentTimeline();
+            if (!tl) return { ok: false, error: 'Open a timeline in Resolve' };
+            const subs = await getSubtitles(tl, !!force);
+            return { ok: true, subtitles: subs };
+        } catch (err) {
+            return { ok: false, error: String(err && err.message || err) };
+        }
+    });
     ipcMain.handle('act:seek', wrap(seek));
     ipcMain.handle('sfx:read', wrap(readSfx));
     ipcMain.handle('sfx:saveClip', wrap(saveSfxClip));

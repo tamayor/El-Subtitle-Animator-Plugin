@@ -1186,20 +1186,6 @@
                 last = ts;
                 document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
             }
-            // Keep the viewer's animation playing at real 25/30 fps while nobody is dragging.
-            if ((state.tab === 'apply' || state.tab === 'library') && ts - lastStage >= interval - 2 && !state.drag && !state.stageDrag && !state.preview) {
-                lastStage = ts;
-                const a = state.tab === 'apply' ? selected() : libEntry(state.createId);
-                if (a) {
-                    const curM = (state.tab === 'apply' && state.use) ? state.use : a;
-                    const isDirty = !!((curM && curM.designDirty) || (a && a.designDirty));
-                    if (hasRealFrames(a)) {
-                        redrawStages();
-                    } else if (typeof drawStage === 'function') {
-                        drawStage(state.tab === 'apply' ? 'U' : 'C', a, autoFrame(ts));
-                    }
-                }
-            }
         }
     }
 

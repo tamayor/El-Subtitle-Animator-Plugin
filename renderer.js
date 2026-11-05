@@ -1029,49 +1029,19 @@ const SAVE_BAR_HTML = (S) => `
 const ADJUST_HTML = ALIGN_HTML;
 
 const PREVIEW_HTML = (S) => `
-<div id="stageBox${S}" class="stage-box">
-    <div id="stageTopOverlay${S}" class="stage-top-overlay">
-        <button type="button" id="stageResizeBtn${S}" class="stage-ov-btn" title="Toggle preview viewer height resizer">
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
-                <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
-            </svg>
-            <span id="stageResizeLbl${S}">Resize viewer</span>
-        </button>
-        <button type="button" id="stageSizeReset${S}" class="stage-ov-btn stage-ov-reset hidden" title="Reset viewer height to default aspect ratio">Reset size</button>
-        ${S === 'U' ? `<button type="button" id="stageLiveBtn${S}" class="stage-ov-btn stage-ov-live" title="Put the real Text+ on your Resolve timeline at this subtitle so you can play it in Resolve's own viewer. Changes in Alignment and Text Design then update that clip live.">▶ Preview in Resolve</button>` : ''}
-    </div>
-    <canvas id="stage${S}" class="stage" width="640" height="360" title="Drag text to move, drag corners to resize, drag top handle to rotate"></canvas>
-    <div id="stageResize${S}" class="stage-resizer hidden" title="Drag to resize preview height (double-click to reset)"><span></span></div>
-</div>
-${S === 'U' ? `<div id="stageLive${S}" class="stage-live hidden">
-    <div class="stage-live-txt"><b>Previewing in Resolve</b><span>Play it in Resolve's viewer. Alignment and Text Design changes update the clip live.</span><span class="live-note" title="The plugin tries to switch Loop on for you (it needs macOS Accessibility permission). If the playhead does not repeat the In/Out range, press Cmd+/ in Resolve.">⚠ Make sure Loop is turned on in Resolve (Playback > Loop, Cmd+/).</span></div>
+${S === 'U' ? `<div id="stageLive${S}" class="stage-live">
+    <div class="stage-live-txt"><b>Timeline Preview</b><span>Play it in DaVinci Resolve's viewer. Alignment and Transform changes update the clip live.</span></div>
     <div class="stage-live-btns">
-        <button type="button" id="liveRemove${S}" class="live-remove" title="Delete the preview clip from the timeline and bring back the app preview">Remove preview</button>
-        <button type="button" id="liveApply${S}" class="live-apply" title="Keep the Text+ on the timeline (with its sound) and end the preview">Apply</button>
+        <button type="button" id="liveApply${S}" class="live-apply" title="Apply the Text+ on the timeline (with its sound)">Add to timeline</button>
+        <button type="button" id="liveRemove${S}" class="live-remove" title="Delete the preview clip from the timeline">Remove preview</button>
     </div>
 </div>` : ''}
-${S === 'U' ? `<div id="liveAdvice${S}" class="live-advice">Preview in Resolve starts only when you click <b>▶ Preview in Resolve</b>. Playing, pausing or moving the playhead never starts it.</div>` : ''}
 <div id="stageMsg${S}" class="stagemsg"></div>
 <div class="xform-section">
     <div class="xform-header">
         <span class="xform-title">Transform</span>
         <div class="xform-hdr-actions">
-            ${S === 'U' ? `
-            <button type="button" id="liveSyncToggle${S}" class="ghost live-sync-btn" title="Live Sync: moves the subtitle on DaVinci Resolve's viewer in real time as you drag">
-                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true">
-                    <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
-                    <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
-                </svg>
-                <span id="liveSyncLbl${S}">Live Sync</span>
-            </button>` : ''}
-            <button type="button" id="zoomToggle${S}" class="ghost zoom-toggle-btn" title="Enable scroll-wheel preview zoom (disabled by default)">
-                <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
-                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
-                    <path d="M6.5 4a.5.5 0 0 1 .5.5V6h1.5a.5.5 0 0 1 0 1H7v1.5a.5.5 0 0 1-1 0V7H4.5a.5.5 0 0 1 0-1H6V4.5a.5.5 0 0 1 .5-.5"/>
-                </svg>
-                <span id="zoomLbl${S}">Zoom</span>
-            </button>
-            <button type="button" id="resetPos${S}" class="ghost reset-xform-btn" title="Reset transform and preview zoom">Reset</button>
+            <button type="button" id="resetPos${S}" class="ghost reset-xform-btn" title="Reset transform">Reset</button>
         </div>
     </div>
 
@@ -1587,61 +1557,11 @@ function onDragEnd() {
 const imgCache = new Map();
 
 function redrawStages() {
-    if (state.preview) return;
-    if (state.tab === 'apply') {
-        const a = selected();
-        if (a) drawStage('U', a, null);
-    } else if (state.tab === 'library') {
-        const a = libEntry(state.createId);
-        if (a) drawStage('C', a, null);
-    }
+    // App preview canvas removed in favor of native Resolve timeline playback
 }
 
 async function refreshLiveBg() {
-    if (state.idle) return;
-    const L = state.live;
-    if (!L || !L.ok) return;
-    if (L.width && L.height) {
-        state.liveBg.width = L.width;
-        state.liveBg.height = L.height;
-    }
-    const key = L.timeline + ':' + L.frame;
-    if (state.liveBg.key === key) return;
-    if (state.liveBg.busy) {
-        state.liveBg.pending = { key, frame: L.frame };
-        return;
-    }
-    state.liveBg.busy = true;
-    state.liveBg.key = key;
-    try {
-        const res = await window.sa.liveFrame(L.frame);
-        if (res && res.ok && res.data) {
-            if (res.width && res.height) {
-                state.liveBg.width = res.width;
-                state.liveBg.height = res.height;
-            }
-            const im = new Image();
-            im.onload = () => {
-                if (im.naturalWidth && im.naturalHeight) {
-                    const imgAr = im.naturalWidth / im.naturalHeight;
-                    const metaAr = (state.liveBg.width && state.liveBg.height) ? (state.liveBg.width / state.liveBg.height) : 0;
-                    if (Math.abs(imgAr - metaAr) > 0.05) {
-                        state.liveBg.width = im.naturalWidth;
-                        state.liveBg.height = im.naturalHeight;
-                    }
-                }
-                state.liveBg.img = im;
-                redrawStages();
-            };
-            im.src = 'data:image/jpeg;base64,' + res.data;
-        }
-    } catch (e) { /* ignore */ }
-    state.liveBg.busy = false;
-    if (state.liveBg.pending && state.liveBg.pending.key !== state.liveBg.key) {
-        const next = state.liveBg.pending;
-        state.liveBg.pending = null;
-        if (state.live && state.live.ok && state.live.frame === next.frame) refreshLiveBg();
-    }
+    // Background frame fetching removed; preview is native on the Resolve timeline
 }
 
 function previewImages(a) {
@@ -3696,13 +3616,6 @@ function liveReq(m, a, text) {
 }
 function setLiveUI(on) {
     state.liveUI = !!on;
-    const box = $('stageBoxU'), bar = $('stageLiveU');
-    if (box) box.classList.toggle('hidden', on);
-    if (bar) bar.classList.toggle('hidden', !on);
-    if ($('stageMsgU')) $('stageMsgU').classList.toggle('hidden', on);
-    const b = $('stageLiveBtnU'); if (b) b.disabled = on;
-    $('create').disabled = state.busy || !selected();
-    // Alignment is collapsed and disabled while a preview runs: the sound is moved / trimmed on the Resolve timeline itself.
     if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('live-locked', !!state.livePrev);
     setAdjustOpen(state.adjustOpen);
     refreshLiveBar();
@@ -3713,32 +3626,19 @@ function refreshLiveBar() {
     const a = selected();
     const btn = $('liveApplyU');
     if (btn) {
-        // nothing is previewing: the button previews the selected preset first; while previewing it sets (keeps) it
-        btn.textContent = !state.livePrev ? 'Preview Text preset' : (state.livePrev.removed ? 'Preview again' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Apply'));
-        btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead before setting it';
+        btn.textContent = state.livePrev ? (state.livePrev.removed ? 'Preview again' : ((state.liveApplied && a) ? 'Set ' + a.name : 'Add to timeline')) : 'Preview on Timeline';
+        btn.title = state.livePrev ? 'Keep the Text+ on the timeline (with its sound)' : 'Preview the selected text preset on the subtitle at the playhead';
     }
-    // While a preview runs, "Add to timeline" is the same green button as Apply: it keeps the previewed Text+.
     const addBtn = $('create');
     if (addBtn) {
-        addBtn.textContent = (state.livePrev && btn) ? btn.textContent : 'Add to timeline';
-        addBtn.title = state.livePrev ? 'Keep the previewed Text+ on the timeline (with its sound)' : '';
+        addBtn.textContent = 'Add to timeline';
     }
     const title = bar.querySelector('.stage-live-txt b');
-    if (title) title.textContent = state.livePrev ? 'Previewing in Resolve' : (state.liveApplied ? 'Applied to the timeline' : 'Preview in Resolve');
-    const note = bar.querySelector('.live-note');
-    if (note) note.style.display = state.livePrev ? '' : 'none';
-    if (!state.livePrev) liveCard(state.liveApplied
-        ? 'The Text+ and its sound stay on the timeline. Pick another text preset to preview it on the subtitle at the playhead.'
-        : 'Click any text preset to preview it on the subtitle at the playhead.');
-    const adv = $('liveAdviceU');
-    if (adv) adv.innerHTML = state.liveUI
-        ? 'Click any text preset to preview it. Playing, pausing or moving the playhead never starts a preview. <b>Remove preview</b> brings the player back.'
-        : 'Preview in Resolve starts only when you click <b>▶ Preview in Resolve</b>. Playing, pausing or moving the playhead never starts it.';
+    if (title) title.textContent = state.livePrev ? 'Previewing on Timeline' : (state.liveApplied ? 'Applied to timeline' : 'Timeline Preview');
 }
 function exitLiveSession() {
     state.liveApplied = false;
     setLiveUI(false);
-    redrawStages();
 }
 // "Set <preset>" with no preview running: previews the selected preset on the playhead's subtitle and applies it at once.
 async function setPresetNow() {
@@ -4221,7 +4121,9 @@ function editTD(m, S) {
 }
 
 function fillTextDesign(ctx) {
-    const S = ctx.s, m = ctx.model();
+    const S = ctx.s;
+    if (!$('tdFont' + S)) return;
+    const m = ctx.model();
     if (!m) return;
     if (!m.textDesign) {
         const a = libEntry(m.id);
@@ -4498,6 +4400,7 @@ function bindLayout(ctx, commit) {
 
 function bindTextDesign(ctx) {
     const S = ctx.s;
+    if (!$('tdFont' + S)) return;
     const notifyMsg = (msg, kind) => {
         if (S === 'C') setCreateStatus(msg, kind);
         else setStatus(msg, kind);
@@ -6575,7 +6478,7 @@ function renderAnimations() {
             syncUse(true);
             renderAll();
             refreshLiveBar();
-            if (state.liveUI && !state.livePrev && !state.busy) startLivePreview();      // bar is on: a clicked preset is previewed
+            if (!state.busy) startLivePreview();
         });
         grid.appendChild(c);
     }

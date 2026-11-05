@@ -770,18 +770,30 @@ def op_capture(a):
 
 def op_live_frame(a):
     """Current composited timeline frame under the playhead for the live preview background."""
-    tl = timeline()
+    project = resolve().GetProjectManager().GetCurrentProject()
+    tl = project.GetCurrentTimeline() if project else None
+    if not tl:
+        raise RuntimeError("Open a timeline in Resolve")
     start = int(tl.GetStartFrame() or 0)
     frame = int(a.get("frame", start))
     offset = max(0, frame - start)
+    max_dim = int(a.get("maxDim") or 1280)
+    if max_dim <= 0 or max_dim > 1920:
+        max_dim = 1280
     r = tl.ExportFrame(offset, {"outputType": "encodedString", "encodedImageFormat": "jpg",
-                                "maxDimension": int(a.get("maxDim") or 480)})
+                                "maxDimension": max_dim})
     if not r or not r.get("success"):
         raise RuntimeError((r or {}).get("error") or "Could not export timeline frame")
+    w = tl.GetSetting("timelineResolutionWidth")
+    h = tl.GetSetting("timelineResolutionHeight")
+    if not w or not h:
+        if project:
+            w = project.GetSetting("timelineResolutionWidth") or w
+            h = project.GetSetting("timelineResolutionHeight") or h
     return {
         "frame": frame,
-        "width": int(tl.GetSetting("timelineResolutionWidth") or 1920),
-        "height": int(tl.GetSetting("timelineResolutionHeight") or 1080),
+        "width": int(w or 1920),
+        "height": int(h or 1080),
         "data": r["data"],
     }
 

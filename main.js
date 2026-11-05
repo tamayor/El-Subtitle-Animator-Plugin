@@ -801,15 +801,32 @@ async function getProject() {
 // ------------------------------------------------------------------ timecode <-> frames
 const pad = (n) => String(n).padStart(2, '0');
 
-async function timelineMeta(tl) {
+async function timelineMeta(tl, proj) {
     const [rate, dfs, w, h] = await Promise.all([
         tl.GetSetting('timelineFrameRate'), tl.GetSetting('timelineDropFrameTimecode'),
         tl.GetSetting('timelineResolutionWidth'), tl.GetSetting('timelineResolutionHeight')
     ]);
     const fps = parseFloat(rate) || 25;
     const df = String(dfs) === '1';
-    const width = parseInt(w, 10) || 1920;
-    const height = parseInt(h, 10) || 1080;
+    let width = parseInt(w, 10);
+    let height = parseInt(h, 10);
+    if (!width || !height) {
+        if (!proj) {
+            try { proj = await getProject(); } catch (e) { /* ignore */ }
+        }
+        if (proj) {
+            if (!width) {
+                const pw = await proj.GetSetting('timelineResolutionWidth');
+                width = parseInt(pw, 10);
+            }
+            if (!height) {
+                const ph = await proj.GetSetting('timelineResolutionHeight');
+                height = parseInt(ph, 10);
+            }
+        }
+    }
+    width = width || 1920;
+    height = height || 1080;
     return { fps, nominal: Math.round(fps), df, width, height };
 }
 
@@ -3751,8 +3768,8 @@ async function findSelectedFusionItem() {
 // ------------------------------------------------------------------ playhead, live frame, sounds, always-on-top
 async function liveFrame(event, frame) {
     if (applying) return { ok: false, busy: true };
-    // Full timeline resolution for the viewer's background frame.
-    const res = await bridgeCall('live_frame', { frame, maxDim: 8192 }, 15000);
+    // Crisp preview frame capped at 1280 to prevent IPC flooding, memory bloat, and renderer process crashes
+    const res = await bridgeCall('live_frame', { frame, maxDim: 1280 }, 15000);
     return Object.assign({ ok: true }, res);
 }
 
@@ -3985,8 +4002,37 @@ function createWindow() {
     });
     mainWindow.setMenu(null);
     mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-        console.log('[RENDERER]', level, message, sourceId + ':' + line);
-        dlog('[renderer console]', level, message, sourceId + ':' + line);
+        const msg = (typeof event === 'object' && event.message !== undefined) ? event.message : message;
+        const src = (typeof event === 'object' && event.sourceId !== undefined) ? event.sourceId : sourceId;
+        const ln = (typeof event === 'object' && event.lineNumber !== undefined) ? event.lineNumber : line;
+        console.log('[RENDERER]', msg, src + ':' + ln);
+        dlog('[renderer console]', msg, src + ':' + ln);
+    });
+    mainWindow.webContents.on('did-finish-load', () => {
+        dlog('[web did-finish-load]');
+        setTimeout(async () => {
+            try {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    const img = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(DEV_DEBUG_DIR, 'test_capture.png'), img.toPNG());
+                    dlog('[capture saved]', img.getSize());
+                }
+            } catch (e) { dlog('[capture error]', String(e)); }
+        }, 1500);
+    });
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        dlog('[render-process-gone]', details);
+        if (details.reason !== 'clean-exit' && details.reason !== 'killed') {
+            console.error('Renderer process gone, reloading page:', details);
+            setTimeout(() => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.loadFile(path.join(__dirname, 'index.html'));
+                }
+            }, 1000);
+        }
+    });
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        dlog('[did-fail-load]', errorCode, errorDescription, validatedURL);
     });
     // Dropping a file must never navigate the window away from the panel.
     mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -3998,7 +4044,7 @@ function createWindow() {
     mainWindow.on('focus', () => { parkArmed = false; if (appIdle && !mainWindow.isMinimized()) setAppIdle(false); });
     mainWindow.on('show', () => setAppIdle(mainWindow.isMinimized()));
     applyOnTop(loadLib().alwaysOnTop !== false);   // stays above Resolve by default
-    mainWindow.loadFile('index.html');
+    mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {

@@ -1622,6 +1622,14 @@ async function refreshLiveBg() {
             }
             const im = new Image();
             im.onload = () => {
+                if (im.naturalWidth && im.naturalHeight) {
+                    const imgAr = im.naturalWidth / im.naturalHeight;
+                    const metaAr = (state.liveBg.width && state.liveBg.height) ? (state.liveBg.width / state.liveBg.height) : 0;
+                    if (Math.abs(imgAr - metaAr) > 0.05) {
+                        state.liveBg.width = im.naturalWidth;
+                        state.liveBg.height = im.naturalHeight;
+                    }
+                }
                 state.liveBg.img = im;
                 redrawStages();
             };
@@ -1813,8 +1821,16 @@ function syncXformUI(S, posX, posY, scale, rotation) {
     const numScEl = $('numScale' + S);
     const numRotEl = $('numRot' + S);
 
-    const tlW = (state.liveBg && state.liveBg.width) || 1920;
-    const tlH = (state.liveBg && state.liveBg.height) || 1080;
+    const bg = state.liveBg && state.liveBg.img;
+    let tlW = (state.liveBg && state.liveBg.width) || 1920;
+    let tlH = (state.liveBg && state.liveBg.height) || 1080;
+    if (bg && bg.complete && bg.naturalWidth && bg.naturalHeight) {
+        const bgAr = bg.naturalWidth / bg.naturalHeight;
+        if (Math.abs(bgAr - (tlW / tlH)) > 0.05) {
+            tlW = bg.naturalWidth;
+            tlH = bg.naturalHeight;
+        }
+    }
 
     let px = Number(posX) || 0;
     let py = Number(posY) || 0;
@@ -2158,8 +2174,16 @@ function drawStage(S, a, idx) {
     }
 
     const bg = state.liveBg.img;
-    const tlW = (state.liveBg.width && state.liveBg.height) ? state.liveBg.width : (im ? im.naturalWidth : 1920);
-    const tlH = (state.liveBg.width && state.liveBg.height) ? state.liveBg.height : (im ? im.naturalHeight : 1080);
+    let tlW = (state.liveBg.width && state.liveBg.height) ? state.liveBg.width : (im ? im.naturalWidth : 1920);
+    let tlH = (state.liveBg.width && state.liveBg.height) ? state.liveBg.height : (im ? im.naturalHeight : 1080);
+    if (bg && bg.complete && bg.naturalWidth && bg.naturalHeight) {
+        const bgAr = bg.naturalWidth / bg.naturalHeight;
+        const currentAr = tlW / tlH;
+        if (Math.abs(bgAr - currentAr) > 0.05) {
+            tlW = bg.naturalWidth;
+            tlH = bg.naturalHeight;
+        }
+    }
     const ar = tlW / tlH;
 
     let rawPosX = Number(m && m.posX) || 0;
@@ -7216,8 +7240,9 @@ async function applyLayoutMode(mode, triggerResize) {
     }, 120);
 }
 
-window.addEventListener('DOMContentLoaded', async () => {
-    // Stop the window from opening a file that misses a drop zone.
+async function initApp() {
+    try {
+        // Stop the window from opening a file that misses a drop zone.
     for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd);
@@ -7402,7 +7427,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('create').addEventListener('click', create);
 
     tick();
-});
+    } catch (err) {
+        console.error('Fatal initialization error:', err);
+        if (window.sa && window.sa.dlog) window.sa.dlog('FATAL INIT ERROR:', String(err && err.stack || err));
+    }
+}
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
 
 window.addEventListener('beforeunload', () => { window.sa.cleanup(); });
 

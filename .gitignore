@@ -12,4 +12,5 @@ node_modules/
 # Local backups & debug
 *.bak*
 _debug/
+WorkflowIntegration.node
 

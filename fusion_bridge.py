@@ -54,6 +54,7 @@ def find_item(item_id):
     if item is not None:
         try:
             if str(item.GetUniqueId()) == str(item_id):
+                _ = item.GetName()
                 return item
         except Exception:
             pass
@@ -61,17 +62,16 @@ def find_item(item_id):
     tl = timeline()
     for t in range(1, tl.GetTrackCount("video") + 1):
         for it in tl.GetItemListInTrack("video", t) or []:
-            if str(it.GetUniqueId()) == str(item_id):
-                _items[item_id] = it
-                return it
+            try:
+                if str(it.GetUniqueId()) == str(item_id):
+                    _items[item_id] = it
+                    return it
+            except Exception:
+                continue
     raise RuntimeError("That clip is not on the timeline any more. Select it again.")
 
 
-def get_comp(item_id, comp_name):
-    key = (item_id, comp_name)
-    comp = _comps.get(key)
-    if comp is not None:
-        return comp
+def get_comp(item_id, comp_name=None):
     item = find_item(item_id)
     comp = item.GetFusionCompByName(comp_name) if comp_name else None
     if comp is None:
@@ -79,7 +79,6 @@ def get_comp(item_id, comp_name):
         comp = item.GetFusionCompByIndex(count) if count else None
     if comp is None:
         raise RuntimeError("Could not open that clip's composition")
-    _comps[key] = comp
     return comp
 
 

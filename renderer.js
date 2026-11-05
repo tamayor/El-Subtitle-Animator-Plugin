@@ -1528,89 +1528,10 @@ function previewImages(a) {
 // which is right for any colour, gradient, soft shadow or semi-transparent element. Older single-pass frames
 // fall back to keying out the background colour they were rendered on.
 const SAKey = (() => {
-    const code = `
-self.onmessage = (ev) => {
-    const { id, b, w, bg } = ev.data;
-    try {
-        const W = b.width, H = b.height;
-        const c = new OffscreenCanvas(W, H);
-        const g = c.getContext('2d', { willReadFrequently: true });
-        g.drawImage(b, 0, 0);
-        const img = g.getImageData(0, 0, W, H);
-        const d = img.data;
-        let wd = null;
-        if (w) { g.clearRect(0, 0, W, H); g.drawImage(w, 0, 0, W, H); wd = g.getImageData(0, 0, W, H).data; }
-        const white = bg === 'white';
-        let minX = W, minY = H, maxX = -1, maxY = -1, x = 0, y = 0;
-        for (let p = 0; p < d.length; p += 4) {
-            let a;
-            if (wd) {
-                const diff = ((wd[p] - d[p]) + (wd[p + 1] - d[p + 1]) + (wd[p + 2] - d[p + 2])) / 3;
-                a = 255 - diff;
-                if (a < 3) { d[p] = d[p + 1] = d[p + 2] = 0; d[p + 3] = 0; a = 0; }
-                else {
-                    if (a > 255) a = 255;
-                    const k = 255 / a;
-                    let r = d[p] * k, gg = d[p + 1] * k, bb = d[p + 2] * k;
-                    d[p] = r > 255 ? 255 : r; d[p + 1] = gg > 255 ? 255 : gg; d[p + 2] = bb > 255 ? 255 : bb;
-                    d[p + 3] = a;
-                }
-            } else {
-                const cr = d[p], cg = d[p + 1], cb = d[p + 2];
-                const m = white ? 255 - Math.min(cr, cg, cb) : Math.max(cr, cg, cb);
-                if (m <= 4) { d[p + 3] = 0; a = 0; }
-                else { if (m < 28) d[p + 3] = (((m - 4) * d[p + 3]) / 24) | 0; a = m; }
-            }
-            if (a > 12) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
-            if (++x === W) { x = 0; y++; }
-        }
-        g.putImageData(img, 0, 0);
-        const bm = c.transferToImageBitmap();
-        b.close(); if (w) w.close();
-        const bounds = maxX >= 0
-            ? { x: minX / W, y: minY / H, w: Math.max(0.08, (maxX - minX) / W), h: Math.max(0.05, (maxY - minY) / H) }
-            : { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
-        self.postMessage({ id, bitmap: bm, bounds }, [bm]);
-    } catch (e) { self.postMessage({ id, error: String(e && e.message || e) }); }
-};`;
-    let pool = null, rr = 0, seq = 0;
-    const pending = new Map();
-    let broken = false;
-    function ensure() {
-        if (pool) return pool;
-        pool = [];
-        try {
-            if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function' || typeof createImageBitmap !== 'function') return pool;
-            const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-            const n = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 2));
-            for (let i = 0; i < n; i++) {
-                const w = new Worker(url);
-                w.onmessage = (ev) => { const f = pending.get(ev.data.id); if (f) { pending.delete(ev.data.id); f(ev.data); } };
-                w.onerror = () => {      // workers cannot run here: every waiting frame falls back to keying on this thread at once
-                    broken = true;
-                    for (const [pid, f] of pending) { pending.delete(pid); try { f(null); } catch (e) { /* ignore */ } }
-                };
-                pool.push(w);
-            }
-        } catch (e) { pool = []; }
-        return pool;
-    }
-    // Resolves to { bitmap, bounds } or null (no workers: the caller keys on this thread instead).
-    async function key(im, white, bg) {
-        const P = ensure();
-        if (!P.length || broken) return null;
-        try {
-            const [b, w] = await Promise.all([createImageBitmap(im), white ? createImageBitmap(white) : Promise.resolve(null)]);
-            const id = ++seq;
-            const wk = P[rr++ % P.length];
-            return await new Promise((res) => {
-                const timer = setTimeout(() => { pending.delete(id); res(null); }, 4000);
-                pending.set(id, (m) => { clearTimeout(timer); res(m && m.bitmap ? m : null); });
-                wk.postMessage({ id, b, w, bg }, w ? [b, w] : [b]);
-            });
-        } catch (e) { return null; }
-    }
-    return { key, available: () => ensure().length > 0 && !broken };
+    return {
+        key: async () => null,
+        available: () => false
+    };
 })();
 
 // Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.
@@ -3617,16 +3538,21 @@ async function previewAgain() {
     if (!L || !L.ok) { setStatus('Resolve is not reachable right now.', 'bad'); return; }
     p.removed = false;
     refreshLiveBar();
+    const a = libEntry(p.animId);
     const s = L.subtitle;
-    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, true);
-    else await addLiveClip({ start: L.frame, end: L.frame + Math.round(L.fps * 3), text: $('subText').value }, true);
+    const defaultText = String(($('subText') && $('subText').value.trim()) || (s && s.text) || p.text || (a && a.sample) || 'Sample text').trim();
+    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: defaultText }, true);
+    else if (s) await addLiveClip({ start: s.start, end: s.end, text: defaultText }, true);
+    else await addLiveClip({ start: L.frame, end: L.frame + Math.round((L.fps || 25) * 3), text: defaultText }, true);
 }
 // Puts the preview clip on the subtitle `sub` ({start, end, text}).
 async function addLiveClip(sub, keepPlayhead) {
     const p = state.livePrev, a = libEntry(p.animId), m = state.use;
     if (!p || !a || !m) return;
     p.busy = true;
-    p.start = sub.start; p.end = sub.end; p.subStart = sub.start; p.text = sub.text || '';
+    p.start = sub.start; p.end = sub.end; p.subStart = sub.start;
+    const txt = String(sub.text || ($('subText') && $('subText').value.trim()) || (a && a.sample) || 'Sample text').trim();
+    p.text = txt;
     setStatus('Putting the Text+ on the timeline…');
     p.sfxPath = await liveSfxFor(m, sub.start, sub.end);
     const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
@@ -3644,19 +3570,53 @@ async function addLiveClip(sub, keepPlayhead) {
         setStatus((res && res.error) || 'Could not put the preview on the timeline', 'bad');
     }
 }
+async function switchLivePreset(a) {
+    const p = state.livePrev, m = state.use;
+    if (!p || !a || !m || p.busy || state.busy) return;
+    p.animId = a.id;
+    p.busy = true;
+    if (p.hasClip) {
+        try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ }
+    }
+    p.hasClip = false;
+    p.key = '';
+    p.removed = false;
+    refreshLiveBar();
+    const L = state.live;
+    const s = L && L.ok ? L.subtitle : null;
+    const start = (s && L.frame >= s.start && L.frame < s.end) ? s.start : (p.start || (L ? L.frame : 0));
+    const end = (s && L.frame >= s.start && L.frame < s.end) ? s.end : (p.end || (L ? L.frame + Math.round((L.fps || 25) * 3) : 75));
+    const text = String(($('subText') && $('subText').value.trim()) || (s && s.text) || p.text || (a && a.sample) || 'Sample text').trim();
+    p.sfxPath = await liveSfxFor(m, start, end);
+    p.busy = false;
+    await addLiveClip({ start, end, text }, true);
+}
 async function startLivePreview() {
     const a = selected(), m = state.use, L = state.live;
-    if (!a || !m || !L || !L.ok || state.livePrev || state.busy) return;
+    if (!a || !m || !L || !L.ok || state.busy) return;
+    if (state.livePrev) {
+        if (state.livePrev.animId !== a.id) {
+            await switchLivePreset(a);
+            return;
+        }
+        if (!state.livePrev.hasClip) {
+            await previewAgain();
+            return;
+        }
+        return;
+    }
     state.livePrev = { animId: a.id, hasClip: false, busy: false, key: '', start: 0, end: 0, subStart: null, text: '', clipS: 0, clipE: 0 };
     setLiveUI(true);
-    liveCard('Waiting for a subtitle: move the playhead onto one.');
+    liveCard('Timeline preview active.');
     window.sa.liveLoopOn(placeOptions().loopOn).then((lr) => { if (lr && lr.viaKey) setStatus('Sent Cmd+/ to Resolve to toggle Loop. Check the loop button is red; if not, press Cmd+/ once.', ''); else if (lr && lr.ok === false) setStatus('Could not switch on Resolve\'s Loop (' + (lr.error || 'allow Accessibility for this app in System Settings') + '). The panel still loops the clip itself.', ''); }).catch(() => { });
     const s = L.subtitle;
     if (!state.livePrev) return;
-    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: $('subText').value || s.text }, true);
-    else if (!s) {
+    const defaultText = String(($('subText') && $('subText').value.trim()) || (s && s.text) || (a && a.sample) || 'Sample text').trim();
+    if (s && L.frame >= s.start && L.frame < s.end) await addLiveClip({ start: s.start, end: s.end, text: defaultText }, true);
+    else if (s) await addLiveClip({ start: s.start, end: s.end, text: defaultText }, true);
+    else {
         // no subtitle track: preview at the playhead for 3 seconds
-        await addLiveClip({ start: L.frame, end: L.frame + Math.round(L.fps * 3), text: $('subText').value }, true);
+        await addLiveClip({ start: L.frame, end: L.frame + Math.round((L.fps || 25) * 3), text: defaultText }, true);
     }
 }
 async function endLivePreview(keep) {
@@ -3735,18 +3695,7 @@ function bindLivePreview() {
         if (state.idle || !p || p.busy || state.busy) return;
         let m = state.use, a = libEntry(p.animId);
         if (m && m.id !== p.animId && libEntry(m.id)) {
-            // another preset was picked: the clip at the playhead is swapped for the new animation, same subtitle
-            const keepHad = p.hasClip;
-            p.animId = m.id;
-            a = libEntry(p.animId);
-            // the new preset brings its own sound (its saved one, or the default): the old preset's sound is dropped with the old clip
-            p.busy = true;
-            if (keepHad) { try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ } }
-            p.sfxPath = await liveSfxFor(m, p.start, p.end);
-            p.busy = false;
-            p.hasClip = false; p.key = '';
-            if (!state.livePrev) return;
-            if (keepHad) await addLiveClip({ start: p.start, end: p.end, text: p.text }, true);
+            await switchLivePreset(libEntry(m.id));
             return;
         }
         if (!m || !a || m.id !== p.animId) { endLivePreview(false); return; }
@@ -3767,7 +3716,8 @@ function bindLivePreview() {
                 const ns = L.subtitle;
                 if (ns && f >= ns.start && f < ns.end && ns.start !== p.subStart) {
                     // another caption: the same Text+ and sound are moved onto it (much quicker than removing and inserting again)
-                    p.start = ns.start; p.end = ns.end; p.subStart = ns.start; p.text = ns.text || $('subText').value;
+                    p.start = ns.start; p.end = ns.end; p.subStart = ns.start;
+                    p.text = String(ns.text || ($('subText') && $('subText').value.trim()) || (a && a.sample) || 'Sample text').trim();
                     p.busy = true;
                     p.sfxPath = await liveSfxFor(m, ns.start, ns.end);
                     const mres = await window.sa.liveUpdate(liveReq(m, a, p.text));
@@ -3789,7 +3739,10 @@ function bindLivePreview() {
                 return;
             }
             if (!p.key) return;
-            if (L.subtitle && L.subtitle.start === p.subStart) p.text = $('subText').value;
+            if (L.subtitle && L.subtitle.start === p.subStart) {
+                const curSubVal = $('subText') ? $('subText').value.trim() : '';
+                if (curSubVal) p.text = curSubVal;
+            }
             const req = liveReq(m, a, p.text);
             const key = JSON.stringify(req);
             if (key === p.key) return;
@@ -3805,7 +3758,10 @@ function bindLivePreview() {
         } else {
             const s = L.subtitle;
             // only once the playhead has stopped moving (a clip is inserted at the playhead, so never while it is dragged)
-            if (s && f >= s.start && f < s.end && !p.removed && !playWatch.playing && playWatch.still >= 3) await addLiveClip({ start: s.start, end: s.end, text: s.text || $('subText').value }, true);
+            if (s && f >= s.start && f < s.end && !p.removed && !playWatch.playing && playWatch.still >= 3) {
+                const defaultText = String(($('subText') && $('subText').value.trim()) || s.text || (a && a.sample) || 'Sample text').trim();
+                await addLiveClip({ start: s.start, end: s.end, text: defaultText }, true);
+            }
         }
     }, 250);
 }
@@ -5126,6 +5082,7 @@ function fillAdjust(ctx) {
     const S = ctx.s, m = ctx.model();
     if (!m) return;
     syncNumbers(ctx);
+    syncXformUI(S, m.posX, m.posY, m.scale, m.rotation);
     $('linked' + S).checked = m.linked !== false;
     $('useSfx' + S).checked = m.useSfx !== false;
     $('sfxVolume' + S).value = m.sfxVolume; $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
@@ -6887,10 +6844,10 @@ async function create() {
     const m = state.use;
     const L = state.live;
     if (!a || !m || !L || !L.ok) return;
-    const text = $('subText').value;
     const s = L.subtitle;
+    const text = String(($('subText') && $('subText').value.trim()) || (s && s.text) || (a && a.sample) || 'Sample text').trim();
     const start = s ? s.start : L.frame;
-    const end = s ? s.end : L.frame + Math.round(L.fps * 3);
+    const end = s ? s.end : L.frame + Math.round((L.fps || 25) * 3);
     state.busy = true;
     $('create').disabled = true;
     setStatus('Creating…');

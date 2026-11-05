@@ -1339,8 +1339,17 @@ async function apply(event, req) {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === req.animationId);
         if (!anim) throw new Error('Pick an animation first');
-        const text = String(req.text || '').trim();
-        if (!text) throw new Error('There is no subtitle text to animate');
+        let text = String(req.text || '').trim();
+        if (!text) {
+            text = (anim && anim.sample) || SAMPLE_TEXTS[0];
+        }
+        if (Array.isArray(req.boxList)) {
+            for (const b of req.boxList) {
+                if (b && (b.text === '' || b.text === null || b.text === undefined) && b.mode === 'sub') {
+                    b.text = text;
+                }
+            }
+        }
 
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
@@ -1856,7 +1865,14 @@ async function liveUpdate(event, req) {
         }
         const compPath = liveSession.compPath, compName = liveSession.compName, itemId = liveSession.itemId;
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null, undefined, true);
-        const text = String(req.text || '').trim() || SAMPLE_TEXTS[0];
+        const text = String(req.text || '').trim() || (anim && anim.sample) || SAMPLE_TEXTS[0];
+        if (Array.isArray(req.boxList)) {
+            for (const b of req.boxList) {
+                if (b && (b.text === '' || b.text === null || b.text === undefined) && b.mode === 'sub') {
+                    b.text = text;
+                }
+            }
+        }
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
                 await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign });

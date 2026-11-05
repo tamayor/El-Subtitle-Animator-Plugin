@@ -2715,14 +2715,14 @@ async function updateLatest(event, req) {
                 const compName = names[names.length - 1] || null;
                 const textArg = (req.updateText && String(req.text || '').trim()) ? String(req.text).trim() : null;
                 if (Array.isArray(req.boxList) && req.boxList.length) {
-                    await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(path.join(ANIM_DIR, a.file), req.boxList), textDesign: designForFusion(path.join(ANIM_DIR, a.file), a.textDesign || null) });
+                    await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(path.join(ANIM_DIR, a.file), req.boxList), textDesign: designForFusion(path.join(ANIM_DIR, a.file), a.textDesign || null) }, 4000);
                 } else {
                     await bridgeCall('set_text', {
                         item: itemId,
                         comp: compName,
                         text: textArg,
                         textDesign: designForFusion(path.join(ANIM_DIR, a.file), a.textDesign || null)
-                    });
+                    }, 4000);
                 }
                 const posX = Number(a.posX) || 0;
                 const posY = Number(a.posY) || 0;

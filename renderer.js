@@ -4448,8 +4448,8 @@ function bindTextDesign(ctx) {
     const S = ctx.s;
     if (!$('tdFont' + S)) return;
     const notifyMsg = (msg, kind) => {
+        setStatus(msg, kind);
         if (S === 'C') setCreateStatus(msg, kind);
-        else setStatus(msg, kind);
     };
     const commit = () => {
         const m = ctx.model();
@@ -4568,6 +4568,7 @@ function bindTextDesign(ctx) {
             notifyMsg('Updating "' + m.name + '"…');
             const res = await window.sa.updateLatest({
                 animationId: m.id,
+                name: (S === 'C' && $('animName') && $('animName').value.trim()) ? $('animName').value.trim() : m.name,
                 text: $('subText') ? $('subText').value : '',
                 updateText: S === 'U',
                 boxes: m.boxes || {},
@@ -4600,12 +4601,20 @@ function bindTextDesign(ctx) {
                 state.createAdjusted = false;
                 state.lib = res.lib;
                 syncUse(true);
+
+                if (S === 'C') {
+                    // Close the update/editor section in the library
+                    state.createId = null;
+                    if ($('editor')) $('editor').classList.add('hidden');
+                    if ($('editorPark') && $('editor')) $('editorPark').appendChild($('editor'));
+                }
+
                 renderAll();
                 refreshLiveBg();
                 notifyMsg(
                     res.updatedClip
                         ? 'Updated "' + res.animName + '" and latest Text+ clip on timeline.'
-                        : 'Updated "' + res.animName + '" default design.',
+                        : 'Updated "' + res.animName + '".',
                     'ok'
                 );
             }

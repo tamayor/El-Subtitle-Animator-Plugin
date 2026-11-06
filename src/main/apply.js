@@ -179,8 +179,11 @@ async function apply(event, req) {
         let liveNodes = null;
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign });
+                // multitext: automation's sizing for MultiText presets ({ textSize, maxSize, lineSpacing }, see fusion_bridge.size_multitext)
+                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign, multitext: req.multitext || null });
                 liveNodes = r && r.nodes;
+                if (r && r.unscaled && r.unscaled.length) warnings.push('Not resized (animated): ' + r.unscaled.join(', ') + '.');
+                if (r && r.capped) warnings.push('MultiText size capped at maxSize.');
                 if (r && r.missing && r.missing.length) warnings.push('Not found in Fusion: ' + r.missing.join(', ') + '.');
                 if (r && r.fixedPosition && r.fixedPosition.length) warnings.push('Position not changed (animated or not published): ' + r.fixedPosition.join(', ') + '.');
             } else if (!(await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign }))) {
@@ -196,7 +199,8 @@ async function apply(event, req) {
         const scale = Math.max(0.1, Math.min(5, Number(req.scale) || 1));
         const rotation = Number(req.rotation) || 0;
         const wantLink = req.linked !== false;
-        if (anim.posX !== posX || anim.posY !== posY || anim.scale !== scale || anim.rotation !== rotation || anim.linked !== wantLink) {
+        // keepPresetDefaults: automation (src/main/automation.js) places per subtitle and must not change the preset
+        if (!req.keepPresetDefaults && (anim.posX !== posX || anim.posY !== posY || anim.scale !== scale || anim.rotation !== rotation || anim.linked !== wantLink)) {
             anim.posX = posX;
             anim.posY = posY;
             anim.scale = scale;

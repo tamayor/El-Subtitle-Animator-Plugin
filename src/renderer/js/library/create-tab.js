@@ -149,15 +149,16 @@ function renderCreate() {
         const t = document.createElement('div'); t.className = 't';
         const b = document.createElement('b'); b.textContent = a.name;
         const s = document.createElement('span');
+        s.className = 'lib-sfx';
         s.textContent = a.sfx ? '♪ ' + a.sfx : (state.lib.defaultSfx ? '♪ default sound' : 'no sound');
         t.append(b, s);
+        const tagRow = libTagsEl(a);      // the preset's tags, under its name and sound
+        if (tagRow) t.appendChild(tagRow);
         const grip = document.createElement('span');
         grip.className = 'lib-grip'; grip.textContent = '⋮⋮'; grip.title = 'Drag to change the order';
         grip.addEventListener('mousedown', (e) => startLibDrag(e, row, a, list));
         grip.addEventListener('click', (e) => e.stopPropagation());
         row.appendChild(grip);
-        const dots = tagDotsEl(a);
-        if (dots) row.appendChild(dots);
         const more = document.createElement('button'); more.className = 'ghost more'; more.textContent = '⋯'; more.title = 'Tags and more';
         more.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(more, a); });
         row.append(t, more);

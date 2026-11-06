@@ -1,6 +1,6 @@
 // Every IPC channel the panel can call (see src/preload.js for the renderer side).
 
-const { ipcMain, shell } = require('electron');
+const { app, ipcMain, shell } = require('electron');
 
 const { DATA_DIR, FONTS_DIR } = require('./config');
 const { getAppVersion, setAppVersion } = require('./app-version');
@@ -102,6 +102,7 @@ const RAW_HANDLERS = {
     'color:pick': pickNativeColor,
     'color:cancel': cancelNativeColor,
     'win:park': () => parkUntilFocus(),
+    'win:emojiPanel': () => { try { app.showEmojiPanel(); return true; } catch (e) { return false; } },      // macOS Character Viewer
     'dbg:log': (e, ...parts) => { dlog('[panel]', ...parts); return true; },
     'resolve:cleanup': cleanup,
 };

@@ -81,6 +81,132 @@ function openConfirmPop(anchor, opts) {
     });
 }
 
+// ---------------------------------------------------------------- emoji picker (multi-select, up to EMOJI_MAX per tag)
+const EMOJI_SETS = [
+    ['Popular', '🔥 💥 ⚡ ✨ 💯 ⭐ 🚀 🎯 ❤️ 👀 😂 😱 🤯 😎 🙌 👏 💪 🤝 👉 ✅ ❌ ⚠️ ❗ ❓'],
+    ['Money', '💰 💵 💸 🤑 💎 🏆 📈 📉 💳 🏦 🪙 🧾 📊 🛒 🏷️ 💼'],
+    ['Mood', '😀 😁 😅 🥹 😍 🤔 😤 😡 😭 😴 🥳 🤩 😬 🙃 😇 🤫'],
+    ['Text & media', '🔤 🅰️ 📝 💬 🗯️ 💭 📢 📣 🔊 🎵 🎬 🎞️ 🎥 📺 🖼️ 🎨'],
+    ['Layout', '⬆️ ⬇️ ⬅️ ➡️ ↕️ ↔️ 🔝 🔽 1️⃣ 2️⃣ 3️⃣ 🔢 📏 📐 🧱 🗂️'],
+    ['Colour', '🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜'],
+    ['Things', '🧠 💡 🔑 🔒 ⏰ ⏳ 📅 📍 🌍 🏠 🚗 ✈️ 🍔 ☕ 🎁 🧩']
+].map(([name, s]) => [name, s.split(' ')]);
+const EMOJI_RECENT_KEY = 'sa.emoji.recent';
+function emojiRecent() { try { const r = JSON.parse(localStorage.getItem(EMOJI_RECENT_KEY) || '[]'); return Array.isArray(r) ? r.slice(0, 16) : []; } catch (e) { return []; } }
+function emojiRemember(e) { try { localStorage.setItem(EMOJI_RECENT_KEY, JSON.stringify([e].concat(emojiRecent().filter(x => x !== e)).slice(0, 16))); } catch (err) { /* ignore */ } }
+
+// Fills `el` with the picker. Clicking an emoji toggles it; onChange gets the new emoji string ('' = none).
+function buildEmojiPicker(el, initial, onChange) {
+    let sel = emojiList(initial);
+    const wrap = document.createElement('div');
+    wrap.className = 'emoji-picker';
+
+    const head = document.createElement('div');
+    head.className = 'emoji-sel';
+    const grids = [];
+    const set = (list) => {
+        sel = list.slice(0, EMOJI_MAX);
+        paintHead();
+        for (const b of grids) b.classList.toggle('on', sel.includes(b.dataset.e));
+        onChange(sel.join(''));
+    };
+    const toggle = (e) => {
+        if (sel.includes(e)) set(sel.filter(x => x !== e));
+        else if (sel.length < EMOJI_MAX) { emojiRemember(e); set(sel.concat(e)); }
+        else set(sel.slice(1).concat(e));      // full: the oldest one makes room
+    };
+    function paintHead() {
+        head.textContent = '';
+        const lbl = document.createElement('span');
+        lbl.className = 'emoji-sel-label';
+        lbl.textContent = sel.length ? '' : 'No emoji (colour dot)';
+        head.appendChild(lbl);
+        for (const e of sel) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'emoji-sel-item'; b.textContent = e; b.title = 'Remove';
+            b.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(e); });
+            head.appendChild(b);
+        }
+        const n = document.createElement('span');
+        n.className = 'emoji-sel-count';
+        n.textContent = sel.length + '/' + EMOJI_MAX;
+        head.appendChild(n);
+        if (sel.length) {
+            const clr = document.createElement('button');
+            clr.type = 'button'; clr.className = 'ghost emoji-clear'; clr.textContent = 'Clear';
+            clr.addEventListener('click', (ev) => { ev.stopPropagation(); set([]); });
+            head.appendChild(clr);
+        }
+    }
+    paintHead();
+
+    // type / paste, or the macOS Character Viewer (it types into this field)
+    const row = document.createElement('div');
+    row.className = 'emoji-input-row';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = 'Type or paste emoji'; inp.autocomplete = 'off';
+    inp.addEventListener('input', () => {
+        const got = emojiList(inp.value);
+        if (!got.length) return;
+        inp.value = '';
+        let next = sel.slice();
+        for (const e of got) if (!next.includes(e)) { emojiRemember(e); next = next.concat(e); }
+        set(next.slice(-EMOJI_MAX));
+    });
+    inp.addEventListener('keydown', (e) => e.stopPropagation());
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'ghost emoji-more'; more.textContent = 'All emoji…';
+    more.title = 'Open the macOS emoji picker (Ctrl+Cmd+Space)';
+    more.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        inp.focus();
+        if (window.sa && window.sa.showEmojiPanel) window.sa.showEmojiPanel();
+    });
+    row.append(inp, more);
+
+    const body = document.createElement('div');
+    body.className = 'emoji-body';
+    const recent = emojiRecent();
+    const sections = (recent.length ? [['Recent', recent]] : []).concat(EMOJI_SETS);
+    for (const [name, list] of sections) {
+        const h = document.createElement('div');
+        h.className = 'emoji-cat';
+        h.textContent = name;
+        const g = document.createElement('div');
+        g.className = 'emoji-grid';
+        for (const e of list) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'emoji-cell' + (sel.includes(e) ? ' on' : '');
+            b.dataset.e = e; b.textContent = e;
+            b.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(e); });
+            grids.push(b);
+            g.appendChild(b);
+        }
+        body.append(h, g);
+    }
+    wrap.append(head, row, body);
+    el.appendChild(wrap);
+    return wrap;
+}
+
+// A tag row's emoji button: opens the picker and saves each change straight away.
+function openTagEmojiPop(anchor, t) {
+    openPop(anchor, 'pop-emoji', (el) => {
+        const title = document.createElement('div');
+        title.className = 'pop-title';
+        title.textContent = 'Emoji for "' + t.name + '"';
+        el.appendChild(title);
+        let timer = 0;
+        buildEmojiPicker(el, t.emoji, (v) => {
+            anchor.textContent = v || '☺';
+            anchor.classList.toggle('empty', !v);
+            clearTimeout(timer);
+            timer = setTimeout(() => saveTagList(allTags().map(x => x.id === t.id ? Object.assign({}, x, { emoji: v }) : x)), 250);
+        });
+    });
+}
+
 // "New tag" popover: pick a color, type a name. assignTo = preset id that gets the new tag right away.
 function openNewTagPop(anchor, assignTo) {
     let color = tagUI.color;
@@ -89,6 +215,21 @@ function openNewTagPop(anchor, assignTo) {
         title.className = 'pop-title'; title.textContent = 'New tag';
         const sw = document.createElement('div');
         sw.className = 'tag-swatches';
+        // optional emoji: the button opens the picker inside this popover
+        let emoji = '';
+        let picker = null;
+        const em = document.createElement('button');
+        em.type = 'button'; em.className = 'tag-emoji-btn empty'; em.textContent = '☺';
+        em.title = 'Add emoji (up to ' + EMOJI_MAX + ')';
+        em.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (picker) { picker.remove(); picker = null; return; }
+            picker = buildEmojiPicker(el, emoji, (v) => {
+                emoji = v;
+                em.textContent = v || '☺';
+                em.classList.toggle('empty', !v);
+            });
+        });
         const inp = document.createElement('input');
         inp.type = 'text'; inp.placeholder = 'Tag name'; inp.maxLength = 40; inp.autocomplete = 'off';
         const add = document.createElement('button');
@@ -125,7 +266,7 @@ function openNewTagPop(anchor, assignTo) {
             tagUI.color = color;
             const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
             closePop();
-            if (await saveTagList(allTags().concat({ id, name, color })) && assignTo) {
+            if (await saveTagList(allTags().concat({ id, name, color, emoji: cleanEmoji(emoji) })) && assignTo) {
                 const a = libEntry(assignTo);
                 if (a) takeLib(await window.sa.updateAnimation(a.id, { tags: (a.tags || []).concat(id) }));
             }
@@ -134,7 +275,7 @@ function openNewTagPop(anchor, assignTo) {
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
         const row = document.createElement('div');
         row.className = 'tag-new-row';
-        row.append(inp, add);
+        row.append(em, inp, add);
         el.append(title, sw, row);
         setTimeout(() => inp.focus(), 0);
     });

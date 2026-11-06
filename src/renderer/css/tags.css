@@ -10,6 +10,169 @@
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
+/* a tag with an emoji shows the emoji instead of the colour dot */
+.tag-dot.tag-emoji,
+.tag-dots .tag-dot.tag-emoji {
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.tag-dots .tag-dot.tag-emoji+.tag-dot,
+.tag-dots .tag-dot+.tag-dot.tag-emoji {
+    margin-left: 1px;
+}
+
+/* the emoji button on a tag row / in the New tag popover */
+.tag-emoji-btn {
+    flex: 0 0 auto;
+    min-width: 28px;
+    max-width: 84px;
+    padding: 2px 5px !important;
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}
+
+.tag-emoji-btn:hover,
+.tag-new-row .tag-emoji-btn {
+    border-color: var(--line);
+}
+
+.tag-emoji-btn.empty {
+    opacity: 0.4;
+}
+
+.tag-emoji-btn.empty:hover {
+    opacity: 0.8;
+}
+
+/* emoji picker */
+.pop-emoji {
+    width: 268px;
+    padding: 6px 9px 9px;
+}
+
+.emoji-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.emoji-sel {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-height: 28px;
+    padding: 2px 4px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--card-inner);
+}
+
+.emoji-sel-label {
+    font-size: 11px;
+    color: var(--dim);
+}
+
+.emoji-sel-label:empty {
+    display: none;
+}
+
+.emoji-sel-item {
+    padding: 1px 3px !important;
+    font-size: 16px;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+}
+
+.emoji-sel-item:hover {
+    background: rgba(255, 69, 58, 0.18);
+}
+
+.emoji-sel-count {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--dim);
+}
+
+.emoji-clear {
+    padding: 1px 6px !important;
+    font-size: 11px;
+}
+
+.emoji-input-row {
+    display: flex;
+    gap: 5px;
+}
+
+.emoji-input-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 7px;
+    font-size: 12px;
+}
+
+.emoji-more {
+    padding: 3px 8px !important;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.emoji-body {
+    max-height: 210px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.emoji-cat {
+    font-size: 10.5px;
+    color: var(--dim);
+    margin: 6px 0 3px;
+}
+
+.emoji-cat:first-child {
+    margin-top: 0;
+}
+
+.emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 2px;
+}
+
+.emoji-cell {
+    padding: 3px 0 !important;
+    font-size: 17px;
+    line-height: 1.2;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}
+
+.emoji-cell:hover {
+    background: var(--card-inner);
+}
+
+.emoji-cell.on {
+    border-color: var(--matcha);
+    background: var(--matcha-tint);
+}
+
+.pop-newtag .emoji-picker {
+    border-top: 1px solid var(--line-soft);
+    padding-top: 8px;
+}
+
 .tag-dots {
     display: inline-flex;
     align-items: center;
@@ -260,6 +423,51 @@
     border-bottom-right-radius: 0;
     border-bottom-color: var(--line-soft);
     scroll-margin-top: 8px;
+}
+
+/* library row: tags under the name and sound */
+.libitem .t .lib-sfx {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lib-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+}
+
+.lib-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px 1px 5px;
+    font-style: normal;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text);
+    border: 1px solid color-mix(in srgb, var(--chip, var(--matcha)) 45%, transparent);
+    background: color-mix(in srgb, var(--chip, var(--matcha)) 14%, transparent);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.lib-tag .tag-dot {
+    width: 7px;
+    height: 7px;
+}
+
+.lib-tag .tag-dot.tag-emoji {
+    width: auto;
+    height: auto;
+    font-size: 11px;
+}
+
+.lib-tag-name {
+    font-style: normal;
 }
 
 .libitem .more {

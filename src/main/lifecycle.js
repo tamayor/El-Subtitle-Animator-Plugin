@@ -11,6 +11,7 @@ const WorkflowIntegration = require('./workflow-integration');
 const state = require('./state');
 const { INITIAL_PPID } = require('./config');
 const { liveRemove } = require('./live-preview');
+const { stopAutomation } = require('./automation');
 
 
 // On quit an un-applied Resolve preview (its Text+ / MultiText and sounds) is taken off the timeline and the user's
@@ -24,6 +25,7 @@ function cleanup() {
             try { await Promise.race([liveRemove('restore'), new Promise(r => setTimeout(r, 5000))]); } catch (e) { /* the sweep removes it next time */ }
         }
         if (state.resolveWatchTimer) { clearInterval(state.resolveWatchTimer); state.resolveWatchTimer = null; }
+        try { stopAutomation(); } catch (e) { /* ignore */ }
         try { if (state.bridge) state.bridge.kill(); } catch (e) { /* ignore */ }
         try { WorkflowIntegration.CleanUp(); } catch (e) { /* ignore */ }
         state.resolveObj = null;

@@ -4,6 +4,7 @@ const { app } = require('electron');
 
 const state = require('./state');
 const { ensureDirs } = require('./config');
+const { startAutomation } = require('./automation');
 const { prepareColorScript, startJxaHelper, stopJxaHelper } = require('./color-picker');
 const { listSystemFonts, syncAllPresetFonts } = require('./fonts');
 const { bridgeCall } = require('./fusion-bridge');
@@ -34,6 +35,7 @@ app.whenReady().then(() => {
     ensureDirs();
     registerIpcHandlers();
     createWindow();
+    try { startAutomation(); } catch (e) { dlog('[automation] not started', String(e && e.message || e)); }      // for the MCP script (mcp/)
 
     // Auto-close together with DaVinci Resolve.
     checkResolveAlive();

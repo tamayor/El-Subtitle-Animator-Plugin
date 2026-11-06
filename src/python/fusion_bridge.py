@@ -432,6 +432,69 @@ def set_node_text(tool, input_id, text, all_tools, first):
     tool.SetInput(input_id, text)
 
 
+def size_multitext(tool, f=1.0, max_size=None, line_spacing=None):
+    """Resize a whole MultiText by f around its layers' common centre. Each layer's font size, layout box and
+    distance from that centre scale together, so the gaps between layers and the line wrapping stay the same.
+    max_size: f is lowered so the biggest layer's Size is at most this. line_spacing: each layer's Line Spacing,
+    and the gaps between layers grow or shrink by the same ratio (new / the layers' current spacing).
+    Inputs driven by a modifier (animated) are left alone and named in "skipped"."""
+    layers = [n for n in range(1, 65) if get_in(tool, "Text%d.Size" % n) is not None]
+    res = {"skipped": [], "capped": False}
+    if not layers:
+        return res
+    sizes = [float(get_in(tool, "Text%d.Size" % n)) for n in layers]
+    if max_size and max(sizes) * f > float(max_size):
+        f = float(max_size) / max(sizes)
+        res["capped"] = True
+    gap = 1.0
+    if line_spacing:
+        cur = [get_in(tool, "Text%d.LineSpacing" % n) for n in layers]
+        cur = [float(v) for v in cur if isinstance(v, (int, float)) and v > 0] or [1.0]
+        gap = float(line_spacing) / (sum(cur) / len(cur))
+    if abs(f - 1.0) < 1e-6 and abs(gap - 1.0) < 1e-6 and not line_spacing:
+        return res
+    skipped = res["skipped"]
+    if line_spacing:
+        for n in layers:
+            pre = "Text%d." % n
+            if is_driven(tool, pre + "LineSpacing") is not None:
+                skipped.append("%s (LineSpacing)" % (get_in(tool, "TextName%d" % n) or ("Text %d" % n)))
+                continue
+            try:
+                tool.SetInput(pre + "LineSpacing", float(line_spacing))
+            except Exception:
+                pass
+    centres = {n: as_pt(get_in(tool, "Text%d.Center" % n)) for n in layers}
+    pts = [c for c in centres.values() if c]
+    ax = (min(p[0] for p in pts) + max(p[0] for p in pts)) / 2 if pts else 0.5
+    ay = (min(p[1] for p in pts) + max(p[1] for p in pts)) / 2 if pts else 0.5
+    for n in layers:
+        pre = "Text%d." % n
+        name = get_in(tool, "TextName%d" % n) or ("Text %d" % n)
+        for k in (("Size", "LayoutWidth", "LayoutHeight") if abs(f - 1.0) > 1e-6 else ()):
+            v = get_in(tool, pre + k)
+            if not isinstance(v, (int, float)):
+                continue
+            if is_driven(tool, pre + k) is not None:
+                skipped.append("%s (%s)" % (name, k))
+                continue
+            try:
+                tool.SetInput(pre + k, float(v) * f)
+            except Exception:
+                skipped.append("%s (%s)" % (name, k))
+        c = centres.get(n)
+        k = f * gap
+        if c and abs(k - 1.0) > 1e-6:
+            if is_driven(tool, pre + "Center") is not None:
+                skipped.append("%s (Center)" % name)
+            else:
+                try:
+                    tool.SetInput(pre + "Center", {1: ax + (c[0] - ax) * k, 2: ay + (c[1] - ay) * k, 3: 0.0})
+                except Exception:
+                    skipped.append("%s (Center)" % name)
+    return res
+
+
 def op_set_boxes(a):
     """Put text / position / size into each detected Text+ or template, one by one."""
     comp = get_comp(a["item"], a.get("comp"))
@@ -447,6 +510,14 @@ def op_set_boxes(a):
             try:
                 if b.get("kind") == "multitext":
                     tool.SetInput(b.get("input"), str(b["text"]))     # a MultiText layer: Text<n>.StyledText
+                    if b.get("font"):                                 # automation's forced font: Text<n>.Font / .Style
+                        prefix = str(b.get("input") or "").rsplit(".", 1)[0]
+                        try:
+                            tool.SetInput(prefix + ".Font", str(b["font"]))
+                            if b.get("style"):
+                                tool.SetInput(prefix + ".Style", str(b["style"]))
+                        except Exception:
+                            missing.append((b.get("label") or name) + " (font)")
                 else:
                     set_node_text(tool, b.get("input") or "StyledText", str(b["text"]), all_tools, first_text)
                     first_text = False
@@ -476,8 +547,22 @@ def op_set_boxes(a):
             elif not design_done and a.get("textDesign"):
                 apply_text_design(tool, a["textDesign"])
                 design_done = True
+    unscaled, capped = [], False
+    mt = a.get("multitext")
+    if isinstance(mt, dict):
+        done = set()
+        for b in a.get("boxes") or []:
+            name = b.get("tool")
+            if b.get("kind") != "multitext" or not name or name in done:
+                continue
+            done.add(name)
+            tool = comp.FindTool(name)
+            if tool is not None:
+                r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
+                unscaled += r["skipped"]
+                capped = capped or r["capped"]
     wake_followers(comp)
-    return {"missing": missing, "fixedPosition": fixed, "nodes": op_scan(a)["nodes"]}
+    return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
 
 def find_any_item(item_id, kind="video"):
@@ -519,6 +604,11 @@ def op_refresh(a):
                             touched += 1
             except Exception:
                 pass
+    # The wake in set_text/set_boxes runs while the freshly inserted title is still settling, and Resolve can
+    # then render it as if the Follower were not there (a reveal preset stays hidden, a fly-in preset sits still).
+    # Toggling the Follower's elements again here, once everything is placed, makes the animation render.
+    if has_follower:
+        wake_followers(comp)
     return {"touched": touched}
 
 

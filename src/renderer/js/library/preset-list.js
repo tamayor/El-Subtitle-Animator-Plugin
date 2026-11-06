@@ -25,7 +25,7 @@ function openRowMenu(anchor, a) {
             const it = document.createElement('button');
             it.className = 'pop-item' + (mine.includes(t.id) ? ' on' : '');
             const ck = document.createElement('span'); ck.className = 'pop-check'; ck.textContent = '✓';
-            const d = document.createElement('span'); d.className = 'tag-dot'; d.style.background = t.color;
+            const d = tagMarkEl(t);
             const n = document.createElement('span'); n.className = 'pop-label'; n.textContent = t.name;
             it.append(ck, d, n);
             it.addEventListener('click', async () => { it.classList.toggle('on', await toggleTagOn(a.id, t.id)); });
@@ -81,8 +81,7 @@ function renderTags() {
     const dots = $('tagsDots');
     dots.textContent = '';
     for (const t of tags.slice(0, 12)) {
-        const d = document.createElement('span');
-        d.className = 'tag-dot'; d.style.background = t.color; d.title = t.name;
+        const d = tagMarkEl(t); d.title = t.name;
         dots.appendChild(d);
     }
 
@@ -193,6 +192,12 @@ function renderTags() {
         ci.addEventListener('input', () => { col.style.background = ci.value; });
         ci.addEventListener('change', () => saveTagList(allTags().map(x => x.id === t.id ? Object.assign({}, x, { color: ci.value }) : x)));
         col.appendChild(ci);
+        // emoji (up to EMOJI_MAX): the button opens the picker; none = the colour dot is shown
+        const em = document.createElement('button');
+        em.type = 'button'; em.className = 'tag-emoji-btn' + (t.emoji ? '' : ' empty');
+        em.textContent = t.emoji || '☺';
+        em.title = 'Emoji for this tag (up to ' + EMOJI_MAX + '). None = the colour dot is shown.';
+        em.addEventListener('click', (e) => { e.stopPropagation(); openTagEmojiPop(em, t); });
         const nm = document.createElement('input');
         nm.type = 'text'; nm.className = 'tag-name'; nm.value = t.name; nm.maxLength = 40; nm.title = 'Rename';
         nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') nm.blur(); if (e.key === 'Escape') { nm.value = t.name; nm.blur(); } });
@@ -206,7 +211,7 @@ function renderTags() {
         const x = document.createElement('button');
         x.className = 'ghost'; x.textContent = '×'; x.title = 'Delete tag';
         x.addEventListener('click', () => { deleteTagWithConfirm(t); });
-        row.append(handle, orderWrap, col, nm, cnt, x);
+        row.append(handle, orderWrap, col, em, nm, cnt, x);
         list.appendChild(row);
     }
 

@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('sa', {
     setVersion: (v) => ipcRenderer.invoke('app:setVersion', v),
     onWinIdle: (cb) => ipcRenderer.on('win:idle', (e, v, why) => { try { cb(!!v, why); } catch (err) { /* ignore */ } }),
     parkUntilFocus: () => ipcRenderer.invoke('win:park'),
+    showEmojiPanel: () => ipcRenderer.invoke('win:emojiPanel'),
     setOnTop: (flag) => ipcRenderer.invoke('win:setOnTop', !!flag),
     setLayoutMode: (mode) => ipcRenderer.invoke('win:setLayoutMode', mode),
     dlog: (...parts) => ipcRenderer.invoke('dbg:log', ...parts),

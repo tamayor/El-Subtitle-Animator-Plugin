@@ -16,16 +16,58 @@ function passesTagFilter(a, key) {
     return f.some(id => mine.includes(id));
 }
 
+// A tag can carry up to EMOJI_MAX emoji, stored together as one string ("🔥💰").
+const EMOJI_MAX = 4;
+function emojiList(s) {
+    s = String(s || '').replace(/\s+/g, '');
+    if (!s) return [];
+    let parts;
+    try { parts = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s), x => x.segment); } catch (e) { parts = Array.from(s); }
+    return Array.from(new Set(parts)).slice(0, EMOJI_MAX);
+}
+// What was typed, pasted or picked, cut to at most EMOJI_MAX distinct emoji ('' clears it).
+function cleanEmoji(s) { return emojiList(s).join(''); }
+
+// A tag's mark: its emoji when it has one, otherwise its colour dot. Always has class tag-dot.
+function tagMarkEl(t) {
+    const d = document.createElement('span');
+    if (t.emoji) {
+        d.className = 'tag-dot tag-emoji';
+        d.textContent = t.emoji;
+    } else {
+        d.className = 'tag-dot';
+        d.style.background = t.color;
+    }
+    return d;
+}
+
+function tagLabel(t) { return (t.emoji ? t.emoji + ' ' : '') + t.name; }
+
 function tagDotsEl(a) {
     const tags = tagsOf(a);
     if (!tags.length) return null;
     const w = document.createElement('span');
     w.className = 'tag-dots';
-    w.title = tags.map(t => t.name).join(', ');
-    for (const t of tags.slice(0, 5)) {
-        const d = document.createElement('span');
-        d.className = 'tag-dot'; d.style.background = t.color;
-        w.appendChild(d);
+    w.title = tags.map(tagLabel).join(', ');
+    for (const t of tags.slice(0, 5)) w.appendChild(tagMarkEl(t));
+    return w;
+}
+
+// Library row: the preset's tags as small labelled pills (emoji or colour dot + name).
+function libTagsEl(a) {
+    const tags = tagsOf(a);
+    if (!tags.length) return null;
+    const w = document.createElement('div');
+    w.className = 'lib-tags';
+    for (const t of tags) {
+        const p = document.createElement('i');
+        p.className = 'lib-tag';
+        p.style.setProperty('--chip', t.color);
+        const n = document.createElement('i');
+        n.className = 'lib-tag-name';
+        n.textContent = t.name;
+        p.append(tagMarkEl(t), n);
+        w.appendChild(p);
     }
     return w;
 }
@@ -34,8 +76,7 @@ function tagChip(t, on, onClick) {
     const b = document.createElement('button');
     b.className = 'tag-chip' + (on ? ' on' : '');
     b.style.setProperty('--chip', t.color);
-    const d = document.createElement('span');
-    d.className = 'tag-dot'; d.style.background = t.color;
+    const d = tagMarkEl(t);
     const n = document.createElement('span');
     n.textContent = t.name;
     b.append(d, n);
@@ -61,7 +102,7 @@ function renderTagFilter(key, boxId) {
         label = 'All Tags';
     } else if (f.length === 1) {
         const t = tagById(f[0]);
-        label = t ? t.name : '1 Tag';
+        label = t ? tagLabel(t) : '1 Tag';
     } else {
         label = f.length + ' Tags';
     }
@@ -72,12 +113,7 @@ function renderTagFilter(key, boxId) {
         dotsWrap.className = 'tag-dots';
         for (const tid of f.slice(0, 4)) {
             const t = tagById(tid);
-            if (t) {
-                const d = document.createElement('span');
-                d.className = 'tag-dot';
-                d.style.background = t.color;
-                dotsWrap.appendChild(d);
-            }
+            if (t) dotsWrap.appendChild(tagMarkEl(t));
         }
         btn.appendChild(dotsWrap);
     } else {
@@ -133,9 +169,7 @@ function renderTagFilter(key, boxId) {
                 const ck = document.createElement('span');
                 ck.className = 'pop-check';
                 ck.textContent = '✓';
-                const d = document.createElement('span');
-                d.className = 'tag-dot';
-                d.style.background = t.color;
+                const d = tagMarkEl(t);
                 const n = document.createElement('span');
                 n.className = 'pop-label';
                 n.textContent = t.name;

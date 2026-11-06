@@ -218,7 +218,7 @@ function updateAnimation(event, id, patch) {
     return { lib: libForUI() };
 }
 
-// Tags (like Finder tags): a name and a color, kept in library.json inside the library folder.
+// Tags (like Finder tags): a name, a color and an optional emoji, kept in library.json inside the library folder.
 // The panel sends the whole list; presets lose any tag that no longer exists.
 function saveTags(event, tags) {
     const lib = loadLib();
@@ -226,7 +226,8 @@ function saveTags(event, tags) {
     lib.tags = (Array.isArray(tags) ? tags : []).map(t => ({
         id: String((t && t.id) || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))),
         name: String((t && t.name) || '').trim().slice(0, 40),
-        color: /^#[0-9a-f]{6}$/i.test(String(t && t.color)) ? String(t.color).toLowerCase() : '#8e8e93'
+        color: /^#[0-9a-f]{6}$/i.test(String(t && t.color)) ? String(t.color).toLowerCase() : '#8e8e93',
+        emoji: String((t && t.emoji) || '').replace(/\s+/g, '').slice(0, 40)      // optional, up to 4 emoji; shown instead of the colour dot
     })).filter(t => t.name && !seen.has(t.id) && seen.add(t.id));
     for (const a of lib.animations) {
         if (Array.isArray(a.tags)) a.tags = a.tags.filter(id => seen.has(id));

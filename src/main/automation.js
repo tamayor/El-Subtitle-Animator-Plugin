@@ -21,10 +21,12 @@ const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
 const { frameToTC, getProject, getSubtitles, timelineMeta } = require('./resolve');
+const LAYOUT = require('./layout');
 
 const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'mcp-endpoint.json');
 const RULES_FILE = path.join(DATA_DIR, 'edit-rules.json');
+const LAYOUT_DIR = path.join(DATA_DIR, 'layouts');
 
 let server = null;
 let token = null;
@@ -46,7 +48,11 @@ function defaultRules() {
         // lineSpacing sets Line Spacing (MultiText: each layer's, and the gaps between layers scale with it). null = the preset's
         text: { maxSize: null, lineSpacing: null },
         sound: true,               // place the presets' sound effects
-        notes: ''                   // free-text editing rules Claude reads before editing
+        notes: '',                  // free-text editing rules Claude reads before editing
+        // Safe-zone layout read from a reference image (see layout.js): safe bands, named guides, zones to keep clear.
+        // fit: keep the estimated text box inside it; widthFactor calibrates the text width estimate.
+        // Default: the built-in social-media 9:16 safe zone (used on vertical timelines only). null = no layout.
+        layout: cleanLayout(LAYOUT.defaultLayout())
     };
 }
 
@@ -83,8 +89,20 @@ function cleanRules(r) {
         },
         text: { maxSize: opt(tx.maxSize, 0.01, 1), lineSpacing: opt(tx.lineSpacing, 0.3, 3) },
         sound: r.sound !== false,
-        notes: String(r.notes || '').slice(0, 4000)
+        notes: String(r.notes || '').slice(0, 4000),
+        layout: r.layout === undefined ? d.layout : cleanLayout(r.layout)
     };
+}
+
+function cleanLayout(l) {
+    if (!l || typeof l !== 'object' || !Array.isArray(l.bands) || !l.bands.length) return null;
+    const num = (v, lo, hi, def) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
+    const fit = l.fit || {};
+    return Object.assign({}, l, {
+        guides: Array.isArray(l.guides) ? l.guides : [],
+        zones: Array.isArray(l.zones) ? l.zones : [],
+        fit: { enabled: fit.enabled !== false, avoidZones: fit.avoidZones !== false, widthFactor: num(fit.widthFactor, 0.3, 1.2, 0.6), pad: num(fit.pad, 0, 0.1, 0.01) }
+    });
 }
 
 function loadRules() {
@@ -238,6 +256,31 @@ function boxListFor(a, nodes, text, parts, font, sizing) {
     });
 }
 
+// The layout only applies to timelines of its own shape (a 9:16 social safe zone is not used on a 16:9 edit).
+function layoutFor(layout, meta) {
+    if (!layout || !meta || !meta.width || !meta.height) return layout || null;
+    return Math.abs(meta.width / meta.height - layout.aspect) <= 0.02 ? layout : null;
+}
+
+// The text lines as they will render ({ text, size } top to bottom), for the layout fit. null = sizes unknown.
+function estimateLines(nodes, isMT, text, parts, textDesign, textSize, maxSize) {
+    if (isMT) {
+        const layers = nodes.filter(n => n.kind === 'multitext' && !n.nested);
+        if (!layers.length) return null;
+        const texts = mtTexts(nodes, parts);
+        const biggest = Math.max(...layers.map(n => Number(n.size) || 0.08)) * textSize;
+        const k = maxSize && biggest > maxSize ? maxSize / biggest : 1;
+        return layers.slice().sort((p, q) => (q.cy || 0) - (p.cy || 0))
+            .filter(n => texts[n.layer])
+            .flatMap(n => String(texts[n.layer]).split(/\r?\n/).map(t => ({ text: t, size: (Number(n.size) || 0.08) * textSize * k })));
+    }
+    const base = Number(textDesign && textDesign.size);
+    if (!(base > 0)) return null;
+    let size = base * textSize;
+    if (maxSize && size > maxSize) size = maxSize;
+    return String(text).split(/\r?\n/).map(t => ({ text: t, size }));
+}
+
 // ------------------------------------------------------------------ Resolve helpers
 
 async function currentTimeline() {
@@ -298,6 +341,51 @@ const TOOLS = {
         return Object.assign({ saved: true }, saved, unknown.length ? { warning: 'No tag matches: ' + unknown.join(', ') } : {});
     },
 
+    async get_layout() {
+        const rules = loadRules();
+        if (!rules.layout) return { layout: null, note: 'No layout. Give set_layout a reference PNG (transparent or white = safe area, black = off-limits, dashed lines = guides, boxes = zones).' };
+        let frame = null;
+        try { frame = (await currentTimeline()).meta; } catch (e) { /* no timeline: skip the aspect check */ }
+        return Object.assign(LAYOUT.layoutSummary(rules.layout, frame), { fit: rules.layout.fit, appliesToThisTimeline: frame ? !!layoutFor(rules.layout, frame) : null });
+    },
+
+    // Reads a reference image into the rules' layout. Without image: renames / re-reads the current one. image: null clears it.
+    async set_layout(args) {
+        args = args || {};
+        const rules = loadRules();
+        if (args.image === null || args.clear) { rules.layout = null; saveRules(rules); return { cleared: true }; }
+        if (args.image === 'default') {
+            const def = LAYOUT.defaultLayout();
+            if (!def) throw new Error('The built-in layout is missing from the plugin (src/main/layouts)');
+            def.fit = Object.assign({}, args.fit || {});
+            rules.layout = def;
+            const saved = saveRules(rules).layout;
+            return Object.assign({ saved: true, builtin: true, fit: saved.fit }, LAYOUT.layoutSummary(saved, null));
+        }
+        const cur = rules.layout;
+        let src = args.image ? String(args.image).replace(/^~(?=\/)/, os.homedir()) : (cur && cur.source);
+        if (!src) throw new Error('Give the path of the reference image (PNG)');
+        if (!fs.existsSync(src)) throw new Error('No file at ' + src);
+        if (args.image) {      // keep a copy next to the library so the layout survives the original being moved
+            fs.mkdirSync(LAYOUT_DIR, { recursive: true });
+            const dst = path.join(LAYOUT_DIR, path.basename(src));
+            if (path.resolve(dst) !== path.resolve(src)) fs.copyFileSync(src, dst);
+            src = dst;
+        }
+        const keep = (k) => (args[k] !== undefined ? args[k] : (!args.image && cur ? cur[k] : undefined));
+        const opts = { guideNames: keep('guideNames'), verticalNames: keep('verticalNames'), zoneNames: keep('zoneNames') };
+        const layout = LAYOUT.analyzeLayout(src, opts);
+        Object.assign(layout, opts);
+        layout.fit = Object.assign({}, (cur && cur.fit) || {}, args.fit || {});
+        rules.layout = layout;
+        const saved = saveRules(rules).layout;
+        let frame = null;
+        try { frame = (await currentTimeline()).meta; } catch (e) { /* no timeline */ }
+        const sum = LAYOUT.layoutSummary(saved, frame);
+        if (!saved.guides.length) sum.note = 'No guide lines found. Guides are dark lines (solid or dashed) across most of the safe width.';
+        return Object.assign({ saved: true, fit: saved.fit }, sum);
+    },
+
     async reset_rules() { return Object.assign({ reset: true }, saveRules(defaultRules())); },
 
     async list_tags() {
@@ -352,10 +440,17 @@ const TOOLS = {
         const maxDim = Math.max(256, Math.min(1280, Number(args.maxSize) || 768));
         const r = await bridgeCall('live_frame', { frame, maxDim }, 20000);
         if (!r || !r.data) throw new Error('Resolve did not return a frame');
+        const layout = layoutFor(loadRules().layout, meta);
+        let image = r.data, drawn = false;
+        if (layout && args.overlay !== false) {
+            try { const o = LAYOUT.overlayFrame(r.data, layout); if (o) { image = o; drawn = true; } } catch (e) { dlog('[automation] overlay failed', e && e.message); }
+        }
         return {
-            image: r.data, mime: 'image/jpeg',
+            image, mime: 'image/jpeg',
             note: 'Frame ' + frame + ' (' + frameToTC(frame, meta) + '), timeline ' + meta.width + 'x' + meta.height
                 + '. Positions are x, y from 0 to 1 with 0,0 at the top-left.'
+                + (drawn ? ' Layout drawn: red = outside the safe area, cyan lines = guides (' + layout.guides.map(g => g.name).join(', ')
+                    + '), yellow boxes = zones (' + layout.zones.map(z => z.name).join(', ') + '). Text should sit fully outside the red and off the yellow boxes.' : '')
         };
     },
 
@@ -425,11 +520,76 @@ const TOOLS = {
         if (!Number.isFinite(textSize) || textSize <= 0) textSize = 1;
         textSize = Math.max(0.2, Math.min(3, textSize));
         const pick = (v, def, lo, hi) => { const n = Number(v); return (v !== undefined && v !== null && Number.isFinite(n) && n > 0) ? Math.max(lo, Math.min(hi, n)) : def; };
-        const sizing = {
-            textSize,
-            maxSize: pick(args.maxSize, rules.text.maxSize, 0.01, 1),
-            lineSpacing: pick(args.lineSpacing, rules.text.lineSpacing, 0.3, 3)
-        };
+        const maxSize = pick(args.maxSize, rules.text.maxSize, 0.01, 1);
+        const lineSpacing = pick(args.lineSpacing, rules.text.lineSpacing, 0.3, 3);
+
+        // position: x / y are where the text's centre goes (0..1, top-left origin), kept inside the safe area
+        const P = rules.position;
+        const L = layoutFor(rules.layout, meta);
+        if (rules.layout && !L) notes.push('layout not used: it is for ' + rules.layout.width + 'x' + rules.layout.height + ' timelines, this one is ' + meta.width + 'x' + meta.height);
+        let x = Number(args.x), y = Number(args.y);
+        let lockY = false, region = null;
+        if (args.guide !== undefined && args.guide !== null && args.guide !== '') {
+            if (!L) throw new Error(rules.layout ? 'The layout is for ' + rules.layout.width + 'x' + rules.layout.height + ' (vertical) timelines; this timeline is ' + meta.width + 'x' + meta.height + '. Use x / y or zone instead of guide.' : 'No layout: set one with set_layout before placing on a guide');
+            const g = LAYOUT.findGuide(L, args.guide, 'h');
+            if (!g) throw new Error('No horizontal guide "' + args.guide + '". Guides: ' + L.guides.filter(q => q.orient === 'h').map(q => q.name).join(', '));
+            const align = args.align || 'on';
+            if (align === 'on') { y = g.pos; lockY = true; }
+            else {      // the area between this guide and the next one: the text stays between the two lines
+                region = LAYOUT.guideRegion(L, g, align, Number.isFinite(x) ? x : 0.5);
+                y = (region[0] + region[1]) / 2; lockY = true;
+            }
+        }
+        if (args.guideX !== undefined && args.guideX !== null && args.guideX !== '') {
+            const g = L && LAYOUT.findGuide(L, args.guideX, 'v');
+            if (!g) throw new Error('No vertical guide "' + args.guideX + '"' + (L ? '. Guides: ' + L.guides.filter(q => q.orient === 'v').map(q => q.name).join(', ') : ' (no layout set)'));
+            x = g.pos;
+        }
+        const zone = args.zone || P.defaultZone;
+        if (!Number.isFinite(y) && zone && ZONES[zone] !== undefined) y = ZONES[zone];
+        let posX = Number(a.posX) || 0, posY = Number(a.posY) || 0;
+        const fitOn = !!(L && L.fit.enabled && args.fit !== false);
+        if (Number.isFinite(x) || Number.isFinite(y) || fitOn) {
+            const ref = nodes.filter(n => !n.nested);
+            const cx = ref.length ? ref.reduce((s, n) => s + (n.cx || 0.5), 0) / ref.length : 0.5;
+            const cy = ref.length ? ref.reduce((s, n) => s + (n.cy || 0.5), 0) / ref.length : 0.5;      // Fusion: y up
+            // no x / y given: where the preset puts it now (apply() reads |pos| <= 1 as an old-style ratio)
+            if (!Number.isFinite(x)) x = cx + (Math.abs(posX) > 1 ? posX / meta.width : 0);
+            if (!Number.isFinite(y)) y = 1 - (cy + (Math.abs(posY) > 1 ? posY / meta.height : 0));
+            let cx2, cy2;
+            if (fitOn) {
+                // the text's estimated size on screen, kept inside the layout's safe area and off its zones
+                const est = estimateLines(nodes, isMT, text, parts, textDesign, textSize, maxSize);
+                if (est) {
+                    const box = LAYOUT.estimateTextBox(est, meta.width, meta.height, lineSpacing || (textDesign && textDesign.lineSpacing) || 1, L.fit.widthFactor);
+                    const f = LAYOUT.fitBox(L, x, y, box.w, box.h, { pad: L.fit.pad, avoidZones: L.fit.avoidZones, lockY, region });
+                    cx2 = f.cx; cy2 = f.cy;
+                    notes.push(...f.notes);
+                    if (f.scale < 0.995) {
+                        if (args.shrink === false) notes.push('the text is about ' + Math.round(100 / f.scale) + '% of the safe width here and will overflow');
+                        else {
+                            textSize = Math.max(0.2, Math.round(textSize * f.scale * 1000) / 1000);
+                            notes.push('textSize reduced to ' + textSize + ' to fit the safe area' + (!/\n/.test(text) && text.split(/\s+/).length > 3 ? ' (a "\\n" line break would keep it bigger)' : ''));
+                        }
+                    }
+                    if (Math.abs(cx2 - x) > 0.005 || Math.abs(cy2 - y) > 0.005) notes.push('moved to ' + cx2.toFixed(3) + ', ' + cy2.toFixed(3) + ' to stay inside the layout');
+                } else notes.push('layout fit skipped: the preset has no readable text size');
+            }
+            if (cx2 === undefined) {
+                if (L) { cx2 = x; cy2 = y; }      // the layout (not the rectangular safe margins) is the safe area
+                else {
+                    cx2 = Math.max(P.safeLeft, Math.min(P.safeRight, x));
+                    cy2 = Math.max(P.safeTop, Math.min(P.safeBottom, y));
+                    if (cx2 !== x || cy2 !== y) notes.push('position kept inside the safe area');
+                }
+            }
+            posX = Math.round((cx2 - cx) * meta.width);
+            posY = Math.round(((1 - cy2) - cy) * meta.height);
+            if (Math.abs(posX) <= 1) posX = 0;      // apply() reads |v| <= 1 as an old-style ratio
+            if (Math.abs(posY) <= 1) posY = 0;
+        }
+
+        const sizing = { textSize, maxSize, lineSpacing };
         if (!isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) {
             if (textDesign && Number(textDesign.size) > 0) {
                 const r = sizedDesign(textDesign, sizing);
@@ -439,27 +599,6 @@ const TOOLS = {
                 textDesign = Object.assign({}, textDesign || {}, { lineSpacing: sizing.lineSpacing });
                 if (textSize !== 1 || sizing.maxSize) notes.push('textSize / maxSize ignored: the preset has no readable Text+ size');
             } else notes.push('textSize / maxSize ignored: the preset has no readable Text+ size');
-        }
-
-        // position: x / y are where the text's centre goes (0..1, top-left origin), kept inside the safe area
-        const P = rules.position;
-        let x = Number(args.x), y = Number(args.y);
-        const zone = args.zone || P.defaultZone;
-        if (!Number.isFinite(y) && zone && ZONES[zone] !== undefined) y = ZONES[zone];
-        let posX = Number(a.posX) || 0, posY = Number(a.posY) || 0;
-        if (Number.isFinite(x) || Number.isFinite(y)) {
-            const ref = nodes.filter(n => !n.nested);
-            const cx = ref.length ? ref.reduce((s, n) => s + (n.cx || 0.5), 0) / ref.length : 0.5;
-            const cy = ref.length ? ref.reduce((s, n) => s + (n.cy || 0.5), 0) / ref.length : 0.5;      // Fusion: y up
-            if (!Number.isFinite(x)) x = cx;
-            if (!Number.isFinite(y)) y = 1 - cy;
-            const cx2 = Math.max(P.safeLeft, Math.min(P.safeRight, x));
-            const cy2 = Math.max(P.safeTop, Math.min(P.safeBottom, y));
-            if (cx2 !== x || cy2 !== y) notes.push('position kept inside the safe area');
-            posX = Math.round((cx2 - cx) * meta.width);
-            posY = Math.round(((1 - cy2) - cy) * meta.height);
-            if (Math.abs(posX) <= 1) posX = 0;      // apply() reads |v| <= 1 as an old-style ratio
-            if (Math.abs(posY) <= 1) posY = 0;
         }
 
         // video layer
@@ -481,7 +620,7 @@ const TOOLS = {
             multitext: (isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) ? sizing : null,
             keepPresetDefaults: true      // automated positions are not saved into the preset
         };
-        if (args.dryRun) return { dryRun: true, preset: a.name, subtitle: sub.index, text, parts, request: Object.assign({}, req, { boxList: req.boxList.length + ' text layers' }), notes };
+        if (args.dryRun) return { dryRun: true, preset: a.name, subtitle: sub.index, text, parts, textSize, request: Object.assign({}, req, { boxList: req.boxList.length + ' text layers' }), notes };
 
         state.lastPlacedAudioId = null;
         const res = await apply(null, req);
@@ -492,7 +631,7 @@ const TOOLS = {
         return {
             placed: true, itemId: res.itemId, preset: a.name, subtitle: sub.index, text, parts: parts || undefined,
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
-            start: res.start, frames: res.frames, position: { posX, posY },
+            start: res.start, frames: res.frames, position: { posX, posY }, textSize,
             notes: notes.concat(res.trackNotes || []), warnings: res.warnings || []
         };
     },

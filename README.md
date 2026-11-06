@@ -56,6 +56,8 @@ tools/                   Dev checks (not installed)
 | `fusion-bridge.js` | Talking to `python/fusion_bridge.py` |
 | `fonts.js`, `sfx.js`, `color-picker.js` | Fonts, sound files, native colour picker |
 | `window.js`, `lifecycle.js`, `app-version.js`, `log.js` | Window, quitting with Resolve, version bump, debug log |
+| `automation.js` | Local HTTP server for the MCP script (`mcp/el-sa-mcp.js`), editing rules (`edit-rules.json`) |
+| `layout.js`, `layouts/` | Safe-zone layouts read from a reference PNG (safe area, guide lines, zones). Default: `layouts/social-9x16.png` + its analysed `.json` (guides eye / captions / graphics, zone head), used on 9:16 timelines only. Regenerate the `.json` with `analyzeLayout()` after changing the PNG |
 
 Conventions:
 

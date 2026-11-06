@@ -623,15 +623,21 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(l.trimIn) || 0)));
             let len = total - trimIn;
             const cap = Math.round(Number(l.len) || 0);
-            if (cap > 0) len = Math.min(len, cap);
-            len = Math.max(1, len);
             const off = Math.round(Number(l.offset) || 0);
+            // 'clip' (default): follows the text clip's duration; 'fixed': the set length (0 = the rest of the sound)
+            const mode = (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (cap > 0 ? 'fixed' : 'clip');
+            if (mode === 'clip') len = Math.min(len, (l.align === 'end' || l.align === 'after') ? textEnd - textStart : textEnd - (textStart + off));
+            else if (cap > 0) len = Math.min(len, cap);
+            len = Math.max(1, len);
             let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);
             start = Math.max(tlStart, start);
             const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes);
             const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: start, startFrame: trimIn, endFrame: trimIn + len }]);
             if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed.'); continue; }
             const it = placed[0];
+            const fps = Math.round((meta && meta.fps) || 25);
+            const fade = Math.max(0, Math.min(len, (l.fade === null || l.fade === undefined) ? fps : Math.round(Number(l.fade) || 0)));
+            if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
             const vol = Number(l.volume) || 0;
             try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
             const id = String(await it.GetUniqueId());

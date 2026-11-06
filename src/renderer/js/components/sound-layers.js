@@ -41,6 +41,11 @@
         clearTimeout(saveTimer);
         saveTimer = setTimeout(() => { try { window.sa.updateAnimation(id, { sfxLayers: list }); } catch (e) { /* ignore */ } }, 400);
     }
+    // Length mode of an extra sound: 'clip' = follows the text clip's duration when placed (default), 'fixed' = the set
+    // length (len 0 = the rest of the sound). Older sounds with a set length are fixed.
+    const lenModeOf = (l) => (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (num(l.len, 0) > 0 ? 'fixed' : 'clip');
+    // Length of a 'clip' sound: from its start to the text end ('start' anchor), else the text's own duration.
+    const clipLen = (l, off, textS, textE, max) => clamp(Math.round(l.align === 'end' || l.align === 'after' ? textE - textS : textE - (textS + off)), 1, Math.max(1, max));
     const offsetFor = (align, start, len, textS, textE) => align === 'end' ? start + len - textE : (align === 'after' ? start - textE : start - textS);
 
     // ---------------------------------------------------------------- geometry of an extra sound (frames, relative to the subtitle start)
@@ -51,12 +56,16 @@
         const full = Math.max(2, Math.round(((w && w.seconds) || 0.5) * g.fps));
         const tin = clamp(Math.round(num(l.trimIn, 0)), 0, Math.max(0, full - 2));
         const cap = Math.round(num(l.len, 0));
-        let len = full - tin;
-        if (cap > 0) len = Math.min(len, cap);
-        len = Math.max(1, len);
+        const mode = lenModeOf(l);
         const off = Math.round(num(l.offset, 0));
+        let len = full - tin;
+        if (mode === 'clip') len = clipLen(l, off, g.textS, g.textE, full - tin);
+        else if (cap > 0) len = Math.min(len, cap);
+        len = Math.max(1, len);
         const start = l.align === 'end' ? g.textE - len + off : (l.align === 'after' ? g.textE + off : g.textS + off);
-        return { full, tin, len, start, end: start + len, wave: w, path: p, auto: !(cap > 0), textS: g.textS, textE: g.textE };
+        // fade-out at its end (1 s unless changed), kept in both length modes
+        const fade = clamp((l.fade === null || l.fade === undefined) ? Math.round(g.fps) : Math.round(num(l.fade, 0)), 0, len);
+        return { full, tin, len, fade, fps: g.fps, start, end: start + len, wave: w, path: p, auto: mode === 'clip', mode, textS: g.textS, textE: g.textE };
     }
 
     // ---------------------------------------------------------------- one interface for every sound (main or extra)
@@ -71,8 +80,9 @@
                     case 'on': return m.useSfx !== false;
                     case 'volume': return num(m.sfxVolume, 0);
                     case 'start': return Math.round(num(m.sfxOffset, 0));
-                    case 'auto': return sfxLenMode(m) === 'estimate';
+                    case 'mode': return sfxLenMode(m) === 'estimate' ? 'clip' : 'fixed';
                     case 'length': return geometry(m).sfxFrames;
+                    case 'fade': return geometry(m).fadeFrames;
                     case 'track': return Number(m.sfxTrack) || 0;
                     case 'link': return m.linked !== false;
                 }
@@ -82,15 +92,16 @@
                     case 'on': m.useSfx = !!v; redraw(); renderAnimations(); break;
                     case 'volume': { m.sfxVolume = v; ctx.changed(m); renderTimeline(ctx); triggerLiveSync(m, S); break; }
                     case 'start': m.sfxOffset = clamp(Math.round(v), -300, 300); redraw(); break;
-                    case 'auto':
+                    case 'mode':
                         stopPreview();
-                        if (v) { m.sfxLen = null; m.sfxLenMode = 'estimate'; } else { m.sfxLen = geometry(m).sfxFrames; m.sfxLenMode = 'fixed'; }
+                        if (v === 'clip') { m.sfxLen = null; m.sfxLenMode = 'estimate'; } else { m.sfxLen = geometry(m).sfxFrames; m.sfxLenMode = 'fixed'; }
                         ctx.changed(m); syncAttachedSfx(m); renderTimeline(ctx); break;
                     case 'length': {
                         const g = geometry(m);
                         m.sfxLen = clamp(Math.round(v), 2, Math.max(2, g.sfxFull - g.sfxTrimIn)); m.sfxLenMode = 'fixed';
                         ctx.changed(m); syncAttachedSfx(m); renderTimeline(ctx); break;
                     }
+                    case 'fade': { const g = geometry(m); m.sfxFade = clamp(Math.round(v), 0, g.sfxFrames); ctx.changed(m); syncAttachedSfx(m); renderTimeline(ctx); break; }
                     case 'track': m.sfxTrack = Number(v); ctx.changed(m); break;
                     case 'link': m.linked = !!v; redraw(); break;
                 }
@@ -118,7 +129,7 @@
     function layerHandle(ctx, m, l) {
         const geo = () => layerGeo(m, geometry(m), l);
         const save = () => { persist(ctx); renderTimeline(ctx); };
-        const setFile = (file) => { l.file = file; l.orig = file; l.trimIn = 0; l.len = 0; l.enabled = true; };
+        const setFile = (file) => { l.file = file; l.orig = file; l.trimIn = 0; l.len = 0; l.lenMode = 'clip'; l.enabled = true; };
         return {
             kind: 'layer', ctx, id: l.id, canEdit: true,
             get(f) {
@@ -126,8 +137,9 @@
                     case 'on': return l.enabled !== false;
                     case 'volume': return num(l.volume, 0);
                     case 'start': return Math.round(num(l.offset, 0));
-                    case 'auto': return !(num(l.len, 0) > 0);
+                    case 'mode': return lenModeOf(l);
                     case 'length': return geo().len;
+                    case 'fade': return geo().fade;
                     case 'track': return Number(l.track) || 0;
                     case 'link': return !!l.link;
                     case 'anchor': return ANCHORS.some(x => x[0] === l.align) ? l.align : 'start';
@@ -138,8 +150,9 @@
                     case 'on': l.enabled = !!v; break;
                     case 'volume': l.volume = v; break;
                     case 'start': l.offset = Math.round(v); break;
-                    case 'auto': l.len = v ? 0 : geo().len; break;
-                    case 'length': { const q = geo(); l.len = clamp(Math.round(v), 1, Math.max(1, q.full - q.tin)); break; }
+                    case 'mode': { const q = geo(); if (v === 'clip') { l.lenMode = 'clip'; l.len = 0; } else { l.lenMode = 'fixed'; l.len = q.len; } break; }
+                    case 'length': { const q = geo(); l.len = clamp(Math.round(v), 1, Math.max(1, q.full - q.tin)); l.lenMode = 'fixed'; break; }
+                    case 'fade': l.fade = Math.max(0, Math.round(v)); break;
                     case 'track': l.track = Number(v) || 0; break;
                     case 'link': l.link = !!v; break;
                     case 'anchor': { const q = geo(); l.align = v; l.offset = offsetFor(v, q.start, q.len, q.textS, q.textE); break; }
@@ -148,14 +161,14 @@
             },
             name() { return l.file ? nameOf(l.file) + (fileInfo(l.file) ? '' : ' (missing)') : 'No sound'; },
             path() { return pathOf(l.file); },
-            canRevert() { return !!(l.orig && (l.file !== l.orig || num(l.trimIn, 0) > 0 || num(l.len, 0) > 0)); },
+            canRevert() { return !!(l.orig && (l.file !== l.orig || num(l.trimIn, 0) > 0 || lenModeOf(l) === 'fixed')); },
             async choose(file) { setFile(file); save(); renderCard(ctx, true); },
             async replace(p) {
                 const res = await window.sa.addSfxOriginal(p);
                 if (!res || res.error) { say(ctx, (res && res.error) || 'Could not add the sound', 'bad'); return; }
                 if (res.lib) state.lib = res.lib;
                 const cur = layersOf(ctx).find(x => x.id === l.id) || l;
-                Object.assign(cur, { file: res.file, orig: res.file, trimIn: 0, len: 0, enabled: true });
+                Object.assign(cur, { file: res.file, orig: res.file, trimIn: 0, len: 0, lenMode: 'clip', enabled: true });
                 persist(ctx); renderTimeline(ctx); renderCard(ctx, true);
             },
             async useDefault() {
@@ -164,7 +177,7 @@
                 setFile(d.file); save(); renderCard(ctx, true);
             },
             async none() { l.enabled = false; save(); },
-            async revert() { l.file = l.orig || l.file; l.trimIn = 0; l.len = 0; save(); renderCard(ctx, true); },
+            async revert() { l.file = l.orig || l.file; l.trimIn = 0; l.len = 0; l.lenMode = 'clip'; save(); renderCard(ctx, true); },
             remove() {
                 const list = layersOf(ctx), i = list.findIndex(x => x.id === l.id);
                 if (i >= 0) list.splice(i, 1);
@@ -190,7 +203,7 @@
         if (res.lib) state.lib = res.lib;
         const cur = holderOf(ctx) || a;
         if (!Array.isArray(cur.sfxLayers)) cur.sfxLayers = [];
-        const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, link: false, track: 0 };
+        const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, lenMode: 'clip', link: false, track: 0 };
         cur.sfxLayers.push(l);
         sel[ctx.s] = l.id;
         persist(ctx); renderTimeline(ctx);
@@ -275,6 +288,17 @@
         refs.push(() => { c.checked = !!get(); });
         return l;
     }
+    // How long the sound is when placed: follow the text clip's duration (default) or keep the fixed length set here.
+    function lenModeField(refs, get, set) {
+        const s = document.createElement('select'); s.className = 'snd-lenmode';
+        s.title = 'Follow the clip: the sound is cut (or extended up to its full length) to the text clip\'s duration when placed. Fixed length: always the length set here.';
+        [['clip', 'Follow the clip'], ['fixed', 'Fixed length']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; s.appendChild(o); });
+        s.addEventListener('change', () => set(s.value));
+        refs.push(() => { if (document.activeElement !== s) s.value = get(); });
+        const l = mk('label', 'snd-num');
+        l.append(mk('span', '', 'Sound length'), s);
+        return l;
+    }
     function trackField(refs, label, prefix, get, set) {
         const l = mk('label', 'snd-num');
         const s = document.createElement('select');
@@ -336,7 +360,8 @@
         }
         pos.appendChild(numField(refs, 'Offset', 'f', () => (H() || h0).get('start'), (v) => { const h = H(); if (h) h.set('start', v); }));
         pos.appendChild(numField(refs, 'Length', 'f', () => (H() || h0).get('length'), (v) => { const h = H(); if (h) h.set('length', Math.max(1, v)); }, 'change'));
-        pos.appendChild(checkField(refs, 'Auto', h0.kind === 'main' ? 'Follow the caption length (up to the sound\'s full length)' : 'Use the rest of the sound', () => (H() || h0).get('auto'), (v) => { const h = H(); if (h) h.set('auto', v); }));
+        pos.appendChild(numField(refs, 'Fade out', 'f', () => (H() || h0).get('fade'), (v) => { const h = H(); if (h) h.set('fade', Math.max(0, v)); }, 'change'));
+        pos.appendChild(lenModeField(refs, () => (H() || h0).get('mode'), (v) => { const h = H(); if (h) h.set('mode', v); }));
         card.appendChild(pos);
 
         const misc = mk('div', 'snd-row');
@@ -457,20 +482,24 @@
             const w = Math.max(6, q.len * ppf);
             bar.style.left = X(q.start) + 'px'; bar.style.width = w + 'px';
             const cv = document.createElement('canvas'); bar.appendChild(cv);
-            drawWave(cv, q.wave, vol, { from: q.tin / q.full, frac: q.len / q.full });
+            drawWave(cv, q.wave, vol, { from: q.tin / q.full, frac: q.len / q.full, fade: q.len ? q.fade / q.len : 0 });
             const nm = add('nm snd-nm', bar); nm.textContent = nameOf(l.file);
             const hl = add('handle l', bar), hr = add('handle r', bar);
             hl.title = 'Drag to trim or extend the start (double-click to restore)';
             hr.title = 'Drag to trim or extend the end (double-click: the rest of the sound)';
+            const fh = add('fade-h', bar);
+            fh.style.left = Math.max(0, Math.min(w - 10, (q.len - q.fade) * ppf - 5)) + 'px';
+            fh.title = 'Drag to change the fade-out length (double-click: 1 s)';
             volLine(add, bar, vol, begin, 'lyrVol', l.id);
-            const snap = () => ({ start: q.start, len: q.len, tin: q.tin, full: q.full, auto: q.auto, textS: q.textS, textE: q.textE, align: l.align });
+            const snap = () => ({ start: q.start, len: q.len, tin: q.tin, full: q.full, fade: q.fade, fps: q.fps, auto: q.auto, mode: q.mode, textS: q.textS, textE: q.textE, align: l.align });
             const cap = (kind, el) => {
                 el.addEventListener('pointerdown', begin(kind, l.id));
                 el.addEventListener('pointerdown', () => { if (state.drag && state.drag.kind === kind && state.drag.lid === l.id) state.drag.l0 = snap(); });
             };
-            cap('lyr', bar); cap('lyrIn', hl); cap('lyrOut', hr);
+            cap('lyr', bar); cap('lyrIn', hl); cap('lyrOut', hr); cap('lyrFade', fh);
+            resets['lyrFade:' + l.id] = () => { l.fade = null; persist(ctx); };
             resets['lyrIn:' + l.id] = () => { apply(l, q.start - q.tin, q.auto ? 0 : q.len + q.tin, 0, snap(), true); };
-            resets['lyrOut:' + l.id] = () => { l.len = 0; persist(ctx); };
+            resets['lyrOut:' + l.id] = () => { l.len = 0; l.lenMode = 'clip'; persist(ctx); };
             resets['lyrVol:' + l.id] = () => { l.volume = 0; persist(ctx); };
             if (l.link && on) {
                 const lk = add('link', box);
@@ -482,8 +511,8 @@
     // Writes a new start / length / trim back as an offset from the sound's anchor.
     function apply(l, start, len, tin, q, lenGiven) {
         l.trimIn = tin;
-        if (lenGiven) l.len = len;
-        const useLen = (num(l.len, 0) > 0) ? l.len : (q.full - tin);
+        if (lenGiven) { l.len = len; l.lenMode = 'fixed'; }
+        const useLen = lenModeOf(l) === 'clip' ? clipLen(l, 0, q.textS, q.textE, q.full - tin) : ((num(l.len, 0) > 0) ? l.len : (q.full - tin));
         l.offset = clamp(Math.round(offsetFor(q.align === 'end' || q.align === 'after' ? q.align : 'start', start, useLen, q.textS, q.textE)), -900, 900);
     }
 
@@ -499,6 +528,13 @@
             return;
         }
         const q = d.l0; if (!q) return;
+        if (d.kind === 'lyrFade') {
+            let f = clamp(q.fade - df, 0, q.len);                // dragging the corner left makes the fade longer
+            if (Math.abs(f - Math.round(q.fps)) <= 1) f = Math.round(q.fps);   // snap to 1 s
+            l.fade = f;
+            persist(ctx);
+            return;
+        }
         let start = q.start, len = q.len, tin = q.tin, lenGiven = false;
         if (d.kind === 'lyr') {
             start = q.start + df;

@@ -1,0 +1,79 @@
+{
+  "source": "social-9x16.png",
+  "width": 1080,
+  "height": 1920,
+  "aspect": 0.5625,
+  "transparentImage": true,
+  "bands": [
+    {
+      "y0": 0.0901,
+      "y1": 0.1115,
+      "spans": [
+        [
+          0.0861,
+          0.2926
+        ],
+        [
+          0.7074,
+          0.9056
+        ]
+      ]
+    },
+    {
+      "y0": 0.1115,
+      "y1": 0.5,
+      "spans": [
+        [
+          0.0861,
+          0.9056
+        ]
+      ]
+    },
+    {
+      "y0": 0.5,
+      "y1": 0.7911,
+      "spans": [
+        [
+          0.0861,
+          0.7824
+        ]
+      ]
+    }
+  ],
+  "guides": [
+    {
+      "name": "eye",
+      "orient": "h",
+      "pos": 0.2599
+    },
+    {
+      "name": "captions",
+      "orient": "h",
+      "pos": 0.4951
+    },
+    {
+      "name": "graphics",
+      "orient": "h",
+      "pos": 0.6167
+    }
+  ],
+  "zones": [
+    {
+      "name": "head",
+      "x0": 0.2361,
+      "y0": 0.1411,
+      "x1": 0.7083,
+      "y1": 0.4047
+    }
+  ],
+  "guideNames": [
+    "eye",
+    "captions",
+    "graphics"
+  ],
+  "zoneNames": [
+    "head"
+  ],
+  "name": "Social media 9:16 safe zone",
+  "description": "Vertical social video (1080x1920): safe area, eye line, captions line, graphics line, head box. Captions go between the captions and graphics lines."
+}

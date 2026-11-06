@@ -73,16 +73,17 @@ function stopScrubLoop(ctx) {
 
 function stopScrubAudio() {
     clearTimeout(state.scrubAudioT);
-    const n = state.scrubNode;
-    state.scrubNode = null;
-    if (!n) return;
-    try {
-        const t = state.scrubAC.currentTime;
-        n.g.gain.cancelScheduledValues(t);
-        n.g.gain.setValueAtTime(n.g.gain.value, t);
-        n.g.gain.linearRampToValueAtTime(0, t + 0.012);
-        n.s.stop(t + 0.02);
-    } catch (e) { /* ignore */ }
+    const nodes = state.scrubNodes || [];
+    state.scrubNodes = [];
+    for (const n of nodes) {
+        try {
+            const t = state.scrubAC.currentTime;
+            n.g.gain.cancelScheduledValues(t);
+            n.g.gain.setValueAtTime(n.g.gain.value, t);
+            n.g.gain.linearRampToValueAtTime(0, t + 0.012);
+            n.s.stop(t + 0.02);
+        } catch (e) { /* ignore */ }
+    }
 }
 
 // The sound is decoded once; each blip is a short buffer source with a tiny fade, so there is no seeking and no click.
@@ -102,34 +103,49 @@ function scrubBuffer(p) {
     return null;
 }
 
-// A short blip of the sound at the playhead, so you hear exactly where it lands against the picture.
+// Every sound under frame tf (the main one and any extra sound layers), as { buf, at (seconds into the file), vol }.
+function scrubVoices(ctx, m, tf, g) {
+    const out = [];
+    const add = (p, start, end, tin, db) => {
+        if (!p || tf < start || tf >= end) return;
+        const buf = scrubBuffer(p);                      // starts decoding on first use; heard from the next step on
+        if (!buf) return;
+        const at = Math.max(0, (tin + (tf - start)) / g.fps);
+        if (at >= buf.duration) return;
+        out.push({ buf, at, vol: clamp(Math.pow(10, (Number(db) || 0) / 20), 0, 1) });
+    };
+    if (m.useSfx !== false) add(origSfxPath(m) || currentSfxPath(m), g.sfxS, g.sfxE, g.sfxTrimIn, m.sfxVolume);
+    if (window.SASounds && SASounds.voices) {
+        try { for (const v of SASounds.voices(ctx, m, g)) add(v.path, v.start, v.end, v.tin, v.volume); } catch (e) { /* ignore */ }
+    }
+    return out;
+}
+
+// A short blip of every sound at the playhead, so you hear exactly where each one lands against the picture.
 function scrubAudio(ctx, m, tf) {
     if (state.preview) return;
     const nowT = performance.now();
     if (nowT - (state.scrubAudioAt || 0) < 40) return;
     const g = geometry(m);
-    const p = m.useSfx === false ? null : (origSfxPath(m) || currentSfxPath(m));
-    if (!p || tf < g.sfxS || tf >= g.sfxE) { stopScrubAudio(); return; }
-    const buf = scrubBuffer(p);
-    if (!buf || !state.scrubAC) return;
+    const vs = scrubVoices(ctx, m, tf, g);
+    if (!vs.length || !state.scrubAC) { stopScrubAudio(); return; }
     state.scrubAudioAt = nowT;
     try {
         const ac = state.scrubAC;
         if (ac.state === 'suspended') ac.resume();
-        const at = Math.max(0, (g.sfxTrimIn + (tf - g.sfxS)) / g.fps);
-        if (at >= buf.duration) { stopScrubAudio(); return; }
         stopScrubAudio();
-        const src = ac.createBufferSource(), gn = ac.createGain();
-        src.buffer = buf;
-        const vol = clamp(Math.pow(10, (Number(m.sfxVolume) || 0) / 20), 0, 1);
         const dur = Math.max(0.06, 1.6 / g.fps), t = ac.currentTime;
-        gn.gain.setValueAtTime(0, t);
-        gn.gain.linearRampToValueAtTime(vol, t + 0.006);
-        gn.gain.setValueAtTime(vol, t + dur - 0.012);
-        gn.gain.linearRampToValueAtTime(0, t + dur);
-        src.connect(gn); gn.connect(ac.destination);
-        src.start(t, at, dur + 0.02);
-        state.scrubNode = { s: src, g: gn };
+        for (const v of vs) {
+            const src = ac.createBufferSource(), gn = ac.createGain();
+            src.buffer = v.buf;
+            gn.gain.setValueAtTime(0, t);
+            gn.gain.linearRampToValueAtTime(v.vol, t + 0.006);
+            gn.gain.setValueAtTime(v.vol, t + dur - 0.012);
+            gn.gain.linearRampToValueAtTime(0, t + dur);
+            src.connect(gn); gn.connect(ac.destination);
+            src.start(t, v.at, dur + 0.02);
+            state.scrubNodes.push({ s: src, g: gn });
+        }
     } catch (e) { /* ignore */ }
 }
 

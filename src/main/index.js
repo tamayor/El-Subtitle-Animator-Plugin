@@ -11,6 +11,10 @@ const { registerIpcHandlers } = require('./ipc');
 const { checkResolveAlive, cleanup, quitPlugin } = require('./lifecycle');
 const { dlog } = require('./log');
 const { createWindow } = require('./window');
+const { loadLib } = require('./library');
+const { pruneTemplates } = require('./placement');
+const { ANIM_DIR } = require('./config');
+const path = require('path');
 
 // A stray error anywhere must never take the panel down or leave Resolve with a dead plugin.
 process.on('uncaughtException', (err) => { try { console.error('[uncaughtException]', err && err.stack || err); dlog('[uncaughtException]', String(err && err.stack || err)); } catch (e) { /* ignore */ } });
@@ -41,6 +45,8 @@ app.whenReady().then(() => {
     setTimeout(() => { bridgeCall('ping', {}, 30000).catch(() => { /* only a warm-up */ }); }, 1200);
     setTimeout(() => { prepareColorScript(); }, 1500);
     setTimeout(() => { syncAllPresetFonts(); }, 2000);
+    // Title templates of presets removed or renamed while the plugin was closed (or by hand) are cleared out.
+    setTimeout(() => { try { pruneTemplates(loadLib().animations.map(a => path.join(ANIM_DIR, a.file))); } catch (e) { /* next start */ } }, 2500);
 });
 
 app.on('window-all-closed', () => quitPlugin());

@@ -519,5 +519,16 @@
         persist(ctx);
     }
 
-    window.SASounds = { sync, lanes, range, selectFor, drag, handle, pickerButtons, moreButton, layersFor: layersOf, volLine, volFrac, LANE_H, LANE0 };
+    // Every extra sound that is on, as { path, start, end, tin, volume (dB) } in timeline frames (used by scrubbing).
+    function voices(ctx, m, g) {
+        const out = [];
+        for (const l of layersOf(ctx)) {
+            if (l.enabled === false || !l.file) continue;
+            const q = layerGeo(m, g, l);
+            if (q.path) out.push({ path: q.path, start: q.start, end: q.end, tin: q.tin, volume: num(l.volume, 0) });
+        }
+        return out;
+    }
+
+    window.SASounds = { sync, lanes, range, voices, selectFor, drag, handle, pickerButtons, moreButton, layersFor: layersOf, volLine, volFrac, LANE_H, LANE0 };
 })();

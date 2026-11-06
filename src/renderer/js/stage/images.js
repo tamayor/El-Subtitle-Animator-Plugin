@@ -69,6 +69,7 @@ function keyedImage(im) {
     const og = oc.getContext('2d');
     og.drawImage(im, 0, 0);
     const whiteBg = im._bg === 'white';
+    if (keyMatte(im, og, oc, w, h)) { im._keyed = oc; im._kbounds = oc._bounds; return oc; }
     try {
         const id = og.getImageData(0, 0, w, h);
         const d = id.data;
@@ -105,6 +106,81 @@ function keyedImage(im) {
     im._keyed = oc;
     im._kbounds = oc._bounds;
     return oc;
+}
+
+// Exact transparency from the black + white render pair (preview.matte): a = 1 - (W-B)/255, C = B/a.
+// Works for any colour (black text, white text, red on white...), so nothing depends on the card background.
+// Keys region (sx, sy, sw, sh) of im into a canvas of that size, or returns null when there is no usable white pass.
+function keyMatteRegion(im, sx, sy, sw, sh) {
+    const wi = im._white;
+    if (!wi || !wi.complete || wi.naturalWidth !== im.naturalWidth || wi.naturalHeight !== im.naturalHeight) return null;
+    try {
+        const oc = document.createElement('canvas'); oc.width = sw; oc.height = sh;
+        const og = oc.getContext('2d'); og.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+        const wc = document.createElement('canvas'); wc.width = sw; wc.height = sh;
+        const wg = wc.getContext('2d'); wg.drawImage(wi, sx, sy, sw, sh, 0, 0, sw, sh);
+        const wd = wg.getImageData(0, 0, sw, sh).data;
+        const id = og.getImageData(0, 0, sw, sh);
+        const d = id.data;
+        let minX = sw, minY = sh, maxX = 0, maxY = 0, found = false, x = 0, y = 0;
+        for (let p = 0; p < d.length; p += 4) {
+            let a = 255 - ((wd[p] - d[p]) + (wd[p + 1] - d[p + 1]) + (wd[p + 2] - d[p + 2])) / 3;
+            a = a < 0 ? 0 : (a > 255 ? 255 : a);
+            if (a <= 3) { d[p + 3] = 0; }
+            else {
+                const k = 255 / a;
+                d[p] = Math.min(255, d[p] * k); d[p + 1] = Math.min(255, d[p + 1] * k); d[p + 2] = Math.min(255, d[p + 2] * k);
+                d[p + 3] = a;
+                if (a > 24) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
+            }
+            if (++x === sw) { x = 0; y++; }
+        }
+        og.putImageData(id, 0, 0);
+        oc._bounds = found
+            ? { x: minX / sw, y: minY / sh, w: Math.max(0.08, (maxX - minX) / sw), h: Math.max(0.05, (maxY - minY) / sh) }
+            : { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+        return oc;
+    } catch (e) { return null; }
+}
+function keyMatte(im, og, oc, w, h) {
+    const r = keyMatteRegion(im, 0, 0, w, h);
+    if (!r) return false;
+    og.clearRect(0, 0, w, h); og.drawImage(r, 0, 0);
+    oc._bounds = r._bounds;
+    return true;
+}
+
+// The keyed (transparent) text crop a preview card draws: only the crop is keyed and kept, so every frame of every
+// card can stay cached without holding full-size keyed copies in memory.
+function keyedCrop(im, x0, y0, w, h) {
+    const sx = Math.round(x0), sy = Math.round(y0), sw = Math.max(1, Math.round(w)), sh = Math.max(1, Math.round(h));
+    const key = sx + ',' + sy + ',' + sw + ',' + sh;
+    if (im._crop && im._crop.key === key) return im._crop.cv;
+    let cv = keyMatteRegion(im, sx, sy, sw, sh);
+    if (!cv) {
+        const full = keyedImage(im);
+        cv = document.createElement('canvas'); cv.width = sw; cv.height = sh;
+        cv.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+    }
+    im._crop = { key, cv };
+    return cv;
+}
+
+// Neutral transparency checkerboard behind preview frames, so black and white text both stay readable.
+function paintChecker(c, w, h) {
+    const size = Math.max(6, Math.round(Math.min(w, h) / 14));
+    c.fillStyle = '#2a2d2b';
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = '#3c403d';
+    for (let y = 0, r = 0; y < h; y += size, r++) {
+        for (let x = (r % 2) * size; x < w; x += size * 2) c.fillRect(x, y, size, size);
+    }
 }
 
 function syncXformUI(S, posX, posY, scale, rotation) {

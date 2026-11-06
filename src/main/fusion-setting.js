@@ -2,7 +2,7 @@
 // nodes a preset contains, plus converting a panel text design back into Fusion input values.
 
 module.exports = {
-    clearDesignCache, copyPreset, designForFusion, detectNodes, expandAllTools, expandToolsInFile,
+    blockEnd, clearDesignCache, copyPreset, designForFusion, detectNodes, expandAllTools, expandToolsInFile,
     fusionBoxes, nodesWithDesign, parseTextStyle
 };
 

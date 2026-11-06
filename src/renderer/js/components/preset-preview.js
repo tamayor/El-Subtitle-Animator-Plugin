@@ -11,6 +11,8 @@
 //   - draw() and frameIndex() are the stable version from commit 122295f (restored at the user's request): frames
 //     play 1x at the timeline fps over a 3-second window, and cards show cardView() (the subtitle render once in).
 //   - Do NOT make drawSynthetic() win over real Fusion frames.
+//   - Card background is a neutral checkerboard (paintChecker) behind the matte-keyed text crop (keyedCrop), never
+//     solid black/white — approved by the user so dark and light text both read.
 //   - The alignment-timeline scrub viewer draws through SAPreview (below), which reuses these exact functions.
 // If a card ever looks wrong, tell the user and ask before touching anything here. The user must explicitly approve
 // any change to this block. Unrelated edits elsewhere in this file are fine.
@@ -173,14 +175,13 @@
         const g = geometry(view, imgs);
         const idx = holdIndex(view, imgs, frameIndex(view, imgs, t));
         const c = cv.getContext('2d');
-        // Dark text is rendered on white (see previewBackground in main.js), so its card is white too.
-        c.fillStyle = (imgs._cardBg || imgs[idx]._bg) === 'white' ? '#ffffff' : '#000';
-        c.fillRect(0, 0, cv.width, cv.height);
+        // Neutral checkerboard (not black or white) behind the keyed frame, so dark and light text both read.
+        paintChecker(c, cv.width, cv.height);
         const scale = Math.min((cv.width - 14) / g.rw, (cv.height - 10) / g.rh, 3);
         const dw = g.rw * scale, dh = g.rh * scale;
         c.imageSmoothingQuality = 'high';
-        const src = imgs[idx]._keyed || imgs[idx];
-        c.drawImage(src, g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+        const src = keyedCrop(imgs[idx], g.x0, g.y0, g.rw, g.rh);
+        c.drawImage(src, 0, 0, src.width, src.height, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
     }
 
     // Restored from the stable version (commit 122295f) at the user's request.
@@ -267,14 +268,13 @@
         c.setTransform(1, 0, 0, 1, 0, 0);
         c.globalAlpha = 1;
         c.filter = 'none';
-        c.fillStyle = (imgs._cardBg || imgs[i]._bg) === 'white' ? '#ffffff' : '#000';
-        c.fillRect(0, 0, cv.width, cv.height);
+        paintChecker(c, cv.width, cv.height);
         const k = cv.width / CARD_W;                       // margins and zoom cap scale with the canvas, as on a card
         const scale = Math.min((cv.width - 14 * k) / g.rw, (cv.height - 10 * k) / g.rh, 3 * k);
         const dw = g.rw * scale, dh = g.rh * scale;
         c.imageSmoothingQuality = 'high';
-        const src = imgs[i]._keyed || imgs[i];
-        try { c.drawImage(src, g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh); } catch (e) { return false; }
+        const src = keyedCrop(imgs[i], g.x0, g.y0, g.rw, g.rh);
+        try { c.drawImage(src, 0, 0, src.width, src.height, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh); } catch (e) { return false; }
         return true;
     }
     // The built-in animation the cards fall back to while there are no real frames.
@@ -376,8 +376,7 @@
         c.setTransform(1, 0, 0, 1, 0, 0);
         c.globalAlpha = 1;
         c.filter = 'none';
-        c.fillStyle = '#000';
-        c.fillRect(0, 0, W, H);
+        paintChecker(c, W, H);
         const curModel = (typeof state !== 'undefined' && state.tab === 'apply' && state.selectedId === a.id && state.use)
             ? state.use
             : (typeof state !== 'undefined' && state.tab === 'library' && state.createId === a.id && libEntry(state.createId))

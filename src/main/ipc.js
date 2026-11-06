@@ -19,7 +19,7 @@ const {
     revertAnimationAudio
 } = require('./library-overwrite');
 const { cleanup } = require('./lifecycle');
-const { liveAlive, liveFinish, liveRemove, liveUpdate, loopOn, loopRestore } = require('./live-preview');
+const { liveAlive, liveFinish, liveRemove, liveUpdate, loopOn, loopRestore, waitIdle } = require('./live-preview');
 const { dlog } = require('./log');
 const { liveFrame, parkUntilFocus, poll, seek } = require('./poll');
 const { captureFromSelection, makePreview, previewData, scanClip } = require('./previews');
@@ -93,7 +93,7 @@ const RAW_HANDLERS = {
     'live:update': liveUpdate,
     'live:alive': liveAlive,
     'live:remove': () => liveRemove(false),
-    'live:drop': () => liveRemove('keep'),      // switching presets: the In/Out stay put
+    'live:drop': async () => { await waitIdle(6000); return liveRemove('keep'); },      // switching presets: the In/Out stay put
     'live:loopOn': (e, already) => loopOn(!!already),
     'live:loopRestore': () => loopRestore(),
     'live:finish': liveFinish,

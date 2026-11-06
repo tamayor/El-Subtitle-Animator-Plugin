@@ -17,6 +17,7 @@ const { copyFontsForSetting } = require('./fonts');
 const { clearDesignCache, copyPreset, detectNodes, expandToolsInFile } = require('./fusion-setting');
 const { libForUI, loadLib, newAnimation, saveLib, uniqueName } = require('./library');
 const { capturePreview, exportSelectedClip, makePreview } = require('./previews');
+const { pruneTemplates } = require('./placement');
 const { findSelectedFusionItem } = require('./selection');
 const { copySfx } = require('./sfx');
 
@@ -278,6 +279,7 @@ function removeAnimation(event, id) {
     try { fs.rmSync(path.join(PREV_DIR, id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     lib.animations = lib.animations.filter(x => x.id !== id);
     saveLib(lib);
+    pruneTemplates(lib.animations.map(x => path.join(ANIM_DIR, x.file)));      // its Resolve title template goes too
     return { lib: libForUI() };
 }
 
@@ -410,6 +412,7 @@ function replaceAnimationFile(event, id, p, keep) {
     a.preview = null;
     try { fs.rmSync(path.join(PREV_DIR, a.id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     saveLib(lib);
+    pruneTemplates(lib.animations.map(x => path.join(ANIM_DIR, x.file)));      // the old file's title template goes
     copyFontsForSetting(path.join(ANIM_DIR, a.file), null).catch(() => {});
     return { ok: true, lib: libForUI(), kept, oldCount: oldNodes.length, newCount: newNodes.length };
 }

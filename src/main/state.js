@@ -14,6 +14,7 @@ module.exports = {
     parkArmed: false,
     ofxLeft: new Map(),
     tplState: { text: { auto: null, broken: false, good: 0 }, multitext: { auto: null, broken: false, good: 0 } },
+    presetTpl: new Map(),      // preset title template name -> { auto, broken, good } (see presetTplState)
     liveSession: null,
     bridge: null,
     mainWindow: null,

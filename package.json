@@ -7,7 +7,7 @@
     "scripts": {
         "start": "electron .",
         "lint": "eslint .",
-        "check": "eslint . && node tools/check-load-order.js"
+        "check": "eslint . && node tools/check-load-order.js && node tools/check-inspector-safe.js"
     },
     "devDependencies": {
         "acorn": "^8.19.0",

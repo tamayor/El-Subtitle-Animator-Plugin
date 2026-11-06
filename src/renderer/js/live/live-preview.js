@@ -148,7 +148,7 @@ async function addLiveClip(sub, keepPlayhead) {
     p.sfxPath = await liveSfxFor(m, sub.start, sub.end);
     const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
     p.busy = false;
-    if (!state.livePrev) return;
+    if (state.livePrev !== p) return;                  // this preview was ended / replaced meanwhile
     if (res && res.ok) {
         p.hasClip = true;
         p.clipS = res.start; p.clipE = res.start + res.frames;
@@ -168,11 +168,14 @@ async function addLiveClip(sub, keepPlayhead) {
 async function switchLivePreset(a) {
     const p = state.livePrev, m = state.use;
     if (!p || !a || !m || p.busy || state.busy) return;
-    p.animId = a.id;
     p.busy = true;
-    if (p.hasClip) {
-        try { await window.sa.liveDrop(); } catch (e) { /* the sweep removes it later */ }
-    }
+    // let a running "is the clip still there" check finish first (it would otherwise look at a clip being replaced)
+    for (let i = 0; i < 40 && p.checking; i++) await new Promise(r => setTimeout(r, 50));
+    if (state.livePrev !== p) return;
+    p.animId = a.id;
+    // The old preview clip is taken off by main's apply, right before the new one goes in (one step, shortest gap).
+    // It cannot be kept: a preset is a title template of its own, and a clip's comp cannot be swapped without
+    // emptying Resolve's Inspector.
     p.hasClip = false;
     p.key = '';
     p.removed = false;
@@ -386,8 +389,12 @@ function bindLivePreview() {
             const tNow = Date.now();
             if (tNow - (p.aliveAt || 0) > 900) {
                 p.aliveAt = tNow;
+                const anim0 = p.animId;
+                p.checking = true;                         // a preset click waits for this check (see switchLivePreset)
                 let al = null;
-                try { al = await window.sa.liveAlive(); } catch (e) { al = null; }
+                try { al = await window.sa.liveAlive(); } catch (e) { al = null; } finally { p.checking = false; }
+                // a switch that started meanwhile replaced the clip: this answer is about the old one
+                if (state.livePrev !== p || p.busy || !p.hasClip || p.animId !== anim0) return;
                 if (al && al.alive === false && !al.none) { markRemoved(p); return; }
             }
             if ((f < p.clipS || f >= p.clipE) && !(f >= p.start && f < p.end)) {

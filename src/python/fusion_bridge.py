@@ -820,6 +820,34 @@ def op_live_frame(a):
     }
 
 
+def op_set_output(a):
+    """Title templates only: Resolve wires the inserted title's MediaOut to the tool named "Template", whatever the
+    template file says. For a preset whose text runs through effects (wiggle, glitch, stop motion) that skips the whole
+    chain, so the MediaOut is connected back to the tool the preset really outputs (a connection, not a comp swap, so
+    the Inspector keeps working)."""
+    comp = get_comp(a["item"], a.get("comp"))
+    src = comp.FindTool(a["source"])
+    if src is None:
+        return {"ok": False, "why": "no tool " + a["source"]}
+    out = getattr(src, a.get("output") or "Output", None) or src.Output
+    done = []
+    for t in as_list(comp.GetToolList(False)):
+        if attrs(t).get("TOOLS_RegID") != "MediaOut":
+            continue
+        cur = t.Input.GetConnectedOutput()
+        if cur is not None and attrs(cur.GetTool()).get("TOOLS_Name") == a["source"]:
+            done.append(attrs(t).get("TOOLS_Name"))
+            continue
+        t.Input.ConnectTo(out)
+        now = t.Input.GetConnectedOutput()
+        if now is None or attrs(now.GetTool()).get("TOOLS_Name") != a["source"]:
+            if cur is not None:
+                t.Input.ConnectTo(cur)      # never leave the clip worse off than Resolve wired it
+            return {"ok": False, "why": "could not connect " + str(attrs(t).get("TOOLS_Name"))}
+        done.append(attrs(t).get("TOOLS_Name"))
+    return {"ok": bool(done), "mediaOut": done}
+
+
 def op_preview_bg(a):
     """Preview clips only: puts a solid colour behind the text (Background -> Merge -> MediaOut), so dark text is
     not lost against the black frame that Resolve exports. The clip is deleted right after the frames are taken."""
@@ -864,7 +892,7 @@ def set_bg_colour(item_id, comp_name, bg_name, col):
     bg.SetInput("TopLeftBlue", float(col[2]))
 
 
-OPS = {"preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
+OPS = {"set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
 
 
 def handle(req):

@@ -2,8 +2,9 @@
 // Text+ titles safely, importing sounds and placing layered sound effects.
 
 module.exports = {
-    cutCheck, cutSnapshot, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
+    cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
+    presetOutputFor, presetTitleFor, presetTplState, pruneTemplates,
     placeExtraSfx, titleKindFor, trackUsable
 };
 
@@ -13,10 +14,11 @@ const os = require('os');
 
 const state = require('./state');
 const { SFX_DIR } = require('./config');
-const { detectNodes, expandAllTools } = require('./fusion-setting');
+const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
 const { frameToTC, tcToFrame } = require('./resolve');
+const { ensureStopped } = require('./playback');
 
 // ------------------------------------------------------------------ building the clip
 // Placement options (all off by default), set from the pop-up beside "Add to timeline":
@@ -156,44 +158,62 @@ async function parkPlayhead(tl, frame, meta) {
 }
 // Which title a preset needs: a preset built on a MultiText tool is created as a MultiText clip, everything else as Text+.
 // Resolve's Edit-page Inspector stays EMPTY for a Fusion title whose comp contains an OFX node (e.g. the ResolveFX Stop Motion).
-// Stop Motion is swapped for a native TimeSpeed that holds every Nth frame (same look, the Inspector keeps working).
+// Stop Motion is swapped for a native TimeStretcher whose SourceTime steps in blocks of N frames (floor(time/N)*N), so
+// every Nth frame is held: the same stepped look, and the Inspector keeps working. (A TimeSpeed with a fmod Delay was
+// used before; it evaluates but Resolve renders every frame anyway, so the wiggle played smooth.)
 // Every tool is also saved as expanded and shown in the Inspector (see expandAllTools), so the settings show straight
 // away when the clip is selected.
 // The preset file on disk is never changed; the adjusted copy is written to a temp folder and imported instead.
 
 function ofxNames(txt) { const r = [], re = /ofx\.com\.blackmagicdesign\.resolvefx\.(\w+)\s*\{/g; let m; while ((m = re.exec(txt))) r.push(m[1]); return r; }
+
 function inspectorSafeComp(compPath) {
     try {
         const orig = fs.readFileSync(compPath, 'utf8');
         state.ofxLeft.set(compPath, ofxNames(orig).filter(n => n !== 'StopMotion'));
-        const s = expandAllTools(orig);
-        if (!/ofx\.com\.blackmagicdesign\.resolvefx\.StopMotion\s*\{/.test(s)) return s === orig ? compPath : writeSafeComp(compPath, s);
-        const re = /([A-Za-z_][\w]*)\s*=\s*ofx\.com\.blackmagicdesign\.resolvefx\.StopMotion\s*\{/g;
-        let m, out = '', last = 0, changed = false;
-        while ((m = re.exec(s))) {
-            const open = m.index + m[0].length - 1;
-            let d = 0, k = open, inStr = false;
-            for (; k < s.length; k++) {
-                const c = s[k];
-                if (inStr) { if (c === '\\') k++; else if (c === '"') inStr = false; continue; }
-                if (c === '"') inStr = true; else if (c === '{') d++; else if (c === '}') { d--; if (d === 0) break; }
-            }
-            const block = s.slice(m.index, k + 1);
-            const src = /Source\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"([^"]+)"\s*,\s*Source\s*=\s*"([^"]+)"/.exec(block);
-            const rep = /frameRepeat\s*=\s*Input\s*\{\s*Value\s*=\s*([\d.]+)/.exec(block);
-            const n = Math.max(1, Math.round(rep ? parseFloat(rep[1]) : 2));
-            if (!src) continue;
-            const view = /ViewInfo\s*=\s*OperatorInfo\s*\{\s*Pos\s*=\s*\{[^}]*\}\s*\}/.exec(block);
-            const tool = m[1] + ' = TimeSpeed {\n\t\t\tInputs = {\n\t\t\t\tDelay = Input { Expression = "math.fmod(time, ' + n + ')", },\n' +
-                '\t\t\t\tInput = Input { SourceOp = "' + src[1] + '", Source = "' + src[2] + '", },\n\t\t\t},\n' +
-                (view ? '\t\t\t' + view[0] + ',\n' : '') + '\t\t}';
-            out += s.slice(last, m.index) + tool; last = k + 1; changed = true;
-            re.lastIndex = k + 1;
-        }
-        if (!changed) return s === orig ? compPath : writeSafeComp(compPath, s);
-        out += s.slice(last);
-        return writeSafeComp(compPath, out);
+        const s = stopMotionToNative(expandAllTools(orig));
+        return s === orig ? compPath : writeSafeComp(compPath, s);
     } catch (e) { return compPath; }
+}
+
+// The stop-motion stand-in: a TimeStretcher whose SourceTime steps in blocks of n frames. inp = [SourceOp, Source] or null.
+function stopMotionTool(name, n, inp, view) {
+    return name + ' = TimeStretcher {\n\t\t\tInputs = {\n' +
+        '\t\t\t\tSourceTime = Input { Value = 0, Expression = "floor(time/' + n + ')*' + n + '", },\n' +
+        '\t\t\t\tInterpolateBetweenFrames = Input { Value = 0, },\n' +
+        (inp ? '\t\t\t\tInput = Input { SourceOp = "' + inp[0] + '", Source = "' + inp[1] + '", },\n' : '') +
+        '\t\t\t},\n' + (view ? '\t\t\t' + view + ',\n' : '') + '\t\t}';
+}
+// Replaces every tool block matched by `re` (group 1 = tool name) with what make(name, block) returns (null = keep).
+function replaceTools(s, re, make) {
+    let m, out = '', last = 0;
+    re.lastIndex = 0;
+    while ((m = re.exec(s))) {
+        const open = m.index + m[0].length - 1;
+        const close = blockEnd(s, open);
+        const rep = make(m[1], s.slice(m.index, close + 1));
+        if (rep !== null) { out += s.slice(last, m.index) + rep; last = close + 1; }
+        re.lastIndex = close + 1;
+    }
+    return last ? out + s.slice(last) : s;
+}
+// ResolveFX Stop Motion (OFX, empties the Inspector) and the older TimeSpeed stand-in (Delay = math.fmod(time, n), which
+// Resolve renders unheld, so the wiggle played smooth) both become the TimeStretcher stand-in. A Stop Motion that is
+// not connected to anything is converted too, so no OFX node is left behind.
+function stopMotionToNative(s) {
+    const viewOf = (b) => { const v = /ViewInfo\s*=\s*OperatorInfo\s*\{\s*Pos\s*=\s*\{[^}]*\}\s*\}/.exec(b); return v ? v[0] : null; };
+    s = replaceTools(s, /([A-Za-z_]\w*)\s*=\s*ofx\.com\.blackmagicdesign\.resolvefx\.StopMotion\s*\{/g, (name, b) => {
+        const src = /Source\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"([^"]+)"\s*,\s*Source\s*=\s*"([^"]+)"/.exec(b);
+        const rep = /frameRepeat\s*=\s*Input\s*\{\s*Value\s*=\s*([\d.]+)/.exec(b);
+        return stopMotionTool(name, Math.max(1, Math.round(rep ? parseFloat(rep[1]) : 2)), src ? [src[1], src[2]] : null, viewOf(b));
+    });
+    s = replaceTools(s, /([A-Za-z_]\w*)\s*=\s*TimeSpeed\s*\{/g, (name, b) => {
+        const fm = /Delay\s*=\s*Input\s*\{[^{}]*Expression\s*=\s*"math\.fmod\(time,\s*(\d+)\)"/.exec(b);
+        if (!fm) return null;      // a TimeSpeed of the preset's own
+        const src = /\bInput\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"([^"]+)"\s*,\s*Source\s*=\s*"([^"]+)"/.exec(b);
+        return stopMotionTool(name, Math.max(1, parseInt(fm[1], 10)), src ? [src[1], src[2]] : null, viewOf(b));
+    });
+    return s;
 }
 
 function writeSafeComp(compPath, out) {
@@ -209,9 +229,130 @@ function writeSafeComp(compPath, out) {
 function titleKindFor(compPath) {
     try { return detectNodes(compPath).some(n => n.kind === 'multitext') ? 'multitext' : 'text'; } catch (e) { return 'text'; }
 }
+// ------------------------------------------------------------------ presets as Resolve title templates
+// Resolve's Edit-page Inspector only shows a Fusion title's controls for a title Resolve built itself. Once the clip's
+// comp is replaced (ImportFusionComp, even with the clip's own exported comp), the Inspector shows only a folded
+// "Text+" header. So each preset is installed as a Fusion title template (Edit/Titles/Subtitle Animator/<name>.setting)
+// and inserted by name with InsertFusionTitleIntoTimeline: the clip is then a real Resolve title with working controls.
+// Resolve picks up a new or rewritten template file straight away. The name starts with "Text+" / "MultiText", so
+// isTitleClipName and cutSnapshot still recognise the clip.
+function titlesDir() {
+    const tail = ['Fusion', 'Templates', 'Edit', 'Titles', 'Subtitle Animator'];
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', ...tail);
+    if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Blackmagic Design', 'DaVinci Resolve', 'Support', ...tail);
+    return path.join(os.homedir(), '.local', 'share', 'DaVinciResolve', ...tail);
+}
+// A title template is a .setting ({ Tools = ordered() { ... } }); a .comp preset is cut down to its tool list.
+function asSetting(s) {
+    if (!/^\s*Composition\s*\{/.test(s)) return s;
+    const m = /\n\s*Tools\s*=\s*(?:ordered\(\)\s*)?\{/.exec(s);      // the first Tools list is the comp's own (group ones come later)
+    if (!m) return null;
+    const open = m.index + m[0].length - 1;
+    return '{\n\tTools = ordered() ' + s.slice(open, blockEnd(s, open) + 1) + '\n}\n';
+}
+// Tool types that are modifiers / splines / annotations, not image tools: never a preset's final output.
+const NOT_OUTPUT = /^(BezierSpline|CubicSpline|LUTBezier|PolyPath|XYPath|Path|StyledTextFollower|Follower|PerturbNumber|PerturbPoint|Calculation|Expression|CoordinateTransform|Shake|KeyStretcher|Probe|Offset|PublishNumber|PublishPoint|PublishText|PublishPolyLine|PublishImage|Note|Underlay|MediaOut|Saver)$/;
+// A preset without a MediaOut (e.g. nodes copied out of the Fusion page, or a macro) gets one, connected to its final
+// tool: Resolve adds an UNCONNECTED MediaOut when it inserts such a template (a black clip), and the MediaOut here is
+// what presetOutputFor / set_output use to connect it. The final tool is the one image tool nothing else reads from
+// (the ActiveTool when there are several). Left as it is when that cannot be told.
+function withOutput(s) {
+    if (/\b[A-Za-z_]\w*\s*=\s*(?:MediaOut|Saver)\s*\{/.test(s)) return s;
+    const m = /\bTools\s*=\s*(?:ordered\(\)\s*)?\{/.exec(s);
+    if (!m) return s;
+    const listOpen = m.index + m[0].length - 1, listClose = blockEnd(s, listOpen);
+    const tools = [];      // the list's direct children: Name = Type {
+    const toolRe = /([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\{/y;
+    for (let k = listOpen + 1; k < listClose; k++) {
+        if (!/[A-Za-z_]/.test(s[k]) || /\w/.test(s[k - 1])) continue;
+        toolRe.lastIndex = k;
+        const t = toolRe.exec(s);
+        if (!t) continue;
+        tools.push({ name: t[1], type: t[2] });
+        k = blockEnd(s, k + t[0].length - 1);
+    }
+    const used = new Set();
+    for (const r of s.matchAll(/SourceOp\s*=\s*"([^"]+)"/g)) used.add(r[1]);
+    const ends = tools.filter(t => !used.has(t.name) && !NOT_OUTPUT.test(t.type));
+    const act = /\bActiveTool\s*=\s*"([^"]+)"/.exec(s);
+    const end = ends.length === 1 ? ends[0] : ends.find(t => act && t.name === act[1]);
+    if (!end || /^(MacroOperator|GroupOperator)$/.test(end.type)) return s;      // Resolve wires a macro title itself
+    const mo = '\t\tMediaOut1 = MediaOut {\n\t\t\tInputs = {\n\t\t\t\tIndex = Input { Value = "0", },\n' +
+        '\t\t\t\tInput = Input { SourceOp = "' + end.name + '", Source = "Output", },\n\t\t\t},\n\t\t}';
+    const before = s.slice(0, listClose).replace(/\s*$/, '');
+    return before + (before.endsWith(',') || before.endsWith('{') ? '\n' : ',\n') + mo + '\n\t' + s.slice(listClose);
+}
+// The template name for a preset file: "Text+ <name>" / "MultiText <name>".
+function presetTitleName(compPath) {
+    const base = path.basename(compPath).replace(/\.(setting|comp)$/i, '').replace(/[^\w ()&+,.'-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Preset';
+    return (titleKindFor(compPath) === 'multitext' ? 'MultiText ' : 'Text+ ') + base;
+}
+// Deletes the templates of presets that are gone (removed, renamed, file replaced) from the plugin's own template
+// folder, so they do not stay in Resolve's Titles list. presetFiles: full paths of every preset in the library.
+// Only *.setting files in that folder are touched. Clips already made from a deleted template keep working (the
+// project holds their comp).
+function pruneTemplates(presetFiles) {
+    const removed = [];
+    try {
+        const dir = titlesDir();
+        if (!fs.existsSync(dir)) return removed;
+        const keep = new Set();
+        for (const f of presetFiles || []) { try { if (fs.existsSync(f)) keep.add(presetTitleName(f) + '.setting'); } catch (e) { /* skip */ } }
+        for (const f of fs.readdirSync(dir)) {
+            if (!/\.setting$/i.test(f) || keep.has(f)) continue;
+            try { fs.unlinkSync(path.join(dir, f)); removed.push(f); } catch (e) { /* in use or gone */ }
+        }
+        if (removed.length) dlog('TEMPLATES-PRUNED', removed);
+    } catch (e) { dlog('TEMPLATES-PRUNE-FAIL', String(e && e.message || e)); }
+    return removed;
+}
+
+// Installs (or refreshes) the template for a preset and returns its name, or null when it could not be written.
+function presetTitleFor(compPath) {
+    try {
+        const name = presetTitleName(compPath);
+        const raw = asSetting(fs.readFileSync(inspectorSafeComp(compPath), 'utf8'));
+        if (!raw) return null;
+        const body = withOutput(raw);
+        const dir = titlesDir();
+        fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, name + '.setting');
+        let cur = null;
+        try { cur = fs.readFileSync(file, 'utf8'); } catch (e) { /* not installed yet */ }
+        if (cur !== body) fs.writeFileSync(file, body);
+        return name;
+    } catch (e) {
+        dlog('PRESET-TITLE-FAIL', String(e && e.message || e));
+        return null;
+    }
+}
 function isTitleClipName(n) { return /^(Text\+|MultiText)/.test(String(n || '')); }
-async function insertTitleAtEnd(tl, meta, endFrame, kind) {
-    const titleName = kind === 'multitext' ? 'MultiText' : 'Text+';
+// The tool that feeds a preset's output (its MediaOut's SourceOp in the title template), e.g. "StopMotion1" for a
+// wiggle preset. Resolve connects an inserted title's MediaOut to "Template" regardless, so apply reconnects it to
+// this one (bridge op set_output). Null when the template cannot be read or has no MediaOut.
+function presetOutputFor(title) {
+    try {
+        const s = fs.readFileSync(path.join(titlesDir(), title + '.setting'), 'utf8');
+        const re = /([A-Za-z_]\w*)\s*=\s*(?:MediaOut|Saver)\s*\{/g;
+        let m;
+        while ((m = re.exec(s))) {
+            const open = m.index + m[0].length - 1;
+            const b = s.slice(open, blockEnd(s, open) + 1);
+            const src = /\bInput\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"([^"]+)"\s*,\s*Source\s*=\s*"([^"]+)"/.exec(b);
+            if (!src) continue;
+            // a macro / group output: Resolve wires a macro title correctly itself, and its outputs are not "Output"
+            if (new RegExp('\\b' + src[1] + '\\s*=\\s*(?:MacroOperator|GroupOperator)\\s*\\{').test(s)) return null;
+            return { source: src[1], output: src[2] };
+        }
+    } catch (e) { /* no template */ }
+    return null;
+}
+// title: a preset's template name (see presetTitleFor); without it the plain Text+ / MultiText is inserted.
+async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
+    const titleName = title || (kind === 'multitext' ? 'MultiText' : 'Text+');
+    // While the timeline plays (e.g. looping a preview) the playhead leaves the end again before the insert lands,
+    // so the title would be ripple-inserted in the middle of the timeline. Playback is stopped first.
+    if (!(await ensureStopped(tl))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
     if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
     const item = await tl.InsertFusionTitleIntoTimeline(titleName);
     if (item) {
@@ -288,6 +429,11 @@ async function moveTitleSafe(tl, item, track, textStart, endFrame) {
 // Text+ clip), or one Resolve handed out earlier in this session. The result is checked (track, start, length, no real
 // clip moved); on any doubt it is taken out again and the app falls back to the park-at-the-end insert for good.
 
+function presetTplState(title) {
+    if (!state.presetTpl) state.presetTpl = new Map();
+    if (!state.presetTpl.has(title)) state.presetTpl.set(title, { auto: null, broken: false, good: 0 });
+    return state.presetTpl.get(title);
+}
 async function findTextTemplate(project, kind) {
     const nameRe = kind === 'multitext' ? /^subtitle animator template multitext$/i : /^subtitle animator template$/i;
     try {
@@ -303,10 +449,11 @@ async function findTextTemplate(project, kind) {
     } catch (e) { /* ignore */ }
     return null;
 }
-async function directPlaceTitle(tl, project, track, start, want, kind) {
-    const T = state.tplState[kind === 'multitext' ? 'multitext' : 'text'];
+// title: a preset's template name; only a Media Pool item Resolve handed out for that same template is used then.
+async function directPlaceTitle(tl, project, track, start, want, kind, title) {
+    const T = title ? presetTplState(title) : state.tplState[kind === 'multitext' ? 'multitext' : 'text'];
     if (T.broken || !(track >= 2)) return null;
-    const tpl = (await findTextTemplate(project, kind)) || T.auto;
+    const tpl = title ? T.auto : ((await findTextTemplate(project, kind)) || T.auto);
     if (!tpl) return null;
     let item = null;
     const undo = async () => { if (item) { try { await tl.DeleteClips([item], false); } catch (e) { /* the sweep removes it later */ } } };
@@ -396,12 +543,28 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
     }
     return out;
 }
-async function deleteExtraSfx(tl, ids) {
-    const gone = [];
-    for (const id of (ids || [])) { try { const it = await findAudioItemById(tl, id); if (it) gone.push(it); } catch (e) { /* ignore */ } }
-    if (gone.length) { try { await tl.DeleteClips(gone, false); } catch (e) { /* the sweep removes it later */ } }
-    for (const id of (ids || [])) regDel(id);
+// Deletes the given sound clips and forgets only the ones that are really gone. One that Resolve refused to delete
+// stays in the registry, so the next sweep removes it (before, all ids were forgotten and a refused one stayed for good).
+async function deleteClipsById(tl, ids, find) {
+    ids = (ids || []).filter(Boolean).map(String);
+    if (!ids.length) return [];
+    let left = ids;
+    for (let attempt = 0; attempt < 2 && left.length; attempt++) {
+        const items = [];
+        for (const id of left) { try { const it = await find(tl, id); if (it) items.push(it); } catch (e) { /* ignore */ } }
+        if (items.length) {
+            try { await tl.DeleteClips(items, false); } catch (e) { /* checked below */ }
+            if (attempt === 0) await new Promise(r => setTimeout(r, 60));
+        }
+        const still = [];
+        for (const id of left) { try { if (await find(tl, id)) still.push(id); } catch (e) { /* ignore */ } }
+        left = still;
+    }
+    for (const id of ids) if (!left.includes(id)) regDel(id);
+    if (left.length) dlog('DELETE-LEFT', left);
+    return left;
 }
+async function deleteExtraSfx(tl, ids) { return deleteClipsById(tl, ids, findAudioItemById); }
 
 async function findItemById(tl, id) {
     const tracks = (await tl.GetTrackCount('video')) || 0;

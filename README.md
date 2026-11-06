@@ -71,6 +71,19 @@ The panel scripts are classic `<script defer>` files, not ES modules. They share
 
 `components/preset-preview.js` holds a block marked **PROTECTED** (the preset card preview). Don't change it without the owner's explicit approval.
 
+### Presets are inserted as Resolve title templates
+
+Resolve's Edit-page Inspector only shows a Fusion title's controls when Resolve built the title itself. If a script replaces a clip's comp (`ImportFusionComp`, `LoadFusionCompByName`, `AddFusionComp`, `comp:Paste`, `tool:LoadSettings`), the Inspector shows only a folded "Text+" header with no controls. This happens even when the imported comp is the clip's own export. Tagging the comp with `TEMPLATE_ID` or expanding its tools doesn't help.
+
+So `presetTitleFor` (in `placement.js`) writes each preset to `Fusion/Templates/Edit/Titles/Subtitle Animator/<Text+|MultiText> <name>.setting`, and the clip is inserted with `InsertFusionTitleIntoTimeline(<that name>)`. Resolve picks up new or rewritten template files immediately. The "Text+" / "MultiText" prefix keeps `isTitleClipName` and the cut guard working.
+
+- On insert, Resolve connects the title's MediaOut to the tool named `Template`, whatever the template file says. For presets that run the text through effects (wiggle, glitch, stop motion), `apply.js` reconnects it to the real output tool (`presetOutputFor` + the bridge op `set_output`). Without that step these presets show plain text.
+- A preset without a MediaOut (nodes copied out of the Fusion page) gets one, wired to its final tool (`withOutput`). Otherwise Resolve inserts an unconnected MediaOut and the clip is black. Macro / group presets are left to Resolve, which wires them itself.
+- The template is rebuilt from the preset file on every apply, so presets saved from the timeline, dropped in, replaced or reverted are covered automatically.
+- `pruneTemplates` deletes templates whose preset is gone. It runs when a preset is removed, when its file is replaced, and at startup, and only touches `*.setting` files in the plugin's own `Subtitle Animator` folder. Clips already made from a deleted template keep working.
+- To change which preset a clip uses, insert a new clip. Don't swap the comp on the existing one.
+- `npm run check` fails on any comp-replacing call without an `// inspector-ok: <reason>` comment. Use that comment only for clips the user never inspects (temporary render clips) or for the logged fallback in `apply.js`, which warns the user.
+
 ### Python bridge
 
 `fusion_bridge.py` reads JSON requests on stdin and writes replies on stdout. The ops are in its `OPS` table (`scan`, `set_boxes`, `capture`, `live_frame`, …). Call them from JS with `bridgeCall(op, args, timeoutMs)`.
@@ -79,7 +92,7 @@ The panel scripts are classic `<script defer>` files, not ES modules. They share
 
 ```bash
 npm install      # dev tools only (ESLint, acorn); nothing is needed at runtime
-npm run check    # ESLint (undefined names across all panel scripts) + panel script load-order check
+npm run check    # ESLint + panel script load-order check + Inspector guard (tools/check-inspector-safe.js)
 ```
 
 To turn on debug logging, run with `SA_DEBUG=1`. The log goes to `_debug/preview-log.txt`.

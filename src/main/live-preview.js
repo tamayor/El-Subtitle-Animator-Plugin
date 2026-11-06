@@ -3,7 +3,7 @@
 
 module.exports = {
     liveAlive, liveClearMarks, liveFinish, liveRemove, liveSetMarks, liveUpdate, loopOn, loopRestore,
-    placeLiveSfx, regAdd, regDel, sweepTempClips
+    placeLiveSfx, regAdd, regDel, sweepTempClips, waitIdle
 };
 
 const path = require('path');
@@ -17,7 +17,7 @@ const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
-    deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
+    deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
     placeExtraSfx, trackUsable
 } = require('./placement');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
@@ -65,7 +65,7 @@ function clickLoopMenu() {
         if (process.platform !== 'darwin') return resolve({ ok: false, error: 'Only on macOS' });
         const script = [
             'tell application "System Events"',
-            '  set p to first process whose name contains "DaVinci Resolve"',
+            '  set p to first process whose name is "Resolve" or name contains "DaVinci Resolve"',
             '  tell p to click menu item "Loop/Unloop" of menu 1 of menu bar item "Playback" of menu bar 1',
             'end tell',
             'return "ok"'
@@ -89,7 +89,7 @@ function readLoopState() {
         const script = [
             'tell application "System Events"',
             '  try',
-            '    set p to first process whose name contains "DaVinci Resolve"',
+            '    set p to first process whose name is "Resolve" or name contains "DaVinci Resolve"',
             '    set found to (every UI element of entire contents of window 1 of p whose role is "AXCheckBox" and name is "Loop")',
             '    if (count of found) is 0 then return "unknown"',
             '    set v to value of item 1 of found',
@@ -257,21 +257,34 @@ async function liveUpdate(event, req) {
 
 // Is the preview clip still on the timeline? When it was deleted by hand, its sound and In/Out are cleaned up too.
 async function liveAlive() {
-    if (!state.liveSession) return { ok: true, alive: false, none: true };
+    const s = state.liveSession;
+    if (!s) return { ok: true, alive: false, none: true };
     if (state.applying) return { ok: true, alive: true };
+    // A preset switch can start while this check is running and replace the clip. Only a clip that is missing while
+    // the SAME session is still current (and nothing is being placed) counts as deleted by hand; otherwise the new
+    // preview clip would be removed as well.
+    const stale = () => state.liveSession !== s || state.applying;
     try {
         let ok = false;
-        try { const st = await state.liveSession.item.GetStart(); ok = typeof st === 'number' && st >= 0; } catch (e) { ok = false; }
+        try { const st = await s.item.GetStart(); ok = typeof st === 'number' && st >= 0; } catch (e) { ok = false; }
         if (!ok) {
             const project = await getProject();
             const tl = project && await project.GetCurrentTimeline();
             if (!tl) return { ok: true, alive: true };            // cannot tell: assume it is there
-            ok = !!(await findItemById(tl, state.liveSession.itemId));
+            ok = !!(await findItemById(tl, s.itemId));
         }
-        if (ok) return { ok: true, alive: true };
+        if (ok || stale()) return { ok: true, alive: true };
         await liveRemove(true);
         return { ok: true, alive: false };
     } catch (e) { return { ok: true, alive: true }; }
+}
+
+// Waits (up to ms) until no other timeline step (a preview move / update) is running, so a preset switch never
+// deletes the preview while that step is still placing sounds for it.
+async function waitIdle(ms) {
+    const until = Date.now() + (ms || 6000);
+    while (state.applying && Date.now() < until) await new Promise(r => setTimeout(r, 50));
+    return !state.applying;
 }
 
 // Removes the preview clip again and puts the playhead back. What happens to the In/Out:
@@ -291,12 +304,14 @@ async function liveRemove(marks) {
         if (tl && mode === 'restore') await liveRestoreMarks(tl);
         else if (tl && mode === 'clear') await liveClearMarks(tl);
         if (tl && s) {
-            const item = await findItemById(tl, s.itemId);
-            const sfxItem = s.sfxId ? await findAudioItemById(tl, s.sfxId) : null;
-            const gone = [item, sfxItem].filter(Boolean);
-            if (gone.length) { const ok = await tl.DeleteClips(gone, false); if (ok) { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); } }
-            else { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); }
-            await deleteExtraSfx(tl, s.extraIds);
+            // Sounds first, each checked: a sound Resolve refused to delete stays in the registry for the next sweep.
+            const sounds = [s.sfxId, ...(s.extraIds || [])].filter(Boolean);
+            const leftSounds = await deleteExtraSfx(tl, sounds);
+            const leftText = await deleteClipsById(tl, [s.itemId], findItemById);
+            if (leftSounds.length || leftText.length) {
+                // one more go through the registry sweep (also catches a sound placed by a move that was still running)
+                try { await sweepTempClips(tl); } catch (e) { /* ignore */ }
+            }
         }
         try { if (tl && tcR && (await tl.GetCurrentTimecode()) !== tcR) await tl.SetCurrentTimecode(tcR); } catch (e) { /* ignore */ }
     } catch (e) { /* the registry sweep removes it next time */ }

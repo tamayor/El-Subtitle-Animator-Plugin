@@ -287,12 +287,13 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         itemId = String(await item.GetUniqueId());
 
         const before = (await item.GetFusionCompNameList()) || [];
+        // inspector-ok: temporary render clip for the preset card, deleted right after its frames are taken
         await item.ImportFusionComp(inspectorSafeComp(compPath));
         const after = (await item.GetFusionCompNameList()) || [];
         const added = after.find(n => !before.includes(n));
         let compName = null;
         if (added) {
-            await item.LoadFusionCompByName(added);
+            await item.LoadFusionCompByName(added);      // inspector-ok: temporary render clip
             compName = added;
             for (const n of before) { try { await item.DeleteFusionCompByName(n); } catch (e) { /* ignore */ } }
         }

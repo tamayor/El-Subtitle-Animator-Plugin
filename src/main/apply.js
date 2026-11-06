@@ -10,19 +10,22 @@ const fs = require('fs');
 const state = require('./state');
 const { ANIM_DIR, SAMPLE_TEXTS, SFX_DIR } = require('./config');
 const { bridgeCall } = require('./fusion-bridge');
+const { dlog } = require('./log');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const {
-    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regDel, sweepTempClips
+    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regDel, sweepTempClips, waitIdle
 } = require('./live-preview');
+const { ensureStopped } = require('./playback');
 const {
     cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, titleKindFor
+    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTplState, titleKindFor
 } = require('./placement');
 const { frameToTC, getProject, tcToFrame, timelineMeta } = require('./resolve');
 
 async function apply(event, req) {
     const warnings = [];
+    if (req && req.live) await waitIdle(6000);      // a preview move still running would place sounds for the old clip
     state.applying = true;
     try {
         const lib = loadLib();
@@ -54,6 +57,8 @@ async function apply(event, req) {
         const want = Math.max(5, textEnd - textStart);
 
         const trackNotes = [];
+        const titleKind = titleKindFor(path.join(ANIM_DIR, anim.file));      // MultiText presets are created as MultiText clips
+        if (req.live) await ensureStopped(tl);      // a playing (looping) timeline moves the playhead under the insert
         if (req.live && state.liveSession) await liveRemove('keep');      // first, so a leftover preview clip cannot change which layer is picked
         const vTrack = await pickTrack(tl, 'video', req.textTrack || 0, textStart, textStart + want, 2, trackNotes, req.place);
 
@@ -89,8 +94,12 @@ async function apply(event, req) {
         await sweepTempClips(tl);
         // Direct placement (no playhead move, no ripple): a reusable Text+/Fusion template clip from the Media Pool is
         // appended onto the chosen track at the caption's exact frame. Used when a template exists and checks out.
-        const titleKind = titleKindFor(path.join(ANIM_DIR, anim.file));      // MultiText presets are created as MultiText clips
-        let item = await directPlaceTitle(tl, project, vTrack, textStart, want, titleKind);
+        // The preset goes in as its own title template (see presetTitleFor), so Resolve builds the clip itself and the
+        // Inspector shows its controls. Only when the template cannot be written or inserted is a plain Text+ / MultiText
+        // inserted and the preset imported onto it (that clip works, but its Inspector stays empty).
+        const compPath = path.join(ANIM_DIR, anim.file);
+        let presetTitle = fs.existsSync(compPath) ? presetTitleFor(compPath) : null;
+        let item = await directPlaceTitle(tl, project, vTrack, textStart, want, titleKind, presetTitle);
         let insertedId = null, finalLen = null;
         if (item) {
             try { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } catch (e) { /* ignore */ }
@@ -98,7 +107,12 @@ async function apply(event, req) {
         } else {
             // Fallback: Resolve can only insert a title at the playhead on V1, so it is parked at the end and moved up.
             if (req.live) await liveClearMarks(tl);      // an insert at the playhead would follow a set In/Out
-            const ins = await insertTitleAtEnd(tl, meta, tlEnd, titleKind);
+            let ins = await insertTitleAtEnd(tl, meta, tlEnd, titleKind, presetTitle);
+            if (!ins.error && !ins.item && presetTitle) {
+                dlog('PRESET-TITLE-INSERT-FAIL', presetTitle);
+                presetTitle = null;
+                ins = await insertTitleAtEnd(tl, meta, tlEnd, titleKind);
+            }
             if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
             item = ins.item;
             try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
@@ -117,23 +131,42 @@ async function apply(event, req) {
                 throw new Error(mv.error);
             }
             // If Resolve hands out a Media Pool item for this title, keep it as a template for direct placement next time.
-            if (!state.tplState[titleKind].auto && !state.tplState[titleKind].broken) { try { const mpi = await item.GetMediaPoolItem(); if (mpi) state.tplState[titleKind].auto = mpi; } catch (e) { /* not available */ } }
+            const T = presetTitle ? presetTplState(presetTitle) : state.tplState[titleKind];
+            if (!T.auto && !T.broken) { try { const mpi = await item.GetMediaPoolItem(); if (mpi) T.auto = mpi; } catch (e) { /* not available */ } }
         }
 
         if (!live) regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
-        // 2. Import the animation Fusion comp onto the clip and set the subtitle text.
+        // 2. The clip already holds the preset when it came from the preset's template; otherwise the comp is imported.
+        //    Then the subtitle text is set.
         const itemId = String(await item.GetUniqueId());
         state.lastPlacedItemId = itemId;
-        const compPath = path.join(ANIM_DIR, anim.file);
         let compName = null;
-        if (fs.existsSync(compPath)) {
+        if (presetTitle) {
+            { const left = [...new Set(state.ofxLeft.get(compPath) || [])]; if (left.length) warnings.push('This preset uses the OFX effect ' + left.join(', ') + ', so Resolve shows an empty Inspector for the clip. The effect works, but its text controls are not listed.'); }
+            // Resolve wires an inserted title's output to "Template"; a preset whose text runs through effects
+            // (wiggle, glitch, stop motion) would lose them all. Its output is connected back to the right tool.
+            const out = presetOutputFor(presetTitle);
+            if (out && out.source !== 'Template') {
+                let r = null;
+                try { r = await bridgeCall('set_output', { item: itemId, comp: null, source: out.source, output: out.output }); } catch (e) { r = { ok: false, why: e.message }; }
+                if (!r || !r.ok) {
+                    dlog('SET-OUTPUT-FAIL', presetTitle, r && r.why);
+                    warnings.push('The preset\'s effects could not be connected on the clip (' + ((r && r.why) || 'unknown') + '), so it may show plain text.');
+                }
+            }
+        } else if (fs.existsSync(compPath)) {
+            // Fallback only: the preset's title template could not be written or inserted. Said out loud, so a broken
+            // template path never goes unnoticed again (tools/check-inspector-safe.js guards the main path).
+            dlog('INSPECTOR-FALLBACK', anim.file);
+            warnings.push('Resolve\'s Inspector will be empty for this clip: the preset could not be added as a Resolve title template, so it was imported instead. The animation works.');
             const before = (await item.GetFusionCompNameList()) || [];
+            // inspector-ok: logged fallback when the title template could not be used (see the warning above)
             await item.ImportFusionComp(inspectorSafeComp(compPath));
             { const left = [...new Set(state.ofxLeft.get(compPath) || [])]; if (left.length) warnings.push('This preset uses the OFX effect ' + left.join(', ') + ', so Resolve shows an empty Inspector for the clip. The effect works, but its text controls are not listed.'); }
             const after = (await item.GetFusionCompNameList()) || [];
             const added = after.find(n => !before.includes(n));
             if (added) {
-                await item.LoadFusionCompByName(added);
+                await item.LoadFusionCompByName(added);      // inspector-ok: same fallback
                 compName = added;
                 for (const n of before) { try { await item.DeleteFusionCompByName(n); } catch (e) { /* ignore */ } }
             }

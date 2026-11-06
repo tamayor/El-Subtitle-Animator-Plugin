@@ -84,6 +84,8 @@ async function initApp() {
     $('tabBtnApply').addEventListener('click', () => setTab('apply'));
     $('tabBtnLibrary').addEventListener('click', () => setTab('library'));
     $('tabBtnCreate').addEventListener('click', () => setTab('create'));
+    $('tabBtnPrompt').addEventListener('click', () => setTab('prompt'));
+    initPromptTab();
 
     $('defPlay').addEventListener('click', () => play(state.lib.defaultSfx && state.lib.defaultSfx.path));
     $('defClear').addEventListener('click', async () => takeLib(await window.sa.setDefaultSfx(null)));

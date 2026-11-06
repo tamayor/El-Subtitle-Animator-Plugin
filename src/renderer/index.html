@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="./css/text-boxes.css">
     <link rel="stylesheet" href="./css/preset-list.css">
     <link rel="stylesheet" href="./css/create-tab.css">
+    <link rel="stylesheet" href="./css/prompt-tab.css">
     <link rel="stylesheet" href="./css/tags.css">
     <link rel="stylesheet" href="./css/popovers.css">
     <link rel="stylesheet" href="./css/inspector-extras.css">
@@ -57,6 +58,7 @@
     <script src="./js/ui/popovers.js" defer></script>
     <script src="./js/library/preset-list.js" defer></script>
     <script src="./js/library/create-tab.js" defer></script>
+    <script src="./js/library/prompt-tab.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
@@ -108,6 +110,7 @@
         <button id="tabBtnApply" class="tab on">Use</button>
         <button id="tabBtnLibrary" class="tab">Library</button>
         <button id="tabBtnCreate" class="tab">Create</button>
+        <button id="tabBtnPrompt" class="tab">Prompt</button>
     </nav>
 
     <!-- ============================ USE: apply what you have already made ============================ -->
@@ -424,6 +427,35 @@
 
             </div>
 
+        </div>
+    </div>
+
+    <!-- ============================ PROMPT: the job prompt for Claude, editable, with Copy ============================ -->
+    <div id="tabPrompt" class="hidden">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <section class="cr">
+                    <div class="cr-head">
+                        <span class="label">Job prompt for Claude</span>
+                        <span class="cr-sub">Edit the SETTINGS block at the top (timeline, scope, sizes, spacing,
+                            presets), then copy the whole thing into Claude. Your edits are kept in this panel;
+                            "Save as default" makes the current text what Reset goes back to.</span>
+                    </div>
+                    <div class="pr-bar">
+                        <button id="promptCopy" class="primary">Copy prompt</button>
+                        <button id="promptSaveDefault" class="ghost" title="Make the current text your default">Save as default</button>
+                        <button id="promptReset" class="ghost" title="Put your default back">Reset to default</button>
+                        <button id="promptBuiltIn" class="ghost hidden" title="Drop your saved default and go back to the built-in prompt">Restore built-in</button>
+                        <span class="grow"></span>
+                        <span id="promptEdited" class="pr-edited hidden">edited</span>
+                    </div>
+                    <div class="pr-editor">
+                        <pre id="promptHilite" aria-hidden="true"></pre>
+                        <textarea id="promptText" spellcheck="false" wrap="soft"></textarea>
+                    </div>
+                    <div id="promptStatus" class="status"></div>
+                </section>
+            </div>
         </div>
     </div>
 

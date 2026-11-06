@@ -48,9 +48,11 @@ function setTab(t) {
     $('tabApply').classList.toggle('hidden', t !== 'apply');
     $('tabLibrary').classList.toggle('hidden', t !== 'library');
     $('tabCreate').classList.toggle('hidden', t !== 'create');
+    $('tabPrompt').classList.toggle('hidden', t !== 'prompt');
     $('tabBtnApply').classList.toggle('on', t === 'apply');
     $('tabBtnLibrary').classList.toggle('on', t === 'library');
     $('tabBtnCreate').classList.toggle('on', t === 'create');
+    $('tabBtnPrompt').classList.toggle('on', t === 'prompt');
     document.body.className = 'tab-' + t;
     renderTimelines();
     redrawStages();

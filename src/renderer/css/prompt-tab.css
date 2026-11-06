@@ -1,0 +1,127 @@
+/* Prompt tab: the editable job prompt for Claude with Copy / Save as default / Reset. */
+
+/* The prompt uses the panel's whole width, whatever the layout mode. */
+#tabPrompt .tab-columns {
+    display: block;
+}
+
+#tabPrompt .tab-col-main,
+#tabPrompt section.cr {
+    width: 100%;
+    max-width: none;
+}
+
+.pr-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.pr-bar .grow {
+    flex: 1;
+    min-width: 0;
+}
+
+.pr-edited {
+    font-size: 11px;
+    color: var(--dim);
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--matcha-tint);
+    border: 1px solid var(--matcha-border);
+}
+
+/* The editor is a transparent textarea over a highlighted copy of the same text; both share every metric below so
+   the characters line up exactly. */
+.pr-editor {
+    position: relative;
+    width: 100%;
+}
+
+#promptText,
+#promptHilite {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    line-height: 1.45;
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    tab-size: 2;
+    overflow: auto;
+}
+
+#promptHilite {
+    position: absolute;
+    inset: 0;
+    background: var(--card-inner);
+    color: var(--text);
+    pointer-events: none;
+    overflow: hidden;
+}
+
+#promptText {
+    position: relative;
+    z-index: 1;
+    min-height: 480px;
+    height: calc(100vh - 230px);
+    resize: vertical;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--text);
+}
+
+#promptText::selection {
+    background: rgba(140, 207, 142, 0.28);
+    color: transparent;
+}
+
+#promptText:focus {
+    outline: none;
+    border-color: var(--matcha-border);
+}
+
+/* Highlight colours */
+.pr-h {                      /* # headings */
+    font-weight: 700;
+    color: var(--matcha);
+}
+
+.pr-sec {                    /* JOB, SIZE (...), COLOUR ROLES ... */
+    font-weight: 700;
+    color: var(--matcha);
+}
+
+.pr-key {                    /* SIZE_MIN:, TIMELINE:, ORANGE → */
+    font-weight: 700;
+    color: var(--text);
+}
+
+.pr-val {                    /* the value after a key */
+    color: #f0c36b;
+}
+
+.pr-ref {                    /* a SETTINGS name used inside the rules */
+    color: #e3b35a;
+}
+
+.pr-cm {                     /* (comments) and → notes */
+    color: var(--dim);
+}
+
+body.tab-prompt footer {
+    display: none;
+}
+
+body.tab-prompt {
+    padding-bottom: 24px;
+}

@@ -18,6 +18,7 @@ const { ANIM_DIR, DATA_DIR } = require('./config');
 const { apply } = require('./apply');
 const { presetSfxName } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
+const { settleNow } = require('./settle');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
@@ -446,6 +447,7 @@ const TOOLS = {
             frame = Math.round(s.start + (s.end - s.start) * at);
         }
         const maxDim = Math.max(256, Math.min(1280, Number(args.maxSize) || 768));
+        await settleNow();      // wakes still owed to freshly placed titles, so the grab shows the real render
         const r = await bridgeCall('live_frame', { frame, maxDim }, 20000);
         if (!r || !r.data) throw new Error('Resolve did not return a frame');
         const layout = layoutFor(loadRules().layout, meta);

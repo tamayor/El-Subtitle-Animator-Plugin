@@ -12,6 +12,7 @@
 module.exports = { measureText, placeStack };
 
 const { bridgeCall } = require('./fusion-bridge');
+const { settleNow } = require('./settle');
 const { dlog } = require('./log');
 
 const END_AT = 0.9;      // same point of a subtitle as get_frame's "end": every word is in
@@ -21,6 +22,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // The composited frame as a BGRA bitmap.
 async function grabBitmap(frame) {
+    await settleNow();
     const r = await bridgeCall('live_frame', { frame, maxDim: MAX_DIM }, 20000);
     if (!r || !r.data) throw new Error('Resolve did not return a frame');
     let nativeImage;

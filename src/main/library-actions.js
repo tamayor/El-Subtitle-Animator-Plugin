@@ -12,14 +12,14 @@ const fs = require('fs');
 const { dialog } = require('electron');
 
 const state = require('./state');
-const { ANIM_DIR, ANIM_ORIG_DIR, DATA_DIR, PREV_DIR, SFX_DIR, ensureDirs } = require('./config');
+const { ANIM_DIR, ANIM_ORIG_DIR, DRAFT_DIR, PREV_DIR, SFX_DIR, ensureDirs } = require('./config');
 const { copyFontsForSetting } = require('./fonts');
 const { clearDesignCache, copyPreset, detectNodes, expandToolsInFile } = require('./fusion-setting');
 const { libForUI, loadLib, newAnimation, saveLib, uniqueName } = require('./library');
 const { capturePreview, exportSelectedClip, makePreview } = require('./previews');
-const { pruneTemplates } = require('./placement');
+const { presetTitleNames, syncTemplates } = require('./placement');
 const { findSelectedFusionItem } = require('./selection');
-const { copySfx } = require('./sfx');
+const { copySfx, isEditedSfxName } = require('./sfx');
 
 // "From timeline": takes the Text+ selected in Resolve RIGHT NOW (its animation file, its position/scale, and a looping
 // preview of how it looks), so the Create tab keeps it even when the selection in Resolve changes afterwards.
@@ -30,7 +30,6 @@ async function draftFromTimeline(event, opts) {
     try {
         const item = await findSelectedFusionItem();
         if (!item) return { error: 'Select the Text+ clip on your Resolve timeline first' };
-        const DRAFT_DIR = path.join(DATA_DIR, 'draft');
         fs.mkdirSync(DRAFT_DIR, { recursive: true });
         // keep only the newest few snapshots
         try {
@@ -204,6 +203,7 @@ function updateAnimation(event, id, patch) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
+    const titlesBefore = ('name' in patch) ? presetTitleNames(lib.animations) : null;
     const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig', 'sfxLayers'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
     if ('tags' in patch) {
@@ -211,6 +211,7 @@ function updateAnimation(event, id, patch) {
         a.tags = Array.isArray(a.tags) ? Array.from(new Set(a.tags)).filter(id => known.has(id)) : [];
     }
     saveLib(lib);
+    if (titlesBefore) syncTemplates(lib.animations, titlesBefore);      // the Resolve title template is renamed too
     if (patch.textDesign || a.textDesign) {
         copyFontsForSetting(path.join(ANIM_DIR, a.file), a.textDesign).catch(() => {});
     }
@@ -237,6 +238,7 @@ function saveTags(event, tags) {
 // New order of the presets (a list of ids). Presets missing from the list keep their relative order at the end.
 function reorderAnimations(event, ids) {
     const lib = loadLib();
+    const titlesBefore = presetTitleNames(lib.animations);      // same-named presets number " 2", " 3" in list order
     const byId = new Map(lib.animations.map(a => [a.id, a]));
     const out = [];
     for (const id of (Array.isArray(ids) ? ids : [])) {
@@ -246,11 +248,13 @@ function reorderAnimations(event, ids) {
     for (const a of lib.animations) if (byId.has(a.id)) out.push(a);
     lib.animations = out;
     saveLib(lib);
+    syncTemplates(lib.animations, titlesBefore);
     return { lib: libForUI() };
 }
 
 function removeAnimation(event, id) {
     const lib = loadLib();
+    const titlesBefore = presetTitleNames(lib.animations);
     const a = lib.animations.find(x => x.id === id);
     if (a) {
         try { fs.unlinkSync(path.join(ANIM_DIR, a.file)); } catch (e) { /* ignore */ }
@@ -260,26 +264,20 @@ function removeAnimation(event, id) {
                 try { fs.unlinkSync(path.join(ANIM_ORIG_DIR, a.fileOrig)); } catch (e) { /* ignore */ }
             }
         }
-        // When deleting a text preset, delete the attached SFX too
-        if (a.sfx) {
+        // When deleting a text preset, delete its edited sound clip in sounds/current/ too. The original stays in sounds/original/
+        // (the SFX Originals Library), where it can be removed on its own.
+        if (a.sfx && a.sfx !== a.sfxOrig && isEditedSfxName(a.sfx)) {
             try {
+                const otherUses = lib.animations.some(other => other.id !== a.id && (other.sfx === a.sfx || other.sfxOrig === a.sfx));
                 const sfxPath = path.join(SFX_DIR, a.sfx);
-                if (a.sfx !== a.sfxOrig || /-\d{8}[-_]\d{6}\.wav$/i.test(a.sfx)) {
-                    if (fs.existsSync(sfxPath)) fs.rmSync(sfxPath, { force: true });
-                } else {
-                    const otherUses = lib.animations.some(other => other.id !== a.id && (other.sfx === a.sfx || other.sfxOrig === a.sfx));
-                    const isDefault = lib.defaultSfx === a.sfx;
-                    if (!otherUses && !isDefault) {
-                        if (fs.existsSync(sfxPath)) fs.rmSync(sfxPath, { force: true });
-                    }
-                }
+                if (!otherUses && fs.existsSync(sfxPath)) fs.rmSync(sfxPath, { force: true });
             } catch (e) { /* ignore */ }
         }
     }
     try { fs.rmSync(path.join(PREV_DIR, id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     lib.animations = lib.animations.filter(x => x.id !== id);
     saveLib(lib);
-    pruneTemplates(lib.animations.map(x => path.join(ANIM_DIR, x.file)));      // its Resolve title template goes too
+    syncTemplates(lib.animations, titlesBefore);      // its Resolve title template goes too (and a duplicate name's " 2" moves up)
     return { lib: libForUI() };
 }
 
@@ -288,6 +286,7 @@ function revertAnimation(event, id) {
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
     ensureDirs();
+    const titlesBefore = presetTitleNames(lib.animations);
 
     const origFile = a.fileOrig || a.file;
     const origPath = path.join(ANIM_ORIG_DIR, origFile);
@@ -343,6 +342,7 @@ function revertAnimation(event, id) {
 
     clearDesignCache();
     saveLib(lib);
+    syncTemplates(lib.animations, titlesBefore);      // a reverted name renames the Resolve title template back
 
     try {
         fs.rmSync(path.join(PREV_DIR, a.id), { recursive: true, force: true });
@@ -390,6 +390,7 @@ function replaceAnimationFile(event, id, p, keep) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
+    const titlesBefore = presetTitleNames(lib.animations);
     const oldPath = path.join(ANIM_DIR, a.file);
     const oldNodes = fs.existsSync(oldPath) ? detectNodes(oldPath) : [];
     const newFile = uniqueName(ANIM_DIR, path.basename(p));
@@ -412,7 +413,7 @@ function replaceAnimationFile(event, id, p, keep) {
     a.preview = null;
     try { fs.rmSync(path.join(PREV_DIR, a.id), { recursive: true, force: true }); } catch (e) { /* ignore */ }
     saveLib(lib);
-    pruneTemplates(lib.animations.map(x => path.join(ANIM_DIR, x.file)));      // the old file's title template goes
+    syncTemplates(lib.animations, titlesBefore);      // the old file's title template goes
     copyFontsForSetting(path.join(ANIM_DIR, a.file), null).catch(() => {});
     return { ok: true, lib: libForUI(), kept, oldCount: oldNodes.length, newCount: newNodes.length };
 }

@@ -8,10 +8,10 @@ module.exports = {
 const path = require('path');
 const fs = require('fs');
 
-const { ANIM_DIR, ANIM_ORIG_DIR, DATA_DIR, LIB_FILE, PREV_DIR, SFX_DIR, ensureDirs } = require('./config');
+const { ANIM_DIR, ANIM_ORIG_DIR, DATA_DIR, LIB_FILE, PREV_DIR, SFX_DIR, SFX_ORIG_DIR, ensureDirs } = require('./config');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { frameList } = require('./previews');
-const { listSfxOriginals } = require('./sfx');
+const { listSfxOriginals, migrateSfxOriginals, sfxFilePath } = require('./sfx');
 
 function newAnimation(name, file, defaults) {
     const fileOrig = (defaults && defaults.fileOrig) || file;
@@ -40,11 +40,11 @@ function newAnimation(name, file, defaults) {
     return Object.assign({
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         name: name,
-        file: file,          // file name inside animations/
-        fileOrig: fileOrig,  // preserved original template file inside animations_orig/
+        file: file,          // file name inside presets/current/
+        fileOrig: fileOrig,  // preserved original template file inside presets/original/
         orig: origSnapshot,  // original baseline settings to revert to
-        sfx: null,           // current attached audio file inside sfx/
-        sfxOrig: null,       // preserved original audio file inside sfx/
+        sfx: null,           // current attached audio: an edited clip inside sounds/current/, or the original (= sfxOrig) while unedited
+        sfxOrig: null,       // preserved original audio file inside sounds/original/
         useSfx: true,
         preview: null,       // { count, step, fps } once frames have been captured for the preview
         linked: true,        // moving the text on the alignment timeline carries the sound with it
@@ -66,6 +66,7 @@ let libMigratedOnce = false;
 function migrateAndCleanLib(lib) {
     if (!lib || !Array.isArray(lib.animations)) return;
     ensureDirs();
+    migrateSfxOriginals();      // originals used to sit in sounds/current/ next to the edited clips
     let changed = false;
     for (const a of lib.animations) {
         if (a.file) {
@@ -113,7 +114,7 @@ function migrateAndCleanLib(lib) {
             if (trimMatch) {
                 const origStem = trimMatch[1];
                 for (const e of ['.mp3', '.wav', '.m4a', '.aif', '.aiff', '.flac', '.ogg']) {
-                    if (fs.existsSync(path.join(SFX_DIR, origStem + e))) {
+                    if (fs.existsSync(path.join(SFX_ORIG_DIR, origStem + e))) {
                         a.sfxOrig = origStem + e;
                         changed = true;
                         break;
@@ -121,7 +122,7 @@ function migrateAndCleanLib(lib) {
                 }
             } else {
                 const cleanStem = stem.replace(/(\s+\d+)+$/, '');
-                if (cleanStem !== stem && fs.existsSync(path.join(SFX_DIR, cleanStem + ext))) {
+                if (cleanStem !== stem && fs.existsSync(path.join(SFX_ORIG_DIR, cleanStem + ext))) {
                     a.sfxOrig = cleanStem + ext;
                     a.sfx = cleanStem + ext;
                     changed = true;
@@ -139,7 +140,7 @@ function migrateAndCleanLib(lib) {
             fs.renameSync(tmp, LIB_FILE);
         } catch (e) { /* ignore */ }
     }
-    // Clean up orphaned duplicates in SFX_DIR
+    // Clean up orphaned "name 2.mp3" duplicates of originals
     try {
         const inUse = new Set();
         if (lib.defaultSfx) inUse.add(lib.defaultSfx);
@@ -147,13 +148,14 @@ function migrateAndCleanLib(lib) {
             if (a.sfx) inUse.add(a.sfx);
             if (a.sfxOrig) inUse.add(a.sfxOrig);
         }
-        for (const file of fs.readdirSync(SFX_DIR)) {
+        for (const a of lib.animations) for (const l of (Array.isArray(a.sfxLayers) ? a.sfxLayers : [])) if (l && l.file) inUse.add(l.file);
+        for (const file of fs.readdirSync(SFX_ORIG_DIR)) {
             if (inUse.has(file)) continue;
             const ext = path.extname(file);
             const stem = path.basename(file, ext);
             const cleanStem = stem.replace(/(\s+\d+)+$/, '');
-            if (cleanStem !== stem && fs.existsSync(path.join(SFX_DIR, cleanStem + ext))) {
-                try { fs.rmSync(path.join(SFX_DIR, file), { force: true }); } catch (e) { /* ignore */ }
+            if (cleanStem !== stem && fs.existsSync(path.join(SFX_ORIG_DIR, cleanStem + ext))) {
+                try { fs.rmSync(path.join(SFX_ORIG_DIR, file), { force: true }); } catch (e) { /* ignore */ }
             }
         }
     } catch (e) { /* ignore */ }
@@ -211,8 +213,10 @@ function libForUI() {
     const lib = loadLib();
     return {
         dataDir: DATA_DIR,
+        sfxDir: SFX_DIR,
+        sfxOrigDir: SFX_ORIG_DIR,
         alwaysOnTop: lib.alwaysOnTop !== false,
-        defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: path.join(SFX_DIR, lib.defaultSfx) } : null,
+        defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: sfxFilePath(lib.defaultSfx) } : null,
         tags: lib.tags,
         sfxOriginals: listSfxOriginals(),
         animations: lib.animations.map(a => {
@@ -222,6 +226,7 @@ function libForUI() {
             const sfxOrig = a.sfxOrig || a.sfx || null;
             const fileOrig = a.fileOrig || a.file;
             const hasOriginal = fs.existsSync(path.join(ANIM_ORIG_DIR, fileOrig));
+            const hasPreview = !!(a.preview && a.preview.count > 0 && fs.existsSync(path.join(PREV_DIR, a.id, 'p00.png')));
             return Object.assign({}, a, {
                 missing: !exists,
                 fileOrig,
@@ -230,12 +235,14 @@ function libForUI() {
                 isMultiText: exists ? nodesWithDesign(animPath).some(n => n.kind === 'multitext') : false,
                 textDesign,
                 textStyle: textDesign,
-                previewFiles: a.preview ? frameList(path.join(PREV_DIR, a.id), 'p', a.preview) : [],
-                previewWhite: (a.preview && a.preview.matte) ? frameList(path.join(PREV_DIR, a.id), 'w', a.preview) : null,
+                // Frames deleted from disk (previews folder cleared): reported as no preview, so the panel renders one.
+                preview: hasPreview ? a.preview : null,
+                previewFiles: hasPreview ? frameList(path.join(PREV_DIR, a.id), 'p', a.preview) : [],
+                previewWhite: (hasPreview && a.preview.matte) ? frameList(path.join(PREV_DIR, a.id), 'w', a.preview) : null,
                 sfx: a.sfx || null,
                 sfxOrig,
-                sfxPath: a.sfx ? path.join(SFX_DIR, a.sfx) : null,
-                sfxOrigPath: sfxOrig ? path.join(SFX_DIR, sfxOrig) : null
+                sfxPath: sfxFilePath(a.sfx),
+                sfxOrigPath: sfxFilePath(sfxOrig)
             });
         })
     };

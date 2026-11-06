@@ -46,17 +46,28 @@ async function loadWave(p) {
     }
 }
 
+// A stored sound name -> its file. Originals are in sounds/original/, edited (trimmed / adjusted) clips in sounds/current/.
+function sfxPathFor(name) {
+    if (!name || !state.lib) return null;
+    const o = (state.lib.sfxOriginals || []).find(x => x.file === name);
+    if (o) return o.path;
+    const edited = /-\d{8}[-_]\d{6}\.wav$/i.test(name) || /\(trim [a-f0-9]+\)\.wav$/i.test(name);
+    const dir = edited ? state.lib.sfxDir : state.lib.sfxOrigDir;
+    if (dir) return dir + '/' + name;
+    return state.lib.dataDir ? state.lib.dataDir + (edited ? '/sounds/current/' : '/sounds/original/') + name : null;
+}
+
 function origSfxPath(a) {
     if (!a || a.useSfx === false) return null;
     if (a.sfxOrigPath) return a.sfxOrigPath;
-    if (a.sfxOrig && state.lib && state.lib.dataDir) return state.lib.dataDir + '/sfx/' + a.sfxOrig;
+    if (a.sfxOrig) return sfxPathFor(a.sfxOrig);
     return currentSfxPath(a);
 }
 
 function currentSfxPath(a) {
     if (!a || a.useSfx === false) return null;
     if (a.sfxPath) return a.sfxPath;
-    if (a.sfx && state.lib && state.lib.dataDir) return state.lib.dataDir + '/sfx/' + a.sfx;
+    if (a.sfx) return sfxPathFor(a.sfx);
     return state.lib && state.lib.defaultSfx ? state.lib.defaultSfx.path : null;
 }
 

@@ -2,7 +2,7 @@
 // temporary preview clips.
 
 module.exports = {
-    captureFromSelection, capturePreview, exportSelectedClip, frameList, makePreview, previewData, scanClip
+    captureFromSelection, capturePreview, exportSelectedClip, frameList, makePreview, previewData, prunePreviews, scanClip
 };
 
 const path = require('path');
@@ -17,6 +17,9 @@ const { designForFusion, detectNodes, expandToolsInFile, fusionBoxes, parseTextS
 const { libForUI, loadLib, saveLib, uniqueName } = require('./library');
 const { regAdd, regDel, sweepTempClips } = require('./live-preview');
 const { dlog } = require('./log');
+const { compressPngTree } = require('./png-compress');
+
+const PREV_MAX_DIM = 720;
 const {
     directPlaceTitle, fitDuration, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, pickTrack,
     titleKindFor
@@ -54,7 +57,8 @@ async function capturePreview(animId, itemId, text, designKey, tempDir, opts) {
     // background card renders stay light.
     const fullDim = Math.max(meta.width || 1920, meta.height || 1080);
     const want = Number(opts.maxDim) > 0 ? Math.round(Number(opts.maxDim)) : Math.min(fullDim, 1440);
-    const maxDim = (tempDir && /__sub$/.test(tempDir)) ? 400 : Math.max(480, Math.min(fullDim, want));
+    // Previews never need full HD: the long side is capped at PREV_MAX_DIM (smaller files, quicker renders).
+    const maxDim = (tempDir && /__sub$/.test(tempDir)) ? 400 : Math.max(480, Math.min(fullDim, want, PREV_MAX_DIM));
     const t0 = Date.now();
     const res = await bridgeCall('capture', {
         item: itemId, comp: opts.comp || null, count: targetCount, step: 1, maxDim, outDir: dir,
@@ -66,6 +70,8 @@ async function capturePreview(animId, itemId, text, designKey, tempDir, opts) {
     if (res && res.frames && res.frames.length) {
         res.frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, 'p' + String(i).padStart(2, '0') + '.png'), Buffer.from(b64, 'base64')));
     }
+    // Resolve writes the PNGs uncompressed; they are shrunk losslessly in the background, same file names.
+    setTimeout(() => { compressPngTree(dir).then(() => compressPngTree(PREV_CACHE_DIR)); }, 1500);
     const info = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null, bg: previewBgNext || 'black' };
     if (res && Array.isArray(res.map) && res.map.length === count) info.map = res.map;
     if (res && res.matte) info.matte = true;      // p = on black, w = on white: the panel works out the real alpha
@@ -213,6 +219,43 @@ function previewCachePut(key, t) {
         const all = fs.readdirSync(PREV_CACHE_DIR).map(n => ({ n, t: fs.statSync(path.join(PREV_CACHE_DIR, n)).mtimeMs })).sort((a, b) => b.t - a.t);
         for (const o of all.slice(PREV_CACHE_MAX)) fs.rmSync(path.join(PREV_CACHE_DIR, o.n), { recursive: true, force: true });
     } catch (e) { /* the cache is only a shortcut */ }
+}
+
+// Expired previews are cleared from time to time. A preset's own preview folder (previews/<id>) is never touched.
+// Folders of presets that no longer exist go at once; the temporary renders (<id>__use / __sub / __draft, __draft)
+// are rebuilt on demand, so they go once untouched for PREV_TEMP_MAX_AGE_DAYS; _cache entries after PREV_CACHE_MAX_AGE_DAYS.
+const PREV_TEMP_MAX_AGE_DAYS = 1;
+const PREV_CACHE_MAX_AGE_DAYS = 14;
+function prunePreviews() {
+    let removed = 0;
+    const rm = p => { try { fs.rmSync(p, { recursive: true, force: true }); removed++; } catch (e) { /* ignore */ } };
+    const age = p => { try { return Date.now() - fs.statSync(p).mtimeMs; } catch (e) { return 0; } };
+    try {
+        if (!fs.existsSync(PREV_DIR)) return 0;
+        const ids = new Set(loadLib().animations.map(a => a.id));
+        if (!ids.size) return 0;   // an unreadable library must never wipe every preview
+        const tempAge = PREV_TEMP_MAX_AGE_DAYS * 86400000;
+        for (const n of fs.readdirSync(PREV_DIR)) {
+            const full = path.join(PREV_DIR, n);
+            if (n === path.basename(PREV_CACHE_DIR)) continue;
+            try { if (!fs.statSync(full).isDirectory()) continue; } catch (e) { continue; }
+            const m = /^(.*?)(__(?:use|sub|draft))$/.exec(n);
+            const base = m ? m[1] : n;
+            if (base && !ids.has(base)) { rm(full); continue; }          // preset deleted
+            if (m && age(full) > tempAge) rm(full);                       // stale temporary render
+        }
+        if (fs.existsSync(PREV_CACHE_DIR)) {
+            const cacheAge = PREV_CACHE_MAX_AGE_DAYS * 86400000;
+            for (const n of fs.readdirSync(PREV_CACHE_DIR)) {
+                const full = path.join(PREV_CACHE_DIR, n);
+                if (age(full) > cacheAge) rm(full);
+            }
+        }
+    } catch (e) { /* next run */ }
+    if (removed) dlog('prunePreviews', { removed });
+    // Previews captured before compression existed (or while the app was closed mid-way) are shrunk too.
+    compressPngTree(PREV_DIR).then(r => { if (r.count) dlog('compressPreviews', r); });
+    return removed;
 }
 
 // Deletes preview Text+ clips that are still on the timeline: the render clip itself (by id), and any Text+ that

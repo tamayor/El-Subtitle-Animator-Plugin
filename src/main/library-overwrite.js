@@ -12,13 +12,13 @@ const fs = require('fs');
 const { dialog } = require('electron');
 
 const state = require('./state');
-const { ANIM_DIR, ANIM_ORIG_DIR, PREV_DIR, SFX_DIR, ensureDirs } = require('./config');
+const { ANIM_DIR, ANIM_ORIG_DIR, PREV_DIR, SFX_DIR, SFX_ORIG_DIR, ensureDirs } = require('./config');
 const { copyFontsForSetting } = require('./fonts');
 const { clearDesignCache, copyPreset } = require('./fusion-setting');
 const { libForUI, loadLib, saveLib, uniqueName } = require('./library');
 const { exportSelectedClip, makePreview } = require('./previews');
 const { getProject } = require('./resolve');
-const { copySfx } = require('./sfx');
+const { copySfx, sfxFilePath } = require('./sfx');
 
 function resolveSettingPath(p) {
     if (!p) return null;
@@ -299,10 +299,24 @@ function overwriteAudioFromCurrent(event, animId) {
     if (!a) return { error: 'Animation not found' };
     if (!a.sfx) return { error: 'No audio currently attached' };
 
-    a.sfxOrig = a.sfx;
+    // The current (edited) clip becomes the new original: it moves from sounds/current/ into sounds/original/.
+    const cur = a.sfx;
+    const curPath = sfxFilePath(cur);
+    let file = cur;
+    if (path.dirname(curPath) === SFX_DIR) {
+        try {
+            file = uniqueName(SFX_ORIG_DIR, cur);
+            fs.copyFileSync(curPath, path.join(SFX_ORIG_DIR, file));
+        } catch (e) { return { error: e.message }; }
+        if (!lib.animations.some(o => o.id !== a.id && (o.sfx === cur || o.sfxOrig === cur))) {
+            try { fs.rmSync(curPath, { force: true }); } catch (e) { /* ignore */ }
+        }
+    }
+    a.sfx = file;
+    a.sfxOrig = file;
     if (a.orig) {
-        a.orig.sfx = a.sfx;
-        a.orig.sfxOrig = a.sfx;
+        a.orig.sfx = file;
+        a.orig.sfxOrig = file;
     }
     saveLib(lib);
     return { ok: true, lib: libForUI() };

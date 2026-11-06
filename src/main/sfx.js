@@ -1,14 +1,57 @@
 // Sound-effect files: the originals library, saving trimmed / attached clips, and reading audio for the panel.
+// Like presets/current + presets/original, sounds live in two folders:
+//   sounds/original/  the preserved originals (the SFX Originals Library; a preset's `sfxOrig`)    = SFX_ORIG_DIR
+//   sounds/current/   the edited (trimmed / adjusted) clips attached to presets (a preset's `sfx`) = SFX_DIR
+// A preset whose sound was never edited has `sfx === sfxOrig`, which lives in sounds/original/. Always turn a stored
+// sound name into a path with sfxFilePath().
 
 module.exports = {
-    addSfxOriginal, copySfx, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip
+    addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, readSfx, removeSfxOriginal,
+    saveAttachedClip, saveSfxClip, sfxFilePath
 };
 
 const path = require('path');
 const fs = require('fs');
 
-const { DATA_DIR, SFX_DIR, ensureDirs } = require('./config');
+const { SFX_CACHE_DIR, SFX_DIR, SFX_ORIG_DIR, ensureDirs } = require('./config');
 const { libForUI, loadLib, saveLib, uniqueName } = require('./library');
+
+const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.aif', '.aiff', '.flac', '.ogg'];
+
+// Edited clips are written by saveAttachedClip as "<stem>-YYYYMMDD-HHMMSS.wav".
+function isEditedSfxName(name) {
+    return /-\d{8}[-_]\d{6}\.wav$/i.test(String(name || '')) || /\(trim [a-f0-9]+\)\.wav$/i.test(String(name || ''));
+}
+
+// The full path of a stored sound name: edited clips are in sounds/current/, originals in sounds/original/.
+function sfxFilePath(name) {
+    if (!name) return null;
+    if (path.isAbsolute(name)) return name;
+    const inOrig = path.join(SFX_ORIG_DIR, name);
+    const inSfx = path.join(SFX_DIR, name);
+    if (isEditedSfxName(name)) return fs.existsSync(inSfx) || !fs.existsSync(inOrig) ? inSfx : inOrig;
+    return fs.existsSync(inOrig) || !fs.existsSync(inSfx) ? inOrig : inSfx;
+}
+
+// One-time move of originals that older versions kept next to the edited clips.
+function migrateSfxOriginals() {
+    ensureDirs();
+    let files = [];
+    try { files = fs.readdirSync(SFX_DIR); } catch (e) { return; }
+    for (const f of files) {
+        if (!AUDIO_EXTS.includes(path.extname(f).toLowerCase()) || isEditedSfxName(f)) continue;
+        const src = path.join(SFX_DIR, f);
+        const dst = path.join(SFX_ORIG_DIR, f);
+        try {
+            if (!fs.statSync(src).isFile()) continue;
+            if (fs.existsSync(dst)) {
+                if (fs.statSync(dst).size === fs.statSync(src).size) fs.rmSync(src, { force: true });
+                continue;      // a different file with the same name is already an original: leave this one where it is
+            }
+            fs.renameSync(src, dst);
+        } catch (e) { /* ignore */ }
+    }
+}
 
 function formatAudioDateTime(d = new Date()) {
     const pad = n => String(n).padStart(2, '0');
@@ -26,13 +69,12 @@ function cleanAudioStem(name) {
 
 function listSfxOriginals() {
     ensureDirs();
-    const files = fs.readdirSync(SFX_DIR);
+    const files = fs.readdirSync(SFX_ORIG_DIR);
     const out = [];
     for (const f of files) {
         const ext = path.extname(f).toLowerCase();
-        if (!['.mp3', '.wav', '.m4a', '.aif', '.aiff', '.flac', '.ogg'].includes(ext)) continue;
-        if (/-\d{8}[-_]\d{6}\.wav$/i.test(f) || /\(trim [a-f0-9]+\)\.wav$/i.test(f)) continue;
-        const full = path.join(SFX_DIR, f);
+        if (!AUDIO_EXTS.includes(ext)) continue;
+        const full = path.join(SFX_ORIG_DIR, f);
         try {
             const stat = fs.statSync(full);
             out.push({
@@ -61,7 +103,7 @@ function addSfxOriginal(event, p) {
 
 function removeSfxOriginal(event, name) {
     if (!name) return { error: 'No file specified' };
-    const p = path.join(SFX_DIR, name);
+    const p = path.join(SFX_ORIG_DIR, path.basename(name));
     if (fs.existsSync(p)) {
         try { fs.rmSync(p, { force: true }); } catch (e) { return { error: e.message }; }
     }
@@ -85,8 +127,8 @@ function removeSfxOriginal(event, name) {
     return { ok: true, lib: libForUI() };
 }
 
-// Stores the trimmed/adjusted audio attached to a preset (.setting) inside sfx/.
-// Based on the preserved original audio; overwrites previous attached trimmed audio on every alignment manipulation.
+// Stores the trimmed/adjusted audio attached to a preset (.setting) inside sounds/current/.
+// Based on the preserved original audio in sounds/original/; replaces the previous edited clip on every alignment change.
 function saveAttachedClip(event, animId, bytes, origName) {
     ensureDirs();
     const lib = loadLib();
@@ -103,9 +145,10 @@ function saveAttachedClip(event, animId, bytes, origName) {
     if (a) {
         // If the preset has an existing attached audio that is not the original, delete it to prevent bloat
         const oldSfx = a.sfx;
-        if (oldSfx && oldSfx !== newFileName && oldSfx !== a.sfxOrig && (!orig || oldSfx !== orig)) {
+        if (oldSfx && oldSfx !== newFileName && oldSfx !== a.sfxOrig && (!orig || oldSfx !== orig) && isEditedSfxName(oldSfx)) {
             const oldPath = path.join(SFX_DIR, oldSfx);
-            if (fs.existsSync(oldPath)) {
+            const otherUses = lib.animations.some(o => o.id !== a.id && (o.sfx === oldSfx || o.sfxOrig === oldSfx));
+            if (!otherUses && fs.existsSync(oldPath)) {
                 try { fs.rmSync(oldPath, { force: true }); } catch (e) { /* ignore */ }
             }
         }
@@ -114,7 +157,7 @@ function saveAttachedClip(event, animId, bytes, origName) {
         }
         a.sfx = newFileName;
         saveLib(lib);
-        return { ok: true, sfx: a.sfx, sfxPath: newPath, sfxOrig: a.sfxOrig, sfxOrigPath: a.sfxOrig ? path.join(SFX_DIR, a.sfxOrig) : null, path: newPath, lib: libForUI() };
+        return { ok: true, sfx: a.sfx, sfxPath: newPath, sfxOrig: a.sfxOrig, sfxOrigPath: sfxFilePath(a.sfxOrig), path: newPath, lib: libForUI() };
     }
     return { ok: true, path: newPath, file: newFileName };
 }
@@ -122,57 +165,72 @@ function saveAttachedClip(event, animId, bytes, origName) {
 // A trimmed copy of a sound effect (made in the panel, with its fade-out already applied) is stored here; the
 // name carries a hash of its content, so the same trim is only imported into Resolve once.
 function saveSfxClip(event, name, bytes) {
-    const dir = path.join(DATA_DIR, 'sfx-cache');
+    const dir = SFX_CACHE_DIR;
     fs.mkdirSync(dir, { recursive: true });
     const buf = Buffer.from(bytes);
     const h = require('crypto').createHash('sha1').update(buf).digest('hex').slice(0, 8);
     const base = String(name || 'sound').replace(/\.[^.]+$/, '').replace(/[^\w.\- ]+/g, '_').slice(0, 60);
     const file = path.join(dir, base + ' (trim ' + h + ').wav');
     if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
-    try {
-        const all = fs.readdirSync(dir).map(n => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((x, y) => y.t - x.t);
-        for (const o of all.slice(80)) fs.rmSync(path.join(dir, o.n), { force: true });
-    } catch (e) { /* ignore */ }
+    else { try { const now = new Date(); fs.utimesSync(file, now, now); } catch (e) { /* ignore */ } } // reused: keep it fresh
+    pruneSfxCache();
     return { path: file };
 }
 
+// The trim cache only feeds the live Preview in Resolve, which is taken off the timeline again when it ends (sounds
+// that are applied are kept in sounds/current/ via saveAttachedClip). So it is cleared freely: clips not used for
+// SFX_CACHE_MAX_AGE_DAYS go, and only the newest SFX_CACHE_MAX_FILES are kept. Reuse refreshes a clip's mtime.
+const SFX_CACHE_MAX_AGE_DAYS = 1;
+const SFX_CACHE_MAX_FILES = 80;
+function pruneSfxCache() {
+    const dir = SFX_CACHE_DIR;
+    let removed = 0;
+    try {
+        if (!fs.existsSync(dir)) return 0;
+        const cutoff = Date.now() - SFX_CACHE_MAX_AGE_DAYS * 86400000;
+        const all = fs.readdirSync(dir)
+            .map(n => { try { const s = fs.statSync(path.join(dir, n)); return s.isFile() ? { n, t: s.mtimeMs } : null; } catch (e) { return null; } })
+            .filter(Boolean)
+            .sort((x, y) => y.t - x.t);
+        all.forEach((o, i) => {
+            if (i >= SFX_CACHE_MAX_FILES || o.t < cutoff) {
+                try { fs.rmSync(path.join(dir, o.n), { force: true }); removed++; } catch (e) { /* ignore */ }
+            }
+        });
+    } catch (e) { /* ignore */ }
+    return removed;
+}
+
+// Copies a dropped / picked sound into the originals library (sounds/original/) and returns its stored name.
+// A sound already in sounds/original/ or sounds/current/ is used where it is.
 function copySfx(p) {
     if (!p) return null;
     const ext = path.extname(p).toLowerCase();
-    if (!['.wav', '.mp3', '.aif', '.aiff', '.m4a', '.flac', '.ogg'].includes(ext)) throw new Error('Drop an audio file (wav, mp3, aif, m4a, flac)');
+    if (!AUDIO_EXTS.includes(ext)) throw new Error('Drop an audio file (wav, mp3, aif, m4a, flac)');
     ensureDirs();
     const resolved = path.resolve(String(p));
-    // If file is already inside sfx dir, do not copy again
-    if (resolved.startsWith(SFX_DIR + path.sep)) {
-        return path.relative(SFX_DIR, resolved);
-    }
+    if (resolved.startsWith(SFX_ORIG_DIR + path.sep)) return path.relative(SFX_ORIG_DIR, resolved);
+    if (resolved.startsWith(SFX_DIR + path.sep)) return path.relative(SFX_DIR, resolved);
     const base = path.basename(p);
-    const existing = path.join(SFX_DIR, base);
+    const existing = path.join(SFX_ORIG_DIR, base);
     if (fs.existsSync(existing)) {
         try {
-            const statSrc = fs.statSync(resolved);
-            const statDst = fs.statSync(existing);
-            if (statSrc.size === statDst.size) {
-                return base;
-            }
+            if (fs.statSync(resolved).size === fs.statSync(existing).size) return base;
         } catch (e) { /* ignore */ }
     }
-    // Check if an existing file has identical content
+    // Reuse an original with identical content
     try {
+        const crypto = require('crypto');
         const buf = fs.readFileSync(resolved);
-        const h = require('crypto').createHash('sha1').update(buf).digest('hex');
-        for (const f of fs.readdirSync(SFX_DIR)) {
-            const fp = path.join(SFX_DIR, f);
-            if (fs.statSync(fp).isFile()) {
-                const fbuf = fs.readFileSync(fp);
-                if (fbuf.length === buf.length && require('crypto').createHash('sha1').update(fbuf).digest('hex') === h) {
-                    return f;
-                }
-            }
+        const h = crypto.createHash('sha1').update(buf).digest('hex');
+        for (const f of fs.readdirSync(SFX_ORIG_DIR)) {
+            const fp = path.join(SFX_ORIG_DIR, f);
+            const st = fs.statSync(fp);
+            if (st.isFile() && st.size === buf.length && crypto.createHash('sha1').update(fs.readFileSync(fp)).digest('hex') === h) return f;
         }
     } catch (e) { /* ignore */ }
-    const file = uniqueName(SFX_DIR, path.basename(p));
-    fs.copyFileSync(p, path.join(SFX_DIR, file));
+    const file = uniqueName(SFX_ORIG_DIR, path.basename(p));
+    fs.copyFileSync(p, path.join(SFX_ORIG_DIR, file));
     return file;
 }
 

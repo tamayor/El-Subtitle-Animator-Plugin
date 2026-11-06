@@ -249,3 +249,31 @@ function ensureRealPreview(a, m) {
         redrawStages();
     }, 250);
 }
+
+// Presets with no preview (never rendered, or their frames were deleted) get one rendered in the background: one at
+// a time, only while the panel is idle and Resolve is connected, and a preset that fails is not retried this session.
+(function () {
+    const failed = new Set();
+    let running = false;
+    setInterval(async () => {
+        try {
+            if (running || state.idle || !window.sa || !window.sa.makePreview) return;
+            if (!state.live || !state.live.ok || !state.lib || !state.lib.animations) return;
+            const u = state.use;
+            if (state.busy || state.drag || state.stageDrag || state.preview || state.livePrev
+                || (u && (u._timer || u.rendering)) || (subPv && subPv.running)) return;
+            if (window.SAThumbs && SAThumbs.isBusy && state.lib.animations.some(x => SAThumbs.isBusy(x.id))) return;
+            const next = state.lib.animations.find(x => !x.missing && !x.preview && !failed.has(x.id));
+            if (!next) return;
+            running = true;
+            if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, true);
+            const td = next.textDesign || null;
+            let res;
+            try { res = await window.sa.makePreview(next.id, null, td ? cloneTextDesign(td) : null, designKeyOf(td), false, boxRenderList(next, next, '', false), { maxDim: 720 }); } catch (e) { res = { error: String(e && e.message || e) }; }
+            if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(next.id, false);
+            running = false;
+            if (res && res.error) { if (!/busy/i.test(res.error)) failed.add(next.id); return; }
+            if (res && res.lib) { state.lib = res.lib; syncUse(false); renderAll(); redrawStages(); }
+        } catch (e) { running = false; }
+    }, 2000);
+})();

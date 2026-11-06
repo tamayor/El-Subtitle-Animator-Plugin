@@ -39,7 +39,7 @@ const CONFIG_HTML = () => `
                 <span class="pc-ico">⚙</span>
                 <div class="pc-text">
                     <div class="pc-cap">Text template</div>
-                    <div id="cfgSettingOrigFile" class="pc-val" title="Preserved original in animations_orig/">—</div>
+                    <div id="cfgSettingOrigFile" class="pc-val" title="Preserved original in presets/original/">—</div>
                 </div>
                 <button type="button" id="cfgSettingRevert" class="ghost pc-revert" title="Revert .settings and design back to the original">↺ Revert</button>
             </div>
@@ -56,7 +56,7 @@ const CONFIG_HTML = () => `
                 <span class="pc-ico">♪</span>
                 <div class="pc-text">
                     <div class="pc-cap">Sound effect</div>
-                    <div id="cfgAudioOrigFile" class="pc-val" title="Original sound file in sfx/">—</div>
+                    <div id="cfgAudioOrigFile" class="pc-val" title="Original sound file in sounds/original/">—</div>
                 </div>
                 <button type="button" id="cfgAudioRevert" class="ghost pc-revert" title="Revert the audio back to the original sound">↺ Revert</button>
             </div>

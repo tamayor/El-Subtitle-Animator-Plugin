@@ -19,18 +19,83 @@ const MANIFEST_XML = path.join(APP_ROOT, 'manifest.xml');
 const WORKFLOW_INTEGRATION_NODE = path.join(APP_ROOT, 'WorkflowIntegration.node');
 
 // ------------------------------------------------------------------ library on disk
-const DATA_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator');
-const ANIM_DIR = path.join(DATA_DIR, 'animations');
-const ANIM_ORIG_DIR = path.join(DATA_DIR, 'animations_orig');
-const SFX_DIR = path.join(DATA_DIR, 'sfx');
+// Both folders live side by side in one main folder, wherever the user keeps it:
+//   El Subtitle Animator Plugin Main/
+//     El Subtitle Animator Plugin/   the code (this repo, with the installer)
+//     El Subtitle Animator/          the user data (presets, sounds, previews, fonts)
+// The installed copy runs from Resolve's plugin folder, so the installer records the main folder in
+// data-location.json. Running straight from the repo, the data folder is the code folder's sibling.
+const DATA_FOLDER_NAME = 'El Subtitle Animator';
+const LOCATION_FILE = path.join(APP_ROOT, 'data-location.json');
+
+function readLocation() {
+    try {
+        const loc = JSON.parse(fs.readFileSync(LOCATION_FILE, 'utf8'));
+        if (loc && typeof loc.dataDir === 'string' && loc.dataDir) return loc;
+    } catch { /* not installed by the installer: running from the repo */ }
+    return { dataDir: path.join(APP_ROOT, '..', DATA_FOLDER_NAME), codeDir: APP_ROOT };
+}
+const LOCATION = readLocation();
+
+const DATA_DIR = LOCATION.dataDir;
+// Layout of the data folder:
+//   library.json (+ .bak)
+//   presets/current/   the presets in use (edited)           presets/original/  their preserved originals
+//   sounds/current/    edited (trimmed / adjusted) sounds    sounds/original/   original sounds (SFX Originals Library)
+//   fonts/  previews/
+//   _app/              files the app writes for itself (caches, drafts, helper scripts, window and clip state)
+const ANIM_DIR = path.join(DATA_DIR, 'presets', 'current');
+const ANIM_ORIG_DIR = path.join(DATA_DIR, 'presets', 'original');
+const SFX_DIR = path.join(DATA_DIR, 'sounds', 'current');
+const SFX_ORIG_DIR = path.join(DATA_DIR, 'sounds', 'original');
 const PREV_DIR = path.join(DATA_DIR, 'previews');
 const FONTS_DIR = path.join(DATA_DIR, 'fonts');
 const LIB_FILE = path.join(DATA_DIR, 'library.json');
-const CLIP_REG = path.join(DATA_DIR, 'temp-clips.json');            // temporary preview clips still on a timeline
-const WIN_STATE_FILE = path.join(DATA_DIR, 'window-state.json');    // the window opens the way it was closed
+const APP_DATA_DIR = path.join(DATA_DIR, '_app');
+const SFX_CACHE_DIR = path.join(APP_DATA_DIR, 'sfx-cache');           // trimmed sounds for the live Preview in Resolve
+const DRAFT_DIR = path.join(APP_DATA_DIR, 'draft');                   // comps read from the timeline for the Create tab
+const CLIP_REG = path.join(APP_DATA_DIR, 'temp-clips.json');          // temporary preview clips still on a timeline
+const WIN_STATE_FILE = path.join(APP_DATA_DIR, 'window-state.json');  // the window opens the way it was closed
+
+// Older versions kept everything at the top of the data folder. Moved once, on first use; names inside library.json
+// are file names only, so nothing in it changes.
+const LEGACY_LAYOUT = [
+    ['animations', ANIM_DIR], ['animations_orig', ANIM_ORIG_DIR],
+    ['sfx', SFX_DIR], ['sfx_orig', SFX_ORIG_DIR],
+    ['sfx-cache', SFX_CACHE_DIR], ['draft', DRAFT_DIR],
+    ['temp-clips.json', CLIP_REG], ['window-state.json', WIN_STATE_FILE]
+];
+function moveInto(src, dst) {
+    if (!fs.existsSync(src)) return;
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    if (!fs.existsSync(dst)) { fs.renameSync(src, dst); return; }
+    if (!fs.statSync(src).isDirectory() || !fs.statSync(dst).isDirectory()) return;      // both exist: keep the new one
+    for (const n of fs.readdirSync(src)) {
+        if (!fs.existsSync(path.join(dst, n))) fs.renameSync(path.join(src, n), path.join(dst, n));
+    }
+    try { fs.rmdirSync(src); } catch (e) { /* not empty (name clash): left for the user to look at */ }
+}
+let layoutMigrated = false;
+function migrateLayout() {
+    if (layoutMigrated) return;
+    layoutMigrated = true;
+    for (const [oldName, dst] of LEGACY_LAYOUT) {
+        try { moveInto(path.join(DATA_DIR, oldName), dst); } catch (e) { /* ignore */ }
+    }
+    // helper scripts are rewritten on demand: move them out of sight
+    try {
+        for (const n of fs.readdirSync(DATA_DIR)) {
+            if (n === 'color-helper.js' || /^pick-color-[a-f0-9]+\.scpt$/.test(n)) {
+                try { moveInto(path.join(DATA_DIR, n), path.join(APP_DATA_DIR, n)); } catch (e) { /* ignore */ }
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
 
 function ensureDirs() {
-    for (const d of [DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, PREV_DIR, FONTS_DIR]) fs.mkdirSync(d, { recursive: true });
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    migrateLayout();
+    for (const d of [ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, SFX_ORIG_DIR, PREV_DIR, FONTS_DIR, APP_DATA_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
 // ------------------------------------------------------------------ previews
@@ -44,10 +109,10 @@ const PREV_CACHE_DIR = path.join(PREV_DIR, '_cache');
 const PREV_CACHE_MAX = 24;
 
 // ------------------------------------------------------------------ diagnostics
-// Enabled with SA_DEBUG=1. One line per event in _debug/preview-log.txt: in the project folder in Documents when it
-// exists (easy to find and share), otherwise next to the plugin.
+// Enabled with SA_DEBUG=1. One line per event in _debug/preview-log.txt: in the code folder the plugin was installed
+// from when it still exists (easy to find and share), otherwise next to the plugin.
 const DEBUG_ON = process.env.SA_DEBUG === '1';
-const DEV_DEBUG_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator Plugin', '_debug');
+const DEV_DEBUG_DIR = path.join(LOCATION.codeDir || APP_ROOT, '_debug');
 const DEBUG_LOG = fs.existsSync(path.dirname(DEV_DEBUG_DIR))
     ? path.join(DEV_DEBUG_DIR, 'preview-log.txt')
     : path.join(APP_ROOT, '_debug', 'preview-log.txt');
@@ -55,7 +120,8 @@ const DEBUG_LOG = fs.existsSync(path.dirname(DEV_DEBUG_DIR))
 module.exports = {
     PLUGIN_ID, INITIAL_PPID,
     APP_ROOT, PRELOAD_FILE, INDEX_HTML, BRIDGE_SCRIPT, PACKAGE_JSON, MANIFEST_XML, WORKFLOW_INTEGRATION_NODE,
-    DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, PREV_DIR, FONTS_DIR, LIB_FILE, CLIP_REG, WIN_STATE_FILE, ensureDirs,
+    DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, SFX_ORIG_DIR, PREV_DIR, FONTS_DIR, LIB_FILE,
+    APP_DATA_DIR, SFX_CACHE_DIR, DRAFT_DIR, CLIP_REG, WIN_STATE_FILE, ensureDirs,
     SAMPLE_TEXTS, CANCEL_FLAG, PREV_CACHE_DIR, PREV_CACHE_MAX,
     DEBUG_ON, DEBUG_LOG
 };

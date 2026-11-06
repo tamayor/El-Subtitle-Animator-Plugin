@@ -8,7 +8,8 @@ const path = require('path');
 const fs = require('fs');
 
 const state = require('./state');
-const { ANIM_DIR, SAMPLE_TEXTS, SFX_DIR } = require('./config');
+const { ANIM_DIR, SAMPLE_TEXTS } = require('./config');
+const { sfxFilePath } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
 const { dlog } = require('./log');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
@@ -19,7 +20,7 @@ const {
 const { ensureStopped } = require('./playback');
 const {
     cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTplState, titleKindFor
+    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, titleKindFor
 } = require('./placement');
 const { frameToTC, getProject, tcToFrame, timelineMeta } = require('./resolve');
 
@@ -69,7 +70,7 @@ async function apply(event, req) {
             sfxPath = req.sfxPath;
         } else {
             const sfxName = req.sfx || anim.sfx || lib.defaultSfx;
-            if (sfxName) sfxPath = path.join(SFX_DIR, sfxName);
+            if (sfxName) sfxPath = sfxFilePath(sfxName);
         }
         const live = !!req.live;      // Preview in Resolve: no sound yet, the clip stays a temporary one until Apply
         if (!live && req.useSfx !== false && sfxPath) {
@@ -98,7 +99,7 @@ async function apply(event, req) {
         // Inspector shows its controls. Only when the template cannot be written or inserted is a plain Text+ / MultiText
         // inserted and the preset imported onto it (that clip works, but its Inspector stays empty).
         const compPath = path.join(ANIM_DIR, anim.file);
-        let presetTitle = fs.existsSync(compPath) ? presetTitleFor(compPath) : null;
+        let presetTitle = fs.existsSync(compPath) ? presetTitleFor(compPath, presetTitleNames(lib.animations).get(anim.id)) : null;
         let item = await directPlaceTitle(tl, project, vTrack, textStart, want, titleKind, presetTitle);
         let insertedId = null, finalLen = null;
         if (item) {

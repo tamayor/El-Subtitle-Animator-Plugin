@@ -20,9 +20,7 @@
     const fileInfo = (f) => originals().find(o => o.file === f) || null;
     const pathOf = (f) => {
         if (!f) return null;
-        const o = fileInfo(f);
-        if (o) return o.path;
-        return state.lib && state.lib.dataDir ? state.lib.dataDir + '/sfx/' + f : null;
+        return sfxPathFor(f);
     };
     const say = (ctx, msg, kind) => { try { if (ctx.s === 'C' && typeof setCreateStatus === 'function') setCreateStatus(msg, kind); else setStatus(msg, kind); } catch (e) { /* ignore */ } };
 

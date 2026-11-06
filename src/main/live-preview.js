@@ -6,12 +6,12 @@ module.exports = {
     placeLiveSfx, regAdd, regDel, sweepTempClips, waitIdle
 };
 
-const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 
 const state = require('./state');
-const { CLIP_REG, SAMPLE_TEXTS, SFX_DIR } = require('./config');
+const { CLIP_REG, SAMPLE_TEXTS } = require('./config');
+const { sfxFilePath } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
@@ -345,7 +345,7 @@ async function liveFinish(event, req) {
         state.lastPlacedItemId = itemId;
         let sfxPath = null;
         if (req.sfxPath && fs.existsSync(req.sfxPath)) sfxPath = req.sfxPath;
-        else { const n = req.sfx || anim.sfx || lib.defaultSfx; if (n) sfxPath = path.join(SFX_DIR, n); }
+        else { const n = req.sfx || anim.sfx || lib.defaultSfx; if (n) sfxPath = sfxFilePath(n); }
         let sfxTrack = null, clipsLinked = false;
         const trackNotes = [];
         if (s.sfxId) {

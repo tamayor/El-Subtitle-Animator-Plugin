@@ -9,7 +9,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const state = require('./state');
-const { DATA_DIR, ensureDirs } = require('./config');
+const { APP_DATA_DIR, ensureDirs } = require('./config');
 
 // Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
@@ -34,7 +34,7 @@ function prepareColorScript() {
         try {
             ensureDirs();
             const h = require('crypto').createHash('sha1').update(COLOR_SCRIPT_LINES.join('\n')).digest('hex').slice(0, 8);
-            const file = path.join(DATA_DIR, 'pick-color-' + h + '.scpt');
+            const file = path.join(APP_DATA_DIR, 'pick-color-' + h + '.scpt');
             const warm = () => execFile('/usr/bin/osascript', [file], { timeout: 20000 }, () => { colorScriptPath = file; resolve(file); });
             if (fs.existsSync(file)) return warm();
             const args = ['-o', file]; for (const l of COLOR_SCRIPT_LINES) args.push('-e', l);
@@ -88,7 +88,7 @@ function startJxaHelper() {
     if (process.platform !== 'darwin' || jxa) return;
     try {
         ensureDirs();
-        const file = path.join(DATA_DIR, 'color-helper.js');
+        const file = path.join(APP_DATA_DIR, 'color-helper.js');
         fs.writeFileSync(file, JXA_HELPER);
         jxaReady = false; jxaBuf = '';
         const ch = require('child_process').spawn('/usr/bin/osascript', ['-l', 'JavaScript', file], { stdio: ['pipe', 'pipe', 'ignore'] });

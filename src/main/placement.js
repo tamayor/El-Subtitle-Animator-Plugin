@@ -4,7 +4,7 @@
 module.exports = {
     cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
-    presetOutputFor, presetTitleFor, presetTplState, pruneTemplates,
+    presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
     placeExtraSfx, titleKindFor, trackUsable
 };
 
@@ -13,7 +13,8 @@ const fs = require('fs');
 const os = require('os');
 
 const state = require('./state');
-const { SFX_DIR } = require('./config');
+const { ANIM_DIR } = require('./config');
+const { sfxFilePath } = require('./sfx');
 const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
@@ -282,35 +283,92 @@ function withOutput(s) {
     const before = s.slice(0, listClose).replace(/\s*$/, '');
     return before + (before.endsWith(',') || before.endsWith('{') ? '\n' : ',\n') + mo + '\n\t' + s.slice(listClose);
 }
-// The template name for a preset file: "Text+ <name>" / "MultiText <name>".
-function presetTitleName(compPath) {
-    const base = path.basename(compPath).replace(/\.(setting|comp)$/i, '').replace(/[^\w ()&+,.'-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Preset';
+// The template name for a preset: "Text+ <name>" / "MultiText <name>", from the preset's name in the panel (the file
+// name when it has none), so Resolve's Titles list matches the plugin's preset list.
+function cleanTitle(s) {
+    return String(s || '').replace(/[^\w ()&+,.'-]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').trim();
+}
+function presetTitleName(compPath, presetName) {
+    const base = cleanTitle(presetName) || cleanTitle(path.basename(compPath).replace(/\.(setting|comp)$/i, '')) || 'Preset';
     return (titleKindFor(compPath) === 'multitext' ? 'MultiText ' : 'Text+ ') + base;
 }
-// Deletes the templates of presets that are gone (removed, renamed, file replaced) from the plugin's own template
-// folder, so they do not stay in Resolve's Titles list. presetFiles: full paths of every preset in the library.
-// Only *.setting files in that folder are touched. Clips already made from a deleted template keep working (the
-// project holds their comp).
-function pruneTemplates(presetFiles) {
+// Template names of every preset whose file exists, by preset id. Two presets with the same name get " 2", " 3", ...
+// in library order (compared without case: the macOS file system ignores it). animations: library.json entries.
+function presetTitleNames(animations) {
+    const out = new Map(), used = new Set();
+    for (const a of animations || []) {
+        try {
+            const f = path.join(ANIM_DIR, a.file);
+            if (!a.file || !fs.existsSync(f)) continue;
+            const base = presetTitleName(f, a.name);
+            let name = base, n = 2;
+            while (used.has(name.toLowerCase())) name = base + ' ' + n++;
+            used.add(name.toLowerCase());
+            out.set(a.id, name);
+        } catch (e) { /* skip */ }
+    }
+    return out;
+}
+// Deletes the templates of presets that are gone (removed, file replaced) from the plugin's own template folder, so
+// they do not stay in Resolve's Titles list. animations: every preset in the library. Only *.setting files in that
+// folder are touched. Clips already made from a deleted template keep working (the project holds their comp).
+function pruneTemplates(animations) {
     const removed = [];
     try {
         const dir = titlesDir();
         if (!fs.existsSync(dir)) return removed;
-        const keep = new Set();
-        for (const f of presetFiles || []) { try { if (fs.existsSync(f)) keep.add(presetTitleName(f) + '.setting'); } catch (e) { /* skip */ } }
+        const keep = new Set([...presetTitleNames(animations).values()].map(n => (n + '.setting').toLowerCase()));
         for (const f of fs.readdirSync(dir)) {
-            if (!/\.setting$/i.test(f) || keep.has(f)) continue;
+            if (!/\.setting$/i.test(f) || keep.has(f.toLowerCase())) continue;
             try { fs.unlinkSync(path.join(dir, f)); removed.push(f); } catch (e) { /* in use or gone */ }
         }
         if (removed.length) dlog('TEMPLATES-PRUNED', removed);
     } catch (e) { dlog('TEMPLATES-PRUNE-FAIL', String(e && e.message || e)); }
     return removed;
 }
+// Keeps Resolve's Titles list in step with the library after presets are renamed, removed or replaced.
+// before: presetTitleNames() taken before the change. A template whose preset got a new name is renamed (Resolve
+// shows the new name straight away); templates of presets that are gone are deleted.
+function syncTemplates(animations, before) {
+    try {
+        const dir = titlesDir();
+        const after = presetTitleNames(animations);
+        const moves = [];
+        for (const [id, oldName] of (before || new Map())) {
+            const newName = after.get(id);
+            if (newName && newName !== oldName && fs.existsSync(path.join(dir, oldName + '.setting'))) moves.push([oldName, newName]);
+        }
+        // Two steps through a temporary name, so swapped or case-only renames never overwrite each other.
+        const tmp = moves.map(([o], i) => {
+            const t = path.join(dir, '.sa-rename-' + i + '-' + Date.now() + '.tmp');
+            try { fs.renameSync(path.join(dir, o + '.setting'), t); return t; } catch (e) { return null; }
+        });
+        moves.forEach(([o, n], i) => {
+            if (!tmp[i]) return;
+            try { fs.renameSync(tmp[i], path.join(dir, n + '.setting')); } catch (e) { try { fs.unlinkSync(tmp[i]); } catch (e2) { /* gone */ } }
+            if (state.presetTpl) state.presetTpl.delete(o);      // its cached Media Pool title belongs to the old name
+            dlog('TEMPLATE-RENAMED', o, '->', n);
+        });
+    } catch (e) { dlog('TEMPLATES-SYNC-FAIL', String(e && e.message || e)); }
+    return pruneTemplates(animations);
+}
+// At start-up: templates made by older versions are named after the preset's file; they are renamed to the preset's
+// name (instead of deleted and rebuilt on the next apply), and templates of presets that are gone are deleted.
+function startupTemplates(animations) {
+    const before = new Map();
+    for (const a of animations || []) {
+        try { const f = path.join(ANIM_DIR, a.file); if (a.file && fs.existsSync(f)) before.set(a.id, presetTitleName(f)); } catch (e) { /* skip */ }
+    }
+    const want = new Set([...presetTitleNames(animations).values()]);
+    for (const [id, n] of before) if (want.has(n)) before.delete(id);      // already right, or another preset's name
+    return syncTemplates(animations, before);
+}
 
 // Installs (or refreshes) the template for a preset and returns its name, or null when it could not be written.
-function presetTitleFor(compPath) {
+// name: the preset's template name from presetTitleNames (the file name is used without it).
+function presetTitleFor(compPath, name) {
     try {
-        const name = presetTitleName(compPath);
+        name = name || presetTitleName(compPath);
         const raw = asSetting(fs.readFileSync(inspectorSafeComp(compPath), 'utf8'));
         if (!raw) return null;
         const body = withOutput(raw);
@@ -514,7 +572,7 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
     const tlStart = await tl.GetStartFrame();
     for (const l of layers) {
         try {
-            const p = path.isAbsolute(l.file) ? l.file : path.join(SFX_DIR, l.file);
+            const p = sfxFilePath(l.file);
             if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); continue; }
             const { mp, item: mpi } = await importSfx(project, p);
             if (!mpi) { warnings.push('Resolve could not import "' + path.basename(l.file) + '".'); continue; }

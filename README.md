@@ -4,13 +4,23 @@ A DaVinci Resolve Studio Workflow Integration plugin. It turns the subtitle unde
 
 ## Install
 
+Keep both folders together in one main folder (it can live anywhere):
+
+```
+El Subtitle Animator Plugin Main/
+  El Subtitle Animator Plugin/   the code (this repo, with the installer)
+  El Subtitle Animator/          your presets, sounds, previews, fonts
+```
+
+Copy and paste into Terminal (or double-click the installer in Finder):
+
 ```bash
-bash install.command
+bash "$HOME/Documents/El Subtitle Animator Plugin Main/El Subtitle Animator Plugin/Install El Subtitle Animator.command"
 ```
 
 Then quit Resolve completely, reopen it, and choose **Workspace › Workflow Integrations › El Subtitle Animator**. The installer copies only the runtime files (`manifest.xml`, `package.json`, `main.js`, `src/`) plus Blackmagic's `WorkflowIntegration.node`.
 
-User data (presets, sounds, previews, fonts, window state) lives in `~/Documents/Subtitle Animator/`.
+User data (presets, sounds, previews, fonts, window state) lives in `El Subtitle Animator/`, next to the code folder. The installer writes the main folder's location to `data-location.json` in the installed plugin, so if you move or rename the main folder, run the installer again.
 
 ## Layout
 
@@ -75,12 +85,12 @@ The panel scripts are classic `<script defer>` files, not ES modules. They share
 
 Resolve's Edit-page Inspector only shows a Fusion title's controls when Resolve built the title itself. If a script replaces a clip's comp (`ImportFusionComp`, `LoadFusionCompByName`, `AddFusionComp`, `comp:Paste`, `tool:LoadSettings`), the Inspector shows only a folded "Text+" header with no controls. This happens even when the imported comp is the clip's own export. Tagging the comp with `TEMPLATE_ID` or expanding its tools doesn't help.
 
-So `presetTitleFor` (in `placement.js`) writes each preset to `Fusion/Templates/Edit/Titles/Subtitle Animator/<Text+|MultiText> <name>.setting`, and the clip is inserted with `InsertFusionTitleIntoTimeline(<that name>)`. Resolve picks up new or rewritten template files immediately. The "Text+" / "MultiText" prefix keeps `isTitleClipName` and the cut guard working.
+So `presetTitleFor` (in `placement.js`) writes each preset to `Fusion/Templates/Edit/Titles/Subtitle Animator/<Text+|MultiText> <preset name>.setting`, and the clip is inserted with `InsertFusionTitleIntoTimeline(<that name>)`. Resolve picks up new or rewritten template files immediately. The "Text+" / "MultiText" prefix keeps `isTitleClipName` and the cut guard working.
 
 - On insert, Resolve connects the title's MediaOut to the tool named `Template`, whatever the template file says. For presets that run the text through effects (wiggle, glitch, stop motion), `apply.js` reconnects it to the real output tool (`presetOutputFor` + the bridge op `set_output`). Without that step these presets show plain text.
 - A preset without a MediaOut (nodes copied out of the Fusion page) gets one, wired to its final tool (`withOutput`). Otherwise Resolve inserts an unconnected MediaOut and the clip is black. Macro / group presets are left to Resolve, which wires them itself.
 - The template is rebuilt from the preset file on every apply, so presets saved from the timeline, dropped in, replaced or reverted are covered automatically.
-- `pruneTemplates` deletes templates whose preset is gone. It runs when a preset is removed, when its file is replaced, and at startup, and only touches `*.setting` files in the plugin's own `Subtitle Animator` folder. Clips already made from a deleted template keep working.
+- The template is named after the preset's name in the panel (`presetTitleNames`; same-named presets get " 2", " 3" in list order). `syncTemplates` renames the template when a preset is renamed, reverted or reordered, and deletes it when the preset is removed or its file replaced. At startup `startupTemplates` renames templates from older versions (named after the preset file) and prunes the rest. Only `*.setting` files in the plugin's own `Subtitle Animator` folder are touched. Clips already made from a deleted or renamed template keep working.
 - To change which preset a clip uses, insert a new clip. Don't swap the comp on the existing one.
 - `npm run check` fails on any comp-replacing call without an `// inspector-ok: <reason>` comment. Use that comment only for clips the user never inspects (temporary render clips) or for the logged fallback in `apply.js`, which warns the user.
 

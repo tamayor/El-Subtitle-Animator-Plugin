@@ -7,7 +7,8 @@ function liveReq(m, a, text) {
         animationId: a.id, text, start: p.start, end: p.end,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
         textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false, place: placeOptions(),
-        linked: m.linked !== false, sfxPath: p.sfxPath || undefined,
+        linked: m.linked !== false,
+        sfxPath: (p.sfxClip && p.sfxClip.sfxPath) || undefined, sfxCut: (p.sfxClip && p.sfxClip.sfxCut) || undefined,
         posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
         textDesign: m.textDesign || a.textDesign || null,
@@ -61,13 +62,13 @@ function liveCard(msg) {
     const s = document.querySelector('#stageLiveU .stage-live-txt span');
     if (s) s.textContent = msg;
 }
-// The sound for one caption: cut to THAT caption's length (Estimate) or to the fixed length, with its fade, like Add to
-// timeline. Remembered per caption length and sound settings, so moving between captions stays quick.
+// The sound for one caption: { sfxPath, sfxCut } cut to THAT caption's length (Estimate) or to the fixed length, with
+// its fade, like Add to timeline. Remembered per caption length and sound settings, so moving between captions stays quick.
 const liveSfxCache = new Map();
 async function liveSfxFor(m, start, end) {
     if (!m || m.useSfx === false) return null;
     const span = { base: start, dur: Math.max(1, end - start) };
-    const key = [currentSfxPath(m), span.dur, m.sfxTrimIn, m.sfxLen, sfxLenMode(m), m.sfxFade, m.textOffset, m.sfxOffset, m.tail, fpsNow()].join('|');
+    const key = [origSfxPath(m) || currentSfxPath(m), span.dur, m.sfxTrimIn, m.sfxLen, sfxLenMode(m), m.sfxFade, m.textOffset, m.sfxOffset, m.tail, fpsNow()].join('|');
     if (liveSfxCache.has(key)) return liveSfxCache.get(key);
     let out = null;
     try { out = await buildFadedSfx(m, span); } catch (e) { out = null; }
@@ -145,7 +146,7 @@ async function addLiveClip(sub, keepPlayhead) {
     const txt = String(sub.text || ($('subText') && $('subText').value.trim()) || (a && a.sample) || 'Sample text').trim();
     p.text = txt;
     setStatus('Putting the Text+ on the timeline…');
-    p.sfxPath = await liveSfxFor(m, sub.start, sub.end);
+    p.sfxClip = await liveSfxFor(m, sub.start, sub.end);
     const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
     p.busy = false;
     if (state.livePrev !== p) return;                  // this preview was ended / replaced meanwhile
@@ -187,7 +188,7 @@ async function switchLivePreset(a) {
     const dur = s ? Math.max(1, s.end - s.start) : (p.end && p.start ? (p.end - p.start) : Math.round(((L && L.fps) || 25) * 3));
     const end = start + dur;
     const text = String(($('subText') && $('subText').value.trim()) || (s && s.text) || p.text || (a && a.sample) || 'Sample text').trim();
-    p.sfxPath = await liveSfxFor(m, start, end);
+    p.sfxClip = await liveSfxFor(m, start, end);
     p.busy = false;
     await addLiveClip({ start, end, text }, true);
     refreshLiveBar();
@@ -253,7 +254,9 @@ async function endLivePreview(keep) {
         state.busy = true; setStatus('Applying…');
         let sfxClip = null;
         try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }
-        res = await window.sa.liveFinish(Object.assign(liveReq(m, a, p.text), { sfxPath: sfxClip || undefined }));
+        res = await window.sa.liveFinish(Object.assign(liveReq(m, a, p.text), {
+            sfxPath: (sfxClip && sfxClip.sfxPath) || undefined, sfxCut: (sfxClip && sfxClip.sfxCut) || undefined
+        }));
         state.busy = false;
     } else if (p.hasClip) {
         await window.sa.liveRemove();
@@ -406,7 +409,7 @@ function bindLivePreview() {
                     p.start = ns.start; p.end = ns.end; p.subStart = ns.start;
                     p.text = String(ns.text || ($('subText') && $('subText').value.trim()) || (a && a.sample) || 'Sample text').trim();
                     p.busy = true;
-                    p.sfxPath = await liveSfxFor(m, ns.start, ns.end);
+                    p.sfxClip = await liveSfxFor(m, ns.start, ns.end);
                     const mres = await window.sa.liveUpdate(liveReq(m, a, p.text));
                     p.busy = false;
                     if (mres && mres.busy) { p.subStart = null; return; }

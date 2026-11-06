@@ -19,10 +19,10 @@ const {
 } = require('./live-preview');
 const { ensureStopped } = require('./playback');
 const {
-    cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, titleKindFor
+    FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
+    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor
 } = require('./placement');
-const { frameToTC, getProject, tcToFrame, timelineMeta } = require('./resolve');
+const { frameToTC, getProject, timelineMeta } = require('./resolve');
 
 async function apply(event, req) {
     const warnings = [];
@@ -81,11 +81,11 @@ async function apply(event, req) {
                 if (!mpi) {
                     warnings.push('Resolve could not import the sound effect.');
                 } else {
-                    const durTC = await mpi.GetClipProperty('Duration');
-                    const sfxFrames = Math.max(1, tcToFrame(durTC, meta));
+                    // the original file, cut by the preset's settings (nothing rendered): trim / length / fade-out
+                    const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
                     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-                    const sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + sfxFrames, 1, trackNotes);
-                    sfxInfo = { mp, mpi, sfxFrames, sfxStart, sfxTrack };
+                    const sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes);
+                    sfxInfo = { mp, mpi, cut, sfxStart, sfxTrack };
                 }
             }
         }
@@ -237,14 +237,11 @@ async function apply(event, req) {
         let clipsLinked = false;
         if (sfxInfo) {
             sfxTrack = sfxInfo.sfxTrack;
-            const placed = await sfxInfo.mp.AppendToTimeline([{
-                mediaPoolItem: sfxInfo.mpi, mediaType: 2, trackIndex: sfxInfo.sfxTrack,
-                recordFrame: sfxInfo.sfxStart, startFrame: 0, endFrame: sfxInfo.sfxFrames
-            }]);
-            if (!placed || !placed.length) {
+            const sfxItem = await appendSfxCut(sfxInfo.mp, sfxInfo.mpi, sfxInfo.sfxTrack, sfxInfo.sfxStart, sfxInfo.cut);
+            if (!sfxItem) {
                 warnings.push('The sound effect could not be placed.');
             } else {
-                const sfxItem = placed[0];
+                if (sfxInfo.cut.fadeFailed) warnings.push(FADE_WARNING);
                 const targetVol = (req.sfxVolume !== undefined && req.sfxVolume !== null)
                     ? Number(req.sfxVolume)
                     : (anim.sfxVolume !== undefined && anim.sfxVolume !== null ? Number(anim.sfxVolume) : 0);
@@ -289,7 +286,7 @@ async function apply(event, req) {
         if (live) {
             let liveSfxId = null;
             try {
-                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId);
+                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings);
                 if (r) { liveSfxId = r.id; sfxTrack = r.track; }
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }

@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('sa', {
     readSfx: (p) => ipcRenderer.invoke('sfx:read', p),
     saveSfxClip: (name, bytes) => ipcRenderer.invoke('sfx:saveClip', name, bytes),
     saveAttachedClip: (animId, bytes, origName) => ipcRenderer.invoke('sfx:saveAttachedClip', animId, bytes, origName),
+    useOriginalSfx: (animId) => ipcRenderer.invoke('sfx:useOriginal', animId),
     listSfxOriginals: () => ipcRenderer.invoke('sfx:listOriginals'),
     addSfxOriginal: (p) => ipcRenderer.invoke('sfx:addOriginal', p),
     removeSfxOriginal: (name) => ipcRenderer.invoke('sfx:removeOriginal', name),

@@ -25,7 +25,7 @@ const { liveFrame, parkUntilFocus, poll, seek } = require('./poll');
 const { captureFromSelection, makePreview, previewData, scanClip } = require('./previews');
 const { listSubtitles } = require('./resolve');
 const {
-    addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip
+    addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
 const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setLayoutMode, setOnTop } = require('./window');
@@ -75,6 +75,7 @@ const SAFE_HANDLERS = {
     'sfx:read': readSfx,
     'sfx:saveClip': saveSfxClip,
     'sfx:saveAttachedClip': saveAttachedClip,
+    'sfx:useOriginal': useOriginalSfx,
     'sfx:listOriginals': listSfxOriginals,
     'sfx:addOriginal': addSfxOriginal,
     'sfx:removeOriginal': removeSfxOriginal,

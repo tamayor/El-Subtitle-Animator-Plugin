@@ -17,10 +17,10 @@ const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
-    deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
-    placeExtraSfx, trackUsable
+    FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
+    placeExtraSfx, sfxCutFor, sfxCutFrames, trackUsable
 } = require('./placement');
-const { getProject, tcToFrame, timelineMeta } = require('./resolve');
+const { getProject, timelineMeta } = require('./resolve');
 
 
 // In/Out on the timeline around the preview clip, so Resolve plays (loops) just that range. The user's own In/Out
@@ -136,17 +136,18 @@ async function loopRestore() {
     return await clickLoopMenu();
 }
 
-async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId) {
+async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId, warnings) {
     if (!sfxPath || req.useSfx === false || !fs.existsSync(sfxPath)) return null;
     const tlStart = await tl.GetStartFrame();
     const { mp, item: mpi } = await importSfx(project, sfxPath);
     if (!mpi) return null;
-    const sfxFrames = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+    const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
+    const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + sfxFrames, 1, notes);
-    const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: sfxStart, startFrame: 0, endFrame: sfxFrames }]);
-    if (!placed || !placed.length) return null;
-    const it = placed[0];
+    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, notes);
+    const it = await appendSfxCut(mp, mpi, track, sfxStart, cut);
+    if (!it) return null;
+    if (cut.fadeFailed && warnings) warnings.push(FADE_WARNING);
     const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim && anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
     try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
     const id = String(await it.GetUniqueId());
@@ -217,7 +218,7 @@ async function liveUpdate(event, req) {
         if (moved) {
             try {
                 if (req.sfxPath) state.liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
-                const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId);
+                const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId, warnings);
                 if (r) { state.liveSession.sfxId = r.id; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
             try {
@@ -370,13 +371,14 @@ async function liveFinish(event, req) {
                 const { mp, item: mpi } = await importSfx(project, sfxPath);
                 if (!mpi) warnings.push('Resolve could not import the sound effect.');
                 else {
-                    const sfxFrames = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+                    const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
+                    const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
                     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-                    sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + sfxFrames, 1, trackNotes);
-                    const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: sfxTrack, recordFrame: sfxStart, startFrame: 0, endFrame: sfxFrames }]);
-                    if (!placed || !placed.length) warnings.push('The sound effect could not be placed.');
+                    sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes);
+                    const sfxItem = await appendSfxCut(mp, mpi, sfxTrack, sfxStart, cut);
+                    if (!sfxItem) warnings.push('The sound effect could not be placed.');
                     else {
-                        const sfxItem = placed[0];
+                        if (cut.fadeFailed) warnings.push(FADE_WARNING);
                         const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
                         try { await sfxItem.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { warnings.push('Could not set sound volume: ' + e.message); }
                         const sfxId = String(await sfxItem.GetUniqueId());

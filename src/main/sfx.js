@@ -7,7 +7,7 @@
 
 module.exports = {
     addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, readSfx, removeSfxOriginal,
-    saveAttachedClip, saveSfxClip, sfxFilePath
+    saveAttachedClip, saveSfxClip, sfxFilePath, useOriginalSfx
 };
 
 const path = require('path');
@@ -127,6 +127,7 @@ function removeSfxOriginal(event, name) {
     return { ok: true, lib: libForUI() };
 }
 
+// (Older approach, no longer called by the panel: see useOriginalSfx.)
 // Stores the trimmed/adjusted audio attached to a preset (.setting) inside sounds/current/.
 // Based on the preserved original audio in sounds/original/; replaces the previous edited clip on every alignment change.
 function saveAttachedClip(event, animId, bytes, origName) {
@@ -160,6 +161,31 @@ function saveAttachedClip(event, animId, bytes, origName) {
         return { ok: true, sfx: a.sfx, sfxPath: newPath, sfxOrig: a.sfxOrig, sfxOrigPath: sfxFilePath(a.sfxOrig), path: newPath, lib: libForUI() };
     }
     return { ok: true, path: newPath, file: newFileName };
+}
+
+// A preset's sound is now its ORIGINAL file plus the cut settings (sfxTrimIn / sfxLen / sfxFade / sfxVolume): nothing is
+// rendered, and Resolve cuts the original when it is placed. A preset still pointing at an edited clip from an older
+// version is switched back to its original here, and that clip is deleted when no other preset uses it.
+function useOriginalSfx(event, animId) {
+    const lib = loadLib();
+    const a = animId ? lib.animations.find(x => x.id === animId) : null;
+    if (!a) return { error: 'Preset not found' };
+    let changed = false;
+    if (!a.sfxOrig && a.sfx && !isEditedSfxName(a.sfx)) { a.sfxOrig = a.sfx; changed = true; }
+    const origPath = a.sfxOrig ? sfxFilePath(a.sfxOrig) : null;
+    if (origPath && fs.existsSync(origPath) && a.sfx !== a.sfxOrig) {
+        const old = a.sfx;
+        a.sfx = a.sfxOrig;
+        changed = true;
+        if (old && isEditedSfxName(old) && !lib.animations.some(o => o.id !== a.id && (o.sfx === old || o.sfxOrig === old))) {
+            try { fs.rmSync(path.join(SFX_DIR, path.basename(old)), { force: true }); } catch (e) { /* ignore */ }
+        }
+    }
+    if (changed) saveLib(lib);
+    return {
+        ok: true, changed, sfx: a.sfx, sfxPath: sfxFilePath(a.sfx), sfxOrig: a.sfxOrig, sfxOrigPath: sfxFilePath(a.sfxOrig),
+        lib: changed ? libForUI() : undefined
+    };
 }
 
 // A trimmed copy of a sound effect (made in the panel, with its fade-out already applied) is stored here; the

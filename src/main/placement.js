@@ -1,11 +1,14 @@
 // Building blocks for putting clips on the timeline: picking free tracks, inserting / moving / trimming
 // Text+ titles safely, importing sounds and placing layered sound effects.
 
+// Declared before module.exports: a const used in the export list must exist when it runs.
+const FADE_WARNING = 'Resolve did not take the sound\'s fade-out. Drag the fade handle on the audio clip to add it.';
+
 module.exports = {
-    cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
+    FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, titleKindFor, trackUsable
+    placeExtraSfx, sfxCutFor, sfxCutFrames, titleKindFor, trackUsable
 };
 
 const path = require('path');
@@ -14,7 +17,7 @@ const os = require('os');
 
 const state = require('./state');
 const { ANIM_DIR } = require('./config');
-const { sfxFilePath } = require('./sfx');
+const { isEditedSfxName, sfxFilePath } = require('./sfx');
 const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
@@ -558,6 +561,46 @@ async function findAudioItemById(tl, id) {
 // The sound of a Preview in Resolve: a real clip on the timeline that can be moved / trimmed by hand. It is NOT linked
 // to the Text+ while the preview runs (clicking a linked clip selects both, and Resolve's Inspector then hides the
 // Text+ settings); liveFinish links them when the preview is kept.
+// ------------------------------------------------------------------ the main sound: the original file, cut by settings
+// The main sound is placed from its ORIGINAL file, cut by the preset's settings instead of a rendered WAV:
+// { trimIn, len, fade } in frames = source frames cut off the start, the length used, and the fade-out (set as
+// Resolve's own fade handle). The whole original stays underneath, so the clip can be extended on the timeline later.
+// Without a cut from the panel, it is worked out from the preset (an already-cut file from older versions is placed whole).
+function sfxCutFor(req, anim, file, meta, textStart, textEnd) {
+    if (req && req.sfxCut) return req.sfxCut;
+    if (!anim || isEditedSfxName(path.basename(String(file || '')))) return null;
+    const sfxStart = textStart + Math.round(Number(req && req.sfxOffset) || 0);
+    const fixed = anim.sfxLenMode === 'fixed' || (anim.sfxLenMode !== 'estimate' && anim.sfxLen !== null && anim.sfxLen !== undefined);
+    const len = (fixed && anim.sfxLen !== null && anim.sfxLen !== undefined) ? Number(anim.sfxLen) : Math.max(5, textEnd - sfxStart);
+    const fade = (anim.sfxFade === null || anim.sfxFade === undefined) ? Math.round((meta && meta.fps) || 25) : Number(anim.sfxFade);
+    return { trimIn: Number(anim.sfxTrimIn) || 0, len, fade };
+}
+// The cut, clamped to the imported clip's real length.
+async function sfxCutFrames(mpi, meta, cut) {
+    const total = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+    if (!cut) return { total, trimIn: 0, len: total, fade: 0 };
+    const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(cut.trimIn) || 0)));
+    let len = total - trimIn;
+    const want = Math.round(Number(cut.len) || 0);
+    if (want > 0) len = Math.min(len, want);
+    len = Math.max(1, len);
+    const fade = Math.max(0, Math.min(len, Math.round(Number(cut.fade) || 0)));
+    return { total, trimIn, len, fade };
+}
+// Places the cut on the timeline and sets its fade-out. Returns the timeline item (or null); c.fadeFailed is set
+// when Resolve did not take the fade.
+async function appendSfxCut(mp, mpi, track, recordFrame, c) {
+    const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame, startFrame: c.trimIn, endFrame: c.trimIn + c.len }]);
+    if (!placed || !placed.length) return null;
+    const it = placed[0];
+    if (c.fade > 0) {
+        let ok = false;
+        try { if (typeof it.SetFades === 'function') ok = await it.SetFades({ FadeIn: 0, FadeOut: c.fade }); } catch (e) { ok = false; }
+        if (!ok) { c.fadeFailed = true; dlog('SFX-FADE-FAILED', c); }
+    }
+    return it;
+}
+
 // ------------------------------------------------------------------ layered sounds (extra sound effects on one preset)
 // A preset can carry any number of extra sounds besides its main one: { id, file, enabled, volume (dB), offset (frames),
 // align: 'start' | 'end' | 'after', trimIn, len, link }. 'start': the sound starts at the text start + offset.

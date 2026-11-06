@@ -99,12 +99,11 @@ async function syncAttachedSfx(m, span) {
     if (syncSfxBusy) return null;
     syncSfxBusy = true;
     try {
-        const p = origSfxPath(m) || currentSfxPath(m);
-        if (!p) return null;
-        const rendered = await renderTrimmedWav(m, span);
-        if (!rendered || !rendered.data) return null;
-        const res = await window.sa.saveAttachedClip(m.id, rendered.data, baseName(rendered.origPath));
-        if (res && res.sfx) {
+        // The cut lives in the preset's settings (saved with it); the sound stays the original file, so nothing is
+        // rendered here. Only a preset still pointing at an edited clip from an older version is switched back.
+        if (!m.sfx || (m.sfxOrig && m.sfx === m.sfxOrig)) return null;
+        const res = await window.sa.useOriginalSfx(m.id);
+        if (res && res.changed && res.sfx) {
             m.sfx = res.sfx;
             m.sfxPath = res.sfxPath;
             if (res.sfxOrig) {

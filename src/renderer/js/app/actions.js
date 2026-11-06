@@ -1,19 +1,46 @@
 // Panel actions: preparing the sound, applying to the timeline, saving, panel width.
 
 // ---------------------------------------------------------------- actions
-// The sound that goes on the timeline: cut where the subtitle ends and faded out over its last second. Made here
-// (the panel can decode any audio file), saved by the app as a WAV, and imported into Resolve in place of the original.
+// The sound that goes on the timeline: { sfxPath, sfxCut }. The ORIGINAL file goes into Resolve whole and is cut there
+// by the settings ({ trimIn, len, fade } in frames, worked out here like the alignment timeline shows them), so no new
+// audio file is made and the clip can be extended on the timeline afterwards. Only an older preset whose sound exists
+// solely as an already-cut clip (no original kept) still gets a rendered WAV, placed as it is.
+const EDITED_SFX_RE = /-\d{8}[-_]\d{6}\.wav$|\(trim [a-f0-9]+\)\.wav$/i;
+const sfxSecondsCache = new Map();
+async function sfxSeconds(p) {
+    const w = state.waves.get(p);
+    if (w && w.seconds) return w.seconds;
+    if (sfxSecondsCache.has(p)) return sfxSecondsCache.get(p);
+    const w2 = await loadWave(p);
+    if (w2 && w2.seconds) return w2.seconds;
+    // its waveform is still loading elsewhere: decode it once just for its length
+    const bytes = await window.sa.readSfx(p);
+    if (!(bytes instanceof Uint8Array)) return null;
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    let secs = null;
+    try { secs = (await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))).duration; } finally { ac.close(); }
+    if (secs) sfxSecondsCache.set(p, secs);
+    return secs;
+}
 async function buildFadedSfx(m, span) {
     const p = origSfxPath(m) || currentSfxPath(m);
     if (!p || m.useSfx === false) return null;
+    const hasOrig = !!(m.sfxOrigPath || m.sfxOrig);
+    if (hasOrig || !EDITED_SFX_RE.test(baseName(p))) {
+        const secs = await sfxSeconds(p);
+        let g;
+        waveSecOverride = secs;
+        if (span) spanOverride = span;
+        try { g = geometry(m); } finally { waveSecOverride = null; spanOverride = null; }
+        return { sfxPath: p, sfxCut: { trimIn: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames } };
+    }
+    return legacyRenderedSfx(m, span, p);
+}
+async function legacyRenderedSfx(m, span, p) {
     const rendered = await renderTrimmedWav(m, span);
     if (!rendered || !rendered.data) return null;
-    if (m && m.id && !span) {
-        const res = await window.sa.saveAttachedClip(m.id, rendered.data, baseName(p));
-        return (res && (res.sfxPath || res.path)) || null;
-    }
     const res = await window.sa.saveSfxClip(baseName(p), rendered.data);
-    return (res && res.path) || null;
+    return (res && res.path) ? { sfxPath: res.path, sfxCut: null } : null;
 }
 
 async function create() {
@@ -35,7 +62,8 @@ async function create() {
     let sfxClip = null;
     try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }      // falls back to the original sound
     const res = await window.sa.apply({
-        animationId: a.id, text, start, end, sfxPath: sfxClip || undefined,
+        animationId: a.id, text, start, end,
+        sfxPath: (sfxClip && sfxClip.sfxPath) || undefined, sfxCut: (sfxClip && sfxClip.sfxCut) || undefined,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
         textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false, place: placeOptions(),
         linked: m.linked !== false,

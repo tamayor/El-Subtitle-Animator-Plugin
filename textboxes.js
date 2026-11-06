@@ -987,10 +987,10 @@
 // preset on its gallery card. It is correct as it stands: frames are shown 1:1 at the speed they were captured at.
 //   - Do NOT re-time, re-scale, compress, re-order, "optimise" or refactor frames(), prepare(), geometry(), draw()
 //     or frameIndex().
-//   - Do NOT replace the capture frame rate (a.preview.fps / a.preview.step) with the live timeline fps (fpsNow()).
-//     That mismatch is exactly what once made previews look wrong (wrong speed, cut off, missing words).
+//   - draw() and frameIndex() are the stable version from commit 122295f (restored at the user's request): frames
+//     play 1x at the timeline fps over a 3-second window, and cards show cardView() (the subtitle render once in).
 //   - Do NOT make drawSynthetic() win over real Fusion frames.
-// Cards always play the preset's own saved sample render (cardView / timeline subtitle are NOT used here).
+//   - The alignment-timeline scrub viewer draws through SAPreview (below), which reuses these exact functions.
 // If a card ever looks wrong, tell the user and ask before touching anything here. The user must explicitly approve
 // any change to this block. Unrelated edits elsewhere in this file are fine.
 // ================================================================================================================
@@ -1134,15 +1134,14 @@
     function draw(cv, t) {
         const a = libEntry(cv.dataset.id);
         if (!a) return;
-        // Cards show the preset's own saved animation (sample text). The SELECTED preset's card mirrors the viewer:
-        // the real Resolve render of the preset with the subtitle and any Use-tab edits, once that render is in.
-        const sub = '';
-        let view = a;
-        try { if (typeof cardView === 'function' && typeof state !== 'undefined' && state.tab === 'apply' && state.selectedId === a.id) view = cardView(a) || a; } catch (e) { view = a; }
+        const sub = activeSubtitleText();
+        // The card shows the same render as the viewer: your subtitle (and, for the selected preset, your Use tab
+        // changes) once it has been rendered, the preset's own sample render until then.
+        const view = (typeof cardView === 'function') ? cardView(a) : a;
         const imgs = frames(view);
         // Real Fusion frames always win: they are the preset's own nodes and keyframes, never re-animated here.
         if (!framesReady(imgs) || geometry(view, imgs).blank) {
-            drawSynthetic(cv, a, t, sub, true);
+            drawSynthetic(cv, a, t, sub);
             return;
         }
         const g = geometry(view, imgs);
@@ -1158,20 +1157,125 @@
         c.drawImage(src, g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
     }
 
-    // PROTECTED (see header above): playback speed is the speed the frames were CAPTURED at (a.preview.fps), not the
-    // live timeline fps, so the card shows exactly what Resolve rendered: frame 0 at 0 ms, the last frame at ~3 s.
+    // Restored from the stable version (commit 122295f) at the user's request.
     function frameIndex(a, imgs, t) {
         const total = imgs ? imgs.length : 0;
         if (total <= 1) return 0;
-        const pv = (a && a.preview) || {};
-        const fps = Number(pv.fps) || (typeof fpsNow === 'function' ? fpsNow() : 0) || 25;
-        const step = Math.max(1, Number(pv.step) || 1);
+        const fps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
+        // 1x real-time playback: calculate the real timeline frame over the 3-second window
         const elapsedMs = ((t % LOOP_MS) + LOOP_MS) % LOOP_MS;
-        // Real-time 1x over the 3-second window; if the animation is shorter than 3 s the last frame is held.
-        return Math.min(total - 1, Math.floor(((elapsedMs / 1000) * fps) / step));
+        const f = Math.floor((elapsedMs / 1000) * fps);
+        // Cut at first 3 seconds: do not compress. If animation is longer, cut after 3s; if shorter, hold last frame.
+        return Math.min(total - 1, f);
     }
 
     // ===== END PROTECTED: preset card preview playback (frames / prepare / geometry / draw / frameIndex) =====
+
+    // ============================================================================================================
+    // SAPreview — the preset-card preview as one reusable component.
+    // It draws a preset's real Resolve frames with exactly the card's look (the same frames() cache, the same text
+    // crop from geometry(), the same background and the same fit), at any canvas size: at the card's own size
+    // (208 x 116) the result is identical to draw() above, bigger canvases are the same picture scaled up.
+    // It only READS the protected helpers above; it never changes how the cards play.
+    //   loop  mode: plays the capture on repeat with the cards' 3-second timing (frameIndex / LOOP_MS)
+    //   scrub mode: shows the one captured frame the caller asks for (the alignment timeline playhead)
+    // ============================================================================================================
+    const CARD_W = 208, CARD_H = 116;
+
+    // 'none' (no frames yet) | 'loading' | 'broken' (a file can't be read) | 'blank' (render holds no text) | 'ready'
+    function pvStatus(view) {
+        if (!view || !view.preview || !view.previewFiles || !view.previewFiles.length) return 'none';
+        const imgs = frames(view);
+        if (!imgs || !imgs.length) return 'loading';
+        if ((imgs._unique || imgs).some(i => i.complete && !i.naturalWidth)) return 'broken';
+        if (!framesReady(imgs)) return 'loading';
+        return geometry(view, imgs).blank ? 'blank' : 'ready';
+    }
+    function pvCount(view) { const imgs = view && frames(view); return imgs ? imgs.length : 0; }
+    // Which captured frame the cards show at clock time ms (holds the last frame until the 3 s loop restarts).
+    function pvLoopIndex(view, ms) { const imgs = frames(view); return imgs ? frameIndex(view, imgs, ms) : 0; }
+
+    // Paints captured frame idx of view onto cv. Returns true when a real frame was drawn.
+    function pvPaint(cv, view, idx) {
+        if (pvStatus(view) !== 'ready') return false;
+        const imgs = frames(view);
+        const i = clampN(Math.floor(idx) || 0, 0, imgs.length - 1);
+        const g = geometry(view, imgs);
+        const c = cv.getContext('2d');
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        c.globalAlpha = 1;
+        c.filter = 'none';
+        c.fillStyle = (imgs._cardBg || imgs[i]._bg) === 'white' ? '#ffffff' : '#000';
+        c.fillRect(0, 0, cv.width, cv.height);
+        const k = cv.width / CARD_W;                       // margins and zoom cap scale with the canvas, as on a card
+        const scale = Math.min((cv.width - 14 * k) / g.rw, (cv.height - 10 * k) / g.rh, 3 * k);
+        const dw = g.rw * scale, dh = g.rh * scale;
+        c.imageSmoothingQuality = 'high';
+        const src = imgs[i]._keyed || imgs[i];
+        try { c.drawImage(src, g.x0, g.y0, g.rw, g.rh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh); } catch (e) { return false; }
+        return true;
+    }
+    // The built-in animation the cards fall back to while there are no real frames.
+    function pvPaintOwn(cv, a, ms) { drawSynthetic(cv, a, ms, '', true); }
+
+    // Gives the canvas the card's shape at its on-screen width (Retina included). Returns true when it was resized.
+    function pvFit(cv, maxCss) {
+        const dpr = window.devicePixelRatio || 1;
+        const cssW = Math.min(cv.clientWidth || CARD_W, maxCss || 1e9);
+        const W = Math.max(CARD_W, Math.round(cssW * dpr)), H = Math.round(W * CARD_H / CARD_W);
+        if (!cv._pvStyled) { cv.style.aspectRatio = CARD_W + ' / ' + CARD_H; cv._pvStyled = true; }
+        if (cv.width === W && cv.height === H) return false;
+        cv.width = W; cv.height = H;
+        return true;
+    }
+
+    // A preview player bound to one canvas.
+    //   const p = SAPreview.create(canvas, { view: () => preset, synthetic: true });
+    //   p.play()          loop the 3 seconds (onFrame(idx) is called for every new frame shown)
+    //   p.show(idx)       scrub: show captured frame idx
+    //   p.stop()
+    function pvCreate(cv, opts) {
+        const o = Object.assign({ view: null, synthetic: false, onFrame: null }, opts || {});
+        let raf = 0, t0 = 0, lastIdx = -1;
+        const viewOf = () => (typeof o.view === 'function' ? o.view() : o.view);
+        const api = {
+            canvas: cv,
+            status: () => pvStatus(viewOf()),
+            count: () => pvCount(viewOf()),
+            fit: (maxCss) => pvFit(cv, maxCss),
+            show(idx) {
+                const v = viewOf();
+                if (pvPaint(cv, v, idx)) return true;
+                if (o.synthetic && v) pvPaintOwn(cv, v, 0);
+                return false;
+            },
+            play(onFrame) {
+                api.stop();
+                if (onFrame) o.onFrame = onFrame;
+                t0 = performance.now(); lastIdx = -1;
+                const tick = (now) => {
+                    raf = requestAnimationFrame(tick);
+                    const v = viewOf();
+                    if (pvStatus(v) !== 'ready') {
+                        t0 = now;                          // start from the first frame once the render is in
+                        if (o.synthetic && v) pvPaintOwn(cv, v, now);
+                        return;
+                    }
+                    const i = pvLoopIndex(v, now - t0);
+                    if (i === lastIdx) return;
+                    lastIdx = i;
+                    pvPaint(cv, v, i);
+                    if (o.onFrame) { try { o.onFrame(i, v); } catch (e) { /* ignore */ } }
+                };
+                raf = requestAnimationFrame(tick);
+                return api;
+            },
+            stop() { if (raf) cancelAnimationFrame(raf); raf = 0; return api; },
+            playing: () => !!raf
+        };
+        return api;
+    }
+    window.SAPreview = { create: pvCreate, paint: pvPaint, paintOwn: pvPaintOwn, status: pvStatus, count: pvCount, loopIndex: pvLoopIndex, fit: pvFit, LOOP_MS, CARD_W, CARD_H };
 
     // Normalized text bounds over the whole animation, or null while the frames are not loaded.
     function bounds(a) {

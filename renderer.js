@@ -3120,8 +3120,29 @@ function setScrub(ctx, on) {
     renderTimeline(ctx);
 }
 
-// Loops the real captured animation (the first 3 seconds, rendered by Resolve with the subtitle and the current
-// settings) at the speed it was captured at, from where the text starts. Dragging or stepping stops it.
+// What the scrub viewer shows: the same render the selected preset's card plays (cardView: the subtitle / Use-tab
+// render once it is in, the preset's own sample render until then).
+//   a: the preset   view: what to draw   pending: a subtitle render is on its way   failed: that render failed
+function scrubSource(ctx) {
+    const m = ctx.model();
+    if (!m) return null;
+    const a = libEntry(m.id) || (ctx.s === 'U' ? selected() : null);
+    if (!a) return null;
+    if (ctx.s !== 'U') {
+        return { a, view: a, pending: !!(window.SAThumbs && SAThumbs.isBusy && SAThumbs.isBusy(a.id)), failed: false };
+    }
+    let view = a;
+    try { view = (typeof cardView === 'function' ? cardView(a) : a) || a; } catch (e) { view = a; }
+    const u = state.use;
+    let wants = false;
+    try { wants = !!(u && u.id === a.id && (normSub(currentSubText()) || (u.designRev || 0) > 0 || boxOverrides(u, a))); } catch (e) { wants = false; }
+    const failed = view === a && wants && !!u._renderFailed && !u.rendering;
+    const pending = view === a && wants && !failed;
+    return { a, view, pending, failed };
+}
+
+// Loops the real captured animation exactly like the preset cards do (SAPreview loop timing: 3 seconds, 1x),
+// from where the text starts, with the pink playhead following along. Dragging or stepping stops it.
 function startScrubLoop(ctx) {
     const S = ctx.s;
     stopScrubLoop(ctx);
@@ -3130,23 +3151,20 @@ function startScrubLoop(ctx) {
     state.scrubLoop[S] = L;
     const b = $('scrubLoop' + S);
     if (b) b.classList.add('on');
-    const tick = () => {
+    const tick = (now) => {
         if (state.scrubLoop[S] !== L) return;
         const m = ctx.model();
         if (!m || !state.scrub[S].on || !ctxVisible(ctx)) { stopScrubLoop(ctx); return; }
         const src = scrubSource(ctx);
         const g = geometry(m);
-        if (src && !src.pending && src.view.previewFiles && src.view.previewFiles.length) {
-            const pv = src.view.preview || {};
-            const pfps = Number(pv.fps) > 0 ? Number(pv.fps) : g.fps;
-            const step = Math.max(1, Number(pv.step) || 1);
-            const durF = Math.max(1, src.view.previewFiles.length * step * g.fps / pfps);
-            const tf = g.textS + (((performance.now() - L.t0) / 1000 * g.fps) % durF);
-            state.scrub[S].f = Math.floor(tf + 1e-6);
+        if (src && window.SAPreview && SAPreview.status(src.view) === 'ready') {
+            const idx = SAPreview.loopIndex(src.view, now - L.t0);
+            const tf = g.textS + idx;
+            state.scrub[S].f = tf;
             const sc = ctx.scale, ph = document.querySelector('#tl' + S + ' .ph.scrub');
             if (ph && sc) ph.style.left = ((tf - sc.lo) * sc.ppf) + 'px';
             scrubDraw(ctx, tf);
-        } else L.t0 = performance.now();       // waiting for the render: start from the first frame once it is in
+        } else L.t0 = now;       // waiting for the frames: start from the first one once they are in
         L.raf = requestAnimationFrame(tick);
     };
     L.raf = requestAnimationFrame(tick);
@@ -3251,12 +3269,13 @@ function scrubPaint(ctx, tf, tries) {
     const tfi = Math.floor(tf + 1e-6);                                    // same rounding as playback, so both land on the same frame
     const rel = tfi - g.textS;
     const live = rel >= 0 && tfi <= g.textE;
-    // timeline frame -> captured frame: honour the fps / step the preview was captured at, hold the last frame past its end
+    const P = window.SAPreview;
     const pvm = view.preview || {};
-    const pvTotal = (view.previewFiles && view.previewFiles.length) || 0;
-    const pvRatio = (Number(pvm.fps) > 0 && g.fps > 0) ? Number(pvm.fps) / g.fps : 1;
-    const pvStep = Math.max(1, Number(pvm.step) || 1);
-    const idx = clamp(Math.floor(Math.max(0, rel) * pvRatio / pvStep + 1e-6), 0, Math.max(0, pvTotal - 1));
+    // timeline frame -> captured frame, 1x like the cards (SAPreview loop): frame n of the text is captured frame n,
+    // the last frame is held past the end of the capture
+    const pvTotal = P ? P.count(view) : 0;
+    const idx = clamp(Math.max(0, rel), 0, Math.max(0, pvTotal - 1));
+    const pvState = P ? P.status(view) : 'none';
     const info = $('scrubInfo' + S), msg = $('scrubMsg' + S);
     const srel = tfi - g.sfxS;
     const hasSfx = m.useSfx !== false && !!currentSfxPath(m);
@@ -3268,28 +3287,19 @@ function scrubPaint(ctx, tf, tries) {
             + '<span class="scrub-keys">← → step · Shift ×5</span>';
         if (info._html !== html) { info._html = html; info.innerHTML = html; }
     }
-    let fr = null, note = '', fixBtn = false, noteTip = '';
+    let fr = false, note = '', fixBtn = false, noteTip = '';
     const again = (n) => { if (n < 40 && state.scrub[S].on && !state.preview) setTimeout(() => { if (state.scrub[S].on && !state.preview) scrubDraw(ctx, state.scrub[S].f, n + 1); }, 200); };
-    if (src.pending) note = live ? 'Rendering your subtitle in Resolve…' : '';
-    else if (!(a.preview && a.previewFiles && a.previewFiles.length)) note = 'No preview frames yet for this preset';
+    // While a subtitle render is on its way the preset's own frames keep showing (the info line says it is rendering).
+    if (pvState === 'none') note = src.pending ? (live ? 'Rendering your subtitle in Resolve…' : '') : 'No preview frames yet for this preset';
     else if (live) {
-        // the keyed (transparent) frame when it is available, otherwise the rendered frame itself (it is rendered on black)
-        if (window.SAThumbs && SAThumbs.ready(view)) fr = SAThumbs.keyedFrame(view, idx, true);
-        if (!fr) {
-            const imgs = previewImages(view);
-            const im = imgs && imgs.length ? imgs[clamp(idx, 0, imgs.length - 1)] : null;
-            if (im && im.complete && im.naturalWidth) fr = im;
-            else if (im && im.complete && !im.naturalWidth) {
-                // the file is listed but cannot be read: it is gone from disk or damaged
-                note = 'This preset\'s preview frames can\'t be read';
-                fixBtn = true;
-                noteTip = String(im.src || '').replace(/^file:\/\//, '');
-            } else {
-                note = 'Loading frames…';
-                if (im && !im.complete) im.addEventListener('load', () => { if (state.scrub[S].on && !state.preview) scrubDraw(ctx, state.scrub[S].f); }, { once: true });
-                again(tries || 0);
-            }
-        }
+        if (pvState === 'ready') fr = true;
+        else if (pvState === 'broken') {
+            // a file is listed but cannot be read: it is gone from disk or damaged
+            note = 'This preset\'s preview frames can\'t be read';
+            fixBtn = true;
+            noteTip = String((view.previewFiles && view.previewFiles[0]) || '');
+        } else if (pvState === 'blank') note = 'This preset\'s preview came back empty';
+        else { note = 'Loading frames…'; again(tries || 0); }
     }
     const loadingLive = live && !fr && !fixBtn && note === 'Loading frames…';
     if (msg && (msg._note !== note + '|' + fixBtn)) {
@@ -3304,40 +3314,20 @@ function scrubPaint(ctx, tf, tries) {
             msg.appendChild(bt);
         }
     }
-    // Same look as the preset cards: a wide black frame (never the timeline's shape, which can be vertical) with the
-    // text filling it. Real frames are cropped to where the text lives; the crop is taken from the whole animation,
-    // so it stays put while you scrub.
-    const AR = 2.1;
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = cv.clientWidth || 320;
-    const W = Math.round(cssW * dpr), H = Math.round(cssW / AR * dpr);
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; cv._sig = null; }
-    if (!cv._styled) { cv.style.aspectRatio = AR.toFixed(4); cv.style.maxWidth = '560px'; cv._styled = true; }
+    // The SAPreview component draws it: the preset card's exact picture (same frames, crop, background and fit),
+    // only bigger, so the scrub viewer and the card always match.
+    if (!cv._styled) { cv.style.maxWidth = '560px'; cv._styled = true; }
+    if (P && P.fit(cv, 560)) cv._sig = null;
     // Frames still decoding: keep showing the last picture instead of flashing black on every step.
     if (loadingLive && cv._sig) return;
-    const sig = [m.id, pvm.stamp || 0, src.pending ? 'p' : '', W, H, fr ? idx : (live ? 'x' : 'off'), fr ? 1 : 0].join('|');
+    const sig = [m.id, view === a ? 'own' : 'sub', pvm.stamp || 0, cv.width, cv.height, fr ? idx : (live ? 'x' : 'off')].join('|');
     if (cv._sig === sig) return;
     cv._sig = sig;
+    if (fr && P.paint(cv, view, idx)) return;
     const c = cv.getContext('2d');
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.fillStyle = '#000';
-    c.fillRect(0, 0, W, H);
-    if (fr) {
-        const fw = fr.width || fr.naturalWidth || 1, fh = fr.height || fr.naturalHeight || 1;
-        let nb = null;
-        try { nb = window.SAThumbs ? SAThumbs.bounds(view) : null; } catch (e) { nb = null; }
-        let sx = 0, sy = 0, sw = fw, sh = fh;
-        if (nb) {
-            const tw = Math.max(8, (nb.x1 - nb.x0) * fw), th = Math.max(8, (nb.y1 - nb.y0) * fh);
-            const rw = Math.max(tw * 1.22, th * 1.4 * AR, fw * 0.12);
-            const rh = rw / AR;
-            sw = rw; sh = rh;
-            sx = ((nb.x0 + nb.x1) / 2) * fw - rw / 2;
-            sy = ((nb.y0 + nb.y1) / 2) * fh - rh / 2;
-        } else if (fw / fh > AR) { sw = fh * AR; sx = (fw - sw) / 2; }
-        else { sh = fw / AR; sy = (fh - sh) / 2; }
-        try { c.drawImage(fr, sx, sy, sw, sh, 0, 0, W, H); } catch (e) { /* frame not ready */ }
-    }
+    c.fillRect(0, 0, cv.width, cv.height);
 }
 
 // Moves the pink playhead to frame tf, shows that frame and (while dragging / stepping) plays a blip of the sound.

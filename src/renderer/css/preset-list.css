@@ -1,0 +1,530 @@
+/* Preset list and responsive grid / gallery views. */
+
+/* ---------------------------------------------------------------- preset list & responsive grid view */
+.view-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1px;
+    gap: 1px;
+    user-select: none;
+    -webkit-user-select: none;
+    flex: 0 0 auto;
+}
+
+.view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--dim);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+    -webkit-text-fill-color: var(--dim);
+}
+
+.view-btn svg {
+    flex: 0 0 auto;
+    opacity: 0.8;
+}
+
+.view-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+    -webkit-text-fill-color: var(--text);
+}
+
+.view-btn.on {
+    color: #e5ece7;
+    background: var(--card-inner);
+    border-color: var(--matcha-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    -webkit-text-fill-color: #e5ece7;
+}
+
+.view-btn.on svg {
+    color: var(--matcha);
+    opacity: 1;
+}
+
+/* Default / List view */
+.grid,
+.grid.view-list {
+    grid-template-columns: 1fr;
+    gap: 6px;
+}
+
+.grid .card,
+.grid.view-list .card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 34px 4px 4px;
+    min-height: 0;
+}
+
+.grid .card .thumb-wrap,
+.grid.view-list .card .thumb-wrap {
+    flex: none;
+    width: 104px;
+}
+
+.grid .card .thumb,
+.grid .card .thumb.empty,
+.grid.view-list .card .thumb,
+.grid.view-list .card .thumb.empty {
+    display: block;
+    width: 104px;
+    height: 58px;
+    border-radius: 6px;
+    background: #000;
+}
+
+.grid .card .thumb.empty,
+.grid.view-list .card .thumb.empty {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--line);
+}
+
+.grid .card .thumb.empty button,
+.grid.view-list .card .thumb.empty button {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.grid .card .nm,
+.grid.view-list .card .nm {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    font-size: 12.5px;
+}
+
+.grid .card .sub,
+.grid.view-list .card .sub {
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: none;
+    color: var(--matcha);
+    font-size: 12px;
+}
+
+.grid .card .sub:empty,
+.grid.view-list .card .sub:empty {
+    display: none;
+}
+
+.grid .card .play,
+.grid.view-list .card .play {
+    top: 50%;
+    bottom: auto;
+    right: 6px;
+    transform: translateY(-50%);
+}
+
+/* Responsive Grid View */
+.grid.view-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+}
+
+.grid.view-grid .card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px 6px 8px;
+    gap: 6px;
+    min-height: 0;
+    position: relative;
+}
+
+.grid.view-grid .card .thumb-wrap {
+    width: 100%;
+    aspect-ratio: 16/9;
+    flex: none;
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+}
+
+.grid.view-grid .card .thumb,
+.grid.view-grid .card .thumb.empty {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+}
+
+.grid.view-grid .card .thumb.empty {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--line);
+}
+
+.grid.view-grid .card .thumb.empty button {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.grid.view-grid .card .nm {
+    font-size: 11.5px;
+    line-height: 1.35;
+    font-weight: 600;
+    padding: 2px 18px 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.grid.view-grid .card .sub {
+    font-size: 11px;
+    color: var(--matcha);
+    padding: 0;
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+}
+
+.grid.view-grid .card .sub:empty {
+    display: none;
+}
+
+.grid.view-grid .card .tag-dots {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+}
+
+.grid.view-grid .card .play {
+    top: auto;
+    bottom: 6px;
+    right: 6px;
+    transform: none;
+}
+
+/* Gallery View (horizontal one-row carousel with dot indicators) */
+.grid.view-gallery {
+    display: block;
+    width: 100%;
+}
+
+.gallery-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    position: relative;
+}
+
+.gallery-viewport-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    position: relative;
+}
+
+.gallery-arrow {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.gallery-arrow:hover:not(:disabled) {
+    background: var(--matcha-tint);
+    border-color: var(--matcha-border);
+    color: var(--matcha);
+    transform: scale(1.08);
+}
+
+.gallery-arrow:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.gallery-arrow:disabled {
+    opacity: 0.22;
+    cursor: default;
+    pointer-events: none;
+}
+
+.gallery-track {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 4px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+
+.gallery-track::-webkit-scrollbar {
+    height: 4px;
+}
+
+.gallery-track::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gallery-track::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 2px;
+}
+
+.gallery-track:focus {
+    outline: none;
+}
+
+.grid.view-gallery .card {
+    flex: 0 0 190px;
+    max-width: 190px;
+    scroll-snap-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px 6px 8px;
+    gap: 6px;
+    min-height: 0;
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    box-sizing: border-box;
+}
+
+.grid.view-gallery .card:hover {
+    border-color: var(--line-soft);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.grid.view-gallery .card.sel {
+    border-color: var(--matcha-border);
+    background: var(--matcha-tint);
+    box-shadow: 0 0 0 1px var(--matcha-border), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.grid.view-gallery .card .thumb-wrap {
+    width: 100%;
+    aspect-ratio: 16/9;
+    flex: none;
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+}
+
+.grid.view-gallery .card .thumb,
+.grid.view-gallery .card .thumb.empty {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+}
+
+.grid.view-gallery .card .nm {
+    font-size: 11.5px;
+    line-height: 1.35;
+    font-weight: 600;
+    padding: 2px 18px 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+    color: var(--text);
+}
+
+.grid.view-gallery .card .sub {
+    font-size: 11px;
+    color: var(--matcha);
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+}
+
+.grid.view-gallery .card .tag-dots {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+}
+
+.gallery-indicator-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 0 4px;
+}
+
+.gallery-name-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 3px 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--line);
+    max-width: 90%;
+    transition: all 0.2s ease;
+}
+
+.gallery-name-pill .gallery-active-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--matcha);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.gallery-dots-scroll {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 4px 8px;
+    scrollbar-width: none;
+}
+
+.gallery-dots-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.gallery-dots {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px;
+}
+
+.gallery-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex: 0 0 auto;
+}
+
+.gallery-dot:hover {
+    background: rgba(255, 255, 255, 0.55);
+    transform: scale(1.2);
+}
+
+.gallery-dot.active {
+    background: var(--matcha);
+    width: 18px;
+    border-radius: 4px;
+    box-shadow: 0 0 6px rgba(100, 210, 150, 0.4);
+}
+
+.row-end {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.xform-title.xf-toggle {
+    cursor: pointer;
+}
+
+.xform-title.xf-toggle::before {
+    content: '\25be';
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--dim);
+}
+
+.xform-section.xf-collapsed .xform-title.xf-toggle::before {
+    content: '\25b8';
+}
+
+.xform-section.xf-collapsed> :not(.xform-header) {
+    display: none;
+}
+
+.xform-section.xf-collapsed .xform-header {
+    border-bottom: 0;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.bx-box.live {
+    background: transparent;
+}
+
+.bx-box.live.sel {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.card .thumb-wrap {
+    position: relative;
+}
+
+.card .thumb-badge {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    font-size: 9.5px;
+    color: var(--dim);
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+.card .thumb-badge button {
+    font-size: 9.5px;
+    padding: 0 4px;
+}

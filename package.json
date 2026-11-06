@@ -3,7 +3,15 @@
     "version": "1.0.0",
     "description": "El Subtitle Animator - Workflow Integration plugin for DaVinci Resolve Studio",
     "main": "main.js",
+    "private": true,
     "scripts": {
-        "start": "electron ."
+        "start": "electron .",
+        "lint": "eslint .",
+        "check": "eslint . && node tools/check-load-order.js"
+    },
+    "devDependencies": {
+        "acorn": "^8.19.0",
+        "eslint": "^9.39.5",
+        "globals": "^17.14.0"
     }
 }

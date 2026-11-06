@@ -23,7 +23,14 @@ if [ -d "$OLD_DEST" ]; then
     sudo rm -rf "$OLD_DEST"
 fi
 sudo mkdir -p "$DEST"
-sudo rsync -a --delete --exclude 'install.command' --exclude 'README.txt' "$HERE/" "$DEST/"
+# Only what the plugin needs at runtime: manifest.xml, package.json, main.js and src/ (dev-only files left by
+# older installs are removed from the plugin folder).
+sudo rsync -a --delete --delete-excluded \
+    --exclude '.git' --exclude '.gitignore' --exclude '.DS_Store' --exclude '__pycache__' \
+    --exclude 'node_modules' --exclude '_archive' --exclude '_debug' --exclude 'tools' \
+    --exclude 'install.command' --exclude '*.md' --exclude 'README.txt' --exclude 'eslint.config.mjs' \
+    --exclude 'package-lock.json' \
+    "$HERE/" "$DEST/"
 sudo cp "$NODE" "$DEST/WorkflowIntegration.node"
 sudo chown -R "$(whoami)" "$DEST"
 

@@ -1,0 +1,320 @@
+/* Create tab. */
+
+/* ---------------------------------------------------------------- Create tab */
+.cr-head {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 12px;
+}
+
+.cr-sub {
+    font-size: 11.5px;
+    color: var(--dim);
+    line-height: 1.4;
+}
+
+.cr-step {
+    display: flex;
+    gap: 11px;
+    position: relative;
+    padding-bottom: 14px;
+}
+
+.cr-step:not(.last)::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 26px;
+    bottom: 2px;
+    width: 1px;
+    background: var(--line);
+}
+
+.cr-num {
+    flex: none;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--matcha);
+    background: var(--matcha-tint);
+    border: 1px solid var(--matcha-border);
+    position: relative;
+    z-index: 1;
+}
+
+.cr-num.done {
+    background: var(--matcha);
+    color: var(--matcha-ink);
+    border-color: var(--matcha);
+}
+
+.cr-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.cr-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 3px 0 7px;
+}
+
+.cr-opt {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--dim);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 1px 7px;
+    margin-left: 5px;
+    vertical-align: 1px;
+}
+
+.cr input[type=text] {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.cr-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cr-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    text-align: left;
+    padding: 11px 12px;
+    min-height: 74px;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    transition: border-color .15s ease, background-color .15s ease, transform .1s ease;
+}
+
+.cr-tile.drop {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 18px 14px;
+    min-height: 106px;
+    gap: 4px;
+    border-style: dashed;
+    border-color: var(--matcha-border);
+    background: rgba(140, 207, 142, 0.04);
+}
+
+.cr-tile.drop .cr-ico {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    border-radius: 8px;
+    margin-bottom: 2px;
+}
+
+.cr-tile.drop .cr-tl {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cr-tile.drop .cr-ts {
+    font-size: 11.5px;
+    color: var(--dim);
+}
+
+.cr-tile.thin,
+#useSelected {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    min-height: 36px;
+    border-radius: 8px;
+}
+
+.cr-tile.thin .cr-ico,
+#useSelected .cr-ico {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    margin: 0;
+    border-radius: 5px;
+    flex: none;
+}
+
+.cr-tile.thin .cr-tl,
+#useSelected .cr-tl {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex: none;
+}
+
+.cr-tile.thin .cr-ts,
+#useSelected .cr-ts {
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cr-tile.thin .cr-ts::before,
+#useSelected .cr-ts::before {
+    content: '·';
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--dim);
+    opacity: 0.6;
+}
+
+.cr-tile:hover {
+    border-color: var(--matcha);
+    background: var(--matcha-tint);
+}
+
+.cr-tile:active {
+    transform: scale(0.985);
+}
+
+.cr-tile:focus-visible,
+.cr-sfx:focus-visible {
+    outline: 2px solid var(--matcha-border);
+    outline-offset: 2px;
+}
+
+.cr-tile.chosen {
+    border-style: solid;
+    border-color: var(--matcha);
+    background: var(--matcha-tint);
+    box-shadow: 0 0 0 1px var(--matcha-border) inset;
+}
+
+.cr-tile.chosen .cr-ico {
+    background: var(--matcha);
+    color: var(--matcha-ink);
+}
+
+.cr-ico {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    color: var(--matcha);
+    background: var(--matcha-tint);
+    margin-bottom: 3px;
+    flex: none;
+}
+
+.cr-ico.sm {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+}
+
+.cr-tl {
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.cr-ts {
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.35;
+}
+
+.cr-ts b {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.cr .picked {
+    margin-top: 8px;
+    color: var(--matcha);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cr-sfx {
+    cursor: pointer;
+    padding: 7px 8px;
+    min-height: 40px;
+    box-sizing: border-box;
+    border-radius: 10px;
+}
+
+.cr-sfx:hover {
+    border-color: var(--matcha);
+}
+
+.cr-sfx .grow {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.cr-sfx.chosen {
+    border-style: solid;
+    border-color: var(--matcha-border);
+    background: var(--matcha-tint);
+    color: var(--text);
+}
+
+.cr-sfx.chosen .cr-ico {
+    display: none;
+}
+
+.cr-sfx:not(.chosen) .cr-round {
+    display: none;
+}
+
+.cr-round {
+    width: 26px;
+    height: 26px;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    background: var(--matcha) !important;
+    color: var(--matcha-ink) !important;
+    font-size: 10px;
+    flex: none;
+}
+
+.cr-round:hover {
+    background: var(--matcha-hover) !important;
+}
+
+.cr-save {
+    width: 100%;
+    height: 40px;
+    margin-top: 2px;
+    font-size: 13px;
+}
+
+.cr .status:empty {
+    min-height: 0;
+    margin: 0;
+}
+
+.cr-def .cr-head {
+    margin-bottom: 9px;
+}

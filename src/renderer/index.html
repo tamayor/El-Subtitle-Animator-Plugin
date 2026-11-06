@@ -6,10 +6,67 @@
     <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; media-src 'self' file:; img-src 'self' file: data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:">
     <title>El Subtitle Animator</title>
-    <link rel="stylesheet" href="./css/styles.css">
-    <script src="./renderer.js" defer></script>
-    <script src="./textboxes.js" defer></script>
-    <script src="./sfxlayers.js" defer></script>
+    <!-- ORDER MATTERS: later stylesheets refine earlier ones (same cascade as the former single styles.css). -->
+    <link rel="stylesheet" href="./css/base.css">
+    <link rel="stylesheet" href="./css/sections.css">
+    <link rel="stylesheet" href="./css/cards.css">
+    <link rel="stylesheet" href="./css/alignment-timeline.css">
+    <link rel="stylesheet" href="./css/tabs.css">
+    <link rel="stylesheet" href="./css/stage.css">
+    <link rel="stylesheet" href="./css/transform-panel.css">
+    <link rel="stylesheet" href="./css/shading-inspector.css">
+    <link rel="stylesheet" href="./css/layout-modes.css">
+    <link rel="stylesheet" href="./css/text-design.css">
+    <link rel="stylesheet" href="./css/text-boxes.css">
+    <link rel="stylesheet" href="./css/preset-list.css">
+    <link rel="stylesheet" href="./css/create-tab.css">
+    <link rel="stylesheet" href="./css/tags.css">
+    <link rel="stylesheet" href="./css/popovers.css">
+    <link rel="stylesheet" href="./css/inspector-extras.css">
+    <link rel="stylesheet" href="./css/responsive.css">
+    <link rel="stylesheet" href="./css/multitext-sounds.css">
+    <link rel="stylesheet" href="./css/preset-card.css">
+    <link rel="stylesheet" href="./css/scrub.css">
+    <!-- Classic (non-module) scripts sharing one global scope. ORDER MATTERS: each file may use what the files
+         above it declare at load time; app/boot.js starts the panel and must stay last. -->
+    <script src="./js/core/bootstrap.js" defer></script>
+    <script src="./js/core/helpers.js" defer></script>
+    <script src="./js/core/waveforms.js" defer></script>
+    <script src="./js/design/fonts.js" defer></script>
+    <script src="./js/design/templates.js" defer></script>
+    <script src="./js/timeline/contexts.js" defer></script>
+    <script src="./js/timeline/alignment-timeline.js" defer></script>
+    <script src="./js/stage/images.js" defer></script>
+    <script src="./js/stage/fusion-preview.js" defer></script>
+    <script src="./js/stage/draw.js" defer></script>
+    <script src="./js/stage/interaction.js" defer></script>
+    <script src="./js/timeline/scrub.js" defer></script>
+    <script src="./js/timeline/playback.js" defer></script>
+    <script src="./js/design/inspector.js" defer></script>
+    <script src="./js/timeline/placement-menu.js" defer></script>
+    <script src="./js/live/live-preview.js" defer></script>
+    <script src="./js/design/color-fields.js" defer></script>
+    <script src="./js/design/editor-helpers.js" defer></script>
+    <script src="./js/design/text-design-fill.js" defer></script>
+    <script src="./js/design/layout.js" defer></script>
+    <script src="./js/design/save-bar.js" defer></script>
+    <script src="./js/design/text-design-bind.js" defer></script>
+    <script src="./js/timeline/adjust.js" defer></script>
+    <script src="./js/library/summaries.js" defer></script>
+    <script src="./js/library/tags.js" defer></script>
+    <script src="./js/ui/popovers.js" defer></script>
+    <script src="./js/library/preset-list.js" defer></script>
+    <script src="./js/library/create-tab.js" defer></script>
+    <script src="./js/library/settings.js" defer></script>
+    <script src="./js/core/idle.js" defer></script>
+    <script src="./js/app/actions.js" defer></script>
+    <script src="./js/app/init.js" defer></script>
+    <script src="./js/ui/drag-numbers.js" defer></script>
+    <script src="./js/dev/diagnostics.js" defer></script>
+    <script src="./js/components/text-boxes.js" defer></script>
+    <script src="./js/components/preset-preview.js" defer></script>
+    <script src="./js/components/sound-layers.js" defer></script>
+    <script src="./js/app/boot.js" defer></script>
 </head>
 
 <body class="tab-apply">

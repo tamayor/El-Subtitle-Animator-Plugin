@@ -1,0 +1,166 @@
+/* Cards and library items. */
+
+/* ---------- cards & library items (clear open/selected connection) ---------- */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    margin: 8px 0 4px;
+}
+
+.card {
+    position: relative;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 10px 9px 9px;
+    cursor: pointer;
+    min-height: 58px;
+    transition: border-color 0.14s ease, background-color 0.14s ease, transform 0.1s ease;
+}
+
+.card:hover {
+    border-color: var(--matcha-border);
+    background: #161c18;
+}
+
+.card.sel {
+    border-color: var(--strawberry);
+    background: linear-gradient(180deg, var(--strawberry-tint) 0%, rgba(240, 123, 142, 0.05) 100%);
+    box-shadow: 0 0 0 1px var(--strawberry-border);
+}
+
+.card.sel .nm {
+    color: #ffd6dc;
+}
+
+.card.over {
+    border-color: var(--matcha);
+    border-style: dashed;
+}
+
+.card .nm {
+    font-weight: 600;
+    word-break: break-word;
+    padding-right: 18px;
+}
+
+.card .sub {
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 3px;
+}
+
+.card .x {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    padding: 0 6px;
+}
+
+.card.missing .nm {
+    color: var(--bad);
+}
+
+.empty {
+    grid-column: 1 / -1;
+    color: var(--dim);
+    font-size: 12px;
+    padding: 6px 0;
+}
+
+.drop {
+    border: 1px dashed var(--matcha-border);
+    background: rgba(140, 207, 142, 0.04);
+    border-radius: 9px;
+    padding: 10px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 12px;
+}
+
+.drop.over {
+    border-color: var(--matcha);
+    color: var(--text);
+    background: var(--matcha-tint);
+}
+
+.drop.small {
+    padding: 4px 8px;
+}
+
+.sfxrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-align: left;
+}
+
+.ctl {
+    margin: 8px 0;
+}
+
+.ctl label {
+    display: flex;
+    justify-content: space-between;
+    color: var(--dim);
+    font-size: 12px;
+    margin-bottom: 3px;
+}
+
+.val {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+input[type=range] {
+    width: 100%;
+    accent-color: var(--strawberry);
+}
+
+.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 12px;
+    accent-color: var(--matcha);
+}
+
+.sfxhead {
+    margin-top: 12px;
+}
+
+footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 6px 14px 8px;
+    background: linear-gradient(to top, var(--bg) 92%, rgba(19, 22, 20, 0.95) 60%, transparent);
+    z-index: 50;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.footer-inner {
+    width: 100%;
+    max-width: 680px;
+    pointer-events: auto;
+}
+
+.status {
+    min-height: 18px;
+    margin-top: 0;
+    font-size: 12px;
+    color: var(--dim);
+}
+
+.status.ok {
+    color: var(--ok);
+}
+
+.status.bad {
+    color: var(--bad);
+}

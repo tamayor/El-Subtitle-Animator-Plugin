@@ -1,0 +1,200 @@
+/* Collapsible alignment drawer and preview stage. */
+
+/* ---------- collapsible alignment drawer & preview stage ---------- */
+.adjust-wrap {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card-inner);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.adjust-wrap.open {
+    border-color: var(--matcha-border);
+    box-shadow: 0 0 0 1px rgba(140, 207, 142, 0.18);
+}
+
+.adjust {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 9px 11px;
+}
+
+.adjust:hover {
+    background: rgba(140, 207, 142, 0.07);
+}
+
+.adjust-wrap.open .adjust {
+    background: var(--matcha-tint);
+    border-bottom: 1px solid var(--matcha-border);
+}
+
+.adjust .chev {
+    color: var(--matcha);
+    width: 12px;
+    font-weight: 700;
+}
+
+.adjust .adj-title {
+    font-weight: 600;
+}
+
+.adjust-wrap.open .adjust .adj-title {
+    color: var(--matcha-hover);
+}
+
+.adjust .adj-sum {
+    flex: 1;
+    text-align: right;
+    font-size: 11px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.adjust-body {
+    padding: 10px 11px 11px;
+}
+
+.editor-body {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+}
+
+.stage-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    margin: 4px auto 6px;
+    width: 100%;
+    max-width: 100%;
+}
+
+.stage {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    max-height: none;
+    aspect-ratio: 16 / 9;
+    background: #0d100e;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+
+.stage:hover {
+    border-color: var(--strawberry-border);
+}
+
+.stage:active {
+    cursor: grabbing;
+    border-color: var(--strawberry);
+}
+
+/* Top hover overlay on the preview viewer */
+.stage-top-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 8px 10px 16px;
+    border-radius: 9px 9px 0 0;
+    background: linear-gradient(180deg, rgba(13, 16, 14, 0.78) 0%, rgba(13, 16, 14, 0.35) 60%, transparent 100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+}
+
+.stage-box:hover .stage-top-overlay,
+.stage-box.resize-mode .stage-top-overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.stage-ov-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    height: 24px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    background: rgba(20, 25, 22, 0.9);
+    border: 1px solid var(--line);
+    color: var(--text);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+}
+
+.stage-ov-btn:hover {
+    border-color: var(--strawberry-border);
+    color: #fff;
+}
+
+.stage-ov-btn.on {
+    background: var(--matcha);
+    border-color: var(--matcha);
+    color: var(--matcha-ink);
+}
+
+.stage-ov-btn.hidden {
+    display: none;
+}
+
+.stage-resizer {
+    height: 12px;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ns-resize;
+    user-select: none;
+    touch-action: none;
+}
+
+.stage-resizer.hidden {
+    display: none;
+}
+
+.stage-resizer span {
+    width: 42px;
+    height: 4px;
+    border-radius: 99px;
+    background: var(--line);
+    transition: background-color 0.15s ease, width 0.15s ease;
+}
+
+.stage-resizer:hover span,
+.stage-resizer:active span {
+    width: 56px;
+    background: var(--strawberry);
+}
+
+.stagemsg {
+    font-size: 11px;
+    color: var(--dim);
+    min-height: 14px;
+    margin-bottom: 6px;
+    text-align: center;
+}

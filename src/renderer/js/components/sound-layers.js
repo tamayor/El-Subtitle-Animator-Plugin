@@ -3,7 +3,7 @@
 // horizontal line on it up / down to change its volume (like Resolve). Extra sounds are stored on the preset as
 // a.sfxLayers = [{ id, file, orig, enabled, volume (dB), offset (frames), align, trimIn, len, link, track }]
 // and placed next to the main sound by main.js. The main sound keeps its own fields (sfx, sfxOffset, ...).
-// Runs after renderer.js and uses its globals (state, libEntry, geometry, renderTimeline, play, dropZone, ...).
+// Runs after the panel scripts and uses their globals (state, libEntry, geometry, renderTimeline, play, dropZone, ...).
 (function () {
     'use strict';
     const $ = (id) => document.getElementById(id);

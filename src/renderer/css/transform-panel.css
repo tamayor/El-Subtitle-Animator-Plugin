@@ -1,0 +1,216 @@
+/* Resolve-style Transform panel. */
+
+/* ---------- Resolve-style Transform Panel ---------- */
+.xform-section {
+    margin: 6px 0 8px;
+    padding: 8px 10px 10px;
+    background: rgba(18, 22, 20, 0.78);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+.xform-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.xform-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: var(--text);
+    text-transform: uppercase;
+}
+
+.xform-hdr-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.xform-grid-row {
+    display: grid;
+    grid-template-columns: 96px 1fr 94px;
+    align-items: center;
+    column-gap: 8px;
+    margin: 4px 0;
+    min-height: 26px;
+}
+
+.xform-lbl {
+    font-size: 11px;
+    color: #b9c4bc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.xform-lbl:hover,
+.ctl > label:hover,
+.nums label:hover,
+.sh-border-box label:hover,
+.sh-soft-row label:hover {
+    color: #e5ece7;
+}
+
+.ctl > label,
+.nums label,
+.sh-border-box label,
+.sh-soft-row label {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: pointer;
+}
+
+.xform-slider-cell {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.xform-slider-cell .rv-slider {
+    width: 100%;
+    margin: 0;
+}
+
+.xform-num-cell {
+    display: flex;
+    align-items: center;
+    background: #0e1210;
+    border: 1px solid #2a332d;
+    border-radius: 4px;
+    padding: 0 4px 0 6px;
+    height: 24px;
+    gap: 4px;
+}
+
+.xform-num-cell:focus-within {
+    border-color: var(--matcha);
+}
+
+.xform-axis {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dim);
+    user-select: none;
+    line-height: 1;
+}
+
+.xform-num {
+    width: 100%;
+    height: 100%;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    font: 11px/1 ui-monospace, "SF Mono", Menlo, monospace !important;
+    font-variant-numeric: tabular-nums;
+    color: var(--text) !important;
+    text-align: right;
+}
+
+.xform-num:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.reset-xform-btn {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    white-space: nowrap;
+    border-radius: 5px;
+    margin: 0;
+}
+
+.zoom-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: 5px;
+    margin: 0;
+    color: var(--dim);
+    border: 1px solid var(--line);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.zoom-toggle-btn:hover {
+    color: var(--text);
+    border-color: var(--line-soft);
+}
+
+.zoom-toggle-btn.on {
+    background: var(--matcha-tint);
+    border-color: var(--matcha);
+    color: var(--matcha-hover);
+    font-weight: 600;
+}
+
+.live-sync-btn,
+.loop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: 5px;
+    margin: 0;
+    color: var(--dim);
+    border: 1px solid var(--line);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.live-sync-btn:hover,
+.loop-btn:hover {
+    color: var(--text);
+    border-color: var(--line-soft);
+}
+
+.live-sync-btn.on,
+.loop-btn.on {
+    background: var(--matcha-tint);
+    border-color: var(--matcha);
+    color: var(--matcha-hover);
+    font-weight: 600;
+}
+
+.sm-btn {
+    font-size: 10px;
+    padding: 2px 7px;
+    height: 22px;
+}
+
+.tl .pv {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ffffff;
+    opacity: 0.85;
+    pointer-events: none;
+    display: none;
+}
+
+.row.actions {
+    flex-wrap: wrap;
+}

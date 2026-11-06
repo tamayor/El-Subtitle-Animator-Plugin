@@ -1,0 +1,115 @@
+/* Tabs and the Create tab basics. */
+
+/* ---------- tabs and create tab ---------- */
+.tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 3px;
+}
+
+.tab {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: var(--dim);
+    border-radius: 7px;
+    padding: 7px 0;
+    font-weight: 600;
+}
+
+.tab:hover {
+    background: #1c221e;
+    color: var(--text);
+}
+
+.tab.on {
+    background: var(--matcha);
+    color: var(--matcha-ink);
+    box-shadow: 0 1px 6px rgba(140, 207, 142, 0.25);
+}
+
+.step {
+    margin: 12px 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--matcha);
+}
+
+.picked {
+    margin-top: 6px;
+    padding: 6px 9px;
+    border-radius: 7px;
+    background: var(--matcha-tint);
+    border: 1px solid var(--matcha-border);
+    font-size: 12px;
+}
+
+.libitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    margin: 6px 0;
+    background: var(--card-inner);
+    cursor: pointer;
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.libitem:hover {
+    border-color: var(--matcha-border);
+}
+
+.libitem.over {
+    border-color: var(--matcha);
+    border-style: dashed;
+}
+
+.libitem.sel {
+    border-color: var(--strawberry);
+    background: linear-gradient(90deg, var(--strawberry-tint) 0%, rgba(240, 123, 142, 0.04) 100%);
+    box-shadow: 0 0 0 1px var(--strawberry-border);
+}
+
+.libitem.sel .t b {
+    color: #ffd6dc;
+}
+
+.libitem .t {
+    flex: 1;
+    min-width: 0;
+}
+
+.libitem .t b {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.libitem .t span {
+    font-size: 11px;
+    color: var(--dim);
+}
+
+body.tab-create footer,
+body.tab-library footer {
+    display: none;
+}
+
+body.tab-create,
+body.tab-library {
+    padding-bottom: 24px;
+}
+
+.card .play {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    padding: 0 6px;
+}

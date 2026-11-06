@@ -127,6 +127,36 @@ const TOOLS = [
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
         }, ['subtitle', 'presetId'])
     },
+    {
+        name: 'measure_text',
+        description: 'The REAL rendered geometry of text lines: renders them as one temporary clip (same preset, textSize and Line Spacing) over the subtitle\'s end frame, measures each line\'s glyph top/bottom/centre (0..1 of the frame height) and the pitch between lines, then removes the clip. Use it instead of estimating text heights or gaps.',
+        inputSchema: S({
+            subtitle: subtitleArg,
+            presetId: { type: 'string', description: 'Preset id (or exact name) from list_presets' },
+            lines: { type: 'array', items: { type: 'string' }, description: 'The lines, one string each (or pass text with "\\n")' },
+            text: { type: 'string' },
+            textSize: { type: 'number', minimum: 0.2, maximum: 3 },
+            lineSpacing: { type: 'number', minimum: 0.3, maximum: 3, description: 'Line Spacing of the block (1 = normal)' },
+            maxSize: { type: 'number', minimum: 0.01, maximum: 1 },
+            x: { type: 'number', minimum: 0, maximum: 1 },
+            y: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of the block (default 0.5)' }
+        }, ['subtitle', 'presetId'])
+    },
+    {
+        name: 'place_stack',
+        description: 'Place a group of consecutive subtitles as a stack (one clip per subtitle, every clip but the last held until the group\'s last subtitle ends, sound keeps each subtitle\'s own length). The lines are spaced exactly like one Text+ block at lineSpacing, measured from the real rendered text, and the group is centred on y. After placing, the clips are measured again and corrected to the pixel. Never pass a track: the panel\'s Placement settings choose the layer.',
+        inputSchema: S({
+            subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'The group\'s subtitle numbers in order' },
+            presetId: { type: 'string', description: 'Preset id (or exact name) from list_presets, used for every line' },
+            texts: { type: 'array', items: { type: 'string' }, description: 'Optional text override per subtitle (same length as subtitles)' },
+            textSize: { type: 'number', minimum: 0.2, maximum: 3, description: 'Same multiplier for every line' },
+            lineSpacing: { type: 'number', minimum: 0.3, maximum: 3, description: 'The gap between the stacked lines, as a Line Spacing value (1 = like a normal multi-line caption)' },
+            maxSize: { type: 'number', minimum: 0.01, maximum: 1 },
+            x: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of every line (default 0.5)' },
+            y: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of the whole group, e.g. the middle of the captions band' },
+            sound: { type: 'boolean', description: 'false = no sound effects' }
+        }, ['subtitles', 'presetId'])
+    },
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },
     { name: 'remove_placed', description: 'Remove a clip placed through this tool (and its sound) from the timeline.', inputSchema: S({ itemId: { type: 'string' } }, ['itemId']) }
 ];

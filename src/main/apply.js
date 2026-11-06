@@ -9,7 +9,7 @@ const fs = require('fs');
 
 const state = require('./state');
 const { ANIM_DIR, SAMPLE_TEXTS } = require('./config');
-const { sfxFilePath } = require('./sfx');
+const { presetSfxName, sfxFilePath } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
 const { dlog } = require('./log');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
@@ -71,7 +71,7 @@ async function apply(event, req) {
         if (req.sfxPath && fs.existsSync(req.sfxPath)) {
             sfxPath = req.sfxPath;
         } else {
-            const sfxName = req.sfx || anim.sfx || lib.defaultSfx;
+            const sfxName = req.sfx || presetSfxName(anim) || lib.defaultSfx;
             if (sfxName) sfxPath = sfxFilePath(sfxName);
         }
         const live = !!req.live;      // Preview in Resolve: no sound yet, the clip stays a temporary one until Apply

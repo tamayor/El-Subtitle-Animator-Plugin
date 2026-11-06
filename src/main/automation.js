@@ -16,12 +16,14 @@ const crypto = require('crypto');
 const state = require('./state');
 const { ANIM_DIR, DATA_DIR } = require('./config');
 const { apply } = require('./apply');
+const { presetSfxName } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
 const { frameToTC, getProject, getSubtitles, timelineMeta } = require('./resolve');
 const LAYOUT = require('./layout');
+const STACK = require('./stack');
 
 const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'mcp-endpoint.json');
@@ -160,7 +162,7 @@ function presetInfo(lib, a) {
         multiText: nodes.some(n => n.kind === 'multitext'),
         textLayers: nodes.filter(n => !n.nested).map(n => n.kind === 'multitext' ? (n.layerName || ('Text ' + n.layer)) : n.label),
         font: td.font ? (td.font + (td.style ? ' ' + td.style : '')) : null,
-        sound: a.useSfx === false ? null : (a.sfx || lib.defaultSfx || null),
+        sound: a.useSfx === false ? null : (presetSfxName(a) || lib.defaultSfx || null),
         missing: !exists
     };
 }
@@ -653,6 +655,16 @@ const TOOLS = {
 
     async list_placed() { return placed.slice(); },
 
+    // The real rendered geometry of some lines (one temporary clip, measured from the frame, removed again).
+    async measure_text(args) { return STACK.measureText(TOOLS, args); },
+
+    // A group of consecutive subtitles as a stack, spaced from the real rendered text (see stack.js).
+    async place_stack(args) { return STACK.placeStack(TOOLS, args); },
+
+    // used by stack.js (not callable over HTTP: handle() only dispatches names without an underscore prefix)
+    _timeline: currentTimeline,
+    _subtitle: subtitleAt,
+
     // Removes a clip placed through automation (and its main sound).
     async remove_placed(args) {
         const id = String((args && args.itemId) || '');
@@ -689,7 +701,7 @@ function handle(req, res) {
     req.on('end', async () => {
         let body;
         try { body = JSON.parse(raw || '{}'); } catch (e) { return send(res, 400, { ok: false, error: 'bad JSON' }); }
-        const fn = TOOLS[body.tool];
+        const fn = /^[a-z]/.test(String(body.tool || '')) ? TOOLS[body.tool] : null;      // _helpers are internal
         if (!fn) return send(res, 404, { ok: false, error: 'unknown tool ' + body.tool });
         try {
             send(res, 200, { ok: true, result: await fn(body.args || {}) });

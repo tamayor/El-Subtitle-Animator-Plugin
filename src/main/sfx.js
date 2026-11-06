@@ -6,7 +6,7 @@
 // sound name into a path with sfxFilePath().
 
 module.exports = {
-    addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, readSfx, removeSfxOriginal,
+    addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, presetSfxName, readSfx, removeSfxOriginal,
     saveAttachedClip, saveSfxClip, sfxFilePath, useOriginalSfx
 };
 
@@ -161,6 +161,20 @@ function saveAttachedClip(event, animId, bytes, origName) {
         return { ok: true, sfx: a.sfx, sfxPath: newPath, sfxOrig: a.sfxOrig, sfxOrigPath: sfxFilePath(a.sfxOrig), path: newPath, lib: libForUI() };
     }
     return { ok: true, path: newPath, file: newFileName };
+}
+
+// The sound file a preset is placed with. A preset still pointing at an edited clip from an older version (a rendered
+// WAV with a timestamp in its name) is placed from its ORIGINAL file when that still exists, so the preset's cut
+// settings (Follow the clip / Fixed length, trim, fade) apply: the cutter leaves edited clips whole, which put the
+// full sound on the timeline no matter how short the subtitle was.
+function presetSfxName(anim) {
+    if (!anim) return null;
+    const cur = anim.sfx || null;
+    if (cur && isEditedSfxName(cur) && anim.sfxOrig) {
+        const p = sfxFilePath(anim.sfxOrig);
+        if (p && fs.existsSync(p)) return anim.sfxOrig;
+    }
+    return cur;
 }
 
 // A preset's sound is now its ORIGINAL file plus the cut settings (sfxTrimIn / sfxLen / sfxFade / sfxVolume): nothing is

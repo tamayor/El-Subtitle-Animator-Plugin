@@ -11,7 +11,7 @@ const { execFile } = require('child_process');
 
 const state = require('./state');
 const { CLIP_REG, SAMPLE_TEXTS } = require('./config');
-const { sfxFilePath } = require('./sfx');
+const { presetSfxName, sfxFilePath } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
@@ -346,7 +346,7 @@ async function liveFinish(event, req) {
         state.lastPlacedItemId = itemId;
         let sfxPath = null;
         if (req.sfxPath && fs.existsSync(req.sfxPath)) sfxPath = req.sfxPath;
-        else { const n = req.sfx || anim.sfx || lib.defaultSfx; if (n) sfxPath = sfxFilePath(n); }
+        else { const n = req.sfx || presetSfxName(anim) || lib.defaultSfx; if (n) sfxPath = sfxFilePath(n); }
         let sfxTrack = null, clipsLinked = false;
         const trackNotes = [];
         if (s.sfxId) {

@@ -33,8 +33,11 @@
         return el;
     }
     const entryOf = (ctx) => { const m = ctx.model(); return m ? libEntry(m.id) : null; };
-    const layersOf = (ctx) => { const a = entryOf(ctx); return (a && Array.isArray(a.sfxLayers)) ? a.sfxLayers : []; };
+    // Use tab: the extra sounds belong to its one-time copy (so Reset can undo them); Library: to the saved preset
+    const holderOf = (ctx) => (ctx.s === 'U' ? ctx.model() : entryOf(ctx));
+    const layersOf = (ctx) => { const a = holderOf(ctx); return (a && Array.isArray(a.sfxLayers)) ? a.sfxLayers : []; };
     function persist(ctx) {
+        if (ctx.s === 'U') { const um = ctx.model(); if (um) ctx.changed(um); return; }   // one-time edit: nothing is saved to the preset
         const a = entryOf(ctx); if (!a) return;
         const id = a.id, list = a.sfxLayers;
         clearTimeout(saveTimer);
@@ -79,7 +82,7 @@
             set(f, v) {
                 switch (f) {
                     case 'on': m.useSfx = !!v; redraw(); renderAnimations(); break;
-                    case 'volume': { m.sfxVolume = v; const a = libEntry(m.id); if (a) a.sfxVolume = v; ctx.changed(m); renderTimeline(ctx); triggerLiveSync(m, S); break; }
+                    case 'volume': { m.sfxVolume = v; ctx.changed(m); renderTimeline(ctx); triggerLiveSync(m, S); break; }
                     case 'start': m.sfxOffset = clamp(Math.round(v), -300, 300); redraw(); break;
                     case 'auto':
                         stopPreview();
@@ -187,7 +190,7 @@
         const res = await window.sa.addSfxOriginal(p);
         if (!res || res.error) { say(ctx, (res && res.error) || 'Could not add the sound', 'bad'); return; }
         if (res.lib) state.lib = res.lib;
-        const cur = entryOf(ctx) || a;
+        const cur = holderOf(ctx) || a;
         if (!Array.isArray(cur.sfxLayers)) cur.sfxLayers = [];
         const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, link: false, track: 0 };
         cur.sfxLayers.push(l);
@@ -201,21 +204,57 @@
 
     // ---------------------------------------------------------------- the shared pieces of UI
     // Replace… / Default / None / Revert for one sound. Used by the card below the timeline and by "Preset files".
-    function pickerButtons(ctx, id) {
+    function pickerButtons(ctx, id, opts) {
+        const only = opts && opts.only;
+        const want = (k) => !only || only.indexOf(k) >= 0;
         const H = () => handle(ctx, id);
         const h0 = H();
         const wrap = mk('span', 'snd-btns');
         if (!h0 || !h0.canEdit) return wrap;
         const b = (text, title, fn) => { const x = mk('button', 'ghost sm-btn', text); x.type = 'button'; x.title = title; x.addEventListener('click', (e) => { e.stopPropagation(); const h = H(); if (h) fn(h, x); }); wrap.appendChild(x); return x; };
-        b('Replace…', 'Pick a sound file', async (h) => { const p = await window.sa.pickFile('sfx'); if (p && !p.error) h.replace(p); });
-        b('Default', 'Use the default sound effect', (h) => h.useDefault());
-        b('None', 'No sound here', (h) => h.none());
-        if (h0.canRevert()) b('↺ Revert', 'Back to the original sound (undoes trimming)', (h, x) => {
+        const revert = (h, x) => {
             const go = () => h.revert();
             if (h.kind === 'main' && typeof openConfirmPop === 'function') openConfirmPop(x, { title: 'Revert audio to original sound?', message: 'Discard trimmed audio adjustments and go back to the original sound?', confirmText: 'Revert audio', danger: false, onConfirm: go });
             else go();
-        });
+        };
+        if (want('replace')) b('Replace…', 'Pick a sound file', async (h) => { const p = await window.sa.pickFile('sfx'); if (p && !p.error) h.replace(p); });
+        if (want('default')) b('Default', 'Use the default sound effect', (h) => h.useDefault());
+        if (want('none')) b('None', 'No sound here', (h) => h.none());
+        if (want('revert') && h0.canRevert()) b('↺ Revert', 'Back to the original sound (undoes trimming)', revert);
         return wrap;
+    }
+
+    // A small "⋯" menu for one sound: the less-used actions (Default / None / Revert) without a row of buttons.
+    function moreButton(ctx, id) {
+        const h0 = handle(ctx, id);
+        if (!h0 || !h0.canEdit || typeof openPop !== 'function') return document.createTextNode('');
+        const btn = mk('button', 'ghost pc-more', '⋯'); btn.type = 'button'; btn.title = 'Replace or change the sound';
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPop(btn, 'pop-menu', (el) => {
+                const H = () => handle(ctx, id);
+                const item = (icon, text, fn, cls) => {
+                    const it = mk('button', 'pop-item' + (cls ? ' ' + cls : ''));
+                    it.type = 'button';
+                    it.append(mk('span', 'pop-check', icon), mk('span', 'pop-label', text));
+                    it.addEventListener('click', () => { closePop(); const h = H(); if (h) fn(h); });
+                    el.appendChild(it);
+                };
+                item('⇄', 'Replace…', async (h) => { const p = await window.sa.pickFile('sfx'); if (p && !p.error) h.replace(p); });
+                el.appendChild(mk('div', 'pop-sep'));
+                item('♪', 'Use the default sound', (h) => h.useDefault());
+                item('∅', 'No sound', (h) => h.none());
+                const h = H();
+                if (h && h.canRevert()) {
+                    el.appendChild(mk('div', 'pop-sep'));
+                    item('↺', 'Revert to original sound', (hh) => {
+                        if (typeof openConfirmPop === 'function') openConfirmPop(btn, { title: 'Revert audio to original sound?', message: 'Discard trimmed audio adjustments and go back to the original sound?', confirmText: 'Revert audio', danger: false, onConfirm: () => hh.revert() });
+                        else hh.revert();
+                    });
+                }
+            });
+        });
+        return btn;
     }
 
     function numField(refs, label, unit, get, set, evt) {
@@ -279,7 +318,8 @@
             top.appendChild(del);
         }
         card.appendChild(top);
-        if (h0.canEdit) card.appendChild(pickerButtons(ctx, id));
+        // the main sound's Replace / Default / None live in the Files row (and its ⋯ menu); extra sounds keep theirs here
+        if (h0.canEdit && h0.kind !== 'main') card.appendChild(pickerButtons(ctx, id));
 
         // volume (also the line on the sound in the timeline)
         const vol = mk('div', 'snd-row');
@@ -479,5 +519,5 @@
         persist(ctx);
     }
 
-    window.SASounds = { sync, lanes, range, selectFor, drag, handle, pickerButtons, layersFor: layersOf, volLine, volFrac, LANE_H, LANE0 };
+    window.SASounds = { sync, lanes, range, selectFor, drag, handle, pickerButtons, moreButton, layersFor: layersOf, volLine, volFrac, LANE_H, LANE0 };
 })();

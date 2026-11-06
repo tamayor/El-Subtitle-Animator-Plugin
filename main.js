@@ -2842,7 +2842,7 @@ function saveAnimationVariant(event, req) {
         linked: req.linked !== undefined ? !!req.linked : src.linked !== false,
         textOffset: req.textOffset !== undefined ? Number(req.textOffset) || 0 : src.textOffset,
         sfxOffset: req.sfxOffset !== undefined ? Number(req.sfxOffset) || 0 : src.sfxOffset,
-        sfxLayers: Array.isArray(src.sfxLayers) ? JSON.parse(JSON.stringify(src.sfxLayers)) : [],
+        sfxLayers: Array.isArray(req.sfxLayers) ? JSON.parse(JSON.stringify(req.sfxLayers)) : (Array.isArray(src.sfxLayers) ? JSON.parse(JSON.stringify(src.sfxLayers)) : []),
         sfxVolume: req.sfxVolume !== undefined ? Number(req.sfxVolume) || 0 : src.sfxVolume,
         tail: req.tail !== undefined ? Number(req.tail) || 0 : src.tail,
         textTrack: req.textTrack !== undefined ? Number(req.textTrack) || 0 : src.textTrack,
@@ -2903,7 +2903,7 @@ async function updateLatest(event, req) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === req.animationId);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'sfxOrig'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'sfxOrig', 'sfxLayers'];
     for (const k of allowed) if (k in req && req[k] !== undefined) a[k] = req[k];
     if (req.sfxPath) {
         try {

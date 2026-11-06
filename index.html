@@ -125,7 +125,6 @@
                     </div>
                     <div id="inspectorGridU" class="inspector-grid single-col">
                         <div class="inspector-pane drawers-pane">
-                            <div id="previewU"></div>
                             <div id="boxesU" class="bx-panel"></div>
                             <div id="adjustWrapU" class="adjust-wrap open">
                                 <button id="adjustToggle" class="adjust" aria-expanded="true">
@@ -134,6 +133,7 @@
                                     <span id="adjustSummary" class="adj-sum"></span>
                                 </button>
                                 <div id="adjustBodyU" class="adjust-body"></div>
+                                <div id="saveBarWrapU"></div>
                             </div>
                             <div id="placeWrapU" class="adjust-wrap">
                                 <button type="button" id="placeToggleU" class="adjust" aria-expanded="false">
@@ -151,7 +151,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div id="saveBarWrapU"></div>
+                            <div id="previewU"></div>
                         </div>
                     </div>
                 </section>
@@ -195,7 +195,7 @@
                 <section id="editor" class="active-section hidden">
                     <div class="sec-head">
                         <div class="sec-head-left">
-                            <span class="label">Editing default settings</span>
+                            <span class="label">Preset settings</span>
                             <span id="editTitle" class="active-badge"></span>
                             <button type="button" id="revertOrigEditor" class="ghost sm-btn" title="Revert this preset back to its original .settings, text design, alignment, and sound">↺ Revert to original</button>
                         </div>
@@ -226,22 +226,33 @@
                         <div class="inspector-pane drawers-pane">
                             <div id="previewC"></div>
                             <div id="boxesC" class="bx-panel"></div>
-                            <div id="adjustWrapC" class="adjust-wrap open">
-                                <button id="adjustToggleC" class="adjust" aria-expanded="true">
-                                    <span class="chev">▾</span>
-                                    <span class="adj-title">Preset Set Up</span>
-                                    <span id="adjustSummaryC" class="adj-sum"></span>
-                                </button>
-                                <div id="filesC" class="bx-panel setup-files"></div>
-                                <div id="adjustBodyC" class="adjust-body"></div>
-                            </div>
-                            <div id="configWrapC" class="adjust-wrap">
-                                <button type="button" id="configToggleC" class="adjust" aria-expanded="false">
-                                    <span class="chev">▸</span>
-                                    <span class="adj-title">Configure</span>
-                                    <span id="configSummaryC" class="adj-sum"></span>
-                                </button>
-                                <div id="configBodyC" class="adjust-body hidden"></div>
+                            <div id="presetCardC" class="pcard">
+                                <div id="filesWrapC" class="pc-sec open">
+                                    <button type="button" id="filesToggleC" class="pc-head" aria-expanded="true">
+                                        <span class="chev">▾</span>
+                                        <span class="pc-title">Files</span>
+                                        <span id="filesSummaryC" class="pc-sum"></span>
+                                    </button>
+                                    <div id="filesBodyC" class="pc-body">
+                                        <div id="filesC" class="setup-files"></div>
+                                    </div>
+                                </div>
+                                <div id="adjustWrapC" class="pc-sec open">
+                                    <button type="button" id="adjustToggleC" class="pc-head" aria-expanded="true">
+                                        <span class="chev">▾</span>
+                                        <span class="pc-title">Alignment</span>
+                                        <span id="adjustSummaryC" class="pc-sum"></span>
+                                    </button>
+                                    <div id="adjustBodyC" class="pc-body"></div>
+                                </div>
+                                <div id="configWrapC" class="pc-sec">
+                                    <button type="button" id="configToggleC" class="pc-head" aria-expanded="false">
+                                        <span class="chev">▸</span>
+                                        <span class="pc-title">Originals</span>
+                                        <span id="configSummaryC" class="pc-sum"></span>
+                                    </button>
+                                    <div id="configBodyC" class="pc-body hidden"></div>
+                                </div>
                             </div>
                             <div id="saveBarWrapC"></div>
                         </div>

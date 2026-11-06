@@ -21,6 +21,8 @@ const state = {
     presetSearch: '',      // search query for filtering text presets
     tdOpen: false,         // is the text design panel in the Use tab expanded
     createAdjustOpen: true,// is the alignment panel in the Create tab expanded
+    createFilesOpen: true, // is the Files section of the Library preset card expanded
+    scrub: { U: { on: false, f: null }, C: { on: false, f: null } },   // frame-by-frame scrubbing of the alignment timeline (f = timeline frame of the pink playhead)
     createTdOpen: false,   // is the text design panel in the Create tab expanded
     sfxOrigOpen: false,    // is the SFX originals library accordion expanded
     live: null,            // last poll result
@@ -425,121 +427,75 @@ function cloneTextDesign(td) {
     return base;
 }
 
+// Small line icons for the alignment toolbar (they inherit the button's colour).
+const ICONS = {
+    play: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.9v10.2c0 .5.55.8.97.54l7.9-5.1a.64.64 0 0 0 0-1.08l-7.9-5.1A.64.64 0 0 0 5 2.9z"/></svg>',
+    pause: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.6" y="2.6" width="3.1" height="10.8" rx="1" fill="currentColor"/><rect x="9.3" y="2.6" width="3.1" height="10.8" rx="1" fill="currentColor"/></svg>',
+    loop: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 8V7.2A2.7 2.7 0 0 1 5.3 4.5h7.1"/><path d="m10.4 2.3 2.3 2.2-2.3 2.2"/><path d="M13.4 8v.8a2.7 2.7 0 0 1-2.7 2.7H3.6"/><path d="m5.6 13.7-2.3-2.2 2.3-2.2"/></svg>',
+    scrub: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.2 2.4h5.6a.5.5 0 0 1 .4.8L8.4 6.6a.5.5 0 0 1-.8 0L4.8 3.2a.5.5 0 0 1 .4-.8z"/><path d="M8 6v7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/><path d="M3.4 9.3 1.8 10.9l1.6 1.6M12.6 9.3l1.6 1.6-1.6 1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+};
+
 const ALIGN_HTML = (S) => `
 <div class="row between">
     <span class="aln-title">
-        <span class="label">Alignment timeline</span>
+        ${S === 'U' ? '<span class="label">Alignment timeline</span>' : ''}
         <span class="aln-play">
-            <button type="button" id="alnPlay${S}" class="ghost aln-btn" title="Play once with its sound (click again to pause)">▶</button>
-            <button type="button" id="alnMode${S}" class="ghost aln-btn" title="Loop the animation with its sound">🔁</button>
+            <button type="button" id="alnPlay${S}" class="ghost aln-btn" title="Play once with its sound (click again to pause)">${ICONS.play}</button>
+            <button type="button" id="alnMode${S}" class="ghost aln-btn" title="Loop the animation with its sound">${ICONS.loop}</button>
+            <button type="button" id="alnScrub${S}" class="ghost aln-btn aln-scrub" title="Scrub the preview frame by frame to line the sound up with the text">${ICONS.scrub}</button>
         </span>
     </span>
-    <button type="button" id="sndAdd${S}" class="ghost aln-btn" title="Add another sound (or drop a sound file on the timeline)">+ Sound</button>
+    ${S === 'C' ? '' : `<button type="button" id="sndAdd${S}" class="ghost aln-btn" title="Add another sound (or drop a sound file on the timeline)">+ Sound</button>`}
+</div>
+<div id="scrubBox${S}" class="scrub-box hidden">
+    <div class="scrub-view"><canvas id="scrubCv${S}"></canvas><div id="scrubMsg${S}" class="scrub-msg"></div><button type="button" id="scrubLoop${S}" class="sm-btn scrub-loop" title="Play the real 3 seconds of the animation (rendered in Resolve with your settings) on repeat">Loop 3s</button></div>
+    <div id="scrubInfo${S}" class="scrub-info"></div>
 </div>
 <div id="tl${S}" class="tl"></div>
-<div class="hint">Click a bar to edit it below. Drag a bar to move it, its edges to trim it, and the line on a sound up / down for its volume.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
+<div class="hint">${S === 'U' ? 'Click a bar to edit it below. Drag a bar to move it, its edges to trim it, and the line on a sound up / down for its volume. Click the ruler to move the Resolve playhead, or switch on scrubbing to step through the preview frame by frame.' : 'Click a bar to edit it. Drag to move it, drag its edges to trim, drag the line for volume.'}</div>
+${S === 'C' ? `<div class="pc-addrow"><button type="button" id="sndAddC" class="ghost aln-btn" title="Add another sound (or drop a sound file on the timeline)">+ Sound</button></div>` : ''}
 <div id="sndCard${S}" class="snd-card"></div>
 ${S === 'U' ? '<div class="row"><button id="resetU" class="ghost">Reset to this item\'s default</button></div>' : ''}`;
 
 const CONFIG_HTML = () => `
-<div class="cfg-panel">
-    <div class="hint cfg-hint">
-        Manage baseline source files for this library preset (.settings and audio). Originals are preserved and can be updated or reverted.
-    </div>
-
-    <!-- 1. .SETTINGS SECTION -->
-    <div class="cfg-group">
-        <div class="cfg-group-head">
-            <div class="cfg-group-title">
-                <span class="cfg-icon">⚙</span>
-                <strong>Fusion Template (.settings)</strong>
+<div class="pc-orig">
+    <div class="hint pc-orig-hint">Every preset keeps a pristine copy of its files. Revert to it any time, or replace the original with something new.</div>
+    <div class="pc-list">
+        <div class="pc-item">
+            <div class="pc-item-top">
+                <span class="pc-ico">⚙</span>
+                <div class="pc-text">
+                    <div class="pc-cap">Text template</div>
+                    <div id="cfgSettingOrigFile" class="pc-val" title="Preserved original in animations_orig/">—</div>
+                </div>
+                <button type="button" id="cfgSettingRevert" class="ghost pc-revert" title="Revert .settings and design back to the original">↺ Revert</button>
             </div>
-            <span id="cfgSettingStatus" class="cfg-status-pill orig">Original</span>
-        </div>
-
-        <div class="cfg-file-card">
-            <div class="cfg-file-row">
-                <span class="cfg-file-label">Active:</span>
-                <span id="cfgSettingActiveFile" class="cfg-file-name" title="Active working file in animations/">—</span>
-            </div>
-            <div class="cfg-file-row">
-                <span class="cfg-file-label">Original:</span>
-                <span id="cfgSettingOrigFile" class="cfg-file-name" title="Preserved original in animations_orig/">—</span>
-            </div>
-        </div>
-
-        <div class="cfg-action-row">
-            <button type="button" id="cfgSettingRevert" class="ghost cfg-btn-revert" title="Revert .settings and design back to original baseline">
-                ↺ Revert to original
-            </button>
-        </div>
-
-        <div class="cfg-subgroup">
-            <div class="cfg-subgroup-title">Overwrite original using:</div>
-            <div class="cfg-btn-grid">
-                <button type="button" id="cfgSettingFromTimeline" class="ghost cfg-action-btn" title="Export currently selected Text+ clip on Resolve timeline to overwrite original">
-                    <span>🎞 Selected timeline</span>
-                </button>
-                <button type="button" id="cfgSettingFromCurrent" class="ghost cfg-action-btn" title="Overwrite original with current preset settings">
-                    <span>💾 Current settings</span>
-                </button>
-            </div>
-            <div id="cfgSettingDrop" class="drop cfg-dropzone" title="Drop a .setting or .comp file or folder here to overwrite original">
-                <span class="cfg-drop-icon">📄</span>
-                <span id="cfgSettingDropText" class="grow">Drop .setting or folder here</span>
-                <button type="button" id="cfgSettingPick" class="ghost sm-btn">Pick folder / file…</button>
+            <div id="cfgSettingDrop" class="pc-item-actions drop-target" title="Drop a .setting or .comp file or folder here to overwrite the original">
+                <span class="pc-act-label">Overwrite original with</span>
+                <button type="button" id="cfgSettingFromTimeline" class="pc-chip" title="Export the selected Text+ clip on the Resolve timeline">🎞 Timeline</button>
+                <button type="button" id="cfgSettingFromCurrent" class="pc-chip" title="Use this preset's current settings">💾 Current</button>
+                <button type="button" id="cfgSettingPick" class="pc-chip" title="Pick a .setting / .comp file or folder (or drop one on this row)">📁 File…</button>
             </div>
             <input type="file" id="cfgSettingFileInput" accept=".setting,.comp" style="display:none">
         </div>
-    </div>
-
-    <!-- 2. AUDIO SECTION -->
-    <div class="cfg-group">
-        <div class="cfg-group-head">
-            <div class="cfg-group-title">
-                <span class="cfg-icon">🔊</span>
-                <strong>Sound Effect (Audio)</strong>
+        <div class="pc-item">
+            <div class="pc-item-top">
+                <span class="pc-ico">♪</span>
+                <div class="pc-text">
+                    <div class="pc-cap">Sound effect</div>
+                    <div id="cfgAudioOrigFile" class="pc-val" title="Original sound file in sfx/">—</div>
+                </div>
+                <button type="button" id="cfgAudioRevert" class="ghost pc-revert" title="Revert the audio back to the original sound">↺ Revert</button>
             </div>
-            <span id="cfgAudioStatus" class="cfg-status-pill none">None</span>
-        </div>
-
-        <div class="cfg-file-card">
-            <div class="cfg-file-row">
-                <span class="cfg-file-label">Active:</span>
-                <span id="cfgAudioActiveFile" class="cfg-file-name" title="Current attached audio in sfx/">—</span>
-                <button type="button" id="cfgAudioPlay" class="ghost sfx-mini-play" title="Preview audio">▶</button>
-                <button type="button" id="cfgAudioRemove" class="ghost sfx-del-btn" title="Detach sound effect">🗑</button>
-            </div>
-            <div class="cfg-file-row">
-                <span class="cfg-file-label">Original:</span>
-                <span id="cfgAudioOrigFile" class="cfg-file-name" title="Original sound file in sfx/">—</span>
-            </div>
-        </div>
-
-        <div class="cfg-action-row between">
-            <button type="button" id="cfgAudioRevert" class="ghost cfg-btn-revert" title="Revert audio back to original sound">
-                ↺ Revert to original audio
-            </button>
-            <div class="cfg-orig-picker-wrap">
-                <button type="button" id="cfgAudioOrigBtn" class="ghost sm-btn" title="Choose from stored original sounds">From SFX Originals ▾</button>
-                <div id="cfgAudioOrigDropdown" class="sfx-orig-dropdown hidden"></div>
-            </div>
-        </div>
-
-        <div class="cfg-subgroup">
-            <div class="cfg-subgroup-title">Overwrite original using:</div>
-            <div class="cfg-btn-grid">
-                <button type="button" id="cfgAudioFromTimeline" class="ghost cfg-action-btn" title="Use selected audio clip on Resolve timeline to overwrite original">
-                    <span>🎞 Selected timeline</span>
-                </button>
-                <button type="button" id="cfgAudioFromCurrent" class="ghost cfg-action-btn" title="Overwrite original audio with current audio">
-                    <span>💾 Current audio</span>
-                </button>
-            </div>
-            <div id="cfgAudioDrop" class="drop cfg-dropzone" title="Drop an audio file or folder here to overwrite original">
-                <span class="cfg-drop-icon">🎵</span>
-                <span id="cfgAudioDropText" class="grow">Drop audio or folder here</span>
-                <button type="button" id="cfgAudioPick" class="ghost sm-btn">Pick folder / file…</button>
+            <div id="cfgAudioDrop" class="pc-item-actions drop-target" title="Drop an audio file or folder here to overwrite the original">
+                <span class="pc-act-label">Overwrite original with</span>
+                <button type="button" id="cfgAudioFromTimeline" class="pc-chip" title="Use the selected audio clip on the Resolve timeline">🎞 Timeline</button>
+                <button type="button" id="cfgAudioFromCurrent" class="pc-chip" title="Use the current sound">💾 Current</button>
+                <button type="button" id="cfgAudioPick" class="pc-chip" title="Pick an audio file or folder (or drop one on this row)">📁 File…</button>
+                <span class="cfg-orig-picker-wrap">
+                    <button type="button" id="cfgAudioOrigBtn" class="pc-chip" title="Choose from your stored original sounds">Library ▾</button>
+                    <div id="cfgAudioOrigDropdown" class="sfx-orig-dropdown hidden"></div>
+                </span>
             </div>
             <input type="file" id="cfgAudioFileInput" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" style="display:none">
         </div>
@@ -990,7 +946,7 @@ const SAVE_BAR_HTML = (S) => `
 <div id="tdSaveBar${S}" class="td-save-bar hidden">
     <div class="row td-save-row-top">
         <button type="button" id="tdUpdateLatest${S}" class="td-btn-upd" title="Update this preset and the latest Text+ subtitle clip on your timeline">Update latest</button>
-        <button type="button" id="tdRevertOrig${S}" class="ghost sm-btn td-btn-revert" title="Revert this preset to its original .settings, text design, alignment, and sound">↺ Revert to original</button>
+        ${S === 'C' ? '' : `<button type="button" id="tdRevertOrig${S}" class="ghost sm-btn td-btn-revert" title="Revert this preset to its original .settings, text design, alignment, and sound">↺ Revert to original</button>`}
     </div>
     <div class="td-save-row-bottom">
         <span class="sh-lbl td-ver-lbl">New version</span>
@@ -1156,7 +1112,8 @@ function syncUse(force) {
             sfx: a.sfx,
             sfxPath: a.sfxPath,
             sfxOrig: a.sfxOrig,
-            sfxOrigPath: a.sfxOrigPath
+            sfxOrigPath: a.sfxOrigPath,
+            sfxLayers: Array.isArray(a.sfxLayers) ? JSON.parse(JSON.stringify(a.sfxLayers)) : []
         };
         if (keepRender) {
             state.use.tempPreview = keepRender.tempPreview;
@@ -1281,7 +1238,10 @@ function renderTimeline(ctx) {
         s.textContent = (f / g.fps).toFixed(Math.abs(f) % g.fps === 0 ? 0 : 1) + 's';
         t.appendChild(s);
     }
-    if (ctx.s === 'U') {
+    if (state.scrub[ctx.s].on) {
+        ruler.style.cursor = 'ew-resize';
+        ruler.addEventListener('pointerdown', (e) => startScrub(ctx, e));
+    } else if (ctx.s === 'U') {
         ruler.addEventListener('pointerdown', (e) => {
             const rect = box.getBoundingClientRect();
             const rel = Math.round(win.lo + (e.clientX - rect.left) / ppf);
@@ -1336,12 +1296,19 @@ function renderTimeline(ctx) {
         lk.style.left = X(g.textS) + 'px'; lk.style.top = (L0 + LH - 4) + 'px'; lk.style.height = '18px';
     }
 
-    // live Resolve playhead (Use tab only) and the preview cursor
-    if (ctx.s === 'U' && state.live && state.live.ok) {
-        const rel = state.live.frame - g.span.base;
-        if (rel >= win.lo && rel <= win.hi) { const ph = add('ph'); ph.style.left = X(rel) + 'px'; }
+    // the pink playhead is the scrubber: it only exists while scrubbing is on
+    const scr = state.scrub[ctx.s];
+    if (scr.on) {
+        if (scr.f === null || scr.f === undefined) scr.f = Math.round(g.textS);
+        scr.f = clamp(Math.round(scr.f), Math.ceil(win.lo), Math.floor(win.hi));
+        const ph = add('ph scrub'); ph.style.left = X(scr.f) + 'px';
+        const head = add('ph-head', ph);
+        head.title = 'Drag to scrub (or use the arrow keys)';
+        head.addEventListener('pointerdown', (e) => startScrub(ctx, e));
     }
     add('pv');
+
+    if (scr.on && !state.preview) scrubDraw(ctx, scr.f);
 
     // The timeline is redrawn after every press, so a double press is detected here instead of with dblclick.
     const resets = {};
@@ -1380,7 +1347,7 @@ function renderTimeline(ctx) {
     };
     resets.sfxOut = () => { m.sfxLen = null; m.sfxLenMode = 'estimate'; syncAttachedSfx(m); };
     resets.sfxFade = () => { m.sfxFade = null; syncAttachedSfx(m); };
-    resets.vol = () => { m.sfxVolume = 0; const a0 = libEntry(m.id); if (a0) a0.sfxVolume = 0; };
+    resets.vol = () => { m.sfxVolume = 0; };
     if (window.SASounds) {
         SASounds.volLine(add, sb, Number(m.sfxVolume) || 0, begin, 'vol');
         SASounds.lanes({ ctx, m, g, box, add, X, ppf, begin, resets, top0: L0 + 2 * LH });
@@ -1448,7 +1415,6 @@ function onDragMove(e) {
         let v = Math.round((Number(d.v0) - (e.clientY - d.y0) / bh * 36) * 2) / 2;
         if (Math.abs(v) <= 0.75) v = 0;
         m.sfxVolume = clamp(v, -30, 6);
-        const a0 = libEntry(m.id); if (a0) a0.sfxVolume = m.sfxVolume;
     } else if (d.kind.indexOf('lyr') === 0) {
         if (window.SASounds) SASounds.drag(d, df, e.clientY - d.y0);
     } else if (d.kind === 'text') {
@@ -1496,7 +1462,15 @@ function onDragEnd() {
 const imgCache = new Map();
 
 function redrawStages() {
-    // App preview canvas removed in favor of native Resolve timeline playback
+    // The big stage canvas is gone (playback is native in Resolve); what is left in the app is the scrub preview.
+    // It needs the preset rendered with the real subtitle, so that render is requested from here.
+    try { if (state.tab === 'apply' && state.use && selected()) ensureUsePreview(selected()); } catch (e) { /* ignore */ }
+    for (const S of ['U', 'C']) {
+        const sc = state.scrub && state.scrub[S];
+        const ctx = CTX[S];
+        if (!sc || !sc.on || !ctx || !ctxVisible(ctx) || !ctx.model()) continue;
+        scrubDraw(ctx, sc.f || 0);
+    }
 }
 
 async function refreshLiveBg() {
@@ -1836,7 +1810,6 @@ if (window.sa && window.sa.onPreviewDraft) window.sa.onPreviewDraft((d) => {
 // Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
 function ensureUsePreview(a) {
     if (state.idle) return;
-    if (state.livePrev) return;
     const u = state.use;
     if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
     const want = normSub(currentSubText());
@@ -1851,8 +1824,13 @@ function ensureUsePreview(a) {
     const frame0 = state.live && state.live.frame;
     u._timer = setTimeout(async () => {
         u._timer = 0; u._timerKey = null;
-        if (state.use !== u || (state.live && state.live.frame !== frame0) || state.busy || state.drag || state.stageDrag || state.preview
-            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || state.tab !== 'apply') return;
+        const playheadMoved = !!(state.live && state.live.frame !== frame0) && !state.livePrev && !(state.scrub && state.scrub.U && state.scrub.U.on);
+        if (state.use !== u || playheadMoved || state.busy || state.drag || state.stageDrag || state.preview
+            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || state.tab !== 'apply') {
+            // not now: try again shortly instead of waiting for the next redraw (which may never come)
+            setTimeout(() => { if (state.use === u && !u.rendering) ensureUsePreview(a); }, 600);
+            return;
+        }
         u.renderReq = reqKey;
         u.rendering = true;
         u.renderStart = Date.now();
@@ -1866,11 +1844,11 @@ function ensureUsePreview(a) {
                 u.renderReq = null;      // try again shortly: a single change (e.g. from the macOS colour panel) gives no later redraw, so one is scheduled
                 setTimeout(() => { if (state.use === u && !u.rendering) redrawStages(); }, 700);
             }
-            else setStatus(res.error, 'bad');
+            else { u._renderFailed = reqKey; setStatus(res.error, 'bad'); }
             redrawStages();
             return;
         }
-        if (state.use === u && res && res.temp) u.tempPreview = res.temp;
+        if (state.use === u && res && res.temp) { u.tempPreview = res.temp; u._viewCache = null; }
         setStatus('Preview ready.', 'ok');
         redrawStages();
     }, 250);
@@ -3104,23 +3082,336 @@ function onStageDragEnd() {
     }
 }
 
-// Alignment header: ▶ plays once (click again to pause / resume), 🔁 loops with the sound until clicked again.
+// Alignment header: play once (click again to pause / resume), loop with the sound until clicked again, and scrub.
 function syncPlayUI() {
     for (const S of ['U', 'C']) {
-        const pb = $('alnPlay' + S), mb = $('alnMode' + S);
+        const pb = $('alnPlay' + S), mb = $('alnMode' + S), sb = $('alnScrub' + S);
         const pv = state.preview && state.preview.ctx && state.preview.ctx.s === S ? state.preview : null;
         const playing = !!pv && !pv.paused;
         if (pb) {
-            pb.textContent = playing ? '⏸' : '▶';
+            pb.innerHTML = playing ? ICONS.pause : ICONS.play;
             pb.classList.toggle('on', !!pv && !pv.loop);
             pb.title = playing ? 'Pause' : (pv && !pv.loop ? 'Resume' : 'Play once with its sound');
         }
         if (mb) {
-            mb.textContent = '🔁';
+            mb.innerHTML = ICONS.loop;
             mb.classList.toggle('on', !!pv && pv.loop);
             mb.title = pv && pv.loop ? 'Stop looping' : 'Loop the animation with its sound';
         }
+        if (sb) {
+            const on = state.scrub[S].on;
+            sb.innerHTML = ICONS.scrub;
+            sb.classList.toggle('on', on);
+            sb.title = on ? 'Scrubbing is on: drag the pink playhead or press the arrow keys. Click to turn off' : 'Scrub the preview frame by frame to line the sound up with the text';
+        }
     }
+}
+
+// ---------------------------------------------------------------- scrubbing: step through the preview frame by frame
+function setScrub(ctx, on) {
+    const S = ctx.s;
+    stopPreview();
+    if (!on) stopScrubLoop(ctx);
+    state.scrub[S].on = !!on;
+    if (!on) stopScrubAudio();
+    const box = $('scrubBox' + S);
+    if (box) box.classList.toggle('hidden', !on);
+    syncPlayUI();
+    renderTimeline(ctx);
+}
+
+// Loops the real captured animation (the first 3 seconds, rendered by Resolve with the subtitle and the current
+// settings) at the speed it was captured at, from where the text starts. Dragging or stepping stops it.
+function startScrubLoop(ctx) {
+    const S = ctx.s;
+    stopScrubLoop(ctx);
+    const L = { raf: 0, t0: performance.now() };
+    state.scrubLoop = state.scrubLoop || {};
+    state.scrubLoop[S] = L;
+    const b = $('scrubLoop' + S);
+    if (b) b.classList.add('on');
+    const tick = () => {
+        if (state.scrubLoop[S] !== L) return;
+        const m = ctx.model();
+        if (!m || !state.scrub[S].on || !ctxVisible(ctx)) { stopScrubLoop(ctx); return; }
+        const src = scrubSource(ctx);
+        const g = geometry(m);
+        if (src && !src.pending && src.view.previewFiles && src.view.previewFiles.length) {
+            const pv = src.view.preview || {};
+            const pfps = Number(pv.fps) > 0 ? Number(pv.fps) : g.fps;
+            const step = Math.max(1, Number(pv.step) || 1);
+            const durF = Math.max(1, src.view.previewFiles.length * step * g.fps / pfps);
+            const tf = g.textS + (((performance.now() - L.t0) / 1000 * g.fps) % durF);
+            state.scrub[S].f = Math.floor(tf + 1e-6);
+            const sc = ctx.scale, ph = document.querySelector('#tl' + S + ' .ph.scrub');
+            if (ph && sc) ph.style.left = ((tf - sc.lo) * sc.ppf) + 'px';
+            scrubDraw(ctx, tf);
+        } else L.t0 = performance.now();       // waiting for the render: start from the first frame once it is in
+        L.raf = requestAnimationFrame(tick);
+    };
+    L.raf = requestAnimationFrame(tick);
+}
+function stopScrubLoop(ctx) {
+    const S = ctx.s, L = state.scrubLoop && state.scrubLoop[S];
+    if (!L) return;
+    cancelAnimationFrame(L.raf);
+    state.scrubLoop[S] = null;
+    const b = $('scrubLoop' + S);
+    if (b) b.classList.remove('on');
+}
+
+function stopScrubAudio() {
+    clearTimeout(state.scrubAudioT);
+    const n = state.scrubNode;
+    state.scrubNode = null;
+    if (!n) return;
+    try {
+        const t = state.scrubAC.currentTime;
+        n.g.gain.cancelScheduledValues(t);
+        n.g.gain.setValueAtTime(n.g.gain.value, t);
+        n.g.gain.linearRampToValueAtTime(0, t + 0.012);
+        n.s.stop(t + 0.02);
+    } catch (e) { /* ignore */ }
+}
+
+// The sound is decoded once; each blip is a short buffer source with a tiny fade, so there is no seeking and no click.
+function scrubBuffer(p) {
+    if (!state.scrubBufs) state.scrubBufs = new Map();
+    const e = state.scrubBufs.get(p);
+    if (e) return e.buf;
+    const ent = { buf: null };
+    state.scrubBufs.set(p, ent);
+    try {
+        if (!state.scrubAC) state.scrubAC = new (window.AudioContext || window.webkitAudioContext)();
+        window.sa.readSfx(p).then((bytes) => {
+            if (!(bytes instanceof Uint8Array)) throw new Error('unreadable');
+            return state.scrubAC.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        }).then((b) => { ent.buf = b; }).catch(() => { state.scrubBufs.delete(p); });
+    } catch (err) { state.scrubBufs.delete(p); }
+    return null;
+}
+
+// A short blip of the sound at the playhead, so you hear exactly where it lands against the picture.
+function scrubAudio(ctx, m, tf) {
+    if (state.preview) return;
+    const nowT = performance.now();
+    if (nowT - (state.scrubAudioAt || 0) < 40) return;
+    const g = geometry(m);
+    const p = m.useSfx === false ? null : (origSfxPath(m) || currentSfxPath(m));
+    if (!p || tf < g.sfxS || tf >= g.sfxE) { stopScrubAudio(); return; }
+    const buf = scrubBuffer(p);
+    if (!buf || !state.scrubAC) return;
+    state.scrubAudioAt = nowT;
+    try {
+        const ac = state.scrubAC;
+        if (ac.state === 'suspended') ac.resume();
+        const at = Math.max(0, (g.sfxTrimIn + (tf - g.sfxS)) / g.fps);
+        if (at >= buf.duration) { stopScrubAudio(); return; }
+        stopScrubAudio();
+        const src = ac.createBufferSource(), gn = ac.createGain();
+        src.buffer = buf;
+        const vol = clamp(Math.pow(10, (Number(m.sfxVolume) || 0) / 20), 0, 1);
+        const dur = Math.max(0.06, 1.6 / g.fps), t = ac.currentTime;
+        gn.gain.setValueAtTime(0, t);
+        gn.gain.linearRampToValueAtTime(vol, t + 0.006);
+        gn.gain.setValueAtTime(vol, t + dur - 0.012);
+        gn.gain.linearRampToValueAtTime(0, t + dur);
+        src.connect(gn); gn.connect(ac.destination);
+        src.start(t, at, dur + 0.02);
+        state.scrubNode = { s: src, g: gn };
+    } catch (e) { /* ignore */ }
+}
+
+// Drawing is coalesced to one paint per display frame: dragging fires far more pointer events than the screen can
+// show, and painting each of them made the scrub stutter and lag behind the playhead. Only the latest position is drawn.
+const scrubPending = { U: null, C: null };
+function scrubDraw(ctx, tf, tries) {
+    const S = ctx.s;
+    const q = scrubPending[S];
+    if (q) { q.ctx = ctx; q.tf = tf; q.tries = tries; return; }
+    scrubPending[S] = { ctx, tf, tries };
+    requestAnimationFrame(() => {
+        const job = scrubPending[S];
+        scrubPending[S] = null;
+        if (!job || !state.scrub[S].on) return;
+        try { scrubPaint(job.ctx, job.tf, job.tries); } catch (e) { console.error('scrub paint:', e); }
+    });
+}
+
+function scrubPaint(ctx, tf, tries) {
+    const S = ctx.s;
+    const cv = $('scrubCv' + S);
+    const m = ctx.model();
+    if (!cv || !m) return;
+    const src = scrubSource(ctx);
+    if (!src) return;
+    const { a, view } = src;
+    cv._view = view; cv._pend = src.pending; cv._fail = src.failed;
+    const g = geometry(m);
+    const tfi = Math.floor(tf + 1e-6);                                    // same rounding as playback, so both land on the same frame
+    const rel = tfi - g.textS;
+    const live = rel >= 0 && tfi <= g.textE;
+    // timeline frame -> captured frame: honour the fps / step the preview was captured at, hold the last frame past its end
+    const pvm = view.preview || {};
+    const pvTotal = (view.previewFiles && view.previewFiles.length) || 0;
+    const pvRatio = (Number(pvm.fps) > 0 && g.fps > 0) ? Number(pvm.fps) / g.fps : 1;
+    const pvStep = Math.max(1, Number(pvm.step) || 1);
+    const idx = clamp(Math.floor(Math.max(0, rel) * pvRatio / pvStep + 1e-6), 0, Math.max(0, pvTotal - 1));
+    const info = $('scrubInfo' + S), msg = $('scrubMsg' + S);
+    const srel = tfi - g.sfxS;
+    const hasSfx = m.useSfx !== false && !!currentSfxPath(m);
+    if (info) {
+        const html = '<span>Text <b>' + (rel < 0 ? 'starts in ' + (-rel) + 'f' : (live ? sg(rel) + 'f' : 'ended')) + '</b></span>'
+            + (hasSfx ? '<span>Sound <b>' + (srel < 0 ? 'starts in ' + (-srel) + 'f' : (tfi >= g.sfxE ? 'ended' : sg(srel) + 'f')) + '</b></span>' : '')
+            + '<span>' + (tfi / g.fps).toFixed(2) + ' s</span>'
+            + (src.pending ? '<span>Rendering your subtitle…</span>' : '') + (src.failed ? '<span>Showing sample text (subtitle render failed)</span>' : '')
+            + '<span class="scrub-keys">← → step · Shift ×5</span>';
+        if (info._html !== html) { info._html = html; info.innerHTML = html; }
+    }
+    let fr = null, note = '', fixBtn = false, noteTip = '';
+    const again = (n) => { if (n < 40 && state.scrub[S].on && !state.preview) setTimeout(() => { if (state.scrub[S].on && !state.preview) scrubDraw(ctx, state.scrub[S].f, n + 1); }, 200); };
+    if (src.pending) note = live ? 'Rendering your subtitle in Resolve…' : '';
+    else if (!(a.preview && a.previewFiles && a.previewFiles.length)) note = 'No preview frames yet for this preset';
+    else if (live) {
+        // the keyed (transparent) frame when it is available, otherwise the rendered frame itself (it is rendered on black)
+        if (window.SAThumbs && SAThumbs.ready(view)) fr = SAThumbs.keyedFrame(view, idx, true);
+        if (!fr) {
+            const imgs = previewImages(view);
+            const im = imgs && imgs.length ? imgs[clamp(idx, 0, imgs.length - 1)] : null;
+            if (im && im.complete && im.naturalWidth) fr = im;
+            else if (im && im.complete && !im.naturalWidth) {
+                // the file is listed but cannot be read: it is gone from disk or damaged
+                note = 'This preset\'s preview frames can\'t be read';
+                fixBtn = true;
+                noteTip = String(im.src || '').replace(/^file:\/\//, '');
+            } else {
+                note = 'Loading frames…';
+                if (im && !im.complete) im.addEventListener('load', () => { if (state.scrub[S].on && !state.preview) scrubDraw(ctx, state.scrub[S].f); }, { once: true });
+                again(tries || 0);
+            }
+        }
+    }
+    const loadingLive = live && !fr && !fixBtn && note === 'Loading frames…';
+    if (msg && (msg._note !== note + '|' + fixBtn)) {
+        msg._note = note + '|' + fixBtn;
+        msg.textContent = note;
+        msg.title = noteTip;
+        if (fixBtn) {
+            const bt = document.createElement('button');
+            bt.type = 'button'; bt.className = 'sm-btn scrub-fix'; bt.textContent = 'Render preview';
+            bt.addEventListener('click', () => { if (window.SAThumbs) SAThumbs.render([a.id]); });
+            msg.appendChild(document.createElement('br'));
+            msg.appendChild(bt);
+        }
+    }
+    // Same look as the preset cards: a wide black frame (never the timeline's shape, which can be vertical) with the
+    // text filling it. Real frames are cropped to where the text lives; the crop is taken from the whole animation,
+    // so it stays put while you scrub.
+    const AR = 2.1;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = cv.clientWidth || 320;
+    const W = Math.round(cssW * dpr), H = Math.round(cssW / AR * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; cv._sig = null; }
+    if (!cv._styled) { cv.style.aspectRatio = AR.toFixed(4); cv.style.maxWidth = '560px'; cv._styled = true; }
+    // Frames still decoding: keep showing the last picture instead of flashing black on every step.
+    if (loadingLive && cv._sig) return;
+    const sig = [m.id, pvm.stamp || 0, src.pending ? 'p' : '', W, H, fr ? idx : (live ? 'x' : 'off'), fr ? 1 : 0].join('|');
+    if (cv._sig === sig) return;
+    cv._sig = sig;
+    const c = cv.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, W, H);
+    if (fr) {
+        const fw = fr.width || fr.naturalWidth || 1, fh = fr.height || fr.naturalHeight || 1;
+        let nb = null;
+        try { nb = window.SAThumbs ? SAThumbs.bounds(view) : null; } catch (e) { nb = null; }
+        let sx = 0, sy = 0, sw = fw, sh = fh;
+        if (nb) {
+            const tw = Math.max(8, (nb.x1 - nb.x0) * fw), th = Math.max(8, (nb.y1 - nb.y0) * fh);
+            const rw = Math.max(tw * 1.22, th * 1.4 * AR, fw * 0.12);
+            const rh = rw / AR;
+            sw = rw; sh = rh;
+            sx = ((nb.x0 + nb.x1) / 2) * fw - rw / 2;
+            sy = ((nb.y0 + nb.y1) / 2) * fh - rh / 2;
+        } else if (fw / fh > AR) { sw = fh * AR; sx = (fw - sw) / 2; }
+        else { sh = fw / AR; sy = (fh - sh) / 2; }
+        try { c.drawImage(fr, sx, sy, sw, sh, 0, 0, W, H); } catch (e) { /* frame not ready */ }
+    }
+}
+
+// Moves the pink playhead to frame tf, shows that frame and (while dragging / stepping) plays a blip of the sound.
+function scrubTo(ctx, tf, audible, cache) {
+    const S = ctx.s;
+    const m = ctx.model();
+    if (!m || !state.scrub[S].on) return;
+    stopScrubLoop(ctx);
+    const sc = ctx.scale;
+    if (sc) tf = clamp(tf, sc.lo, sc.lo + ((cache && cache.w) || ($('tl' + S) && $('tl' + S).clientWidth) || 380) / sc.ppf);
+    tf = Math.round(tf);
+    state.scrub[S].f = tf;
+    const ph = (cache && cache.ph) || document.querySelector('#tl' + S + ' .ph.scrub');
+    if (ph && sc) ph.style.left = ((tf - sc.lo) * sc.ppf) + 'px';
+    scrubDraw(ctx, tf);
+    if (audible) scrubAudio(ctx, m, tf);
+}
+
+function startScrub(ctx, e) {
+    e.preventDefault(); e.stopPropagation();
+    stopPreview();
+    const box = $('tl' + ctx.s);
+    if (!box || !ctx.scale) return;
+    // measured once: reading layout on every pointer event (right after writing the playhead position) forced a
+    // re-layout each time, which is what made fast scrubbing choppy
+    const rect = box.getBoundingClientRect();
+    const cache = { w: box.clientWidth, ph: box.querySelector('.ph.scrub') };
+    const move = (ev) => {
+        if (!ctx.scale) return;
+        scrubTo(ctx, ctx.scale.lo + (ev.clientX - rect.left) / ctx.scale.ppf, true, cache);
+    };
+    const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        box.classList.remove('scrubbing');
+    };
+    box.classList.add('scrubbing');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    move(e);
+}
+
+let scrubKeysBound = false;
+function bindScrubKeys() {
+    if (scrubKeysBound) return;
+    scrubKeysBound = true;
+    setInterval(() => {
+        if (document.hidden) return;
+        for (const S of ['U', 'C']) {
+            const ctx = CTX[S];
+            if (!state.scrub[S].on || !ctxVisible(ctx) || !ctx.model() || state.drag) continue;
+            const cv = $('scrubCv' + S);
+            if (!cv) continue;
+            try {
+                if (S === 'U') ensureUsePreview(selected());
+                const src = scrubSource(ctx);
+                if (src && (src.view !== cv._view || src.pending !== cv._pend || src.failed !== cv._fail)) scrubDraw(ctx, state.scrub[S].f || 0);
+            } catch (e) { /* ignore */ }
+        }
+    }, 250);
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+        for (const S of ['U', 'C']) {
+            const ctx = CTX[S];
+            if (!state.scrub[S].on || !ctxVisible(ctx) || !ctx.model()) continue;
+            e.preventDefault();
+            const step = (e.shiftKey ? 5 : 1) * (e.key === 'ArrowLeft' ? -1 : 1);
+            scrubTo(ctx, (state.scrub[S].f || 0) + step, true);
+            return;
+        }
+    });
 }
 
 function stopPreview() {
@@ -3224,6 +3515,12 @@ function runPreview(ctx, loop = false) {
         }
         const pv = document.querySelector('#tl' + ctx.s + ' .pv');
         if (pv && ctx.scale) { pv.style.display = 'block'; pv.style.left = ((tf - ctx.scale.lo) * ctx.scale.ppf) + 'px'; }
+        if (state.scrub[ctx.s].on) {
+            state.scrub[ctx.s].f = Math.floor(tf + 1e-6);
+            const ph = document.querySelector('#tl' + ctx.s + ' .ph.scrub');
+            if (ph && ctx.scale) ph.style.left = ((tf - ctx.scale.lo) * ctx.scale.ppf) + 'px';
+            scrubDraw(ctx, tf);
+        }
         if (!fired && tf >= g.sfxS) {
             fired = true;
             if (sfxEl) {
@@ -3494,12 +3791,13 @@ function liveReq(m, a, text) {
         posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
         textDesign: m.textDesign || a.textDesign || null,
+        sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined,
         boxList: window.SABoxes ? SABoxes.payload(m, a, text) : []
     };
 }
 function setLiveUI(on) {
     state.liveUI = !!on;
-    if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('live-locked', !!state.livePrev);
+    if ($('adjustWrapU')) $('adjustWrapU').classList.remove('live-locked');
     setAdjustOpen(state.adjustOpen);
     refreshLiveBar();
 }
@@ -4471,6 +4769,190 @@ function bindLayout(ctx, commit) {
     }
 }
 
+// A save that Resolve never answers is given up after 25 s so the buttons never stay dead.
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error((what || 'Save') + ' timed out')), ms || 25000))]);
+
+// The Update / Create / Revert bar. Bound on its own (not inside bindTextDesign, which stops early when the Text Design panel
+// is not on the page), so these buttons always work in the Library and Use tabs.
+function bindSaveBar(ctx) {
+    const S = ctx.s;
+    if (!$('tdSaveBar' + S)) return;
+    const notifyMsg = (msg, kind) => {
+        setStatus(msg, kind);
+        if (S === 'C') setCreateStatus(msg, kind);
+    };
+    const varIn = $('tdVarName' + S);
+    if (varIn) {
+        varIn.addEventListener('input', () => {
+            const m = ctx.model();
+            if (m) syncVarButtons(S, m);
+        });
+    }
+
+    // The Update / Create / Revert bar closes the moment a button is clicked (the save finishes in the background).
+    // If the save fails, the editor opens again with the error so nothing is lost.
+    const closeBarNow = (name, what) => { closeEditorAfterSave(S); finishSave(S, name, what); };
+    const reopenOnFail = (id, msg) => {
+        const m2 = libEntry(id) || ctx.model();
+        if (S === 'C') { state.createId = id; state.createAdjusted = true; if (m2) m2.adjusted = true; renderCreate(); }
+        else if (typeof setAdjustOpen === 'function') setAdjustOpen(true);
+        if (m2) syncVarButtons(S, m2);
+        document.querySelectorAll('.saved-toast').forEach(x => x.remove());
+        notifyMsg(msg || 'Could not save.', 'bad');
+    };
+
+    const btnSaveVar = $('tdSaveVar' + S);
+    if (btnSaveVar) {
+        btnSaveVar.addEventListener('click', async () => {
+            { const t = Date.now(); if (t - (btnSaveVar._t || 0) < 600) return; btnSaveVar._t = t; }      // only swallows a double click
+            const m = ctx.model();
+            if (!m) return;
+            const mid = m.id;
+            const customName = ($('tdVarName' + S) && $('tdVarName' + S).value.trim()) || nextVersionNameUI(m.name);
+            const origSfx = m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null;
+            try {
+                closeBarNow(customName, 'Creating…');
+                notifyMsg('Creating "' + customName + '"…');
+                const res = await withTimeout(window.sa.saveVariant({
+                    sourceId: m.id,
+                    boxes: m.boxes || {},
+                    name: customName,
+                    useSfx: m.useSfx !== false,
+                    linked: m.linked !== false,
+                    sfxOrig: origSfx,
+                    sfx: m.sfx !== undefined ? m.sfx : null,
+                    sfxPath: m.sfxPath || null,
+                    textOffset: m.textOffset,
+                    sfxOffset: m.sfxOffset,
+                    sfxVolume: m.sfxVolume,
+                    tail: m.tail,
+                    textTrack: m.textTrack,
+                    sfxTrack: m.sfxTrack,
+                    posX: Number(m.posX) || 0,
+                    posY: Number(m.posY) || 0,
+                    scale: Number(m.scale) || 1,
+                    rotation: Number(m.rotation) || 0,
+                    textDesign: m.textDesign,
+                    sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined
+                }), 25000);
+                if (res && res.error) { reopenOnFail(mid, res.error); return; }
+                if (!res || !res.lib) { reopenOnFail(mid, 'Could not create "' + customName + '".'); return; }
+                m.designDirty = false;
+                m.adjusted = false;
+                m.dirty = false;
+                state.createAdjusted = false;
+                state.lib = res.lib;
+                state.selectedId = res.createdId;
+                const newM = libEntry(res.createdId);
+                if (newM && newM.useSfx !== false && (newM.sfx || newM.sfxOrig)) {
+                    await syncAttachedSfx(newM);
+                }
+                syncUse(true);
+                renderAll();
+                finishSave(S, res.createdName, 'Saved');
+                notifyMsg('Created new preset "' + res.createdName + '".', 'ok');
+            } catch (e) {
+                reopenOnFail(mid, 'Create failed: ' + (e && e.message || e));
+            }
+        });
+    }
+
+    const btnUpd = $('tdUpdateLatest' + S);
+    if (btnUpd) {
+        btnUpd.addEventListener('click', async () => {
+            { const t = Date.now(); if (t - (btnUpd._t || 0) < 600) return; btnUpd._t = t; }      // only swallows a double click
+            const m = ctx.model();
+            if (!m) return;
+            const mid = m.id;
+            const saveName = (S === 'C' && $('animName') && $('animName').value.trim()) ? $('animName').value.trim() : m.name;
+            const subTextVal = $('subText') ? $('subText').value : '';
+            try {
+                closeBarNow(saveName, 'Saving…');
+                notifyMsg('Updating "' + saveName + '"…');
+                if (m.useSfx !== false && (m.sfx || m.sfxOrig)) {
+                    await syncAttachedSfx(m);
+                }
+                const res = await withTimeout(window.sa.updateLatest({
+                    animationId: m.id,
+                    name: saveName,
+                    text: subTextVal,
+                    updateText: S === 'U',
+                    boxes: m.boxes || {},
+                    boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, subTextVal, S === 'U') : [],
+                    useSfx: m.useSfx !== false,
+                    linked: m.linked !== false,
+                    sfxOrig: m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null,
+                    sfx: m.sfx !== undefined ? m.sfx : null,
+                    sfxPath: m.sfxPath || null,
+                    textOffset: m.textOffset,
+                    sfxOffset: m.sfxOffset,
+                    sfxVolume: m.sfxVolume,
+                    tail: m.tail,
+                    textTrack: m.textTrack,
+                    sfxTrack: m.sfxTrack,
+                    posX: Number(m.posX) || 0,
+                    posY: Number(m.posY) || 0,
+                    scale: Number(m.scale) || 1,
+                    rotation: Number(m.rotation) || 0,
+                    textDesign: m.textDesign,
+                    sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined
+                }), 25000);
+                if (res && res.error) { reopenOnFail(mid, res.error); return; }
+                if (!res || !res.lib) { reopenOnFail(mid, 'Could not update "' + saveName + '".'); return; }
+                m.designDirty = false;
+                m.adjusted = false;
+                m.dirty = false;
+                state.createAdjusted = false;
+                state.lib = res.lib;
+                syncUse(true);
+                renderAll();
+                finishSave(S, res.animName || saveName, 'Saved');
+                refreshLiveBg();
+                notifyMsg(
+                    res.updatedClip
+                        ? 'Updated "' + res.animName + '" and latest Text+ clip on timeline.'
+                        : 'Updated "' + res.animName + '".',
+                    'ok'
+                );
+            } catch (e) {
+                reopenOnFail(mid, 'Update failed: ' + (e && e.message || e));
+            }
+        });
+    }
+
+    const btnRevertOrig = $('tdRevertOrig' + S);
+    if (btnRevertOrig) {
+        btnRevertOrig.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const m = ctx.model();
+            if (!m) return;
+            const targetId = m.id || (S === 'C' ? state.createId : state.selectedId);
+            const a = libEntry(targetId);
+            if (!a) return;
+            openConfirmPop(btnRevertOrig, {
+                title: 'Revert to original version?',
+                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
+                confirmText: 'Revert',
+                danger: true,
+                onConfirm: async () => {
+                    closeBarNow(a.name, 'Reverting…');
+                    try {
+                        const res = await withTimeout(window.sa.revertAnimation(a.id), 25000, 'Revert');
+                        if (res && res.lib) {
+                            a.adjusted = false; a.dirty = false; a.designDirty = false;
+                            state.lib = res.lib; syncUse(true); renderAll();
+                            finishSave(S, a.name, 'Reverted');
+                            setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                        } else reopenOnFail(a.id, (res && res.error) || 'Could not revert "' + a.name + '".');
+                    } catch (e) {
+                        reopenOnFail(a.id, 'Revert failed: ' + (e && e.message || e));
+                    }
+                }
+            });
+        });
+    }
+}
+
 function bindTextDesign(ctx) {
     const S = ctx.s;
     if (!$('tdFont' + S)) return;
@@ -4523,181 +5005,6 @@ function bindTextDesign(ctx) {
         const idx = clamp(Number(td.selectedElement) || 1, 1, 8);
         return td.elements[idx - 1];
     };
-
-    const varIn = $('tdVarName' + S);
-    if (varIn) {
-        varIn.addEventListener('input', () => {
-            const m = ctx.model();
-            if (m) syncVarButtons(S, m);
-        });
-    }
-
-    // The Update / Create / Revert bar closes the moment a button is clicked (the save finishes in the background).
-    // If the save fails, the editor opens again with the error so nothing is lost.
-    const closeBarNow = (name, what) => { closeEditorAfterSave(S); finishSave(S, name, what); };
-    const reopenOnFail = (id, msg) => {
-        const m2 = libEntry(id) || ctx.model();
-        if (S === 'C') { state.createId = id; state.createAdjusted = true; if (m2) m2.adjusted = true; renderCreate(); }
-        else if (typeof setAdjustOpen === 'function') setAdjustOpen(true);
-        if (m2) syncVarButtons(S, m2);
-        document.querySelectorAll('.saved-toast').forEach(x => x.remove());
-        notifyMsg(msg || 'Could not save.', 'bad');
-    };
-
-    const btnSaveVar = $('tdSaveVar' + S);
-    if (btnSaveVar) {
-        btnSaveVar.addEventListener('click', async () => {
-            if (btnSaveVar.dataset.busy === '1') return;
-            const m = ctx.model();
-            if (!m) return;
-            btnSaveVar.dataset.busy = '1';
-            const mid = m.id;
-            const customName = ($('tdVarName' + S) && $('tdVarName' + S).value.trim()) || nextVersionNameUI(m.name);
-            const origSfx = m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null;
-            closeBarNow(customName, 'Creating…');
-            try {
-                notifyMsg('Creating "' + customName + '"…');
-                const res = await window.sa.saveVariant({
-                    sourceId: m.id,
-                    boxes: m.boxes || {},
-                    name: customName,
-                    useSfx: m.useSfx !== false,
-                    linked: m.linked !== false,
-                    sfxOrig: origSfx,
-                    sfx: m.sfx !== undefined ? m.sfx : null,
-                    sfxPath: m.sfxPath || null,
-                    textOffset: m.textOffset,
-                    sfxOffset: m.sfxOffset,
-                    sfxVolume: m.sfxVolume,
-                    tail: m.tail,
-                    textTrack: m.textTrack,
-                    sfxTrack: m.sfxTrack,
-                    posX: Number(m.posX) || 0,
-                    posY: Number(m.posY) || 0,
-                    scale: Number(m.scale) || 1,
-                    rotation: Number(m.rotation) || 0,
-                    textDesign: m.textDesign
-                });
-                if (res && res.error) { reopenOnFail(mid, res.error); return; }
-                if (!res || !res.lib) { reopenOnFail(mid, 'Could not create "' + customName + '".'); return; }
-                m.designDirty = false;
-                m.adjusted = false;
-                m.dirty = false;
-                state.createAdjusted = false;
-                state.lib = res.lib;
-                state.selectedId = res.createdId;
-                const newM = libEntry(res.createdId);
-                if (newM && newM.useSfx !== false && (newM.sfx || newM.sfxOrig)) {
-                    await syncAttachedSfx(newM);
-                }
-                syncUse(true);
-                renderAll();
-                finishSave(S, res.createdName, 'Saved');
-                notifyMsg('Created new preset "' + res.createdName + '".', 'ok');
-            } catch (e) {
-                reopenOnFail(mid, 'Create failed: ' + (e && e.message || e));
-            } finally {
-                delete btnSaveVar.dataset.busy;
-            }
-        });
-    }
-
-    const btnUpd = $('tdUpdateLatest' + S);
-    if (btnUpd) {
-        btnUpd.addEventListener('click', async () => {
-            if (btnUpd.dataset.busy === '1') return;
-            const m = ctx.model();
-            if (!m) return;
-            btnUpd.dataset.busy = '1';
-            const mid = m.id;
-            const saveName = (S === 'C' && $('animName') && $('animName').value.trim()) ? $('animName').value.trim() : m.name;
-            const subTextVal = $('subText') ? $('subText').value : '';
-            closeBarNow(saveName, 'Saving…');
-            try {
-                notifyMsg('Updating "' + saveName + '"…');
-                if (m.useSfx !== false && (m.sfx || m.sfxOrig)) {
-                    await syncAttachedSfx(m);
-                }
-                const res = await window.sa.updateLatest({
-                    animationId: m.id,
-                    name: saveName,
-                    text: subTextVal,
-                    updateText: S === 'U',
-                    boxes: m.boxes || {},
-                    boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, subTextVal, S === 'U') : [],
-                    useSfx: m.useSfx !== false,
-                    linked: m.linked !== false,
-                    sfxOrig: m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null,
-                    sfx: m.sfx !== undefined ? m.sfx : null,
-                    sfxPath: m.sfxPath || null,
-                    textOffset: m.textOffset,
-                    sfxOffset: m.sfxOffset,
-                    sfxVolume: m.sfxVolume,
-                    tail: m.tail,
-                    textTrack: m.textTrack,
-                    sfxTrack: m.sfxTrack,
-                    posX: Number(m.posX) || 0,
-                    posY: Number(m.posY) || 0,
-                    scale: Number(m.scale) || 1,
-                    rotation: Number(m.rotation) || 0,
-                    textDesign: m.textDesign
-                });
-                if (res && res.error) { reopenOnFail(mid, res.error); return; }
-                if (!res || !res.lib) { reopenOnFail(mid, 'Could not update "' + saveName + '".'); return; }
-                m.designDirty = false;
-                m.adjusted = false;
-                m.dirty = false;
-                state.createAdjusted = false;
-                state.lib = res.lib;
-                syncUse(true);
-                renderAll();
-                finishSave(S, res.animName || saveName, 'Saved');
-                refreshLiveBg();
-                notifyMsg(
-                    res.updatedClip
-                        ? 'Updated "' + res.animName + '" and latest Text+ clip on timeline.'
-                        : 'Updated "' + res.animName + '".',
-                    'ok'
-                );
-            } catch (e) {
-                reopenOnFail(mid, 'Update failed: ' + (e && e.message || e));
-            } finally {
-                delete btnUpd.dataset.busy;
-            }
-        });
-    }
-
-    const btnRevertOrig = $('tdRevertOrig' + S);
-    if (btnRevertOrig) {
-        btnRevertOrig.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const m = ctx.model();
-            if (!m) return;
-            const targetId = m.id || (S === 'C' ? state.createId : state.selectedId);
-            const a = libEntry(targetId);
-            if (!a) return;
-            openConfirmPop(btnRevertOrig, {
-                title: 'Revert to original version?',
-                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
-                confirmText: 'Revert',
-                danger: true,
-                onConfirm: async () => {
-                    closeBarNow(a.name, 'Reverting…');
-                    try {
-                        const res = await window.sa.revertAnimation(a.id);
-                        if (res && res.lib) {
-                            a.adjusted = false; a.dirty = false; a.designDirty = false;
-                            state.lib = res.lib; syncUse(true); renderAll();
-                            finishSave(S, a.name, 'Reverted');
-                            setStatus('Reverted "' + a.name + '" to original version.', 'ok');
-                        } else reopenOnFail(a.id, (res && res.error) || 'Could not revert "' + a.name + '".');
-                    } catch (e) {
-                        reopenOnFail(a.id, 'Revert failed: ' + (e && e.message || e));
-                    }
-                }
-            });
-        });
-    }
 
     bindFontPicker($('tdFont' + S));
     const applyFont = (typedOnly) => {
@@ -5334,8 +5641,6 @@ function bindAdjust(ctx) {
         const m = ctx.model(); if (!m) return;
         m.sfxVolume = Number(sfxVolEl.value);
         if ($('vSfxVolume' + S)) $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
-        const a = libEntry(m.id);
-        if (a) a.sfxVolume = m.sfxVolume;
         ctx.changed(m);
         renderTimeline(ctx);
         triggerLiveSync(m, S);
@@ -5365,6 +5670,13 @@ function bindAdjust(ctx) {
         if (pv && pv.ctx === ctx && pv.loop) stopPreview();
         else runPreview(ctx, true);                       // loops, sound included, until clicked again
     });
+    const alnScrub = $('alnScrub' + S);
+    if (alnScrub) alnScrub.addEventListener('click', () => setScrub(ctx, !state.scrub[S].on));
+    const scrubLoopBtn = $('scrubLoop' + S);
+    if (scrubLoopBtn) scrubLoopBtn.addEventListener('click', () => {
+        if (state.scrubLoop && state.scrubLoop[S]) stopScrubLoop(ctx); else { stopPreview(); startScrubLoop(ctx); }
+    });
+    bindScrubKeys();
     syncPlayUI();
     const prevBtn = $('prev' + S);
     if (prevBtn) prevBtn.addEventListener('click', () => {
@@ -5397,6 +5709,7 @@ function bindAdjust(ctx) {
     }
 
     bindStage(ctx);
+    bindSaveBar(ctx);
     bindTextDesign(ctx);
 }
 
@@ -5425,8 +5738,29 @@ function renderCreateSummary() {
             el.textContent = 'text ' + f(a.textOffset) + ' · sound ' + f(a.sfxOffset) + (a.linked !== false ? ' · linked' : '');
         }
     }
+    const fs = $('filesSummaryC');
+    if (fs) {
+        if (!a) { fs.textContent = ''; }
+        else {
+            const st = presetFileStatus(a);
+            const n = st.sound === 'none' ? 1 : 2;
+            fs.textContent = n + (n === 1 ? ' file' : ' files') + (st.template === 'mod' || st.sound === 'mod' ? ' · modified' : '');
+        }
+    }
     renderTdSummary(CTX.C);
     renderConfigSummaryC();
+}
+
+// How far a preset's files have drifted from the originals kept for it: 'orig', 'mod' (edited / trimmed / swapped), or 'none' (no sound).
+function presetFileStatus(a) {
+    if (!a) return { template: 'orig', sound: 'none' };
+    const tmplMod = !!(a.adjusted || a.designDirty || (a.orig && (a.orig.file !== a.file || JSON.stringify(a.textDesign) !== JSON.stringify(a.orig.textDesign))));
+    const cur = a.sfx || null;
+    const orig = a.sfxOrig || null;
+    let snd = 'orig';
+    if (!cur && !orig) snd = 'none';
+    else if (cur && orig && cur !== orig) snd = 'mod';
+    return { template: tmplMod ? 'mod' : 'orig', sound: snd };
 }
 
 function renderConfigSummaryC() {
@@ -5434,64 +5768,29 @@ function renderConfigSummaryC() {
     const sumEl = $('configSummaryC');
     if (!sumEl) return;
     if (!a) { sumEl.textContent = ''; return; }
-    const sName = a.file ? baseName(a.file) : '—';
-    const aName = a.sfx ? baseName(a.sfx) : 'no audio';
-    sumEl.textContent = sName + ' · ' + aName;
+    const st = presetFileStatus(a);
+    const t = st.template === 'mod' ? 'template modified' : 'template original';
+    const snd = st.sound === 'none' ? 'no sound' : (st.sound === 'mod' ? 'sound modified' : 'sound original');
+    sumEl.textContent = t + ' · ' + snd;
 }
 
 function renderConfigC() {
     const a = libEntry(state.createId);
     if (!a) return;
+    const st = presetFileStatus(a);
 
-    // 1. .settings section
-    const activeSetting = $('cfgSettingActiveFile');
     const origSetting = $('cfgSettingOrigFile');
-    const statusSetting = $('cfgSettingStatus');
-
-    if (activeSetting) activeSetting.textContent = a.file || '—';
-    if (origSetting) origSetting.textContent = a.fileOrig || a.file || '—';
-    if (statusSetting) {
-        const isMod = a.adjusted || a.designDirty || (a.orig && (a.orig.file !== a.file || JSON.stringify(a.textDesign) !== JSON.stringify(a.orig.textDesign)));
-        statusSetting.textContent = isMod ? 'Modified' : 'Original';
-        statusSetting.className = 'cfg-status-pill ' + (isMod ? 'mod' : 'orig');
-    }
-
-    // 2. Audio section
-    const activeAudio = $('cfgAudioActiveFile');
+    if (origSetting) { origSetting.textContent = a.fileOrig || a.file || '—'; origSetting.title = origSetting.textContent; }
     const origAudio = $('cfgAudioOrigFile');
-    const statusAudio = $('cfgAudioStatus');
-    const playAudioBtn = $('cfgAudioPlay');
-    const removeAudioBtn = $('cfgAudioRemove');
-    const revertAudioBtn = $('cfgAudioRevert');
+    if (origAudio) { origAudio.textContent = a.sfxOrig || 'None'; origAudio.title = origAudio.textContent; }
 
-    const curAudio = a.sfx || null;
-    const origAud = a.sfxOrig || null;
-
-    if (activeAudio) activeAudio.textContent = curAudio || 'No sound';
-    if (origAudio) origAudio.textContent = origAud || 'None';
-
-    if (statusAudio) {
-        if (!curAudio && !origAud) {
-            statusAudio.textContent = 'None';
-            statusAudio.className = 'cfg-status-pill none';
-        } else if (curAudio && origAud && curAudio !== origAud) {
-            statusAudio.textContent = 'Trimmed / Modified';
-            statusAudio.className = 'cfg-status-pill mod';
-        } else {
-            statusAudio.textContent = 'Original';
-            statusAudio.className = 'cfg-status-pill orig';
-        }
-    }
-
-    if (playAudioBtn) {
-        playAudioBtn.style.visibility = (curAudio || origAud) ? 'visible' : 'hidden';
-    }
-    if (removeAudioBtn) {
-        removeAudioBtn.style.visibility = (curAudio || origAud) ? 'visible' : 'hidden';
-    }
-    if (revertAudioBtn) {
-        revertAudioBtn.style.visibility = (curAudio && origAud && curAudio !== origAud) ? 'visible' : 'hidden';
-    }
+    // Revert only shows when there is something to revert; "Current" needs a sound to take.
+    const revS = $('cfgSettingRevert');
+    if (revS) revS.style.display = st.template === 'mod' ? '' : 'none';
+    const revA = $('cfgAudioRevert');
+    if (revA) revA.style.display = st.sound === 'mod' ? '' : 'none';
+    const curA = $('cfgAudioFromCurrent');
+    if (curA) curA.disabled = !a.sfx;
 
     renderConfigSummaryC();
 }
@@ -6577,7 +6876,17 @@ function initPresetViewMode() {
         searchInput.addEventListener('input', (e) => {
             state.presetSearch = e.target.value;
             if (searchClear) searchClear.classList.toggle('hidden', !state.presetSearch);
-            renderAnimations();
+            // Typing in the search picks the first match straight away (the panel below follows it).
+            const q = state.presetSearch.trim().toLowerCase();
+            const first = q ? state.lib.animations.find(a => passesTagFilter(a, 'use') && a.name.toLowerCase().includes(q)) : null;
+            if (first && first.id !== state.selectedId) {
+                stopPreview();
+                state.selectedId = first.id;
+                syncUse(true);
+                renderAll();
+                refreshLiveBar();
+                if (state.livePrev && !state.busy) switchLivePreset(first);
+            } else renderAnimations();
         });
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -7055,6 +7364,7 @@ function renderCreate() {
         fillAdjust(CTX.C);
         if (window.SABoxes) SABoxes.render('C');
         if (!state.preview) drawStage('C', a, null);
+        setCreateFilesOpen(state.createFilesOpen !== false);
         setCreateAdjustOpen(state.createAdjustOpen !== false);
         setCreateTdOpen(!!state.createTdOpen);
         setCreateConfigOpen(!!state.createConfigOpen);
@@ -7081,7 +7391,7 @@ function renderSettings() {
 
 function setAdjustOpen(wanted) {
     state.adjustOpen = wanted;
-    const open = !!wanted && !state.livePrev;
+    const open = !!wanted;
     if ($('adjustBodyU')) $('adjustBodyU').classList.toggle('hidden', !open);
     if ($('adjustWrapU')) $('adjustWrapU').classList.toggle('open', !!open);
     if ($('adjustToggle')) {
@@ -7107,7 +7417,6 @@ function setTdOpen(open) {
 function setCreateAdjustOpen(open) {
     state.createAdjustOpen = open;
     if ($('adjustBodyC')) $('adjustBodyC').classList.toggle('hidden', !open);
-    if ($('filesC')) $('filesC').classList.toggle('hidden', !open);
     if ($('adjustWrapC')) $('adjustWrapC').classList.toggle('open', !!open);
     if ($('adjustToggleC')) {
         $('adjustToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -7115,6 +7424,17 @@ function setCreateAdjustOpen(open) {
         if (chev) chev.textContent = open ? '▾' : '▸';
     }
     if (open) renderTimeline(CTX.C);
+}
+
+function setCreateFilesOpen(open) {
+    state.createFilesOpen = open;
+    if ($('filesBodyC')) $('filesBodyC').classList.toggle('hidden', !open);
+    if ($('filesWrapC')) $('filesWrapC').classList.toggle('open', !!open);
+    if ($('filesToggleC')) {
+        $('filesToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chev = $('filesToggleC').querySelector('.chev');
+        if (chev) chev.textContent = open ? '▾' : '▸';
+    }
 }
 
 function setCreateTdOpen(open) {
@@ -7442,6 +7762,7 @@ async function create() {
         posX: Number(m.posX) || 0, posY: Number(m.posY) || 0,
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
         textDesign: m.textDesign || a.textDesign || null,
+        sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined,
         boxList: window.SABoxes ? SABoxes.payload(m, a, text) : []
     });
     state.busy = false;
@@ -7652,9 +7973,10 @@ async function initApp() {
     renderAll();
     fitWindowToContent();
 
-    $('adjustToggle').addEventListener('click', () => { if (state.livePrev) return; stopPreview(); setAdjustOpen(!state.adjustOpen); });
+    $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
     if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
+    if ($('filesToggleC')) $('filesToggleC').addEventListener('click', () => { setCreateFilesOpen(!state.createFilesOpen); });
     if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });
     if ($('configToggleC')) $('configToggleC').addEventListener('click', () => { stopPreview(); setCreateConfigOpen(!state.createConfigOpen); });
     if ($('sfxOrigAccordionToggle')) $('sfxOrigAccordionToggle').addEventListener('click', () => {
@@ -7665,16 +7987,26 @@ async function initApp() {
     const resetUEl = $('resetU');
     if (resetUEl) {
         resetUEl.addEventListener('click', () => {
-            syncUse(true);
+            stopPreview();
+            syncUse(true);                      // a fresh one-time copy of the preset's saved defaults
             if (state.use) {
                 state.use.dirty = false;
                 state.use.adjusted = false;
                 state.use.designDirty = false;
+                state.use.designRev = 0;
+                state.use.renderReq = null;
+                state.use._viewCache = null;
+                state.use.tempPreview = null;
             }
-            fillAdjust(CTX.U);
-            renderUseSummary();
+            const a = selected();
+            if (a) { a.adjusted = false; a.designDirty = false; }
+            // Redraw everything that shows the one-time values: boxes, alignment, sound, text design, preview and the Update bar.
+            renderSettings();
+            try { if (typeof fillTextDesign === 'function' && $('tdFont' + CTX.U.s)) fillTextDesign(CTX.U); } catch (e) { /* the panel may not be on the page */ }
+            if (state.use) syncVarButtons('U', state.use);
             renderTimelines();
             redrawStages();
+            try { if (state.use && typeof triggerLiveSync === 'function') triggerLiveSync(state.use, 'U'); } catch (e) { /* only while a timeline preview runs */ }
         });
     }
     const animNameEl = $('animName');

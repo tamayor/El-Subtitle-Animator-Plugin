@@ -94,7 +94,7 @@ const TOOLS = [
             all: { type: 'boolean', description: 'List every preset, ignoring the rules' }
         })
     },
-    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, and whether one was already placed this session.', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' } }) },
+    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, clip colour (the colour the user set on the subtitle clip in Resolve, if any), and whether one was already placed this session. clipColors counts the colours used. Pass color (e.g. "Orange") to list only subtitles with that clip colour, or "any" for every coloured one.', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' }, color: { type: 'string', description: 'Only subtitles whose clip colour is this Resolve colour name (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate), or "any" for all coloured ones' } }) },
     {
         name: 'get_frame',
         description: 'Image of the composited timeline frame at a subtitle (middle by default) or at a frame. Use it to find faces and empty space before choosing x/y, and to check a placed clip.',
@@ -122,6 +122,7 @@ const TOOLS = [
             text: { type: 'string', description: 'Override the text (default: the subtitle\'s text)' },
             parts: { type: 'object', properties: { upper: { type: 'string' }, emphasis: { type: 'string' }, lower: { type: 'string' } }, description: 'MultiText presets: how the subtitle splits into the upper line, the emphasized word(s) and the lower line' },
             track: { type: 'integer', minimum: 2, description: 'Force a video layer for this clip (overrides the rules)' },
+            holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
         }, ['subtitle', 'presetId'])

@@ -416,11 +416,17 @@ const TOOLS = {
         const from = Math.max(1, Number(args.from) || 1);
         const to = Math.min(subs.length, Number(args.to) || subs.length);
         const done = new Map(placed.map(p => [p.subtitle, p]));
+        const want = String(args.color || '').trim().toLowerCase();
+        const colorOk = s => !want || (want === 'any' ? !!s.color : String(s.color || '').toLowerCase() === want);
+        const colors = {};
+        subs.forEach(s => { if (s.color) colors[s.color] = (colors[s.color] || 0) + 1; });
         return {
-            fps: meta.fps, total: subs.length,
-            subtitles: subs.filter(s => s.index >= from && s.index <= to).map(s => ({
+            fps: meta.fps, total: subs.length, clipColors: colors,
+            clipColorsFrom: subs.some(s => s.colorFrom) ? 'saved project file (Resolve\'s API returns no subtitle colours): save the project in Resolve to pick up colour changes' : undefined,
+            subtitles: subs.filter(s => s.index >= from && s.index <= to && colorOk(s)).map(s => ({
                 index: s.index, text: s.text, start: s.start, end: s.end, frames: s.duration,
                 tc: frameToTC(s.start, meta), words: String(s.text || '').split(/\s+/).filter(Boolean).length,
+                color: s.color || undefined,
                 placed: done.has(s.index) ? done.get(s.index).preset : undefined
             }))
         };
@@ -607,8 +613,17 @@ const TOOLS = {
         if (args.track) textTrack = Math.max(2, Math.round(Number(String(args.track).replace(/^v/i, ''))) || 0);
         else if (rules.track.mode === 'fixed' && rules.track.fixed) textTrack = rules.track.fixed;
 
+        // hold the text on screen until a later subtitle ends (stacked consecutive captions); the sound is not extended
+        let holdEnd = sub.end, held = null;
+        if (args.holdUntil) {
+            const later = await subtitleAt(tl, args.holdUntil);
+            if (later.end <= sub.end) throw new Error('holdUntil must be a later subtitle (subtitle ' + later.index + ' ends before ' + sub.index + ')');
+            holdEnd = later.end; held = later.index;
+            notes.push('text held until the end of subtitle ' + later.index + ' (frame ' + later.end + '); sound keeps subtitle ' + sub.index + '\'s length');
+        }
+
         const req = {
-            animationId: a.id, text, start: sub.start, end: sub.end,
+            animationId: a.id, text, start: sub.start, end: holdEnd, sfxEnd: held ? sub.end : undefined,
             textOffset: a.textOffset || 0, sfxOffset: a.sfxOffset || 0, sfxVolume: a.sfxVolume, tail: a.tail || 0,
             textTrack, sfxTrack: a.sfxTrack || 0, place,
             useSfx: rules.sound && args.sound !== false && a.useSfx !== false,
@@ -625,13 +640,13 @@ const TOOLS = {
         state.lastPlacedAudioId = null;
         const res = await apply(null, req);
         if (!res || !res.ok) throw new Error((res && res.error) || 'Placement failed');
-        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack };
+        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined };
         placed.push(rec);
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
         return {
             placed: true, itemId: res.itemId, preset: a.name, subtitle: sub.index, text, parts: parts || undefined,
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
-            start: res.start, frames: res.frames, position: { posX, posY }, textSize,
+            start: res.start, frames: res.frames, holdUntil: held || undefined, position: { posX, posY }, textSize,
             notes: notes.concat(res.trackNotes || []), warnings: res.warnings || []
         };
     },

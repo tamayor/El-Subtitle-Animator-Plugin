@@ -9,6 +9,7 @@ const WorkflowIntegration = require('./workflow-integration');
 
 const state = require('./state');
 const { PLUGIN_ID } = require('./config');
+const { subtitleColorsFromDb } = require('./clip-colors-db');
 
 // ------------------------------------------------------------------ Resolve connection
 
@@ -104,8 +105,24 @@ async function getSubtitles(tl, force) {
             const end = await it.GetEnd();
             let duration = (typeof it.GetDuration === 'function') ? await it.GetDuration() : 0;
             if (!duration || duration <= 0) duration = Math.max(1, end - start);
-            list.push({ text: await it.GetName(), start, end, duration, track: t });
+            let color = '';
+            try { color = (typeof it.GetClipColor === 'function') ? ((await it.GetClipColor()) || '') : ''; } catch (e) { color = ''; }
+            list.push({ text: await it.GetName(), start, end, duration, track: t, color });
         }
+    }
+    // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.
+    if (list.length && !list.some(s => s.color)) {
+        try {
+            const project = await getProject();
+            const map = await subtitleColorsFromDb(project && await project.GetName(), key);
+            if (map && map.size) {
+                const tlStart = Number(await tl.GetStartFrame()) || 0;
+                for (const s of list) {
+                    s.color = map.get(s.track + ':' + s.start) || map.get(s.track + ':' + (s.start - tlStart)) || '';
+                    if (s.color) s.colorFrom = 'saved project';
+                }
+            }
+        } catch (e) { /* colours stay empty */ }
     }
     list.sort((a, b) => a.start - b.start);
     list.forEach((item, i) => { item.index = i + 1; });

@@ -55,6 +55,8 @@ async function apply(event, req) {
         // Text+ alignment is the anchor; SFX follows Text+ start + sfxOffset.
         const textStart = Math.max(tlStart, Math.round(req.start + (req.textOffset || 0)));
         const textEnd = Math.round(req.end + (req.tail || 0));
+        // holdUntil: the text clip runs on to a later subtitle's end, the sound keeps the subtitle's own length
+        const sfxEnd = Number.isFinite(Number(req.sfxEnd)) ? Math.round(Number(req.sfxEnd) + (req.tail || 0)) : textEnd;
         const want = Math.max(5, textEnd - textStart);
 
         const trackNotes = [];
@@ -82,7 +84,7 @@ async function apply(event, req) {
                     warnings.push('Resolve could not import the sound effect.');
                 } else {
                     // the original file, cut by the preset's settings (nothing rendered): trim / length / fade-out
-                    const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
+                    const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, sfxEnd));
                     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
                     const sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes);
                     sfxInfo = { mp, mpi, cut, sfxStart, sfxTrack };

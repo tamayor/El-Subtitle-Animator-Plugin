@@ -571,7 +571,10 @@ function sfxCutFor(req, anim, file, meta, textStart, textEnd) {
     if (!anim || isEditedSfxName(path.basename(String(file || '')))) return null;
     const sfxStart = textStart + Math.round(Number(req && req.sfxOffset) || 0);
     const fixed = anim.sfxLenMode === 'fixed' || (anim.sfxLenMode !== 'estimate' && anim.sfxLen !== null && anim.sfxLen !== undefined);
-    const len = (fixed && anim.sfxLen !== null && anim.sfxLen !== undefined) ? Number(anim.sfxLen) : Math.max(5, textEnd - sfxStart);
+    // The sound never runs past the subtitle it belongs to (textEnd is the subtitle's own end even when the text clip
+    // is held longer for a stack): a fixed cut longer than the subtitle is shortened to it, a shorter one is kept.
+    const span = Math.max(5, textEnd - sfxStart);
+    const len = (fixed && anim.sfxLen !== null && anim.sfxLen !== undefined) ? Math.min(Number(anim.sfxLen), span) : span;
     const fade = (anim.sfxFade === null || anim.sfxFade === undefined) ? Math.round((meta && meta.fps) || 25) : Number(anim.sfxFade);
     return { trimIn: Number(anim.sfxTrimIn) || 0, len, fade };
 }

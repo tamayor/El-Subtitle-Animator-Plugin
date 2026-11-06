@@ -434,41 +434,11 @@ const ALIGN_HTML = (S) => `
             <button type="button" id="alnMode${S}" class="ghost aln-btn" title="Loop the animation with its sound">🔁</button>
         </span>
     </span>
-    <label class="check" title="When on, moving the text carries the sound with it, and links the clips on the Resolve timeline">
-        <input id="linked${S}" type="checkbox" checked> Link text + sound
-    </label>
+    <button type="button" id="sndAdd${S}" class="ghost aln-btn" title="Add another sound (or drop a sound file on the timeline)">+ Sound</button>
 </div>
 <div id="tl${S}" class="tl"></div>
-<div class="row sfxlen">
-    <label class="sfxlen-lbl" for="sfxLenMode${S}" title="How long the sound is when it is added to the timeline">Sound length</label>
-    <select id="sfxLenMode${S}">
-        <option value="estimate">Estimate (follows the caption)</option>
-        <option value="fixed">Fixed (keeps this length)</option>
-    </select>
-</div>
-<div class="hint" id="sfxLenHint${S}"></div>
-<div class="hint">Drag the sound to line it up. Drag the text to move both (when linked), or its edges to change when it starts and ends.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
-<div class="row nums">
-    <label title="Double-click to reset to default (0f)">Text start <input id="textOffset${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
-    <label title="Double-click to reset to default (0f)">Sound start <input id="sfxOffset${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
-    <label title="Double-click to reset to default (0f)">Text ends <input id="tail${S}" type="number" step="1" value="0" data-default="0"><span class="u">f</span></label>
-</div>
-
-<div class="row between sfxhead">
-    <label class="check"><input id="useSfx${S}" type="checkbox" checked> Sound effect</label>
-    <div class="sfx-attached-display">
-        <button type="button" id="sfxPlay${S}" class="ghost sfx-mini-play" title="Preview sound">▶</button>
-        <span id="sfxName${S}" class="sfx-name-badge">No sound</span>
-    </div>
-</div>
-<div class="ctl">
-    <label title="Double-click to reset to default (0 dB)">Sound volume <span class="val" id="vSfxVolume${S}">0 dB</span></label>
-    <input id="sfxVolume${S}" type="range" min="-30" max="6" step="1" value="0" data-default="0">
-</div>
-<div class="row two">
-    <div class="ctl"><label>Text track</label><select id="textTrack${S}"></select></div>
-    <div class="ctl"><label>Sound track</label><select id="sfxTrack${S}"></select></div>
-</div>
+<div class="hint">Click a bar to edit it below. Drag a bar to move it, its edges to trim it, and the line on a sound up / down for its volume.${S === 'U' ? ' Click the ruler to move the Resolve playhead.' : ''}</div>
+<div id="sndCard${S}" class="snd-card"></div>
 ${S === 'U' ? '<div class="row"><button id="resetU" class="ghost">Reset to this item\'s default</button></div>' : ''}`;
 
 const CONFIG_HTML = () => `
@@ -1286,13 +1256,20 @@ function renderTimeline(ctx) {
     const m = ctx.model();
     if (!box || !m) { if (box) box.textContent = ''; return; }
     const g = geometry(m);
-    const win = state.drag && state.drag.ctx === ctx ? state.drag.win : windowFor(g);
+    let win = state.drag && state.drag.ctx === ctx ? state.drag.win : windowFor(g);
+    if (!(state.drag && state.drag.ctx === ctx) && window.SASounds) {
+        const rg = SASounds.range(ctx, m, g);
+        if (rg) win = { lo: Math.min(win.lo, rg.lo), hi: Math.max(win.hi, rg.hi) };
+    }
     const W = box.clientWidth || 380;
     const ppf = W / (win.hi - win.lo);
     const X = (f) => (f - win.lo) * ppf;
     ctx.scale = { lo: win.lo, ppf };
     box.textContent = '';
     const add = (cls, parent) => { const d = document.createElement('div'); d.className = cls; (parent || box).appendChild(d); return d; };
+    const L0 = 26, LH = 56;                                  // first lane's top, and every lane's height
+    const nExtra = window.SASounds ? SASounds.layersFor(ctx).length : 0;
+    box.style.height = (L0 + (2 + nExtra) * LH + 4) + 'px';
 
     // ruler
     const ruler = add('ruler');
@@ -1313,7 +1290,9 @@ function renderTimeline(ctx) {
     }
 
     const laneT = add('lane text'); add('tag', laneT).textContent = 'Text';
+    laneT.style.top = L0 + 'px'; laneT.style.height = LH + 'px';
     const laneS = add('lane sfx'); add('tag', laneS).textContent = 'Sound';
+    laneS.style.top = (L0 + LH) + 'px'; laneS.style.height = LH + 'px';
 
     // where the original subtitle sits, for reference
     const ghost = add('ghost', laneT);
@@ -1321,6 +1300,7 @@ function renderTimeline(ctx) {
 
     // text bar
     const tb = add('bar text', laneT);
+    tb.dataset.snd = 'text';
     tb.style.left = X(g.textS) + 'px'; tb.style.width = Math.max(10, (g.textE - g.textS) * ppf) + 'px';
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name || ''; tb.appendChild(nm);
     const hl = add('handle l', tb), hr = add('handle r', tb);
@@ -1336,6 +1316,7 @@ function renderTimeline(ctx) {
 
     // sound bar: drag it to move, drag its ends to trim or extend (up to the file's full length), drag the corner to set the fade-out
     const sb = add('bar sfx' + (m.useSfx === false || !currentSfxPath(m) ? ' off' : '') + (g.sfxLenMode === 'estimate' ? ' est' : ''), laneS);
+    sb.dataset.snd = 'main';
     const sbW = Math.max(6, g.sfxFrames * ppf);
     sb.style.left = X(g.sfxS) + 'px'; sb.style.width = sbW + 'px';
     const cv = document.createElement('canvas'); sb.appendChild(cv);
@@ -1352,7 +1333,7 @@ function renderTimeline(ctx) {
     // dashed link between the start of the text and the sound
     if (m.linked !== false) {
         const lk = add('link', box);
-        lk.style.left = X(g.textS) + 'px'; lk.style.top = '56px'; lk.style.height = '40px';
+        lk.style.left = X(g.textS) + 'px'; lk.style.top = (L0 + LH - 4) + 'px'; lk.style.height = '18px';
     }
 
     // live Resolve playhead (Use tab only) and the preview cursor
@@ -1364,20 +1345,22 @@ function renderTimeline(ctx) {
 
     // The timeline is redrawn after every press, so a double press is detected here instead of with dblclick.
     const resets = {};
-    const begin = (kind) => (e) => {
+    const begin = (kind, lid) => (e) => {
         e.preventDefault(); e.stopPropagation();
         stopPreview();
+        const rk = lid ? kind + ':' + lid : kind;
+        if (window.SASounds) SASounds.selectFor(ctx, kind, lid);
         const now = performance.now();
-        if (resets[kind] && state.lastPress && state.lastPress.kind === kind && now - state.lastPress.t < 400) {
+        if (resets[rk] && state.lastPress && state.lastPress.kind === rk && now - state.lastPress.t < 400) {
             state.lastPress = null;
-            resets[kind]();
+            resets[rk]();
             ctx.changed(m);
             renderTimeline(ctx);
             return;
         }
-        state.lastPress = { kind, t: now };
+        state.lastPress = { kind: rk, t: now };
         state.drag = {
-            ctx, kind, x0: e.clientX, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
+            ctx, kind, lid, x0: e.clientX, y0: e.clientY, ppf, win, a0: { textOffset: m.textOffset, sfxOffset: m.sfxOffset, tail: m.tail },
             g0: { mode: g.sfxLenMode, tin: g.sfxTrimIn, len: g.sfxFrames, fade: g.fadeFrames, full: g.sfxFull, fps: g.fps, textE: g.textE, sfxS: g.sfxS, textS: g.textS }
         };
     };
@@ -1397,7 +1380,13 @@ function renderTimeline(ctx) {
     };
     resets.sfxOut = () => { m.sfxLen = null; m.sfxLenMode = 'estimate'; syncAttachedSfx(m); };
     resets.sfxFade = () => { m.sfxFade = null; syncAttachedSfx(m); };
+    resets.vol = () => { m.sfxVolume = 0; const a0 = libEntry(m.id); if (a0) a0.sfxVolume = 0; };
+    if (window.SASounds) {
+        SASounds.volLine(add, sb, Number(m.sfxVolume) || 0, begin, 'vol');
+        SASounds.lanes({ ctx, m, g, box, add, X, ppf, begin, resets, top0: L0 + 2 * LH });
+    }
     syncNumbers(ctx);
+    if (window.SASounds) SASounds.sync(ctx);
 }
 
 function syncNumbers(ctx) {
@@ -1453,6 +1442,15 @@ function onDragMove(e) {
         let f = clamp(q.fade - df, 0, q.len);                // dragging the corner left makes the fade longer
         if (Math.abs(f - Math.round(q.fps)) <= 1) f = Math.round(q.fps);   // snap to 1 s
         m.sfxFade = f;
+    } else if (d.kind === 'vol') {
+        // The line on the sound: up = louder, down = quieter (+6 dB at the top, -30 dB at the bottom)
+        const bh = d.bh || 36;
+        let v = Math.round((Number(d.v0) - (e.clientY - d.y0) / bh * 36) * 2) / 2;
+        if (Math.abs(v) <= 0.75) v = 0;
+        m.sfxVolume = clamp(v, -30, 6);
+        const a0 = libEntry(m.id); if (a0) a0.sfxVolume = m.sfxVolume;
+    } else if (d.kind.indexOf('lyr') === 0) {
+        if (window.SASounds) SASounds.drag(d, df, e.clientY - d.y0);
     } else if (d.kind === 'text') {
         // Moving the whole Text+ bar shifts both its start and end together so its duration is preserved.
         let ts = o.textOffset + df;
@@ -1485,6 +1483,7 @@ function onDragEnd() {
         const m = d.ctx.model();
         if (m) {
             d.ctx.changed(m);
+            if (d.kind === 'vol') triggerLiveSync(m, d.ctx.s);
             if (d.kind && d.kind.startsWith('sfx')) {
                 syncAttachedSfx(m);
             }
@@ -1820,7 +1819,9 @@ function boxRenderKey(m, a) {
     return (window.SABoxes && SABoxes.renderKey) ? SABoxes.renderKey(m, a, currentSubText()) : '';
 }
 function boxRenderList(m, a, sub, withText) {
-    if (!window.SABoxes || !m || !a || SABoxes.nodesOf(a).length < 2) return null;
+    if (!window.SABoxes || !m || !a) return null;
+    const ns = SABoxes.nodesOf(a);
+    if (ns.length < 2 && !ns.some(n => n.kind === 'multitext')) return null;
     try { return JSON.parse(JSON.stringify(SABoxes.payload(m, a, sub, withText))); } catch (e) { return null; }
 }
 
@@ -4098,6 +4099,31 @@ function nextVersionNameUI(baseName) {
     return stem + ' v' + v;
 }
 
+// After Update / Create / Revert has saved, the editor closes: the Create tab's editor, or the Use tab's alignment panel.
+function closeEditorAfterSave(S) {
+    if (S === 'C') {
+        state.createId = null;
+        if ($('editor')) $('editor').classList.add('hidden');
+        if ($('editorPark') && $('editor')) $('editorPark').appendChild($('editor'));
+    } else if (typeof setAdjustOpen === 'function') {
+        setAdjustOpen(false);
+    }
+}
+
+// Closes the Update / Create bar for good and shows "<preset name> · Saved" for 3 seconds.
+function finishSave(S, name, what) {
+    state.createAdjusted = false;
+    const bar = $('tdSaveBar' + S);
+    if (bar) { bar.classList.add('hidden'); bar.classList.remove('dirty'); }
+    document.querySelectorAll('.saved-toast').forEach(x => x.remove());
+    const t = document.createElement('div');
+    t.className = 'saved-toast';
+    const n = document.createElement('b'); n.textContent = name || 'Preset';
+    t.append(n, document.createTextNode(' · ' + (what || 'Saved')));
+    document.body.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, 3000);
+}
+
 function syncVarButtons(S, m) {
     const varIn = $('tdVarName' + S);
     const btnNew = $('tdSaveVar' + S);
@@ -4506,54 +4532,72 @@ function bindTextDesign(ctx) {
         });
     }
 
+    // The Update / Create / Revert bar closes the moment a button is clicked (the save finishes in the background).
+    // If the save fails, the editor opens again with the error so nothing is lost.
+    const closeBarNow = (name, what) => { closeEditorAfterSave(S); finishSave(S, name, what); };
+    const reopenOnFail = (id, msg) => {
+        const m2 = libEntry(id) || ctx.model();
+        if (S === 'C') { state.createId = id; state.createAdjusted = true; if (m2) m2.adjusted = true; renderCreate(); }
+        else if (typeof setAdjustOpen === 'function') setAdjustOpen(true);
+        if (m2) syncVarButtons(S, m2);
+        document.querySelectorAll('.saved-toast').forEach(x => x.remove());
+        notifyMsg(msg || 'Could not save.', 'bad');
+    };
+
     const btnSaveVar = $('tdSaveVar' + S);
     if (btnSaveVar) {
         btnSaveVar.addEventListener('click', async () => {
+            if (btnSaveVar.dataset.busy === '1') return;
             const m = ctx.model();
             if (!m) return;
+            btnSaveVar.dataset.busy = '1';
+            const mid = m.id;
             const customName = ($('tdVarName' + S) && $('tdVarName' + S).value.trim()) || nextVersionNameUI(m.name);
-            notifyMsg('Creating "' + customName + '"…');
             const origSfx = m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null;
-            const res = await window.sa.saveVariant({
-                sourceId: m.id,
-                boxes: m.boxes || {},
-                name: customName,
-                useSfx: m.useSfx !== false,
-                linked: m.linked !== false,
-                sfxOrig: origSfx,
-                sfx: m.sfx !== undefined ? m.sfx : null,
-                sfxPath: m.sfxPath || null,
-                textOffset: m.textOffset,
-                sfxOffset: m.sfxOffset,
-                sfxVolume: m.sfxVolume,
-                tail: m.tail,
-                textTrack: m.textTrack,
-                sfxTrack: m.sfxTrack,
-                posX: Number(m.posX) || 0,
-                posY: Number(m.posY) || 0,
-                scale: Number(m.scale) || 1,
-                rotation: Number(m.rotation) || 0,
-                textDesign: m.textDesign
-            });
-            if (res && res.error) {
-                notifyMsg(res.error, 'bad');
-                return;
-            }
-            if (res && res.lib) {
+            closeBarNow(customName, 'Creating…');
+            try {
+                notifyMsg('Creating "' + customName + '"…');
+                const res = await window.sa.saveVariant({
+                    sourceId: m.id,
+                    boxes: m.boxes || {},
+                    name: customName,
+                    useSfx: m.useSfx !== false,
+                    linked: m.linked !== false,
+                    sfxOrig: origSfx,
+                    sfx: m.sfx !== undefined ? m.sfx : null,
+                    sfxPath: m.sfxPath || null,
+                    textOffset: m.textOffset,
+                    sfxOffset: m.sfxOffset,
+                    sfxVolume: m.sfxVolume,
+                    tail: m.tail,
+                    textTrack: m.textTrack,
+                    sfxTrack: m.sfxTrack,
+                    posX: Number(m.posX) || 0,
+                    posY: Number(m.posY) || 0,
+                    scale: Number(m.scale) || 1,
+                    rotation: Number(m.rotation) || 0,
+                    textDesign: m.textDesign
+                });
+                if (res && res.error) { reopenOnFail(mid, res.error); return; }
+                if (!res || !res.lib) { reopenOnFail(mid, 'Could not create "' + customName + '".'); return; }
                 m.designDirty = false;
                 m.adjusted = false;
                 m.dirty = false;
                 state.createAdjusted = false;
                 state.lib = res.lib;
                 state.selectedId = res.createdId;
-                if (S === 'C') state.createId = res.createdId;
                 const newM = libEntry(res.createdId);
                 if (newM && newM.useSfx !== false && (newM.sfx || newM.sfxOrig)) {
                     await syncAttachedSfx(newM);
                 }
                 syncUse(true);
                 renderAll();
+                finishSave(S, res.createdName, 'Saved');
                 notifyMsg('Created new preset "' + res.createdName + '".', 'ok');
+            } catch (e) {
+                reopenOnFail(mid, 'Create failed: ' + (e && e.message || e));
+            } finally {
+                delete btnSaveVar.dataset.busy;
             }
         });
     }
@@ -4561,56 +4605,53 @@ function bindTextDesign(ctx) {
     const btnUpd = $('tdUpdateLatest' + S);
     if (btnUpd) {
         btnUpd.addEventListener('click', async () => {
+            if (btnUpd.dataset.busy === '1') return;
             const m = ctx.model();
             if (!m) return;
-            if (m.useSfx !== false && (m.sfx || m.sfxOrig)) {
-                await syncAttachedSfx(m);
-            }
-            notifyMsg('Updating "' + m.name + '"…');
-            const res = await window.sa.updateLatest({
-                animationId: m.id,
-                name: (S === 'C' && $('animName') && $('animName').value.trim()) ? $('animName').value.trim() : m.name,
-                text: $('subText') ? $('subText').value : '',
-                updateText: S === 'U',
-                boxes: m.boxes || {},
-                boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, $('subText') ? $('subText').value : '', S === 'U') : [],
-                useSfx: m.useSfx !== false,
-                linked: m.linked !== false,
-                sfxOrig: m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null,
-                sfx: m.sfx !== undefined ? m.sfx : null,
-                sfxPath: m.sfxPath || null,
-                textOffset: m.textOffset,
-                sfxOffset: m.sfxOffset,
-                sfxVolume: m.sfxVolume,
-                tail: m.tail,
-                textTrack: m.textTrack,
-                sfxTrack: m.sfxTrack,
-                posX: Number(m.posX) || 0,
-                posY: Number(m.posY) || 0,
-                scale: Number(m.scale) || 1,
-                rotation: Number(m.rotation) || 0,
-                textDesign: m.textDesign
-            });
-            if (res && res.error) {
-                notifyMsg(res.error, 'bad');
-                return;
-            }
-            if (res && res.lib) {
+            btnUpd.dataset.busy = '1';
+            const mid = m.id;
+            const saveName = (S === 'C' && $('animName') && $('animName').value.trim()) ? $('animName').value.trim() : m.name;
+            const subTextVal = $('subText') ? $('subText').value : '';
+            closeBarNow(saveName, 'Saving…');
+            try {
+                notifyMsg('Updating "' + saveName + '"…');
+                if (m.useSfx !== false && (m.sfx || m.sfxOrig)) {
+                    await syncAttachedSfx(m);
+                }
+                const res = await window.sa.updateLatest({
+                    animationId: m.id,
+                    name: saveName,
+                    text: subTextVal,
+                    updateText: S === 'U',
+                    boxes: m.boxes || {},
+                    boxList: window.SABoxes ? SABoxes.payload(m, libEntry(m.id) || m, subTextVal, S === 'U') : [],
+                    useSfx: m.useSfx !== false,
+                    linked: m.linked !== false,
+                    sfxOrig: m.sfxOrig || (libEntry(m.id) && libEntry(m.id).sfxOrig) || m.sfx || null,
+                    sfx: m.sfx !== undefined ? m.sfx : null,
+                    sfxPath: m.sfxPath || null,
+                    textOffset: m.textOffset,
+                    sfxOffset: m.sfxOffset,
+                    sfxVolume: m.sfxVolume,
+                    tail: m.tail,
+                    textTrack: m.textTrack,
+                    sfxTrack: m.sfxTrack,
+                    posX: Number(m.posX) || 0,
+                    posY: Number(m.posY) || 0,
+                    scale: Number(m.scale) || 1,
+                    rotation: Number(m.rotation) || 0,
+                    textDesign: m.textDesign
+                });
+                if (res && res.error) { reopenOnFail(mid, res.error); return; }
+                if (!res || !res.lib) { reopenOnFail(mid, 'Could not update "' + saveName + '".'); return; }
                 m.designDirty = false;
                 m.adjusted = false;
                 m.dirty = false;
                 state.createAdjusted = false;
                 state.lib = res.lib;
                 syncUse(true);
-
-                if (S === 'C') {
-                    // Close the update/editor section in the library
-                    state.createId = null;
-                    if ($('editor')) $('editor').classList.add('hidden');
-                    if ($('editorPark') && $('editor')) $('editorPark').appendChild($('editor'));
-                }
-
                 renderAll();
+                finishSave(S, res.animName || saveName, 'Saved');
                 refreshLiveBg();
                 notifyMsg(
                     res.updatedClip
@@ -4618,6 +4659,10 @@ function bindTextDesign(ctx) {
                         : 'Updated "' + res.animName + '".',
                     'ok'
                 );
+            } catch (e) {
+                reopenOnFail(mid, 'Update failed: ' + (e && e.message || e));
+            } finally {
+                delete btnUpd.dataset.busy;
             }
         });
     }
@@ -4637,9 +4682,17 @@ function bindTextDesign(ctx) {
                 confirmText: 'Revert',
                 danger: true,
                 onConfirm: async () => {
-                    const res = await window.sa.revertAnimation(a.id);
-                    if (takeLib(res)) {
-                        setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                    closeBarNow(a.name, 'Reverting…');
+                    try {
+                        const res = await window.sa.revertAnimation(a.id);
+                        if (res && res.lib) {
+                            a.adjusted = false; a.dirty = false; a.designDirty = false;
+                            state.lib = res.lib; syncUse(true); renderAll();
+                            finishSave(S, a.name, 'Reverted');
+                            setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                        } else reopenOnFail(a.id, (res && res.error) || 'Could not revert "' + a.name + '".');
+                    } catch (e) {
+                        reopenOnFail(a.id, 'Revert failed: ' + (e && e.message || e));
                     }
                 }
             });
@@ -5247,31 +5300,7 @@ function fillAdjust(ctx) {
     if (!m) return;
     syncNumbers(ctx);
     syncXformUI(S, m.posX, m.posY, m.scale, m.rotation);
-    $('linked' + S).checked = m.linked !== false;
-    $('useSfx' + S).checked = m.useSfx !== false;
-    $('sfxVolume' + S).value = m.sfxVolume; $('vSfxVolume' + S).textContent = m.sfxVolume + ' dB';
-    const a = libEntry(m.id);
-    const origFile = m.sfxOrig || (a && a.sfxOrig);
-    const curFile = m.sfxPath ? baseName(m.sfxPath) : (m.sfx || (a && a.sfx));
-    const defFile = state.lib.defaultSfx ? state.lib.defaultSfx.file : null;
-    const sfxNameEl = $('sfxName' + S);
-    if (sfxNameEl) {
-        if (origFile && curFile && curFile !== origFile) {
-            sfxNameEl.textContent = origFile + ' (' + curFile + ')';
-        } else if (origFile || curFile) {
-            sfxNameEl.textContent = origFile || curFile;
-        } else if (defFile) {
-            sfxNameEl.textContent = 'default (' + defFile + ')';
-        } else {
-            sfxNameEl.textContent = 'No sound';
-        }
-    }
-    const sfxPlayBtn = $('sfxPlay' + S);
-    if (sfxPlayBtn) {
-        sfxPlayBtn.style.display = (curFile || origFile || defFile) ? 'inline-flex' : 'none';
-    }
-    fillTrackSelect($('textTrack' + S), 'V', m.textTrack);
-    fillTrackSelect($('sfxTrack' + S), 'A', m.sfxTrack);
+    if (window.SASounds) SASounds.sync(ctx, true);
     fillTextDesign(ctx);
 }
 
@@ -6696,6 +6725,9 @@ function renderAnimations() {
             if (scrollTrack && cardEls[idx]) {
                 cardEls[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
             }
+            // The SELECTED panel (title, MultiText split, alignment, preview) follows the gallery right away, like List / Grid do.
+            // (renderAll would rebuild the carousel under the finger, so only the settings are redrawn.)
+            renderSettings();
             renderUseSummary();
             refreshLiveBar();
             if (state.livePrev && !state.busy) switchLivePreset(a);
@@ -6801,8 +6833,9 @@ function renderAnimations() {
             isScrolling = setTimeout(() => {
                 const finalIdx = getCenteredIdx();
                 selectPreset(finalIdx, false);
-            }, 180);
+            }, 60);
         }, { passive: true });
+        track.addEventListener('scrollend', () => { clearTimeout(isScrolling); selectPreset(getCenteredIdx(), false); });
 
         return;
     }
@@ -6840,17 +6873,116 @@ function setCreateStatus(msg, kind) {
 }
 
 // Create tab: the builder, the default sound, the saved list, and the default settings of the clicked item.
+// ---- Create tab: the Text+ taken from the timeline is kept as a snapshot and previewed (looping) under the button.
+const draftPrev = { token: 0, imgs: [], i: 0, timer: 0, fps: 25 };
+function draftPrevStop() { draftPrev.token++; if (draftPrev.timer) { clearTimeout(draftPrev.timer); draftPrev.timer = 0; } draftPrev.imgs = []; }
+function draftPrevMsg(msg) { const m = $('draftPrevMsg'); if (m) m.textContent = msg || ''; }
+function draftPrevHide() { draftPrevStop(); const b = $('draftPrev'); if (b) b.classList.add('hidden'); draftPrevMsg(''); }
+// The part of the frame that holds the text (all frames together), so the preview shows just the animated text and not
+// the empty rest of the video frame. null = could not tell (then the whole frame is shown).
+function draftPrevBounds(imgs, whites) {
+    try {
+        const W = imgs[0].naturalWidth, H = imgs[0].naturalHeight;
+        if (!W || !H) return null;
+        const sc = Math.min(1, 256 / Math.max(W, H));
+        const sw = Math.max(1, Math.round(W * sc)), sh = Math.max(1, Math.round(H * sc));
+        const oc = document.createElement('canvas'); oc.width = sw; oc.height = sh;
+        const g = oc.getContext('2d', { willReadFrequently: true });
+        let x0 = sw, y0 = sh, x1 = -1, y1 = -1;
+        const scan = (im, onWhite) => {
+            if (!im || !im.naturalWidth) return;
+            g.clearRect(0, 0, sw, sh);
+            g.fillStyle = onWhite ? '#fff' : '#000'; g.fillRect(0, 0, sw, sh);
+            g.drawImage(im, 0, 0, sw, sh);
+            const d = g.getImageData(0, 0, sw, sh).data;
+            for (let y = 0; y < sh; y++) {
+                for (let x = 0, o = y * sw * 4; x < sw; x++, o += 4) {
+                    const hit = onWhite ? (d[o] < 225 || d[o + 1] < 225 || d[o + 2] < 225) : (d[o] > 28 || d[o + 1] > 28 || d[o + 2] > 28);
+                    if (hit) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+                }
+            }
+        };
+        imgs.forEach((im) => scan(im, false));
+        if (whites) whites.forEach((im) => scan(im, true));
+        if (x1 < 0) return null;
+        const bw = (x1 - x0 + 1) / sc, bh = (y1 - y0 + 1) / sc;
+        const pad = Math.max(0.12 * Math.max(bw, bh), 0.03 * Math.max(W, H));
+        const cx = Math.max(0, Math.floor(x0 / sc - pad)), cy = Math.max(0, Math.floor(y0 / sc - pad));
+        const cx2 = Math.min(W, Math.ceil((x1 + 1) / sc + pad)), cy2 = Math.min(H, Math.ceil((y1 + 1) / sc + pad));
+        if (cx2 - cx < 8 || cy2 - cy < 8) return null;
+        return { x: cx, y: cy, w: cx2 - cx, h: cy2 - cy };
+    } catch (e) { return null; }       // e.g. frames that cannot be read: show the whole frame
+}
+function draftPrevPlay(pv) {
+    const box = $('draftPrev'), cv = $('draftPrevCanvas');
+    if (!box || !cv || !pv || !pv.files || !pv.files.length) return;
+    draftPrevStop();
+    const token = draftPrev.token;
+    draftPrev.fps = Math.max(1, Math.min(60, Number(pv.fps) || 25));
+    const stamp = pv.stamp || Date.now();
+    const load = (f) => new Promise((res) => { const im = new Image(); im.onload = im.onerror = () => res(im); im.src = fileUrl(f) + '?v=' + stamp; });
+    draftPrevMsg('Rendering preview…');
+    Promise.all(pv.files.map(load).concat((pv.white || []).map(load))).then((all) => {
+        if (token !== draftPrev.token) return;
+        draftPrevMsg('');
+        const imgs = all.slice(0, pv.files.length).filter((im) => im.naturalWidth);
+        const whites = all.slice(pv.files.length).filter((im) => im.naturalWidth);
+        if (!imgs.length) { draftPrevMsg('The preview frames could not be loaded'); return; }
+        draftPrev.imgs = imgs; draftPrev.i = 0;
+        const W = imgs[0].naturalWidth, H = imgs[0].naturalHeight;
+        const crop = draftPrevBounds(imgs, whites.length === imgs.length ? whites : null) || { x: 0, y: 0, w: W, h: H };
+        cv.width = Math.round(crop.w); cv.height = Math.round(crop.h);
+        const g = cv.getContext('2d');
+        const step = () => {
+            if (token !== draftPrev.token) return;
+            if (state.tab !== 'create' || document.hidden || state.idle) { draftPrev.timer = setTimeout(step, 300); return; }
+            const im = draftPrev.imgs[draftPrev.i % draftPrev.imgs.length];
+            g.drawImage(im, crop.x, crop.y, crop.w, crop.h, 0, 0, cv.width, cv.height);
+            draftPrev.i++;
+            draftPrev.timer = setTimeout(step, 1000 / draftPrev.fps);
+        };
+        step();
+    });
+}
+async function takeFromTimeline() {
+    const btn = $('useSelected');
+    if (btn.classList.contains('busy')) return;
+    btn.classList.add('busy');
+    const box = $('draftPrev');
+    if (box) box.classList.remove('hidden');
+    draftPrevStop();
+    draftPrevMsg('Reading the Text+ from Resolve…');
+    setCreateStatus('');
+    let res;
+    try { res = await window.sa.draftFromTimeline({ maxDim: 640 }); } catch (e) { res = { error: String(e && e.message || e) }; }
+    btn.classList.remove('busy');
+    if (!res || res.error || !res.path) {
+        // keep whatever was chosen before; only report the problem
+        if (!state.draft.fromTimeline) draftPrevHide(); else draftPrevMsg('');
+        setCreateStatus((res && res.error) || 'Could not read the clip', 'bad');
+        renderCreate();
+        if (state.draft.fromTimeline && state.draft.preview) draftPrevPlay(state.draft.preview);
+        return;
+    }
+    const d = state.draft;
+    d.animPath = res.path; d.fromSelection = false; d.fromTimeline = true; d.clipProps = res.props || null; d.preview = res.preview || null;
+    renderCreate();
+    if (res.preview && res.preview.files && res.preview.files.length) { draftPrevMsg(''); draftPrevPlay(res.preview); }
+    else { draftPrevMsg(res.previewError ? 'Saved, but the preview could not be rendered: ' + res.previewError : 'Saved, but there is no preview'); }
+}
+function clearTimelineDraft() { const d = state.draft; d.fromTimeline = false; d.clipProps = null; d.preview = null; draftPrevHide(); }
+
 function renderCreate() {
     const d = state.draft;
     const pk = $('animPicked');
     pk.classList.toggle('hidden', !(d.animPath || d.fromSelection));
-    pk.textContent = d.fromSelection ? '✓ Text+ selected on the timeline (read when you save)' : (d.animPath ? '✓ ' + baseName(d.animPath) : '');
-    $('animDrop').classList.toggle('chosen', !!d.animPath);
-    $('useSelected').classList.toggle('chosen', !!d.fromSelection);
+    pk.textContent = d.fromTimeline ? '✓ Text+ taken from the timeline - kept until you take another' : (d.fromSelection ? '✓ Text+ selected on the timeline (read when you save)' : (d.animPath ? '✓ ' + baseName(d.animPath) : ''));
+    $('animDrop').classList.toggle('chosen', !!d.animPath && !d.fromTimeline);
+    $('useSelected').classList.toggle('chosen', !!d.fromTimeline || !!d.fromSelection);
     $('newSfx').classList.toggle('chosen', !!d.sfxPath);
     if ($('crNum2')) $('crNum2').classList.toggle('done', !!(d.animPath || d.fromSelection));
     if ($('crNum3')) $('crNum3').classList.toggle('done', !!d.sfxPath);
-    $('saveCombo').disabled = !(d.animPath || d.fromSelection);
+    $('saveCombo').disabled = !(d.animPath || d.fromSelection) || $('useSelected').classList.contains('busy');
     $('saveCombo').title = $('saveCombo').disabled ? 'Pick a text animation first' : '';
     $('newSfxName').textContent = d.sfxPath ? baseName(d.sfxPath) : 'Drop a sound file here';
     $('newSfxPlay').style.visibility = d.sfxPath ? 'visible' : 'hidden';
@@ -6975,6 +7107,7 @@ function setTdOpen(open) {
 function setCreateAdjustOpen(open) {
     state.createAdjustOpen = open;
     if ($('adjustBodyC')) $('adjustBodyC').classList.toggle('hidden', !open);
+    if ($('filesC')) $('filesC').classList.toggle('hidden', !open);
     if ($('adjustWrapC')) $('adjustWrapC').classList.toggle('open', !!open);
     if ($('adjustToggleC')) {
         $('adjustToggleC').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -7445,7 +7578,12 @@ async function fitWindowToContent() {
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
     try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) { /* ignore */ }
     try {
-        await window.sa.fitWidth(PANEL_WIDTH[mode] || 460, mode);
+        const fit = await window.sa.fitWidth(PANEL_WIDTH[mode] || 460, mode);
+        if (fit && fit.restored) {
+            // The window was reopened at the size it was closed with: keep it. A sidebar layout cannot work in a narrow window.
+            if (mode === 'sidebar' && fit.width < 700) await applyLayoutMode('default', false);
+            return;
+        }
         await wait(180);
         const de = document.documentElement;
         const overflow = Math.ceil(de.scrollWidth - de.clientWidth);
@@ -7618,7 +7756,7 @@ async function initApp() {
     browse($('defSfx'), 'sfx', async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
     browse($('newSfx'), 'sfx', async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
     browse($('animDrop'), 'anim', async (p) => {
-        state.draft.animPath = p; state.draft.fromSelection = false;
+        state.draft.animPath = p; state.draft.fromSelection = false; clearTimelineDraft();
         if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
         setCreateStatus('');
         renderCreate();
@@ -7626,16 +7764,12 @@ async function initApp() {
     dropZone($('animDrop'), async (p) => {
         const ext = p.toLowerCase().split('.').pop();
         if (!['comp', 'setting'].includes(ext)) { setCreateStatus('Drop a Fusion .comp or .setting file', 'bad'); return; }
-        state.draft.animPath = p; state.draft.fromSelection = false;
+        state.draft.animPath = p; state.draft.fromSelection = false; clearTimelineDraft();
         if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
         setCreateStatus('');
         renderCreate();
     });
-    $('useSelected').addEventListener('click', () => {
-        state.draft.fromSelection = true; state.draft.animPath = null;
-        setCreateStatus('');
-        renderCreate();
-    });
+    $('useSelected').addEventListener('click', () => { takeFromTimeline(); });
     dropZone($('newSfx'), async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
     $('newSfxClear').addEventListener('click', () => { state.draft.sfxPath = null; renderCreate(); });
     $('newSfxPlay').addEventListener('click', () => play(state.draft.sfxPath));
@@ -7643,7 +7777,7 @@ async function initApp() {
         const d = state.draft;
         setCreateStatus('Saving…');
         const res = await window.sa.createCombo({
-            name: $('newName').value, animPath: d.animPath, fromSelection: d.fromSelection, sfxPath: d.sfxPath
+            name: $('newName').value, animPath: d.animPath, fromSelection: d.fromSelection, sfxPath: d.sfxPath, clipProps: d.clipProps || null
         });
         if (res && res.error) { setCreateStatus(res.error, 'bad'); return; }
         if (takeLib(res)) {
@@ -7651,6 +7785,7 @@ async function initApp() {
             state.createId = res.createdId;
             syncUse(true);
             state.draft = { animPath: null, fromSelection: false, sfxPath: null };
+            draftPrevHide();
             $('newName').value = '';
             renderAll();
             setCreateStatus('Saved. Set its default alignment below; it is now in the Use tab.', 'ok');
@@ -7687,6 +7822,7 @@ async function initApp() {
     bindPlacementMenu();
     bindLivePreview();
     initPresetViewMode();
+    renderAnimations();       // the saved view (List / Grid / Gallery) was only read just now: draw the list in it
     if ($('create')) $('create').addEventListener('click', create);
 
     tick();
@@ -7696,7 +7832,7 @@ async function initApp() {
     }
 }
 
-if (document.readyState === 'loading') {
+if (document.readyState === 'loading' || (document.readyState === 'interactive' && !window.SAThumbs)) {   // textboxes.js is deferred after this file: wait for it
     window.addEventListener('DOMContentLoaded', initApp);
 } else {
     initApp();
@@ -7785,7 +7921,7 @@ window.addEventListener('beforeunload', () => { window.sa.cleanup(); });
     }, 200);
     setInterval(() => {
         try {
-            if (!window.sa || !window.sa.dlog || state.tab !== 'apply') return;
+            if (!window.SA_DEBUG || !window.sa || !window.sa.dlog || state.tab !== 'apply') return;
             const a = selected(); const u = state.use;
             const v = (typeof useView === 'function' && a) ? useView(a) : a;
             let real = null, blank = null;

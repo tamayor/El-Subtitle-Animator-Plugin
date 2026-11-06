@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('sa', {
     saveSelected: (name) => ipcRenderer.invoke('lib:saveSelected', name),
     capturePreview: (id) => ipcRenderer.invoke('lib:capture', id),
     createCombo: (req) => ipcRenderer.invoke('lib:create', req),
+    draftFromTimeline: (opts) => ipcRenderer.invoke('lib:draftFromTimeline', opts || null),
     saveVariant: (req) => ipcRenderer.invoke('lib:saveVariant', req),
     updateAnimation: (id, patch) => ipcRenderer.invoke('lib:update', id, patch),
     revertAnimation: (id) => ipcRenderer.invoke('lib:revert', id),

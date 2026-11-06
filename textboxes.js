@@ -81,7 +81,7 @@
             const moved = !near(b.cx, n.cx) || !near(b.cy, n.cy);
             return {
                 id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label,
-                text: withText === false ? null : resolveText(b, sub),
+                text: withText === false ? null : textFor(a, n, b, sub),
                 cx: (moved && n.centerInput) ? b.cx : null,
                 cy: (moved && n.centerInput) ? b.cy : null,
                 size: (n.kind === 'textplus' && !near(b.scale, 1)) ? Math.round(n.size * b.scale * 10000) / 10000 : null,
@@ -181,7 +181,7 @@
             let Y = vp.vy + vp.vh * 0.5 + dyg + (rx * sin + ry * cos);
             X = cv.width * 0.5 + (X - cv.width * 0.5) * zoom;
             Y = cv.height * 0.5 + (Y - cv.height * 0.5) * zoom;
-            const txt = resolveText(b, sub);
+            const txt = textFor(a, n, b, sub);
             const shown = txt === null ? (n.defaultText || '') : txt;
             const lines = String(shown || ' ').split(/\r?\n/);
             const longest = Math.max(2, ...lines.map(l => l.length));
@@ -363,7 +363,9 @@
     function countLine(nodes) {
         const tp = nodes.filter(n => n.kind === 'textplus').length;
         const tpl = nodes.filter(n => n.kind === 'template').length;
+        const mtl = nodes.filter(n => n.kind === 'multitext').length;
         const parts = [];
+        if (mtl) parts.push('MultiText · ' + mtl + (mtl === 1 ? ' layer' : ' layers'));
         if (tp) parts.push(tp + ' Text+');
         if (tpl) parts.push(tpl + (tpl === 1 ? ' template' : ' templates'));
         return parts.join(' · ') || 'none found';
@@ -375,7 +377,7 @@
         const { m, a } = modelFor(S);
         if (!a || !m) { host.textContent = ''; return; }
         const nodes = nodesOf(a);
-        if (nodes.length < 2) { host.textContent = ''; lastKey[S] = ''; return; }   // one text: nothing to choose
+        if (nodes.length < 2 || nodes.some(n => n.kind === 'multitext')) { host.textContent = ''; lastKey[S] = ''; return; }   // one text (or a MultiText, which has its own panel): nothing to choose
         const key = a.id + '|' + nodes.map(n => n.id).join(',');
         if (key === lastKey[S] && host.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON') return;
         lastKey[S] = key;
@@ -551,22 +553,7 @@
         pl.title = 'Hear the sound';
         pl.addEventListener('click', () => { const p = soundOf(a); if (p) play(p); });
         sRow.append(mk('span', 'bx-ftag', 'Sound'), pl, mk('span', 'bx-fname grow', label));
-        const sBtn = mk('button', '', 'Replace…');
-        const doSfx = async (p) => {
-            if (a.useSfx === false) await window.sa.updateAnimation(a.id, { useSfx: true });
-            afterLib(await window.sa.setAnimationSfx(a.id, p), () => 'Sound changed.');
-        };
-        sBtn.addEventListener('click', async () => { const p = await window.sa.pickFile('sfx'); if (p && !p.error) doSfx(p); });
-        const sDef = mk('button', 'ghost', 'Default');
-        sDef.title = 'Use the default sound effect';
-        sDef.addEventListener('click', async () => {
-            await window.sa.updateAnimation(a.id, { useSfx: true });
-            afterLib(await window.sa.setAnimationSfx(a.id, null), () => 'Using the default sound.');
-        });
-        const sOff = mk('button', 'ghost', 'None');
-        sOff.title = 'Add this text without any sound';
-        sOff.addEventListener('click', async () => afterLib(await window.sa.updateAnimation(a.id, { useSfx: false }), () => 'No sound for this preset.'));
-        sRow.append(sBtn, sDef, sOff);
+        sRow.appendChild(window.SASounds ? SASounds.pickerButtons(CTX.C, 'main') : document.createTextNode(''));
         host.appendChild(sRow);
         host.appendChild(mk('div', 'hint', 'You can also drop a .comp / .setting or a sound file here.'));
         host.appendChild(msg);
@@ -589,6 +576,7 @@
 
     function render(S) {
         renderBoxes(S);
+        renderMT(S);
         if (S === 'C') renderFiles('C');
     }
 
@@ -695,7 +683,7 @@
     // Anything besides the plain subtitle that a render has to show (custom / kept text, positions, own designs).
     function renderKey(m, a, sub) {
         const nodes = nodesOf(a);
-        if (!m || nodes.length < 2 || nodes[0].nested) return '';
+        if (!m || (nodes.length < 2 && !isMT(a)) || nodes[0].nested) return '';
         const list = payload(m, a, sub, true);
         const parts = list.map(x => [x.id, x.text === null ? '\u0001' : x.text, x.cx, x.cy, x.size,
             x.design ? ((typeof designKeyOf === 'function') ? designKeyOf(x.design) : JSON.stringify(x.design)) : ''].join('\u0002'));
@@ -703,12 +691,258 @@
     }
     function hasOverrides(m, a, sub) {
         const nodes = nodesOf(a);
-        if (!m || nodes.length < 2 || nodes[0].nested) return false;
+        if (!m || (nodes.length < 2 && !isMT(a)) || nodes[0].nested) return false;
         return payload(m, a, sub, true).some((x, i) => (typeof x.text === 'string' && x.text.trim() && x.text !== sub)
             || x.cx !== null || x.size !== null || !!x.design);
     }
 
-    window.SABoxes = { active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
+    // ------------------------------------------------------------ MultiText: split the subtitle into upper / emphasis / lower
+    // A MultiText tool has several text layers. The panel is just three colour-coded inputs (upper, emphasis, lower) that fill
+    // themselves from the current subtitle. The words below them pick the emphasis: with Emphasize active, click a word, click
+    // a neighbouring word to widen it, or click any other word to start over there. Upper / Lower let you move the cut points
+    // from either side instead. Emphasis on the first word leaves Upper empty, on the last word leaves Lower empty.
+    // Where the emphasis sits (last words / first words / a fixed position) is remembered for the next subtitles.
+    const MT_KEY = 'sa.mt.v3';
+    const MT_ROLES = [['upper', 'Upper subtitle', '#7fb8ff'], ['emphasis', 'Emphasize', '#f0c36b'], ['lower', 'Lower subtitle', '#8ccf8e']];
+    const mtDefault = () => ({ anchor: 'center', count: 1, start: 0, upper: false, caps: { upper: false, emphasis: false, lower: false } });
+    const mt = { cfg: mtDefault(), over: null, active: 'emphasis', lastSub: null, lastKey: '' };
+    try { const raw = localStorage.getItem(MT_KEY); if (raw) mt.cfg = Object.assign(mtDefault(), JSON.parse(raw)); } catch (e) { /* ignore */ }
+    if (!mt.cfg.caps || typeof mt.cfg.caps !== 'object') mt.cfg.caps = { upper: false, emphasis: !!mt.cfg.upper, lower: false };
+    function mtSave() { try { localStorage.setItem(MT_KEY, JSON.stringify(mt.cfg)); } catch (e) { /* ignore */ } }
+
+    const mtNodes = (a) => nodesOf(a).filter(n => n.kind === 'multitext');
+    const isMT = (a) => !!a && (a.isMultiText === true || mtNodes(a).length > 0);      // isMultiText is flagged by the backend with the preset list
+
+    // Which layer plays which role: guessed from layer names / default texts, then size (emphasis) and height (upper / lower).
+    function autoRoles(list) {
+        const r = { upper: null, emphasis: null, lower: null };
+        const used = new Set();
+        const take = (role, re) => {
+            if (r[role] !== null) return;
+            const n = list.find(x => !used.has(x.layer) && re.test((x.layerName || '') + ' ' + (x.defaultText || '')));
+            if (n) { r[role] = n.layer; used.add(n.layer); }
+        };
+        take('emphasis', /emphas|highlight|keyword|hero|\bmain\b|\bbig\b/i);
+        take('upper', /upper|\btop\b|above/i);
+        take('lower', /lower|bottom|below|under/i);
+        const pick = (role, best) => {
+            if (r[role] !== null) return;
+            const p = list.filter(x => !used.has(x.layer));
+            if (!p.length) return;
+            const n = p.reduce((m, x) => best(x, m) ? x : m);
+            r[role] = n.layer; used.add(n.layer);
+        };
+        pick('emphasis', (x, m) => (x.size || 0) > (m.size || 0) + 1e-6);
+        pick('upper', (x, m) => x.cy > m.cy + 1e-6);
+        pick('lower', (x, m) => x.cy < m.cy - 1e-6);
+        return r;
+    }
+    const mtRoles = (a) => autoRoles(mtNodes(a));
+
+    const mtWords = (s) => String(s || '').replace(/\r?\n/g, ' ').split(/\s+/).filter(Boolean);
+
+    // The emphasized words as [start, end) indices for a subtitle of N words.
+    function mtRange(N) {
+        const c = mt.cfg;
+        const k = Math.max(1, Math.min(N, Math.round(Number(c.count)) || 1));
+        if (c.anchor === 'first') return [0, k];
+        if (c.anchor === 'center') { const s = Math.floor((N - k) / 2); return [s, s + k]; }
+        if (c.anchor === 'index') { const s = Math.min(Math.max(0, Math.round(Number(c.start)) || 0), N - 1); return [s, Math.min(N, s + k)]; }
+        return [N - k, N];
+    }
+    // Remember a chosen range in a way that carries over to other subtitles.
+    function mtSetRange(N, s, e) {
+        const c = mt.cfg;
+        c.count = Math.max(1, e - s);
+        if (e >= N) c.anchor = 'last';
+        else if (s <= 0) c.anchor = 'first';
+        else if (s === Math.floor((N - c.count) / 2)) c.anchor = 'center';
+        else { c.anchor = 'index'; c.start = s; }
+        mt.over = null;
+    }
+    // A click on word i (of N), for the active role.
+    function mtPick(i, N, shift) {
+        const [s, e0] = mtRange(N), e = e0 - 1;
+        if (mt.active === 'upper') {            // upper = words 0..i
+            const ns = Math.min(i + 1, N - 1);
+            mtSetRange(N, ns, Math.max(e, ns) + 1);
+        } else if (mt.active === 'lower') {     // lower = words i..end
+            const ne = Math.max(i - 1, 0);
+            mtSetRange(N, Math.min(s, ne), ne + 1);
+        } else if (i === s - 1) mtSetRange(N, i, e + 1);          // next to the emphasis on the left: widen
+        else if (i === e + 1) mtSetRange(N, s, i + 1);            // next to it on the right: widen
+        else mtSetRange(N, i, i + 1);                             // anywhere else: start again at this word
+    }
+
+    // The three parts for a subtitle, plus which role each word got (for the coloured chips).
+    function mtSplit(sub) {
+        const w = mtWords(sub), N = w.length;
+        const out = { upper: '', emphasis: '', lower: '', words: w, roles: [] };
+        if (!N) return out;
+        const [s, e] = mtRange(N);
+        out.upper = w.slice(0, s).join(' ');
+        out.emphasis = w.slice(s, e).join(' ');
+        out.lower = w.slice(e).join(' ');
+        out.roles = w.map((_, i) => i < s ? 'upper' : (i < e ? 'emphasis' : 'lower'));
+        return out;
+    }
+
+    // Split plus the case option, and any text you typed over a part (only valid for that same subtitle).
+    function mtParts(sub) {
+        const p = mtSplit(sub);
+        const out = { upper: p.upper, emphasis: p.emphasis, lower: p.lower };
+        if (mt.over && mt.over.sub === String(sub || '')) {
+            for (const [k] of MT_ROLES) if (typeof mt.over[k] === 'string') out[k] = mt.over[k];
+        }
+        for (const [k] of MT_ROLES) if (mt.cfg.caps[k]) out[k] = out[k].toUpperCase();      // the AA button of that input
+        return { parts: out, split: p };
+    }
+
+    // The text for one MultiText layer, or null to leave the preset's own text.
+    function mtText(a, n, sub) {
+        const r = mtRoles(a);
+        const role = MT_ROLES.map(x => x[0]).find(k => r[k] === n.layer);
+        if (!role) return null;
+        const t = Object.assign({}, mtParts(sub).parts);
+        // A role with no layer: fold its text into a neighbouring layer instead of losing it.
+        const join = (x, y) => [x, y].filter(Boolean).join(' ');
+        if (r.upper === null && t.upper) { if (r.lower !== null) t.lower = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.upper, t.emphasis); t.upper = ''; }
+        if (r.lower === null && t.lower) { if (r.upper !== null) t.upper = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.emphasis, t.lower); t.lower = ''; }
+        return t[role];
+    }
+    const textFor = (a, n, b, sub) => n.kind === 'multitext' ? mtText(a, n, sub) : resolveText(b, sub);
+
+    // ---- the panel
+    function mtHost() {
+        let h = q('mtHostU');
+        if (h) return h;
+        const live = q('stageLiveU');
+        if (!live || !live.parentNode) return null;
+        h = document.createElement('div');
+        h.id = 'mtHostU';
+        h.className = 'mt-panel hidden';
+        live.parentNode.insertBefore(h, live);
+        return h;
+    }
+    // Live preview: after any change the selected preset is re-rendered with the split text once you pause for 300 ms. The
+    // Use tab render is keyed by the text, so an unchanged split never renders twice. While a Resolve timeline preview
+    // runs, that clip follows the panel by itself.
+    let mtPreviewTimer = 0;
+    function mtPreviewSoon() {
+        clearTimeout(mtPreviewTimer);
+        mtPreviewTimer = setTimeout(() => {
+            try {
+                if (typeof state === 'undefined' || state.tab !== 'apply' || state.livePrev || state.preview) return;
+                const a = selected();
+                if (a && isMT(a) && typeof ensureUsePreview === 'function') ensureUsePreview(a);
+            } catch (e) { /* the preview is a convenience */ }
+        }, 300);
+    }
+    function mtChanged() { mtSave(); mt.lastSub = null; const h = q('mtHostU'); const { a } = modelFor('U'); if (h && a) mtRefresh(h, a); changed('U'); mtPreviewSoon(); }
+
+    function renderMT(S) {
+        if (S !== 'U') return;
+        const host = mtHost();
+        if (!host) return;
+        const { a } = modelFor('U');
+        if (!a || !isMT(a)) { host.classList.add('hidden'); host.textContent = ''; mt.lastKey = ''; return; }
+        host.classList.remove('hidden');
+        const key = [a.id, mtNodes(a).map(n => n.layer).join(','), mt.active].join('|');
+        if (key !== mt.lastKey) { mt.lastKey = key; mt.lastSub = null; mtBuild(host, a); }
+        mtRefresh(host, a);
+    }
+
+    function mtBuild(host, a) {
+        host.textContent = '';
+        const roles = mtRoles(a);
+        // the three inputs, colour coded
+        const ins = mk('div', 'mt-ins');
+        for (const [role, label, col] of MT_ROLES) {
+            const ta = document.createElement('textarea');
+            ta.rows = 1; ta.className = 'mt-in'; ta.dataset.role = role;
+            ta.style.setProperty('--mt', col);
+            ta.placeholder = label;
+            const n = mtNodes(a).find(x => x.layer === roles[role]);
+            ta.title = label + (n ? ' · ' + n.layerName : ' · no layer');
+            ta.addEventListener('input', () => {
+                if (mt.cfg.caps[role]) { const p = ta.selectionStart; ta.value = ta.value.toUpperCase(); try { ta.setSelectionRange(p, p); } catch (e) { /* ignore */ } }
+                const sub = subtitleText();
+                if (!mt.over || mt.over.sub !== sub) mt.over = { sub };
+                mt.over[role] = ta.value;
+                mtSave(); changed('U'); mtPreviewSoon();
+            });
+            const wrap = mk('div', 'mt-inwrap');
+            wrap.style.setProperty('--mt', col);
+            const cap = mk('button', 'mt-cap' + (mt.cfg.caps[role] ? ' on' : ''), 'AA');
+            cap.type = 'button';
+            cap.title = 'ALL CAPS for the ' + label.toLowerCase();
+            cap.addEventListener('click', () => {
+                mt.cfg.caps[role] = !mt.cfg.caps[role];
+                cap.classList.toggle('on', mt.cfg.caps[role]);
+                mtChanged();
+            });
+            wrap.append(ta, cap);
+            ins.appendChild(wrap);
+        }
+        host.appendChild(ins);
+
+        // the word breakdown: a click puts that word into whichever part is active below
+        const chips = mk('div', 'mt-chips');
+        chips.id = 'mtChips';
+        host.appendChild(chips);
+
+        // which part a click on a word sets
+        const bar = mk('div', 'mt-roles');
+        for (const [role, label, col] of MT_ROLES) {
+            const b = mk('button', 'mt-rbtn' + (mt.active === role ? ' on' : ''), role === 'emphasis' ? 'Emphasize' : (role === 'upper' ? 'Upper' : 'Lower'));
+            b.type = 'button';
+            b.style.setProperty('--mt', col);
+            b.title = role === 'emphasis'
+                ? 'Click a word to emphasize it, a neighbouring word to widen it, any other word to start again'
+                : (role === 'upper' ? 'Click the last word of the upper subtitle' : 'Click the first word of the lower subtitle');
+            b.addEventListener('click', () => { mt.active = role; });
+            bar.appendChild(b);
+        }
+        host.appendChild(bar);
+    }
+
+    function mtRefresh(host, a) {
+        const sub = subtitleText();
+        const sig = sub + '\u0001' + JSON.stringify(mt.over) + '\u0001' + JSON.stringify(mt.cfg);
+        if (sig === mt.lastSub) return;
+        mt.lastSub = sig;
+        if (mt.over && mt.over.sub !== sub) mt.over = null;
+        mtPreviewSoon();                  // the subtitle (or the split) changed: refresh the preview
+        const { parts, split } = mtParts(sub);
+        const chips = host.querySelector('#mtChips');
+        if (chips) {
+            chips.textContent = '';
+            if (!split.words.length) chips.appendChild(mk('span', 'mt-empty', 'Select a subtitle to split it'));
+            const N = split.words.length;
+            split.words.forEach((w, i) => {
+                const ch = mk('button', 'mt-chip' + (split.roles[i] ? ' r-' + split.roles[i] : ''), w);
+                ch.type = 'button';
+                ch.title = 'Puts this word into the part that is active below (Upper, Emphasize or Lower)';
+                ch.addEventListener('click', () => { mtPick(i, N); mtChanged(); });
+                chips.appendChild(ch);
+            });
+        }
+        host.querySelectorAll('.mt-in').forEach(ta => {
+            const role = ta.dataset.role;
+            ta.classList.toggle('edited', !!(mt.over && typeof mt.over[role] === 'string'));
+            if (document.activeElement !== ta) ta.value = parts[role];
+        });
+    }
+    // The role buttons only change a setting: keep their highlight in step without rebuilding the panel.
+    document.addEventListener('click', (e) => {
+        const b = e.target.closest && e.target.closest('#mtHostU .mt-rbtn');
+        if (!b) return;
+        document.querySelectorAll('#mtHostU .mt-rbtn').forEach(x => x.classList.toggle('on', x === b));
+    });
+    // Follow the subtitle as the playhead moves between captions.
+    setInterval(() => { try { const h = q('mtHostU'); if (h && !h.classList.contains('hidden')) mtRefresh(h, modelFor('U').a); } catch (e) { /* ignore */ } }, 300);
+
+    window.SABoxes = { renderMT, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
         designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides };
 })();
 
@@ -1255,6 +1489,8 @@
         // The card's default look always shows "Sample text": previews captured from a timeline clip (or older
         // renders made with a subtitle) still show that clip's own words, so they are rendered again once.
         if (a.preview.text !== '') return true;
+        // MultiText cards show "Sample Text 1, 2, 3...": older renders of them are made again once.
+        if ((a.nodes || []).some(n => n.kind === 'multitext') && a.preview.sample !== 'mt-n') return true;
         return false;
     }
 

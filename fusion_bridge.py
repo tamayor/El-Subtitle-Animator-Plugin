@@ -358,6 +358,26 @@ def describe(tool):
                  "label": "Text+ · %s" % name, "text": txt if isinstance(txt, str) else "",
                  "pt": as_pt(get_in(tool, "Center")), "size": get_in(tool, "Size")}]
     out = []
+    if rid == "MultiText":
+        layers = []
+        try:
+            order = get_in(tool, "TextOrder")
+            if isinstance(order, dict):
+                layers = sorted(set(int(float(v)) for v in order.values()))
+        except Exception:
+            layers = []
+        if not layers:
+            layers = [n for n in range(1, 17) if isinstance(get_in(tool, "Text%d.StyledText" % n), str)]
+        for n in layers:
+            txt = get_in(tool, "Text%d.StyledText" % n)
+            nm = get_in(tool, "TextName%d" % n)
+            nm = nm if isinstance(nm, str) and nm else "Text %d" % n
+            out.append({"id": "%s/Text%d" % (name, n), "kind": "multitext", "tool": name,
+                        "input": "Text%d.StyledText" % n, "centerInput": "Text%d.Center" % n,
+                        "label": "MultiText · %s" % nm, "layer": n, "layerName": nm,
+                        "text": txt if isinstance(txt, str) else "",
+                        "pt": as_pt(get_in(tool, "Text%d.Center" % n)), "size": get_in(tool, "Text%d.Size" % n)})
+        return out
     if rid in ("MacroOperator", "GroupOperator"):
         try:
             for inp in as_list(tool.GetInputList()):
@@ -425,8 +445,11 @@ def op_set_boxes(a):
             continue
         if b.get("text") is not None:
             try:
-                set_node_text(tool, b.get("input") or "StyledText", str(b["text"]), all_tools, first_text)
-                first_text = False
+                if b.get("kind") == "multitext":
+                    tool.SetInput(b.get("input"), str(b["text"]))     # a MultiText layer: Text<n>.StyledText
+                else:
+                    set_node_text(tool, b.get("input") or "StyledText", str(b["text"]), all_tools, first_text)
+                    first_text = False
             except Exception:
                 missing.append((b.get("label") or name) + " (text)")
         cin = b.get("centerInput")
@@ -868,10 +891,21 @@ def main():
             continue
         try:
             req = json.loads(line)
+            if not isinstance(req, dict):
+                continue
         except Exception:
             continue
-        sys.stdout.write(json.dumps(handle(req), default=str) + "\n")
-        sys.stdout.flush()
+        try:
+            out = handle(req)
+        except BaseException as e:  # never let one bad request end the helper
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
+            out = {"id": req.get("id") if isinstance(req, dict) else None, "ok": False, "error": str(e) or e.__class__.__name__}
+        try:
+            sys.stdout.write(json.dumps(out, default=str) + "\n")
+            sys.stdout.flush()
+        except (BrokenPipeError, OSError):
+            break   # the panel is gone
 
 
 if __name__ == "__main__":

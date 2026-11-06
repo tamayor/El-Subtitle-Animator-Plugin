@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="./css/styles.css">
     <script src="./renderer.js" defer></script>
     <script src="./textboxes.js" defer></script>
+    <script src="./sfxlayers.js" defer></script>
 </head>
 
 <body class="tab-apply">
@@ -129,7 +130,7 @@
                             <div id="adjustWrapU" class="adjust-wrap open">
                                 <button id="adjustToggle" class="adjust" aria-expanded="true">
                                     <span class="chev">▾</span>
-                                    <span class="adj-title">Alignment</span>
+                                    <span class="adj-title">Preset Set Up</span>
                                     <span id="adjustSummary" class="adj-sum"></span>
                                 </button>
                                 <div id="adjustBodyU" class="adjust-body"></div>
@@ -224,14 +225,14 @@
                     <div id="inspectorGridC" class="inspector-grid single-col">
                         <div class="inspector-pane drawers-pane">
                             <div id="previewC"></div>
-                            <div id="filesC" class="bx-panel"></div>
                             <div id="boxesC" class="bx-panel"></div>
                             <div id="adjustWrapC" class="adjust-wrap open">
                                 <button id="adjustToggleC" class="adjust" aria-expanded="true">
                                     <span class="chev">▾</span>
-                                    <span class="adj-title">Alignment</span>
+                                    <span class="adj-title">Preset Set Up</span>
                                     <span id="adjustSummaryC" class="adj-sum"></span>
                                 </button>
+                                <div id="filesC" class="bx-panel setup-files"></div>
                                 <div id="adjustBodyC" class="adjust-body"></div>
                             </div>
                             <div id="configWrapC" class="adjust-wrap">
@@ -307,13 +308,17 @@
                                     <span class="cr-ts">Drop a <b>.comp</b> / <b>.setting</b> or click to browse</span>
                                 </div>
                                 <button id="useSelected" class="cr-tile thin" type="button"
-                                    title="Reads the Text+ clip selected on your Resolve timeline when you save">
+                                    title="Takes the Text+ clip selected on your Resolve timeline now, and shows a preview below. Click again to take a new one.">
                                     <span class="cr-ico">▣</span>
                                     <span class="cr-tl">From timeline</span>
                                     <span class="cr-ts">Use the Text+ selected in Resolve</span>
                                 </button>
                             </div>
                             <div id="animPicked" class="picked hidden"></div>
+                            <div id="draftPrev" class="cr-draftprev hidden">
+                                <canvas id="draftPrevCanvas" width="640" height="360"></canvas>
+                                <div id="draftPrevMsg" class="cr-draftmsg"></div>
+                            </div>
                         </div>
                     </div>
 

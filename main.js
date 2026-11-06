@@ -17,6 +17,10 @@ const os = require('os');
 const { spawn, execFile } = require('child_process');
 const WorkflowIntegration = require('./WorkflowIntegration.node');
 
+// A stray error anywhere must never take the panel down or leave Resolve with a dead plugin.
+process.on('uncaughtException', (err) => { try { console.error('[uncaughtException]', err && err.stack || err); dlog('[uncaughtException]', String(err && err.stack || err)); } catch (e) { /* ignore */ } });
+process.on('unhandledRejection', (err) => { try { console.error('[unhandledRejection]', err && err.stack || err); dlog('[unhandledRejection]', String(err && err.stack || err)); } catch (e) { /* ignore */ } });
+
 const PLUGIN_ID = 'com.el.subtitleanimator';
 const INITIAL_PPID = process.ppid;
 let hasSeenResolve = false;
@@ -42,6 +46,7 @@ function newAnimation(name, file, defaults) {
         file: fileOrig,
         textDesign: (defaults && defaults.textDesign) ? JSON.parse(JSON.stringify(defaults.textDesign)) : null,
         boxes: (defaults && defaults.boxes) ? JSON.parse(JSON.stringify(defaults.boxes)) : {},
+        sfxLayers: (defaults && Array.isArray(defaults.sfxLayers)) ? JSON.parse(JSON.stringify(defaults.sfxLayers)) : [],
         posX: defaults && defaults.posX !== undefined ? defaults.posX : 0,
         posY: defaults && defaults.posY !== undefined ? defaults.posY : 0,
         scale: defaults && defaults.scale !== undefined ? defaults.scale : 1,
@@ -183,9 +188,22 @@ function migrateAndCleanLib(lib) {
 function loadLib() {
     ensureDirs();
     let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
-    try {
-        lib = Object.assign(lib, JSON.parse(fs.readFileSync(LIB_FILE, 'utf8')));
-    } catch (e) { /* first run */ }
+    let raw = null;
+    try { raw = fs.readFileSync(LIB_FILE, 'utf8'); } catch (e) { /* first run */ }
+    if (raw !== null) {
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            // Damaged file: keep it for inspection and fall back to the last good copy instead of starting empty.
+            try { fs.copyFileSync(LIB_FILE, LIB_FILE + '.corrupt-' + Date.now()); } catch (e) { /* ignore */ }
+            try { parsed = JSON.parse(fs.readFileSync(LIB_FILE + '.bak', 'utf8')); } catch (e) { parsed = null; }
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                try { fs.copyFileSync(LIB_FILE + '.bak', LIB_FILE); } catch (e) { /* ignore */ }
+            } else parsed = null;
+        }
+        if (parsed) lib = Object.assign(lib, parsed);
+    }
+    if (!Array.isArray(lib.animations)) lib.animations = [];
     if (!Array.isArray(lib.tags)) lib.tags = [];
     if (!libMigratedOnce) {
         libMigratedOnce = true;
@@ -198,6 +216,12 @@ function saveLib(lib) {
     ensureDirs();
     const tmp = LIB_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(lib, null, 2));
+    // Keep the previous good version (at most once a minute, so rapid edits stay cheap).
+    try {
+        if (fs.existsSync(LIB_FILE) && (!fs.existsSync(LIB_FILE + '.bak') || Date.now() - fs.statSync(LIB_FILE + '.bak').mtimeMs > 60000)) {
+            fs.copyFileSync(LIB_FILE, LIB_FILE + '.bak');
+        }
+    } catch (e) { /* ignore */ }
     fs.renameSync(tmp, LIB_FILE);
 }
 
@@ -569,7 +593,7 @@ function unescapeFusion(str) {
 }
 
 function parseNodes(raw) {
-    const decl = /(?:^|[\s,{])([A-Za-z_][\w]*)\s*=\s*(TextPlus|MacroOperator|GroupOperator)\s*\{/g;
+    const decl = /(?:^|[\s,{])([A-Za-z_][\w]*)\s*=\s*(TextPlus|MacroOperator|GroupOperator|MultiText)\s*\{/g;
     const found = [];
     let m;
     while ((m = decl.exec(raw)) !== null) {
@@ -577,7 +601,7 @@ function parseNodes(raw) {
         const block = extractBraceBlock(raw, start);
         found.push({ name: m[1], type: m[2], start, end: start + block.length, block });
     }
-    const groups = found.filter(f => f.type !== 'TextPlus');
+    const groups = found.filter(f => f.type === 'MacroOperator' || f.type === 'GroupOperator');
     const insideGroup = (f) => groups.some(g => g !== f && f.start > g.start && f.end <= g.end);
     const strIn = (blk, key) => {
         const mm = new RegExp('\\b' + key + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"').exec(blk);
@@ -603,6 +627,28 @@ function parseNodes(raw) {
             id: f.name, kind: 'textplus', tool: f.name, input: 'StyledText', centerInput: 'Center', canMove: true,
             label: 'Text+ · ' + f.name
         }, textPlusInfo(f)));
+    }
+    // MultiText: one node per text layer (Text1, Text2, ...). Layer ids look like ["Text2.StyledText"] in the file.
+    for (const f of found.filter(x => x.type === 'MultiText' && !insideGroup(x))) {
+        const keyRe = (k) => '(?:\\["' + k.replace(/\./g, '\\.') + '"\\]|\\b' + k.replace(/\./g, '\\.') + ')\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*';
+        const mStr = (k) => { const mm = new RegExp(keyRe(k) + '"((?:[^"\\\\]|\\\\.)*)"').exec(f.block); return mm ? unescapeFusion(mm[1]) : null; };
+        const mNum = (k) => { const mm = new RegExp(keyRe(k) + '(-?[\\d.]+(?:e-?\\d+)?)').exec(f.block); return mm ? parseFloat(mm[1]) : null; };
+        const mPt = (k) => { const mm = new RegExp(keyRe(k) + '\\{\\s*(-?[\\d.]+(?:e-?\\d+)?)\\s*,\\s*(-?[\\d.]+(?:e-?\\d+)?)').exec(f.block); return mm ? [parseFloat(mm[1]), parseFloat(mm[2])] : null; };
+        const layers = new Set([1]);
+        let lm;
+        const lre = /\["Text(\d+)\.[A-Za-z0-9]+"\]|\bTextName(\d+)\s*=|\bTextEnabled(\d+)\s*=/g;
+        while ((lm = lre.exec(f.block)) !== null) layers.add(parseInt(lm[1] || lm[2] || lm[3], 10));
+        for (const n of Array.from(layers).sort((p, q) => p - q)) {
+            const c = mPt('Text' + n + '.Center') || [0.5, 0.5];
+            const sz = mNum('Text' + n + '.Size');
+            const nm = mStr('TextName' + n) || ('Text ' + n);
+            nodes.push({
+                id: f.name + '/Text' + n, kind: 'multitext', tool: f.name, input: 'Text' + n + '.StyledText',
+                centerInput: 'Text' + n + '.Center', canMove: true, layer: n, layerName: nm,
+                label: 'MultiText · ' + nm, defaultText: mStr('Text' + n + '.StyledText') || ('Text ' + n),
+                cx: c[0], cy: c[1], size: sz !== null && sz > 0 ? sz : 0.08
+            });
+        }
     }
     for (const g of groups.filter(x => !insideGroup(x))) {
         const inst = /([A-Za-z_]\w*)\s*=\s*InstanceInput\s*\{/g;
@@ -766,6 +812,7 @@ function libForUI() {
                 fileOrig,
                 hasOriginal,
                 nodes: exists ? nodesWithDesign(animPath) : [],
+                isMultiText: exists ? nodesWithDesign(animPath).some(n => n.kind === 'multitext') : false,
                 textDesign,
                 textStyle: textDesign,
                 previewFiles: a.preview ? frameList(path.join(PREV_DIR, a.id), 'p', a.preview) : [],
@@ -1061,6 +1108,7 @@ function parkUntilFocus() {
     try { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) setAppIdle(true, 'parked'); } catch (e) { /* ignore */ }
     return { ok: true };
 }
+let pollMeta = { key: null, at: 0, meta: null };
 async function poll(event, force) {
     if (applying && lastPoll) return lastPoll;
     if (appIdle && lastPoll && !force) return lastPoll;
@@ -1069,9 +1117,11 @@ async function poll(event, force) {
         if (!project) return { ok: false, reason: 'Open a project in Resolve' };
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, reason: 'Open a timeline in Resolve' };
-        const meta = await timelineMeta(tl);
-        const subs = await getSubtitles(tl, force);
-        const tc = await tl.GetCurrentTimecode();
+        const tlName = await tl.GetName();
+        let meta;
+        if (!force && pollMeta.key === tlName && Date.now() - pollMeta.at < 3000) meta = pollMeta.meta;
+        else { meta = await timelineMeta(tl, project); pollMeta = { key: tlName, at: Date.now(), meta }; }
+        const [subs, tc] = await Promise.all([getSubtitles(tl, force), tl.GetCurrentTimecode()]);
         const frame = tcToFrame(tc, meta);
 
         // A selected subtitle wins; otherwise the subtitle under the playhead.
@@ -1111,7 +1161,7 @@ async function poll(event, force) {
                 source = 'playhead';
             }
         }
-        lastPoll = { ok: true, timeline: await tl.GetName(), fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub, subtitles: subs };
+        lastPoll = { ok: true, timeline: tlName, fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub, subtitles: subs };
         return lastPoll;
     } catch (e) {
         if (hasSeenResolve) checkResolveAlive();
@@ -1260,15 +1310,64 @@ async function parkPlayhead(tl, frame, meta) {
     }
     return false;
 }
-async function insertTitleAtEnd(tl, meta, endFrame) {
-    if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the Text+ was being added, so nothing was inserted. Try again.' };
-    const item = await tl.InsertFusionTitleIntoTimeline('Text+');
+// Which title a preset needs: a preset built on a MultiText tool is created as a MultiText clip, everything else as Text+.
+// Resolve's Edit-page Inspector stays EMPTY for a Fusion title whose comp contains an OFX node (e.g. the ResolveFX Stop Motion).
+// Stop Motion is swapped for a native TimeSpeed that holds every Nth frame (same look, the Inspector keeps working).
+// The preset file on disk is never changed; the swapped copy is written to a temp folder and imported instead.
+const ofxLeft = new Map();   // compPath -> names of OFX nodes that could not be swapped
+function ofxNames(txt) { const r = [], re = /ofx\.com\.blackmagicdesign\.resolvefx\.(\w+)\s*\{/g; let m; while ((m = re.exec(txt))) r.push(m[1]); return r; }
+function inspectorSafeComp(compPath) {
+    try {
+        let s = fs.readFileSync(compPath, 'utf8');
+        ofxLeft.set(compPath, ofxNames(s).filter(n => n !== 'StopMotion'));
+        if (!/ofx\.com\.blackmagicdesign\.resolvefx\.StopMotion\s*\{/.test(s)) return compPath;
+        const re = /([A-Za-z_][\w]*)\s*=\s*ofx\.com\.blackmagicdesign\.resolvefx\.StopMotion\s*\{/g;
+        let m, out = '', last = 0, changed = false;
+        while ((m = re.exec(s))) {
+            const open = m.index + m[0].length - 1;
+            let d = 0, k = open, inStr = false;
+            for (; k < s.length; k++) {
+                const c = s[k];
+                if (inStr) { if (c === '\\') k++; else if (c === '"') inStr = false; continue; }
+                if (c === '"') inStr = true; else if (c === '{') d++; else if (c === '}') { d--; if (d === 0) break; }
+            }
+            const block = s.slice(m.index, k + 1);
+            const src = /Source\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"([^"]+)"\s*,\s*Source\s*=\s*"([^"]+)"/.exec(block);
+            const rep = /frameRepeat\s*=\s*Input\s*\{\s*Value\s*=\s*([\d.]+)/.exec(block);
+            const pos = /ViewInfo\s*=\s*OperatorInfo\s*\{[^}]*\}\s*\}?/.exec(block);
+            const n = Math.max(1, Math.round(rep ? parseFloat(rep[1]) : 2));
+            if (!src) continue;
+            const view = /ViewInfo\s*=\s*OperatorInfo\s*\{\s*Pos\s*=\s*\{[^}]*\}\s*\}/.exec(block);
+            const tool = m[1] + ' = TimeSpeed {\n\t\t\tInputs = {\n\t\t\t\tDelay = Input { Expression = "math.fmod(time, ' + n + ')", },\n' +
+                '\t\t\t\tInput = Input { SourceOp = "' + src[1] + '", Source = "' + src[2] + '", },\n\t\t\t},\n' +
+                (view ? '\t\t\t' + view[0] + ',\n' : '') + '\t\t}';
+            out += s.slice(last, m.index) + tool; last = k + 1; changed = true;
+            re.lastIndex = k + 1;
+        }
+        if (!changed) return compPath;
+        out += s.slice(last);
+        const dir = path.join(os.tmpdir(), 'sa-safe-comps');
+        fs.mkdirSync(dir, { recursive: true });
+        const f = path.join(dir, require('crypto').createHash('md5').update(compPath).digest('hex').slice(0, 10) + '-' + path.basename(compPath));
+        fs.writeFileSync(f, out);
+        return f;
+    } catch (e) { return compPath; }
+}
+
+function titleKindFor(compPath) {
+    try { return detectNodes(compPath).some(n => n.kind === 'multitext') ? 'multitext' : 'text'; } catch (e) { return 'text'; }
+}
+const isTitleClipName = (n) => /^(Text\+|MultiText)/.test(String(n || ''));
+async function insertTitleAtEnd(tl, meta, endFrame, kind) {
+    const titleName = kind === 'multitext' ? 'MultiText' : 'Text+';
+    if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
+    const item = await tl.InsertFusionTitleIntoTimeline(titleName);
     if (item) {
         let st = endFrame;
         try { st = await item.GetStart(); } catch (e) { /* ignore */ }
         if (st < endFrame - 1) {
             try { await tl.DeleteClips([item], true); } catch (e) { /* ignore */ }       // ripple delete closes the gap it made
-            return { error: 'Resolve put the Text+ at the playhead instead of the end, so it was taken out again. Check the timeline around the playhead and try again.' };
+            return { error: 'Resolve put the ' + titleName + ' at the playhead instead of the end, so it was taken out again. Check the timeline around the playhead and try again.' };
         }
     }
     return { item };
@@ -1402,20 +1501,21 @@ async function apply(event, req) {
         await sweepTempClips(tl);
         // Direct placement (no playhead move, no ripple): a reusable Text+/Fusion template clip from the Media Pool is
         // appended onto the chosen track at the caption's exact frame. Used when a template exists and checks out.
-        let item = await directPlaceTitle(tl, project, vTrack, textStart, want);
+        const titleKind = titleKindFor(path.join(ANIM_DIR, anim.file));      // MultiText presets are created as MultiText clips
+        let item = await directPlaceTitle(tl, project, vTrack, textStart, want, titleKind);
         let insertedId = null, finalLen = null;
         if (item) {
             try { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } catch (e) { /* ignore */ }
             finalLen = want;
         } else {
             // Fallback: Resolve can only insert a title at the playhead on V1, so it is parked at the end and moved up.
-            const ins = await insertTitleAtEnd(tl, meta, tlEnd);
+            const ins = await insertTitleAtEnd(tl, meta, tlEnd, titleKind);
             if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
             item = ins.item;
             try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
             if (!item) {
                 await tl.SetCurrentTimecode(origTC);
-                throw new Error('Resolve would not insert a Text+ title. Open the Edit page and try again.');
+                throw new Error('Resolve would not insert a ' + (titleKind === 'multitext' ? 'MultiText' : 'Text+') + ' title. Open the Edit page and try again.');
             }
             if (!(await fitDuration(item, want))) {
                 warnings.push('The clip could not be trimmed to the subtitle length (it is ' + (await item.GetDuration()) + ' frames).');
@@ -1428,7 +1528,7 @@ async function apply(event, req) {
                 throw new Error(mv.error);
             }
             // If Resolve hands out a Media Pool item for this title, keep it as a template for direct placement next time.
-            if (!autoTemplate && !templateBroken) { try { const mpi = await item.GetMediaPoolItem(); if (mpi) autoTemplate = mpi; } catch (e) { /* not available */ } }
+            if (!tplState[titleKind].auto && !tplState[titleKind].broken) { try { const mpi = await item.GetMediaPoolItem(); if (mpi) tplState[titleKind].auto = mpi; } catch (e) { /* not available */ } }
         }
 
         if (!live) regDel(insertedId);      // it is now a real subtitle clip, no longer a temporary one
@@ -1439,7 +1539,8 @@ async function apply(event, req) {
         let compName = null;
         if (fs.existsSync(compPath)) {
             const before = (await item.GetFusionCompNameList()) || [];
-            await item.ImportFusionComp(compPath);
+            await item.ImportFusionComp(inspectorSafeComp(compPath));
+            { const left = [...new Set(ofxLeft.get(compPath) || [])]; if (left.length) warnings.push('This preset uses the OFX effect ' + left.join(', ') + ', so Resolve shows an empty Inspector for the clip. The effect works, but its text controls are not listed.'); }
             const after = (await item.GetFusionCompNameList()) || [];
             const added = after.find(n => !before.includes(n));
             if (added) {
@@ -1549,6 +1650,12 @@ async function apply(event, req) {
             }
         }
 
+        // 4b. Layered sounds: extra sound effects of the preset, each aligned to the text start or end.
+        if (!live && req.useSfx !== false) {
+            const extra = layerList(req, anim);
+            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings);
+        }
+
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can
         //    otherwise stay blank on a freshly imported comp).
         try {
@@ -1563,7 +1670,11 @@ async function apply(event, req) {
                 if (r) { liveSfxId = r.id; sfxTrack = r.track; }
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
-            liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item };
+            let extraIds = [];
+            try {
+                if (req.useSfx !== false) extraIds = (await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, trackNotes, item, itemId, warnings)).map(x => x.id);
+            } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
+            liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item, extraIds };
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }
@@ -1702,8 +1813,9 @@ async function loopRestore() {
 // move, no ripple. The template is a clip named "Subtitle Animator Template" in the Media Pool (a Fusion Composition or
 // Text+ clip), or one Resolve handed out earlier in this session. The result is checked (track, start, length, no real
 // clip moved); on any doubt it is taken out again and the app falls back to the park-at-the-end insert for good.
-let autoTemplate = null, templateBroken = false, templateGood = 0;      // templateGood: successful placements so far (3 proven = the clip-boundary snapshots are skipped to save time)
-async function findTextTemplate(project) {
+const tplState = { text: { auto: null, broken: false, good: 0 }, multitext: { auto: null, broken: false, good: 0 } };      // templateGood: successful placements so far (3 proven = the clip-boundary snapshots are skipped to save time)
+async function findTextTemplate(project, kind) {
+    const nameRe = kind === 'multitext' ? /^subtitle animator template multitext$/i : /^subtitle animator template$/i;
     try {
         const mp = await project.GetMediaPool();
         const root = await mp.GetRootFolder();
@@ -1711,21 +1823,22 @@ async function findTextTemplate(project) {
         for (const f of ((await root.GetSubFolderList()) || [])) folders.push(f);
         for (const f of folders) {
             for (const c of ((await f.GetClipList()) || [])) {
-                try { if (/^subtitle animator template$/i.test(String(await c.GetName()))) return c; } catch (e) { /* ignore */ }
+                try { if (nameRe.test(String(await c.GetName()))) return c; } catch (e) { /* ignore */ }
             }
         }
     } catch (e) { /* ignore */ }
     return null;
 }
-async function directPlaceTitle(tl, project, track, start, want) {
-    if (templateBroken || !(track >= 2)) return null;
-    const tpl = (await findTextTemplate(project)) || autoTemplate;
+async function directPlaceTitle(tl, project, track, start, want, kind) {
+    const T = tplState[kind === 'multitext' ? 'multitext' : 'text'];
+    if (T.broken || !(track >= 2)) return null;
+    const tpl = (await findTextTemplate(project, kind)) || T.auto;
     if (!tpl) return null;
     let item = null;
     const undo = async () => { if (item) { try { await tl.DeleteClips([item], false); } catch (e) { /* the sweep removes it later */ } } };
     try {
         const mp = await project.GetMediaPool();
-        const full = templateGood < 3;
+        const full = T.good < 3;
         const before = full ? await cutSnapshot(tl) : null;
         const placed = await mp.AppendToTimeline([{ mediaPoolItem: tpl, mediaType: 1, trackIndex: track, recordFrame: start, startFrame: 0, endFrame: want }]);
         item = placed && placed[0];
@@ -1741,14 +1854,14 @@ async function directPlaceTitle(tl, project, track, start, want) {
             const after = await cutSnapshot(tl);
             if (before && after && (before.length !== after.length || before.some(x => !after.includes(x)))) { ok = false; why = 'real clips changed'; }
         }
-        if (!ok) { dlog('TEMPLATE-FAIL', why); await undo(); templateBroken = true; return null; }
-        templateGood++;
-        if (templateGood <= 3) dlog('TEMPLATE-OK', { track, start, want });
+        if (!ok) { dlog('TEMPLATE-FAIL', kind, why); await undo(); T.broken = true; return null; }
+        T.good++;
+        if (T.good <= 3) dlog('TEMPLATE-OK', { kind, track, start, want });
         return item;
     } catch (e) {
         dlog('TEMPLATE-ERROR', String(e && e.message || e));
         await undo();
-        templateBroken = true;
+        T.broken = true;
         return null;
     }
 }
@@ -1764,6 +1877,56 @@ async function findAudioItemById(tl, id) {
     return null;
 }
 // The sound of a Preview in Resolve: a real clip on the timeline, linked to the Text+ unless linking is off; it can still be moved / trimmed by hand.
+// ------------------------------------------------------------------ layered sounds (extra sound effects on one preset)
+// A preset can carry any number of extra sounds besides its main one: { id, file, enabled, volume (dB), offset (frames),
+// align: 'start' | 'end' | 'after', trimIn, len, link }. 'start': the sound starts at the text start + offset.
+// 'end': the sound ENDS at the text end + offset. 'after': the sound starts when the text ends + offset.
+function layerList(req, anim) {
+    const raw = (req && Array.isArray(req.sfxLayers)) ? req.sfxLayers : (anim && Array.isArray(anim.sfxLayers) ? anim.sfxLayers : []);
+    return raw.filter(l => l && l.enabled !== false && l.file);
+}
+async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings) {
+    const out = [];
+    if (!layers || !layers.length) return out;
+    const tlStart = await tl.GetStartFrame();
+    for (const l of layers) {
+        try {
+            const p = path.isAbsolute(l.file) ? l.file : path.join(SFX_DIR, l.file);
+            if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); continue; }
+            const { mp, item: mpi } = await importSfx(project, p);
+            if (!mpi) { warnings.push('Resolve could not import "' + path.basename(l.file) + '".'); continue; }
+            const total = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+            const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(l.trimIn) || 0)));
+            let len = total - trimIn;
+            const cap = Math.round(Number(l.len) || 0);
+            if (cap > 0) len = Math.min(len, cap);
+            len = Math.max(1, len);
+            const off = Math.round(Number(l.offset) || 0);
+            let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);
+            start = Math.max(tlStart, start);
+            const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes);
+            const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: start, startFrame: trimIn, endFrame: trimIn + len }]);
+            if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed.'); continue; }
+            const it = placed[0];
+            const vol = Number(l.volume) || 0;
+            try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+            const id = String(await it.GetUniqueId());
+            regAdd(id);
+            if (l.link && videoItem) {
+                try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, it], true); } catch (e) { /* linking is optional */ }
+            }
+            out.push({ id, track, start, frames: len });
+        } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
+    }
+    return out;
+}
+async function deleteExtraSfx(tl, ids) {
+    const gone = [];
+    for (const id of (ids || [])) { try { const it = await findAudioItemById(tl, id); if (it) gone.push(it); } catch (e) { /* ignore */ } }
+    if (gone.length) { try { await tl.DeleteClips(gone, false); } catch (e) { /* the sweep removes it later */ } }
+    for (const id of (ids || [])) regDel(id);
+}
+
 async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId) {
     if (!sfxPath || req.useSfx === false || !fs.existsSync(sfxPath)) return null;
     const tlStart = await tl.GetStartFrame();
@@ -1848,6 +2011,8 @@ async function liveUpdate(event, req) {
                 const old = liveSession.sfxId ? await findAudioItemById(tl, liveSession.sfxId) : null;
                 if (old) { const ok = await tl.DeleteClips([old], false); if (ok) regDel(liveSession.sfxId); }
                 liveSession.sfxId = null;
+                await deleteExtraSfx(tl, liveSession.extraIds);
+                liveSession.extraIds = [];
             } catch (e) { /* the sweep removes it later */ }
             if (!(req.textTrack > 0)) {
                 try { const t2 = await pickTrack(tl, 'video', 0, textStart, textStart + want, 2, [], req.place); if (t2 >= 2) track = t2; } catch (e) { /* keep the current layer */ }
@@ -1863,6 +2028,9 @@ async function liveUpdate(event, req) {
                 const r = await placeLiveSfx(tl, project, meta, liveSession.sfxPath, req, anim, textStart, [], item, liveSession.itemId);
                 if (r) { liveSession.sfxId = r.id; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
+            try {
+                if (req.useSfx !== false) liveSession.extraIds = (await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, [], item, liveSession.itemId, warnings)).map(x => x.id);
+            } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
         }
         const compPath = liveSession.compPath, compName = liveSession.compName, itemId = liveSession.itemId;
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null, undefined, true);
@@ -1928,6 +2096,7 @@ async function liveRemove(keepMarks) {
             const gone = [item, sfxItem].filter(Boolean);
             if (gone.length) { const ok = await tl.DeleteClips(gone, false); if (ok) { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); } }
             else { regDel(s.itemId); if (s.sfxId) regDel(s.sfxId); }
+            await deleteExtraSfx(tl, s.extraIds);
         }
         try { if (tl && tcR && (await tl.GetCurrentTimecode()) !== tcR) await tl.SetCurrentTimecode(tcR); } catch (e) { /* ignore */ }
     } catch (e) { /* the registry sweep removes it next time */ }
@@ -2008,6 +2177,14 @@ async function liveFinish(event, req) {
                 }
             }
         }
+        // layered sounds: the ones from the preview stay; if the preview had none, they are placed now
+        try {
+            if (s.extraIds && s.extraIds.length) { for (const id of s.extraIds) regDel(id); }
+            else if (req.useSfx !== false) {
+                const extra = layerList(req, anim);
+                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings);
+            }
+        } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
         // remember the transform / link choice on the preset, like Add to timeline does
         try {
             const a2 = lib.animations.find(a => a.id === s.animId);
@@ -2426,6 +2603,7 @@ async function capturePreview(animId, itemId, text, designKey, tempDir, opts) {
     const info = { count, step: res.step || 1, fps: res.fps || fps, stamp: Date.now(), text: (typeof text === 'string') ? text : null, designKey: (typeof designKey === 'string') ? designKey : null, bg: previewBgNext || 'black' };
     if (res && Array.isArray(res.map) && res.map.length === count) info.map = res.map;
     if (res && res.matte) info.matte = true;      // p = on black, w = on white: the panel works out the real alpha
+    try { const pa = loadLib().animations.find(x => x.id === animId); if (pa && titleKindFor(path.join(ANIM_DIR, pa.file)) === 'multitext') info.sample = 'mt-n'; } catch (e) { /* ignore */ }
     previewBgNext = null;
     if (tempDir) {
         return { preview: info, previewFiles: frameList(dir, 'p', info), previewWhite: info.matte ? frameList(dir, 'w', info) : null };
@@ -2451,7 +2629,7 @@ async function exportSelectedClip(label) {
     const sel = (await tl.GetSelectedClips()) || [];
     let pick = null;
     for (const c of sel) {
-        if ((await c.GetFusionCompCount()) > 0 && String(await c.GetName()).startsWith('Text+')) { pick = c; break; }
+        if ((await c.GetFusionCompCount()) > 0 && isTitleClipName(await c.GetName())) { pick = c; break; }
     }
     if (!pick) for (const c of sel) { if ((await c.GetFusionCompCount()) > 0) { pick = c; break; } }
     if (!pick) throw new Error('Select an animated Text+ clip on the timeline first, then save');
@@ -2467,6 +2645,41 @@ async function exportSelectedClip(label) {
         }
     } catch (e) { /* ignore */ }
     return { file, itemId: String(await pick.GetUniqueId()), props: clipProps };
+}
+
+// "From timeline": takes the Text+ selected in Resolve RIGHT NOW (its animation file, its position/scale, and a looping
+// preview of how it looks), so the Create tab keeps it even when the selection in Resolve changes afterwards.
+let draftBusy = false;
+async function draftFromTimeline(event, opts) {
+    if (draftBusy) return { error: 'Still reading the clip - one moment' };
+    draftBusy = true;
+    try {
+        const item = await findSelectedFusionItem();
+        if (!item) return { error: 'Select the Text+ clip on your Resolve timeline first' };
+        const DRAFT_DIR = path.join(DATA_DIR, 'draft');
+        fs.mkdirSync(DRAFT_DIR, { recursive: true });
+        // keep only the newest few snapshots
+        try {
+            const old = fs.readdirSync(DRAFT_DIR).filter(f => /\.comp$/.test(f)).map(f => ({ f, t: fs.statSync(path.join(DRAFT_DIR, f)).mtimeMs })).sort((a, b) => b.t - a.t).slice(5);
+            for (const o of old) fs.rmSync(path.join(DRAFT_DIR, o.f), { force: true });
+        } catch (e) { /* ignore */ }
+        const file = path.join(DRAFT_DIR, 'timeline-' + Date.now() + '.comp');
+        const compCount = Math.max(1, (await item.GetFusionCompCount()) || 1);
+        const ok = await item.ExportFusionComp(file, compCount);
+        if (!ok || !fs.existsSync(file)) return { error: "Resolve could not export that clip's animation" };
+        let props = null;
+        try { if (typeof item.GetProperties === 'function') props = await item.GetProperties(); } catch (e) { /* ignore */ }
+        const itemId = String(await item.GetUniqueId());
+        let name = '';
+        try { name = String(await item.GetName()); } catch (e) { /* ignore */ }
+        const dir = path.join(PREV_DIR, '__draft');
+        let preview = null, previewError = null;
+        try {
+            const r = await capturePreview('__draft', itemId, null, null, dir, { maxDim: Number(opts && opts.maxDim) > 0 ? Number(opts.maxDim) : 640 });
+            preview = { count: r.preview.count, fps: r.preview.fps, stamp: r.preview.stamp, files: r.previewFiles, white: r.previewWhite };
+        } catch (e) { previewError = String(e && e.message || e); }
+        return { ok: true, path: file, props, itemId, name, preview, previewError };
+    } finally { draftBusy = false; }
 }
 
 // The Create tab: a text animation (from the timeline or a dropped file) plus an optional sound.
@@ -2489,6 +2702,7 @@ async function createCombo(event, req) {
     } else {
         return { error: 'Add the text animation first: drop a .comp file, or use the Text+ selected on your timeline' };
     }
+    if (!clipProps && req.clipProps && typeof req.clipProps === 'object') clipProps = req.clipProps;   // read when "From timeline" was clicked
     const lib = loadLib();
     const a = newAnimation(label, file);
     if (clipProps) {
@@ -2628,6 +2842,7 @@ function saveAnimationVariant(event, req) {
         linked: req.linked !== undefined ? !!req.linked : src.linked !== false,
         textOffset: req.textOffset !== undefined ? Number(req.textOffset) || 0 : src.textOffset,
         sfxOffset: req.sfxOffset !== undefined ? Number(req.sfxOffset) || 0 : src.sfxOffset,
+        sfxLayers: Array.isArray(src.sfxLayers) ? JSON.parse(JSON.stringify(src.sfxLayers)) : [],
         sfxVolume: req.sfxVolume !== undefined ? Number(req.sfxVolume) || 0 : src.sfxVolume,
         tail: req.tail !== undefined ? Number(req.tail) || 0 : src.tail,
         textTrack: req.textTrack !== undefined ? Number(req.textTrack) || 0 : src.textTrack,
@@ -2654,7 +2869,7 @@ async function findLatestTimelineTextItem(tl, meta) {
     try {
         const sel = (await tl.GetSelectedClips()) || [];
         for (const c of sel) {
-            if ((await c.GetFusionCompCount()) > 0 && String(await c.GetName()).startsWith('Text+')) return c;
+            if ((await c.GetFusionCompCount()) > 0 && isTitleClipName(await c.GetName())) return c;
         }
         for (const c of sel) {
             if ((await c.GetFusionCompCount()) > 0) return c;
@@ -2856,7 +3071,7 @@ function updateAnimation(event, id, patch) {
     const lib = loadLib();
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig', 'sfxLayers'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
     if ('tags' in patch) {
         const known = new Set(lib.tags.map(t => t.id));
@@ -3399,10 +3614,18 @@ const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line']
 // The log goes to the project folder in Documents when it exists (easy to find and share), otherwise next to the plugin.
 const DEV_DEBUG_DIR = path.join(os.homedir(), 'Documents', 'Subtitle Animator Plugin', '_debug');
 const DEBUG_LOG = fs.existsSync(path.dirname(DEV_DEBUG_DIR)) ? path.join(DEV_DEBUG_DIR, 'preview-log.txt') : path.join(__dirname, '_debug', 'preview-log.txt');
+const DEBUG_ON = process.env.SA_DEBUG === '1';
+let debugBytes = 0;
 function dlog(...parts) {
+    if (!DEBUG_ON) return;
     try {
-        fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
+        if (debugBytes === 0) {
+            fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
+            try { debugBytes = fs.statSync(DEBUG_LOG).size; } catch (e) { debugBytes = 1; }
+        }
+        if (debugBytes > 1000000) { fs.writeFileSync(DEBUG_LOG, ''); debugBytes = 1; }
         const line = new Date().toISOString() + ' ' + parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ') + '\n';
+        debugBytes += line.length;
         fs.appendFileSync(DEBUG_LOG, line);
     } catch (e) { /* ignore */ }
 }
@@ -3468,7 +3691,7 @@ function previewCacheKey(animId, anim, compPath, customText, design, boxList, te
     try { const x = fs.statSync(compPath); st = [x.mtimeMs, x.size]; } catch (e) { return null; }
     const h = require('crypto').createHash('sha1');
     h.update(JSON.stringify([animId, anim.file, st, customText || null, design || null, anim.textDesign || null, boxList || null,
-        String(temp), opts && opts.maxDim || 0, meta.fps, meta.width, meta.height, 1]));
+        String(temp), opts && opts.maxDim || 0, meta.fps, meta.width, meta.height, 2]));
     return h.digest('hex').slice(0, 24);
 }
 function linkOrCopy(src, dst) {
@@ -3517,7 +3740,7 @@ async function removePreviewLeftovers(tl, endBefore, itemId) {
                 try {
                     const id = String(await it.GetUniqueId());
                     const isMine = itemId && id === String(itemId);
-                    const pastEnd = endBefore != null && (await it.GetStart()) >= endBefore && String(await it.GetName()).startsWith('Text+');
+                    const pastEnd = endBefore != null && (await it.GetStart()) >= endBefore && isTitleClipName(await it.GetName());
                     if (isMine || pastEnd) stray.push(it);
                 } catch (e) { /* ignore */ }
             }
@@ -3540,7 +3763,7 @@ function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(Stri
 function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id))); }
 async function sweepTempClips(tl) {
     const ids = new Set(regRead());
-    if (liveSession) { ids.delete(String(liveSession.itemId)); if (liveSession.sfxId) ids.delete(String(liveSession.sfxId)); }      // the clip of a running Resolve preview stays
+    if (liveSession) { ids.delete(String(liveSession.itemId)); if (liveSession.sfxId) ids.delete(String(liveSession.sfxId)); for (const x of (liveSession.extraIds || [])) ids.delete(String(x)); }      // the clip of a running Resolve preview stays
     if (!ids.size || !tl) return;
     try {
         const stray = [], seen = new Set();
@@ -3590,12 +3813,12 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         const renderLen = Math.round(meta.fps * 3);
         try {
             const rt = await pickTrack(tl, 'video', 0, endBefore, endBefore + renderLen, 2, []);
-            item = await directPlaceTitle(tl, project, rt, endBefore, renderLen);
+            item = await directPlaceTitle(tl, project, rt, endBefore, renderLen, titleKindFor(compPath));
         } catch (e) { item = null; }
         if (item) {
             try { itemId = String(await item.GetUniqueId()); regAdd(itemId); } catch (e) { /* ignore */ }
         } else {
-            const ins = await insertTitleAtEnd(tl, meta, endBefore);
+            const ins = await insertTitleAtEnd(tl, meta, endBefore, titleKindFor(compPath));
             if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
             item = ins.item;
             try { if (item) { itemId = String(await item.GetUniqueId()); regAdd(itemId); } } catch (e) { /* ignore */ }
@@ -3608,7 +3831,7 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
         itemId = String(await item.GetUniqueId());
 
         const before = (await item.GetFusionCompNameList()) || [];
-        await item.ImportFusionComp(compPath);
+        await item.ImportFusionComp(inspectorSafeComp(compPath));
         const after = (await item.GetFusionCompNameList()) || [];
         const added = after.find(n => !before.includes(n));
         let compName = null;
@@ -3630,10 +3853,11 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
             const multi = nodes.length > 1;
             const boxes = nodes.map((n, i) => {
                 const g = given.find(x => x && x.id === n.id) || null;
-                const fallback = sampleText || SAMPLE_TEXTS[i % SAMPLE_TEXTS.length];
+                const fallback = n.kind === 'multitext' ? ('Sample ' + (n.layerName || ('Text ' + (n.layer || (i + 1))))) : (sampleText || SAMPLE_TEXTS[i % SAMPLE_TEXTS.length]);
                 let text = fallback;
                 if (temp && g) {
-                    if (typeof g.text === 'string' && g.text.trim()) text = g.text;
+                    if (n.kind === 'multitext' && typeof g.text === 'string') text = g.text;      // an empty part stays empty
+                    else if (typeof g.text === 'string' && g.text.trim()) text = g.text;
                     else if (g.text === null) text = null;      // "Keep preset's text"
                 }
                 return {
@@ -3745,6 +3969,9 @@ function startBridge() {
         }
     });
     proc.stderr.on('data', (d) => { bridgeErr = (bridgeErr + d.toString()).slice(-400); });
+    proc.stdin.on('error', () => { /* helper went away: the exit handler rejects what was waiting */ });
+    proc.stdout.on('error', () => { /* ignore */ });
+    proc.stderr.on('error', () => { /* ignore */ });
     const fail = (why) => {
         for (const [id, p] of bridgePending) { clearTimeout(p.timer); p.reject(new Error(why + (bridgeErr ? ' ' + bridgeErr : ''))); }
         bridgePending.clear();
@@ -3756,7 +3983,7 @@ function startBridge() {
 }
 
 function bridgeCall(op, args, timeoutMs) {
-    if (!bridge) bridge = startBridge();
+    if (!bridge || bridge.exitCode !== null || bridge.killed || !bridge.stdin || bridge.stdin.destroyed) bridge = startBridge();
     const id = bridgeSeq++;
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -3765,7 +3992,7 @@ function bridgeCall(op, args, timeoutMs) {
             if (op === 'capture') { try { if (bridge) bridge.kill(); } catch (e) { /* ignore */ } bridge = null; }      // a stuck render: the helper is started fresh next time
         }, op === 'capture' ? Math.min(timeoutMs || 90000, 90000) : (timeoutMs || 20000));
         bridgePending.set(id, { resolve, reject, timer });
-        try { bridge.stdin.write(JSON.stringify({ id, op, args }) + '\n'); } catch (e) { bridgePending.delete(id); clearTimeout(timer); reject(e); }
+        try { bridge.stdin.write(JSON.stringify({ id, op, args }) + '\n'); } catch (e) { bridgePending.delete(id); clearTimeout(timer); bridge = null; reject(e); }
     });
 }
 
@@ -3776,7 +4003,7 @@ async function findSelectedFusionItem() {
     if (!tl) return null;
     const sel = (await tl.GetSelectedClips()) || [];
     for (const c of sel) {
-        if ((await c.GetFusionCompCount()) > 0 && String(await c.GetName()).startsWith('Text+')) return c;
+        if ((await c.GetFusionCompCount()) > 0 && isTitleClipName(await c.GetName())) return c;
     }
     for (const c of sel) { if ((await c.GetFusionCompCount()) > 0) return c; }
     return null;
@@ -3830,6 +4057,14 @@ let preSidebarBounds = null;
 // Called by the panel each time it opens, so the window always starts at the width its layout needs.
 async function fitWidth(event, contentWidth, mode) {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    if (restoredFromState && firstFit) {
+        // Launch with a remembered size: keep exactly that size.
+        firstFit = false;
+        const b0 = mainWindow.getBounds();
+        if (mode === 'sidebar') preSidebarBounds = { x: b0.x, y: b0.y, width: 460, height: b0.height };
+        return { ok: true, width: b0.width, restored: true };
+    }
+    firstFit = false;
     const bounds = mainWindow.getBounds();
     const [cw] = mainWindow.getContentSize();
     const frameExtra = Math.max(0, bounds.width - cw);
@@ -4007,39 +4242,70 @@ function checkResolveAlive() {
     });
 }
 
+let rendererCrashes = [];
+
+// The window opens the way it was closed: size and position are remembered (and put back on a screen that still exists).
+const WIN_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
+let restoredFromState = false;
+let firstFit = true;
+function loadWinState() {
+    try {
+        const st = JSON.parse(fs.readFileSync(WIN_STATE_FILE, 'utf8'));
+        const ok = ['x', 'y', 'width', 'height'].every(k => Number.isFinite(st[k]));
+        if (!ok || st.width < 380 || st.height < 560) return null;
+        const disp = screen.getAllDisplays().find(d => {
+            const w = d.workArea;
+            const ox = Math.min(st.x + st.width, w.x + w.width) - Math.max(st.x, w.x);
+            const oy = Math.min(st.y + st.height, w.y + w.height) - Math.max(st.y, w.y);
+            return ox >= 120 && oy >= 120;
+        });
+        if (!disp) return { width: Math.round(st.width), height: Math.round(st.height) };   // its screen is gone: keep the size, let the system place it
+        const w = disp.workArea;
+        const width = Math.min(Math.round(st.width), w.width), height = Math.min(Math.round(st.height), w.height);
+        const x = Math.min(Math.max(Math.round(st.x), w.x), w.x + w.width - width);
+        const y = Math.min(Math.max(Math.round(st.y), w.y), w.y + w.height - height);
+        return { x, y, width, height };
+    } catch (e) { return null; }
+}
+let winSaveTimer = null;
+function saveWinState() {
+    try {
+        if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return;
+        const b = mainWindow.getNormalBounds ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+        const tmp = WIN_STATE_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height }));
+        fs.renameSync(tmp, WIN_STATE_FILE);
+    } catch (e) { /* ignore */ }
+}
+function scheduleSaveWinState() { clearTimeout(winSaveTimer); winSaveTimer = setTimeout(saveWinState, 400); }
+
 function createWindow() {
-    mainWindow = new BrowserWindow({
+    const saved = loadWinState();
+    restoredFromState = !!saved;
+    mainWindow = new BrowserWindow(Object.assign({
         width: 460,
-        height: 860,
+        height: 860 }, saved || {}, {
         minWidth: 380,
         minHeight: 560,
         title: 'El Subtitle Animator',
         backgroundColor: '#131614',
         webPreferences: { preload: path.join(__dirname, 'preload.js') }
-    });
+    }));
     mainWindow.setMenu(null);
     mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
         const msg = (typeof event === 'object' && event.message !== undefined) ? event.message : message;
         const src = (typeof event === 'object' && event.sourceId !== undefined) ? event.sourceId : sourceId;
         const ln = (typeof event === 'object' && event.lineNumber !== undefined) ? event.lineNumber : line;
-        console.log('[RENDERER]', msg, src + ':' + ln);
+        const lvl = (typeof event === 'object' && event.level !== undefined) ? event.level : level;
+        if (DEBUG_ON || lvl === 'error' || lvl === 'warning' || lvl >= 2) console.log('[RENDERER]', msg, src + ':' + ln);
         dlog('[renderer console]', msg, src + ':' + ln);
-    });
-    mainWindow.webContents.on('did-finish-load', () => {
-        dlog('[web did-finish-load]');
-        setTimeout(async () => {
-            try {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    const img = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(DEV_DEBUG_DIR, 'test_capture.png'), img.toPNG());
-                    dlog('[capture saved]', img.getSize());
-                }
-            } catch (e) { dlog('[capture error]', String(e)); }
-        }, 1500);
     });
     mainWindow.webContents.on('render-process-gone', (event, details) => {
         dlog('[render-process-gone]', details);
-        if (details.reason !== 'clean-exit' && details.reason !== 'killed') {
+        const now = Date.now();
+        rendererCrashes = rendererCrashes.filter(t => now - t < 60000);
+        rendererCrashes.push(now);
+        if (details.reason !== 'clean-exit' && details.reason !== 'killed' && rendererCrashes.length <= 5) {
             console.error('Renderer process gone, reloading page:', details);
             setTimeout(() => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4053,7 +4319,10 @@ function createWindow() {
     });
     // Dropping a file must never navigate the window away from the panel.
     mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
-    mainWindow.on('close', () => quitPlugin());
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.on('close', () => { clearTimeout(winSaveTimer); saveWinState(); quitPlugin(); });
+    mainWindow.on('resize', scheduleSaveWinState);
+    mainWindow.on('move', scheduleSaveWinState);
     mainWindow.on('minimize', () => setAppIdle(true));
     mainWindow.on('hide', () => setAppIdle(true));
     mainWindow.on('restore', () => { parkArmed = false; setAppIdle(false); });
@@ -4088,6 +4357,7 @@ app.whenReady().then(() => {
     ipcMain.handle('lib:addAnimationFile', wrap(addAnimationFile));
     ipcMain.handle('lib:saveSelected', wrap(saveSelectedAsAnimation));
     ipcMain.handle('lib:create', wrap(createCombo));
+    ipcMain.handle('lib:draftFromTimeline', wrap(draftFromTimeline));
     ipcMain.handle('lib:saveVariant', wrap(saveAnimationVariant));
     ipcMain.handle('lib:capture', wrap(captureFromSelection));
     ipcMain.handle('lib:update', wrap(updateAnimation));

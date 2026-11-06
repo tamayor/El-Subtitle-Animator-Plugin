@@ -4950,3 +4950,90 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 
 
 
+
+/* Create tab: preview of the Text+ taken from the timeline */
+.cr-draftprev { position: relative; margin-top: 10px; border-radius: 10px; overflow: hidden; background: #0b0d0c; border: 1px solid rgba(255,255,255,0.08); }
+.cr-draftprev canvas { display: block; width: 100%; height: auto; max-height: 420px; object-fit: contain; background: #000; }
+.cr-draftmsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 8px; text-align: center; font-size: 12px; color: var(--text-dim, #9aa59d); pointer-events: none; }
+.cr-draftmsg:empty { display: none; }
+.cr-tile.busy { opacity: .6; pointer-events: none; }
+
+/* ---- MultiText split panel (sits above the Timeline Preview bar) ---- */
+.mt-panel { display: grid; gap: 10px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-inner); }
+.mt-panel.hidden { display: none; }
+.mt-head { display: flex; align-items: center; gap: 8px; }
+.mt-count { font-size: 11px; color: var(--dim); }
+.mt-on { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.mt-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mt-opts select, .mt-layer, .mt-in, .mt-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px; }
+.mt-opts select { padding: 5px 8px; flex: 1 1 150px; min-width: 0; }
+.mt-num { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.mt-num input[type=number] { width: 52px; padding: 4px 6px; }
+.mt-check { cursor: pointer; color: var(--text); }
+.mt-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 26px; }
+.mt-empty { font-size: 12px; color: var(--dim); }
+.mt-chip { padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; color: var(--text); background: var(--card); border: 1px solid var(--line); }
+.mt-chip:hover { filter: brightness(1.2); }
+.mt-chip.r-upper { border-color: #7fb8ff; background: rgba(127,184,255,.14); }
+.mt-chip.r-emphasis { border-color: #f0c36b; background: rgba(240,195,107,.2); font-weight: 700; }
+.mt-chip.r-lower { border-color: #8ccf8e; background: rgba(140,207,142,.14); }
+.mt-fields { display: grid; gap: 8px; }
+.mt-field { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: start; }
+.mt-flab { display: grid; gap: 4px; font-size: 12px; }
+.mt-flab > span:nth-child(2) { color: var(--mt); font-weight: 600; }
+.mt-dot { display: none; }
+.mt-layer { padding: 3px 6px; width: 100%; min-width: 0; font-size: 11px; color: var(--dim); }
+.mt-in { padding: 6px 8px; resize: vertical; min-height: 30px; width: 100%; border-left: 3px solid var(--mt); }
+.mt-field.edited .mt-in { border-color: var(--mt); background: rgba(255,255,255,.05); }
+.mt-reset { padding: 3px 8px; visibility: hidden; }
+.mt-field.edited .mt-reset { visibility: visible; }
+
+/* ---- Layered sounds (inside Preset Set Up) ---- */
+.tl .bar.sel { outline: 2px solid var(--matcha); outline-offset: -2px; }
+.tl .bar.text.sel { outline-color: #fff; }
+.tl .bar .snd-nm { position: absolute; left: 10px; top: 2px; max-width: calc(100% - 20px); font-size: 10px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tl .vol-line { position: absolute; left: 8px; right: 8px; height: 9px; margin-top: -4px; cursor: ns-resize; z-index: 3; }
+.tl .vol-line::after { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.tl .vol-line:hover::after { top: 3px; height: 2px; background: var(--matcha); }
+.tl .vol-tip { display: none; position: absolute; right: 2px; top: -13px; font-size: 10px; background: rgba(0, 0, 0, 0.75); color: #fff; padding: 0 4px; border-radius: 4px; }
+.tl .vol-line:hover .vol-tip { display: block; }
+.snd-card { margin-top: 6px; }
+.snd-card.over { outline: 1px dashed var(--matcha-border); }
+.snd-in { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-inner); }
+.snd-top { display: flex; align-items: center; gap: 6px; }
+.snd-top .snd-file { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.snd-in select, .snd-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px; padding: 4px 6px; }
+.snd-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.snd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.snd-num { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+.snd-num input[type=number] { width: 58px; }
+.snd-check { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.snd-anchor { flex: 1 1 140px; min-width: 0; }
+.snd-volhint { margin: 0; font-size: 11px; }
+.snd-del:hover { color: var(--strawberry); }
+.setup-files { margin-bottom: 8px; }
+.setup-files.hidden { display: none; }
+
+/* ---- MultiText panel, simplified: three colour-coded inputs, role buttons, word chips ---- */
+.mt-panel { gap: 8px; }
+.mt-ins { display: grid; gap: 6px; }
+.mt-in { padding: 7px 10px; resize: none; min-height: 32px; width: 100%; border: 1px solid color-mix(in srgb, var(--mt) 45%, transparent); border-left: 4px solid var(--mt); background: color-mix(in srgb, var(--mt) 9%, var(--card)); color: var(--text); border-radius: 8px; font: inherit; font-size: 13px; }
+.mt-in::placeholder { color: color-mix(in srgb, var(--mt) 70%, var(--dim)); opacity: .8; }
+.mt-in:focus { outline: none; border-color: var(--mt); }
+.mt-in.edited { background: color-mix(in srgb, var(--mt) 16%, var(--card)); }
+.mt-roles { display: flex; gap: 6px; }
+.mt-rbtn { flex: 1 1 0; padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
+.mt-rbtn:hover { background: color-mix(in srgb, var(--mt) 14%, transparent); }
+.mt-rbtn.on { background: var(--mt); color: #15171a; border-color: var(--mt); }
+.mt-aa { flex: 0 0 auto; padding: 6px 11px; }
+
+/* AA (all caps) at the end of each MultiText input */
+.mt-inwrap { position: relative; }
+.mt-inwrap .mt-in { padding-right: 46px; }
+.mt-cap { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 3px 7px; border-radius: 6px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
+.mt-cap:hover { background: color-mix(in srgb, var(--mt) 18%, transparent); }
+.mt-cap.on { background: var(--mt); color: #15171a; border-color: var(--mt); }
+
+.saved-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 9999; padding: 9px 16px; border-radius: 10px; background: #172a1b; border: 1px solid var(--matcha-border); color: var(--matcha); font-size: 13px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); transition: opacity 0.35s, transform 0.35s; pointer-events: none; }
+.saved-toast b { color: #fff; font-weight: 600; }
+.saved-toast.out { opacity: 0; transform: translateX(-50%) translateY(8px); }

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('sa', {
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
     subtitles: (force) => ipcRenderer.invoke('app:subtitles', force),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),
+    setPlaceOptions: (o) => ipcRenderer.invoke('place:set', o || null),
 
     // Library
     getLib: () => ipcRenderer.invoke('lib:get'),

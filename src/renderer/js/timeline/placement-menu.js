@@ -2,11 +2,21 @@
 
 // ---- Placement drawer below Alignment (all unchecked by default; remembered per computer)
 const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty', loopOn: 'placeLoopOn' };
+// Track range: "Between tracks V<from> to V<to>" (to empty = no upper limit). null = not set.
+const PLACE_RANGE_IDS = { rangeFrom: 'placeRangeFrom', rangeTo: 'placeRangeTo' };
+function placeRangeVal(id) {
+    const e = $(id); if (!e) return null;
+    const n = Math.round(Number(e.value));
+    return (e.value !== '' && Number.isFinite(n) && n >= 2) ? n : null;
+}
 function placeOptions() {
     const o = {};
     for (const k in PLACE_IDS) { const e = $(PLACE_IDS[k]); o[k] = !!(e && e.checked); }
+    for (const k in PLACE_RANGE_IDS) o[k] = placeRangeVal(PLACE_RANGE_IDS[k]);
+    if (o.rangeFrom && o.rangeTo && o.rangeTo < o.rangeFrom) o.rangeTo = o.rangeFrom;
     return o;
 }
+function placeRangeActive(o) { return !!(o.rangeFrom || o.rangeTo); }
 function setPlaceOpen(wanted) {
     state.placeOpen = !!wanted;
     const body = $('placeBodyU'), wrap = $('placeWrapU'), toggle = $('placeToggleU');
@@ -18,21 +28,45 @@ function setPlaceOpen(wanted) {
         if (chev) chev.textContent = state.placeOpen ? '▾' : '▸';
     }
 }
+// The main process keeps a copy, so placements made through Claude (MCP) follow the same settings.
+function pushPlaceOptions() {
+    try { if (window.sa && window.sa.setPlaceOptions) window.sa.setPlaceOptions(placeOptions()).catch(() => { }); } catch (e) { /* optional */ }
+}
 function bindPlacementMenu() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem('sa.place') || '{}') || {}; } catch (e) { saved = {}; }
+    const save = () => {
+        try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
+        pushPlaceOptions();
+        syncPlaceUI();
+    };
     for (const k in PLACE_IDS) {
         const e = $(PLACE_IDS[k]); if (!e) continue;
         e.checked = !!saved[k];
+        e.addEventListener('change', save);
+    }
+    for (const k in PLACE_RANGE_IDS) {
+        const e = $(PLACE_RANGE_IDS[k]); if (!e) continue;
+        e.value = saved[k] ? String(saved[k]) : '';
         e.addEventListener('change', () => {
-            try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
-            syncPlaceUI();
+            const v = placeRangeVal(PLACE_RANGE_IDS[k]);
+            e.value = v ? String(v) : '';
+            const o = placeOptions();      // keep To >= From in the fields too
+            if (o.rangeTo && $(PLACE_RANGE_IDS.rangeTo)) $(PLACE_RANGE_IDS.rangeTo).value = String(o.rangeTo);
+            save();
         });
     }
     const syncPlaceUI = () => {
-        const n = Object.values(placeOptions()).filter(Boolean).length;
+        const o = placeOptions();
+        const range = placeRangeActive(o);
+        const n = Object.keys(PLACE_IDS).filter(k => o[k]).length + (range ? 1 : 0);
         const summary = $('placeSummaryU');
-        if (summary) summary.textContent = n ? (n + ' option' + (n > 1 ? 's' : '') + ' active') : 'Default (top layer)';
+        const rangeTxt = range ? 'V' + (o.rangeFrom || 2) + '–' + (o.rangeTo ? 'V' + o.rangeTo : '∞') : '';
+        if (summary) {
+            summary.textContent = range
+                ? rangeTxt + (n > 1 ? ' · ' + (n - 1) + ' more option' + (n > 2 ? 's' : '') : '')
+                : (n ? (n + ' option' + (n > 1 ? 's' : '') + ' active') : 'Default (top layer)');
+        }
         if ($('placeBtn')) $('placeBtn').textContent = 'Placement' + (n ? ' (' + n + ')' : '') + ' ▴';
     };
     if ($('placeToggleU')) {
@@ -49,4 +83,5 @@ function bindPlacementMenu() {
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
     }
     syncPlaceUI();
+    pushPlaceOptions();
 }

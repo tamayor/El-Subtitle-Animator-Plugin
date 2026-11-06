@@ -44,7 +44,9 @@ function defaultRules() {
         allowedTags: [],            // emoji, tag names or ids; empty = every preset may be used
         tagMatch: 'any',            // 'any': a preset needs one of the tags, 'all': every one of them
         font: null,                 // { font: 'Poppins', style: 'ExtraBold' } forces this font on every placed clip
-        track: { mode: 'top', fixed: null },      // 'top' above all clips there, 'first-empty' lowest free layer, 'fixed' V<fixed>
+        // 'top' above all clips there, 'first-empty' lowest free layer, 'fixed' V<fixed>; from / to = keep the layer
+        // between V<from> and V<to> (to null = no limit; null both = the panel's Placement range)
+        track: { mode: 'top', fixed: null, from: null, to: null },
         position: { defaultZone: null, safeTop: 0.08, safeBottom: 0.92, safeLeft: 0.05, safeRight: 0.95, avoidFaces: true },
         multitext: { emphasis: 'auto', uppercaseEmphasis: false },      // auto = Claude picks the words to emphasize
         // Inspector values: maxSize caps the text Size (MultiText: its biggest layer, the group shrinks together);
@@ -76,7 +78,9 @@ function cleanRules(r) {
             : null,
         track: {
             mode: ['top', 'first-empty', 'fixed'].includes(trk.mode) ? trk.mode : 'top',
-            fixed: trk.fixed ? Math.max(2, Math.round(Number(trk.fixed)) || 2) : null
+            fixed: trk.fixed ? Math.max(2, Math.round(Number(trk.fixed)) || 2) : null,
+            from: trk.from ? Math.max(2, Math.round(Number(trk.from)) || 2) : null,
+            to: trk.to ? Math.max(trk.from ? Math.max(2, Math.round(Number(trk.from)) || 2) : 2, Math.round(Number(trk.to)) || 2) : null
         },
         position: {
             defaultZone: (pos.defaultZone && ZONES[pos.defaultZone] !== undefined) ? pos.defaultZone : null,
@@ -613,7 +617,16 @@ const TOOLS = {
 
         // video layer
         let textTrack = 0;
-        const place = { firstEmpty: rules.track.mode === 'first-empty' };
+        // the panel's Placement settings (locked / disabled handling, first empty, track range); the rules' range wins when set
+        const pp = state.placePrefs || {};
+        const tr = (args.trackRange && typeof args.trackRange === 'object' && (args.trackRange.from || args.trackRange.to)) ? args.trackRange
+            : ((rules.track.from || rules.track.to) ? rules.track : null);      // prompt (this call) > rules > panel
+        const place = {
+            locked: !!pp.locked, disabledTrack: !!pp.disabledTrack, disabledClip: !!pp.disabledClip,
+            firstEmpty: rules.track.mode === 'first-empty' || !!pp.firstEmpty,
+            rangeFrom: tr ? (tr.from || null) : pp.rangeFrom,
+            rangeTo: tr ? (tr.to || null) : pp.rangeTo
+        };
         if (args.track) textTrack = Math.max(2, Math.round(Number(String(args.track).replace(/^v/i, ''))) || 0);
         else if (rules.track.mode === 'fixed' && rules.track.fixed) textTrack = rules.track.fixed;
 

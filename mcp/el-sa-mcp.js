@@ -41,7 +41,7 @@ const TOOLS = [
             allowedTags: { type: 'array', items: { type: 'string' }, description: 'Emoji, tag names or ids. Empty array = all presets allowed.' },
             tagMatch: { type: 'string', enum: ['any', 'all'], description: 'any: preset has at least one of the tags; all: every tag' },
             font: { type: ['object', 'null'], properties: { font: { type: 'string' }, style: { type: 'string' } }, description: 'Force this font on every clip, e.g. {"font":"Poppins","style":"ExtraBold"}. null = keep each preset\'s font.' },
-            track: { type: 'object', properties: { mode: { type: 'string', enum: ['top', 'first-empty', 'fixed'] }, fixed: { type: 'integer', minimum: 2 } }, description: 'Video layer: top = above everything at that time, first-empty = lowest free layer above V1, fixed = always V<fixed>' },
+            track: { type: 'object', properties: { mode: { type: 'string', enum: ['top', 'first-empty', 'fixed'] }, fixed: { type: 'integer', minimum: 2 }, from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, description: 'Video layer: top = above everything at that time, first-empty = lowest free layer above V1, fixed = always V<fixed>. from/to = keep it between V<from> and V<to> (to null = no limit): starts at V<from> and moves up past locked, disabled or busy tracks; past the range only when it is full. from and to null = use the panel\'s Placement range.' },
             position: {
                 type: 'object',
                 properties: {
@@ -122,6 +122,7 @@ const TOOLS = [
             text: { type: 'string', description: 'Override the text (default: the subtitle\'s text)' },
             parts: { type: 'object', properties: { upper: { type: 'string' }, emphasis: { type: 'string' }, lower: { type: 'string' } }, description: 'MultiText presets: how the subtitle splits into the upper line, the emphasized word(s) and the lower line' },
             track: { type: 'integer', minimum: 2, description: 'Force a video layer for this clip (overrides the rules)' },
+            trackRange: { type: 'object', properties: { from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, additionalProperties: false, description: 'Only when the user\'s prompt names tracks: keep the clip between V<from> and V<to> (to null = no limit), starting at V<from> and moving up past locked, disabled or busy tracks, past the range only when it is full. Overrides the rules\' range and the panel\'s Placement range for this call.' },
             holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
@@ -144,8 +145,9 @@ const TOOLS = [
     },
     {
         name: 'place_stack',
-        description: 'Place a group of consecutive subtitles as a stack (one clip per subtitle, every clip but the last held until the group\'s last subtitle ends, sound keeps each subtitle\'s own length). The lines are spaced exactly like one Text+ block at lineSpacing, measured from the real rendered text, and the group is centred on y. After placing, the clips are measured again and corrected to the pixel. Never pass a track: the panel\'s Placement settings choose the layer.',
+        description: 'Place a group of consecutive subtitles as a stack (one clip per subtitle, every clip but the last held until the group\'s last subtitle ends, sound keeps each subtitle\'s own length). The lines are spaced exactly like one Text+ block at lineSpacing, measured from the real rendered text, and the group is centred on y. After placing, the clips are measured again and corrected to the pixel. The panel\'s Placement settings choose the layer unless the user\'s prompt names tracks (then pass trackRange).',
         inputSchema: S({
+            trackRange: { type: 'object', properties: { from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, additionalProperties: false, description: 'Only when the user\'s prompt names tracks: keep the clip between V<from> and V<to> (to null = no limit), starting at V<from> and moving up past locked, disabled or busy tracks, past the range only when it is full. Overrides the rules\' range and the panel\'s Placement range for this call.' },
             subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'The group\'s subtitle numbers in order' },
             presetId: { type: 'string', description: 'Preset id (or exact name) from list_presets, used for every line' },
             texts: { type: 'array', items: { type: 'string' }, description: 'Optional text override per subtitle (same length as subtitles)' },

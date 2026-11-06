@@ -2,6 +2,7 @@
 
 const { app, ipcMain, shell } = require('electron');
 
+const state = require('./state');
 const { DATA_DIR, FONTS_DIR } = require('./config');
 const { getAppVersion, setAppVersion } = require('./app-version');
 const { apply } = require('./apply');
@@ -103,6 +104,7 @@ const RAW_HANDLERS = {
     'color:cancel': cancelNativeColor,
     'win:park': () => parkUntilFocus(),
     'win:emojiPanel': () => { try { app.showEmojiPanel(); return true; } catch (e) { return false; } },      // macOS Character Viewer
+    'place:set': (e, o) => { state.placePrefs = (o && typeof o === 'object') ? o : null; return true; },
     'dbg:log': (e, ...parts) => { dlog('[panel]', ...parts); return true; },
     'resolve:cleanup': cleanup,
 };

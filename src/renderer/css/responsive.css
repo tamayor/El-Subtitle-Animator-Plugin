@@ -58,6 +58,10 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
     cursor: pointer;
 }
 
+.place-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 8px; font-size: 12px; color: var(--text); }
+.place-range-fields { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.place-range input[type="number"] { width: 46px; padding: 3px 5px; font-size: 12px; background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; }
+
 .create-row { display: flex; gap: 8px; align-items: stretch; }
 .create-row #create { flex: 1 1 auto; min-width: 0; }
 .place-wrap { position: relative; flex: 0 0 auto; }

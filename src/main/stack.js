@@ -148,6 +148,7 @@ async function placeStack(TOOLS, args) {
         };
         if (args.maxSize) a.maxSize = args.maxSize;
         if (i < n - 1) a.holdUntil = last.index;
+        if (args.trackRange) a.trackRange = args.trackRange;
         return TOOLS.place(a);
     };
 

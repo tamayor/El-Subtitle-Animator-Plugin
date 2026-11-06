@@ -16,6 +16,7 @@ module.exports = {
     tplState: { text: { auto: null, broken: false, good: 0 }, multitext: { auto: null, broken: false, good: 0 } },
     presetTpl: new Map(),      // preset title template name -> { auto, broken, good } (see presetTplState)
     liveSession: null,
+    placePrefs: null,          // the panel's Placement settings (locked / disabled / first-empty / track range), for MCP placements
     bridge: null,
     mainWindow: null,
     resolveWatchTimer: null

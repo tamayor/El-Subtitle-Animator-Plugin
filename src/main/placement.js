@@ -30,8 +30,21 @@ const { ensureStopped } = require('./playback');
 //   disabledTrack a disabled track counts as occupying its layer
 //   disabledClip  a disabled clip counts as occupying its track
 //   firstEmpty    use the lowest empty layer instead of the top one
+//   rangeFrom / rangeTo  keep the Text+ between V<rangeFrom> and V<rangeTo> (rangeTo null = no upper limit). Tracks
+//                 above rangeTo are ignored when looking for the top. When every layer of the range is taken there
+//                 (e.g. stacked captions), the lowest free layer above the range is used, or a new track is added.
 // Text+ is never put onto a locked or disabled track itself (it cannot be placed / would be invisible).
-function placeOpts(o) { o = o || {}; return { locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }; }
+function rangeOf(o) {
+    const int = (v) => { if (v === null || v === undefined || v === '') return null; const n = Math.round(Number(String(v).replace(/^v/i, ''))); return Number.isFinite(n) && n > 0 ? n : null; };
+    const from = Math.max(2, int(o.rangeFrom) || 2);
+    let to = int(o.rangeTo);
+    if (to !== null && to < from) to = from;
+    return { rangeFrom: from, rangeTo: to, ranged: int(o.rangeFrom) !== null || to !== null };
+}
+function placeOpts(o) {
+    o = o || {};
+    return Object.assign({ locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }, rangeOf(o));
+}
 
 async function trackUsable(tl, kind, t) {
     try { if (await tl.GetIsTrackLocked(kind, t)) return false; } catch (e) { /* ignore */ }
@@ -67,7 +80,8 @@ async function trackIsFree(tl, kind, t, s, e) {
 }
 
 // Auto (video) = the top: one track above the highest track that counts as occupied at that moment (see the
-// placement options), never a gap lower down; or the lowest empty layer with "first empty layer". A new track is
+// placement options), never a gap lower down; or the lowest empty layer with "first empty layer". With a track range
+// (rangeFrom / rangeTo): the first usable empty layer from rangeFrom up, past the range when it is full. A new track is
 // added when there is none. Auto (audio) = the lowest free audio track.
 async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
     const n = await tl.GetTrackCount(kind);
@@ -79,24 +93,46 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
         notes.push(label + wanted + ' is busy there, so the lowest free track was used');
     }
     if (kind === 'video') {
-        if (po.firstEmpty) {
-            for (let t = Math.max(1, firstAuto); t <= n; t++) {
+        const lo = Math.max(firstAuto, po.rangeFrom), hi = po.rangeTo === null ? Infinity : po.rangeTo;
+        const ranged = po.ranged;
+        const where = ranged ? ' (range V' + lo + '-' + (hi === Infinity ? '∞' : 'V' + hi) + ')' : '';
+        // adds tracks until V<t> exists (a range that starts above the current top track)
+        const addUpTo = async (t) => { let c = n; while (c < t) { await tl.AddTrack('video'); c++; } return t; };
+        let target = null;
+        // a range always starts at its first track and steps up past locked / disabled / busy ones (never jumps
+        // above a higher clip like "top" does); no range = the top, or the lowest empty layer with firstEmpty
+        if (po.firstEmpty || ranged) {
+            for (let t = Math.max(1, lo); t <= Math.min(n, hi); t++) {
                 if (!(await trackUsable(tl, kind, t))) continue;
-                if (!(await trackHasClip(tl, kind, t, s, e, po))) return t;
+                if (!(await trackHasClip(tl, kind, t, s, e, po))) { target = t; break; }
             }
-            await tl.AddTrack('video');
-            notes.push('no empty layer, added ' + label + (n + 1));
-            return n + 1;
+            if (target === null && n < lo) target = lo;            // the range starts above the existing tracks
+            if (target === null && n < hi) target = n + 1;         // the range has room for a new track
+        } else {
+            let top = 0;
+            for (let t = Math.min(n, hi); t >= lo; t--) {
+                if (await trackHasClip(tl, kind, t, s, e, po)) { top = t; break; }
+            }
+            let t = Math.max(lo, top + 1);
+            while (t <= n && t <= hi && !(await trackUsable(tl, kind, t))) t++;
+            if (t <= hi) target = t;
         }
-        let top = 0;
-        for (let t = n; t >= 1; t--) {
-            if (await trackHasClip(tl, kind, t, s, e, po)) { top = t; break; }
+        if (target !== null) {
+            if (target <= n) return target;
+            await addUpTo(target);
+            notes.push((ranged ? 'range' + where.replace(/^ \(range|\)$/g, '') + ': no free layer yet' : (po.firstEmpty ? 'no empty layer' : 'placed on top')) + ', added ' + label + (n + 1) + (target > n + 1 ? '-' + label + target : ''));
+            return target;
         }
-        let target = Math.max(firstAuto, top + 1);
-        while (target <= n && !(await trackUsable(tl, kind, target))) target++;
-        if (target <= n) return target;
+        // every layer of the range is taken: the lowest free layer above it, else a new track on top
+        for (let t = hi + 1; t <= n; t++) {
+            if (!(await trackUsable(tl, kind, t))) continue;
+            if (!(await trackHasClip(tl, kind, t, s, e, po))) {
+                notes.push(label + lo + '-' + label + (hi === Infinity ? '∞' : hi) + ' are all taken there, so ' + label + t + ' (above the range) was used');
+                return t;
+            }
+        }
         await tl.AddTrack('video');
-        notes.push('placed on top, added ' + label + (n + 1));
+        notes.push(ranged ? (label + lo + '-' + label + hi + ' are all taken there, added ' + label + (n + 1) + ' above the range') : ('no empty layer, added ' + label + (n + 1)));
         return n + 1;
     }
     for (let t = firstAuto; t <= n; t++) {

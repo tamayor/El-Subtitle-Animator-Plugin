@@ -203,6 +203,10 @@
                                 </button>
                                 <div id="placeBodyU" class="adjust-body hidden">
                                     <div class="place-options-list">
+                                        <div class="place-range" title="Keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
+                                            <span>Between tracks</span>
+                                            <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
+                                        </div>
                                         <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
                                         <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
                                         <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>

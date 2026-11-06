@@ -1015,6 +1015,8 @@
         }
         const key = a.id + ':' + (a.preview.stamp || 0) + ':' + a.preview.count;
         let e = dataCache.get(key);
+        // least-recently-used: a hit moves to the back, so frames in use (every card, the scrub viewer) are never evicted
+        if (e) { dataCache.delete(key); dataCache.set(key, e); }
         if (!e) {
             e = { imgs: null };
             dataCache.set(key, e);
@@ -1053,7 +1055,10 @@
 
     // Keeps the last few renders in memory; older ones release their keyed images.
     function trimCache(keep) {
-        const MAX = 10;
+        // Room for every preset's card plus the subtitle renders: a smaller cache made the cards and the scrub viewer
+        // evict each other on every redraw, so frames were loaded again and again ("Loading frames…").
+        const nLib = (typeof state !== 'undefined' && state.lib && state.lib.animations) ? state.lib.animations.length : 0;
+        const MAX = Math.max(24, nLib + 8);
         if (dataCache.size <= MAX) return;
         for (const [k, v] of dataCache) {
             if (dataCache.size <= MAX) break;
@@ -1145,7 +1150,7 @@
             return;
         }
         const g = geometry(view, imgs);
-        const idx = frameIndex(view, imgs, t);
+        const idx = holdIndex(view, imgs, frameIndex(view, imgs, t));
         const c = cv.getContext('2d');
         // Dark text is rendered on white (see previewBackground in main.js), so its card is white too.
         c.fillStyle = (imgs._cardBg || imgs[idx]._bg) === 'white' ? '#ffffff' : '#000';
@@ -1170,6 +1175,42 @@
     }
 
     // ===== END PROTECTED: preset card preview playback (frames / prepare / geometry / draw / frameIndex) =====
+
+    // The 3-second capture keeps running after the text clip ends, so its last frames can be empty (black).
+    // Frames after the last one that shows text hold that frame instead: the subtitle stays on screen.
+    // Found once per render (scanning back from the end on a small copy) and cached.
+    const holdCache = new Map();
+    function lastContentFrame(imgs) {
+        const W = imgs[0].naturalWidth || 1, H = imgs[0].naturalHeight || 1;
+        const w = 96, h = Math.max(1, Math.round(w * H / W));
+        const oc = document.createElement('canvas'); oc.width = w; oc.height = h;
+        const g = oc.getContext('2d', { willReadFrequently: true });
+        for (let i = imgs.length - 1; i >= 0; i--) {
+            const im = imgs[i];
+            if (!im || !im.naturalWidth) continue;
+            const onWhite = im._bg === 'white';
+            g.fillStyle = onWhite ? '#fff' : '#000'; g.fillRect(0, 0, w, h);
+            try { g.drawImage(im, 0, 0, w, h); } catch (e) { return -1; }
+            let d;
+            try { d = g.getImageData(0, 0, w, h).data; } catch (e) { return -1; }
+            for (let p = 0; p < d.length; p += 4) {
+                const hit = onWhite ? (d[p] < 231 || d[p + 1] < 231 || d[p + 2] < 231) : (d[p] > 24 || d[p + 1] > 24 || d[p + 2] > 24);
+                if (hit) return i;
+            }
+        }
+        return -1;
+    }
+    function holdIndex(view, imgs, idx) {
+        if (!imgs || imgs.length < 2) return idx;
+        const key = (view && view.id) + ':' + (view && view.preview && view.preview.stamp) + ':' + imgs.length;
+        let last = holdCache.get(key);
+        if (last === undefined) {
+            last = lastContentFrame(imgs);
+            holdCache.set(key, last);
+            if (holdCache.size > 96) holdCache.delete(holdCache.keys().next().value);
+        }
+        return (last >= 0 && idx > last) ? last : idx;
+    }
 
     // ============================================================================================================
     // SAPreview — the preset-card preview as one reusable component.
@@ -1199,7 +1240,7 @@
     function pvPaint(cv, view, idx) {
         if (pvStatus(view) !== 'ready') return false;
         const imgs = frames(view);
-        const i = clampN(Math.floor(idx) || 0, 0, imgs.length - 1);
+        const i = holdIndex(view, imgs, clampN(Math.floor(idx) || 0, 0, imgs.length - 1));
         const g = geometry(view, imgs);
         const c = cv.getContext('2d');
         c.setTransform(1, 0, 0, 1, 0, 0);

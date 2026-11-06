@@ -3137,7 +3137,7 @@ function scrubSource(ctx) {
     let wants = false;
     try { wants = !!(u && u.id === a.id && (normSub(currentSubText()) || (u.designRev || 0) > 0 || boxOverrides(u, a))); } catch (e) { wants = false; }
     const failed = view === a && wants && !!u._renderFailed && !u.rendering;
-    const pending = view === a && wants && !failed;
+    const pending = view === a && wants && !failed && !!(u.rendering || u._timer);
     return { a, view, pending, failed };
 }
 

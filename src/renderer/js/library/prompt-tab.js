@@ -1040,9 +1040,11 @@ function pbDatalists() {
     mk('pbThenList', roles.concat(pbPresetNames(), pbTagNames()));
 }
 
-function pbAddFromMenu() {
-    const sel = $('pbAddSel');
-    const [gi, ii] = String(sel.value || '').split('.').map(Number);
+// value: "group.item" of the entry to add; anything else (the Add button's click event) = the combobox's active entry
+function pbAddFromMenu(value) {
+    const v = typeof value === 'string' ? value : pbAddActive;
+    if (!v) { const s = $('pbAddSearch'); if (s) s.focus(); return; }
+    const [gi, ii] = String(v).split('.').map(Number);
     const g = PB_MCP_PARAMS[gi], it = g && g.items[ii];
     if (!it || !pb.doc) return;
     const secs = pb.doc.sections;
@@ -1091,22 +1093,90 @@ function pbAddFromMenu() {
     if (f) f.focus();
 }
 
+// The "Add from MCP" combobox: a search box with the matching entries in a list that opens below it. Every word
+// typed must appear in the entry's label, key, MCP call, section or hint (any order, case-insensitive).
+// Click or Enter adds an entry; ↑ / ↓ move through the list; Esc closes it (a second Esc clears the search).
+let pbAddActive = '';
 function pbFillAddMenu() {
-    const sel = $('pbAddSel');
-    if (!sel || sel.options.length) return;
-    PB_MCP_PARAMS.forEach((g, gi) => {
-        const og = document.createElement('optgroup');
-        og.label = g.tool === 'custom' ? 'Custom' : g.tool;
-        g.items.forEach((it, ii) => { const o = pbEl('option', '', it.label); o.value = gi + '.' + ii; og.appendChild(o); });
-        sel.appendChild(og);
-    });
+    const search = $('pbAddSearch'), list = $('pbAddList');
+    if (!search || !list || list.dataset.ready) return;
+    list.dataset.ready = '1';
+    const itemOf = (v) => { const [gi, ii] = String(v).split('.').map(Number); return PB_MCP_PARAMS[gi] && PB_MCP_PARAMS[gi].items[ii]; };
     const hint = () => {
-        const [gi, ii] = String(sel.value).split('.').map(Number);
-        const it = PB_MCP_PARAMS[gi] && PB_MCP_PARAMS[gi].items[ii];
+        const it = pbAddActive ? itemOf(pbAddActive) : null;
         $('pbAddHint').textContent = it ? (it.section ? '→ ' + it.section + (it.key && it.sep !== '→' ? ' / ' + it.key : '') + '. ' : '') + (it.hint || '') : '';
     };
-    sel.addEventListener('change', hint);
-    hint();
+    const opts = () => [...list.querySelectorAll('.pb-combo-opt')];
+    const setActive = (v, scroll) => {
+        pbAddActive = v || '';
+        for (const o of opts()) {
+            const on = o.dataset.value === pbAddActive;
+            o.classList.toggle('active', on);
+            o.setAttribute('aria-selected', on ? 'true' : 'false');
+            if (on && scroll) o.scrollIntoView({ block: 'nearest' });
+        }
+        hint();
+    };
+    const open = (on) => {
+        list.classList.toggle('hidden', !on);
+        search.setAttribute('aria-expanded', on ? 'true' : 'false');
+    };
+    const fill = () => {
+        const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+        list.innerHTML = '';
+        PB_MCP_PARAMS.forEach((g, gi) => {
+            const hits = [];
+            g.items.forEach((it, ii) => {
+                const hay = [it.label, it.key, g.tool, it.section, it.hint].filter(Boolean).join(' ').toLowerCase();
+                if (!words.some(w => !hay.includes(w))) hits.push([it, ii]);
+            });
+            if (!hits.length) return;
+            list.appendChild(pbEl('div', 'pb-combo-group', g.tool === 'custom' ? 'Custom' : g.tool));
+            for (const [it, ii] of hits) {
+                const o = pbEl('div', 'pb-combo-opt', it.label);
+                o.dataset.value = gi + '.' + ii;
+                o.setAttribute('role', 'option');
+                if (it.key) o.appendChild(pbEl('span', 'pb-combo-key', it.key));
+                list.appendChild(o);
+            }
+        });
+        const all = opts();
+        if (!all.length) list.appendChild(pbEl('div', 'pb-combo-empty', 'No match for "' + search.value.trim() + '"'));
+        setActive(all.some(o => o.dataset.value === pbAddActive) ? pbAddActive : (all[0] ? all[0].dataset.value : ''), true);
+    };
+    const add = (v) => { open(false); search.value = ''; pbAddFromMenu(v); fill(); };
+
+    search.addEventListener('focus', () => { fill(); open(true); });
+    search.addEventListener('click', () => open(true));
+    search.addEventListener('input', () => { fill(); open(true); });
+    search.addEventListener('blur', () => open(false));
+    search.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (list.classList.contains('hidden')) { open(true); return; }
+            const all = opts(), i = all.findIndex(o => o.dataset.value === pbAddActive);
+            const next = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+            if (next) setActive(next.dataset.value, true);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (pbAddActive) add(pbAddActive);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            if (!list.classList.contains('hidden')) open(false);
+            else if (search.value) { search.value = ''; fill(); }
+        }
+    });
+    // mousedown, not click: keeps the focus in the search box so blur doesn't close the list first
+    list.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const o = e.target.closest('.pb-combo-opt');
+        if (o) add(o.dataset.value);
+    });
+    list.addEventListener('mousemove', (e) => {
+        const o = e.target.closest('.pb-combo-opt');
+        if (o && o.dataset.value !== pbAddActive) setActive(o.dataset.value, false);
+    });
+    fill();
 }
 
 // Draw the builder from pb.doc. keep = keep the parsed doc (it is already current); otherwise re-parse pb.full.

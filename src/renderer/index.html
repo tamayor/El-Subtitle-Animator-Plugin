@@ -550,7 +550,10 @@
                         <div id="promptBuilder"></div>
                         <div class="pb-add">
                             <span class="pb-add-label">Add from MCP</span>
-                            <select id="pbAddSel"></select>
+                            <div class="pb-combo">
+                                <input id="pbAddSearch" type="text" placeholder="Search MCP keywords…" spellcheck="false" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="pbAddList" aria-autocomplete="list">
+                                <div id="pbAddList" class="pb-combo-list hidden" role="listbox"></div>
+                            </div>
                             <button id="pbAddBtn" class="primary">Add</button>
                             <div id="pbAddHint" class="pb-add-hint"></div>
                         </div>

@@ -151,6 +151,7 @@ async function placeStack(TOOLS, args) {
         if (args.keepPresetStyle) a.keepPresetStyle = true;
         if (i < n - 1) a.holdUntil = last.index;
         if (args.trackRange) a.trackRange = args.trackRange;
+        if (args.audioTrack) a.audioTrack = args.audioTrack;
         return TOOLS.place(a);
     };
 

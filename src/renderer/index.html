@@ -203,20 +203,20 @@
                                 </button>
                                 <div id="placeBodyU" class="adjust-body hidden">
                                     <div class="place-options-list">
-                                        <div class="place-range" title="Keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
-                                            <span>Between tracks</span>
+                                        <div class="place-range" title="Clip track: keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
+                                            <span>Clip track</span>
                                             <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
                                         </div>
-                                        <div class="place-range place-audio" title="Which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as video range: the same numbers as Between tracks (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
-                                            <span>Audio tracks</span>
+                                        <div class="place-range place-audio" title="Audio track: which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as clip track: the same numbers as Clip track (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
+                                            <span>Audio track</span>
                                             <select id="placeAudioMode">
                                                 <option value="any">Any free track</option>
-                                                <option value="same">Same as video range</option>
+                                                <option value="same">Same as clip track</option>
                                                 <option value="own">Own range</option>
                                             </select>
                                         </div>
                                         <div id="placeAudioOwn" class="place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
-                                            <span>Audio between</span>
+                                            <span>Audio range</span>
                                             <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
                                         </div>
                                         <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>

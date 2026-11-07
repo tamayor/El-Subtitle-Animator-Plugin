@@ -750,6 +750,9 @@ const TOOLS = {
             rangeTo: tr ? (tr.to || null) : pp.rangeTo,
             audioMode: pp.audioMode, audioFrom: pp.audioFrom, audioTo: pp.audioTo
         };
+        // audioTrack from the prompt (this call) beats the panel's Placement "Audio track"
+        const at = (args.audioTrack && typeof args.audioTrack === 'object') ? args.audioTrack : null;
+        if (at && ['any', 'same', 'own'].includes(at.mode)) Object.assign(place, { audioMode: at.mode, audioFrom: at.from || null, audioTo: at.to || null });
         if (args.track) textTrack = Math.max(2, Math.round(Number(String(args.track).replace(/^v/i, ''))) || 0);
         else if (rules.track.mode === 'fixed' && rules.track.fixed) textTrack = rules.track.fixed;
 

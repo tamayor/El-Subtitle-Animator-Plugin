@@ -64,7 +64,8 @@ TEXT STYLE
    they took. NORMAL: a pair for both → font + color; (Text+) → kindStyle.textplus; (MultiText) → kindStyle.multitext.
    EMPHASIS → emphasis (font, style, color). "override N%" → styleShare.normal / styleShare.emphasis (0 = preset
    default on every clip, 100 = always the override). "except TAG, TAG (keep font & colour | keep font | keep colour)"
-   → styleExcept.normal / styleExcept.emphasis = { tags, keep: both | font | color }. Presets that keep their own font/colour (DANGER / MONEY): pass
+   → styleExcept.normal / styleExcept.emphasis = { tags, keep: both | font | color }. CLIP_TRACK (V3–V5) → trackRange
+   {from, to} on every place / place_stack; AUDIO_TRACK → audioTrack {mode: any | same | own, from, to}. Presets that keep their own font/colour (DANGER / MONEY): pass
    keepPresetStyle: true on place / place_stack.
 4. list_subtitles with color "any". Check clipColors. If a colour in COLOUR ROLES is 0 or missing, stop and tell me.
    Never place on a subtitle without a clip colour, however good a fit it looks.
@@ -232,7 +233,8 @@ const PB_MCP_PARAMS = [
         { label: 'text.lineSpacing: Line Spacing', section: 'SIZE (Inspector values)', key: 'LINE_SPACING', value: '0.7', hint: 'Line Spacing as the Inspector shows it (1 = normal).' },
         { label: 'track.mode: which video layer', section: 'POSITION (vertical 9:16)', key: 'TRACK_MODE', kind: 'enum', options: ['top', 'first-empty', 'fixed'], value: 'top', hint: 'Starts as the panel\'s Placement setting. top = above everything, first-empty = lowest free layer above V1, fixed = always one layer.' },
         { label: 'track.fixed: always this layer', section: 'POSITION (vertical 9:16)', key: 'TRACK_FIXED', value: 'V4', hint: 'Used with TRACK_MODE fixed.' },
-        { label: 'track.from / to: layer range', section: 'POSITION (vertical 9:16)', key: 'TRACK_RANGE', kind: 'range', prefix: 'V', min: 2, value: 'V2–∞', hint: 'Starts as the panel\'s Placement "Between tracks" range and follows it until you type your own.' },
+        { label: 'Clip track: video layer range', section: 'POSITION (vertical 9:16)', key: 'CLIP_TRACK', kind: 'range', prefix: 'V', min: 2, value: 'V2–∞', hint: 'Linked with the panel\'s Placement "Clip track" range. Claude passes it as trackRange.' },
+        { label: 'Audio track: sound effect tracks', section: 'POSITION (vertical 9:16)', key: 'AUDIO_TRACK', kind: 'audio', after: 'CLIP_TRACK', value: 'any free track', hint: 'Linked with the panel\'s Placement "Audio track": any free track, same as clip track, or A2–A4. Claude passes it as audioTrack.' },
         { label: 'position.defaultZone', section: 'POSITION (vertical 9:16)', key: 'DEFAULT_ZONE', kind: 'enum', options: ['top', 'upper', 'center', 'lower', 'bottom'], value: 'lower', hint: 'Where text goes when no x/y or guide is given.' },
         { label: 'position.avoidFaces', section: 'POSITION (vertical 9:16)', key: 'AVOID_FACES', kind: 'enum', options: ['yes', 'no'], value: 'yes', hint: 'Claude looks at each frame and keeps text off faces.' },
         { label: 'position.safeTop / Bottom / Left / Right', section: 'POSITION (vertical 9:16)', key: 'SAFE_MARGINS', value: 'top 0.1 · bottom 0.1 · left 0.05 · right 0.05', hint: 'Safe-area margins, 0..1 of the frame.' },
@@ -276,10 +278,27 @@ const PB_MCP_PARAMS = [
 
 // Keys linked both ways with the panel's Placement drawer (Use tab): changing the drawer rewrites these rows, and
 // editing a row (when you leave the box) sets the drawer, which also tells the MCP side.
+const pbClipTrackOf = (o) => (o.rangeFrom || o.rangeTo) ? 'V' + (o.rangeFrom || 2) + '–' + (o.rangeTo ? 'V' + o.rangeTo : '∞') : 'V2–∞';
 const PB_PLACEMENT = {
-    TRACK_RANGE: (o) => (o.rangeFrom || o.rangeTo) ? 'V' + (o.rangeFrom || 2) + '–' + (o.rangeTo ? 'V' + o.rangeTo : '∞') : 'V2–∞',
+    CLIP_TRACK: pbClipTrackOf,
+    TRACK_RANGE: pbClipTrackOf,
+    AUDIO_TRACK: (o) => pbJoinAudio({ mode: o.audioMode, from: o.audioFrom, to: o.audioTo }),
     TRACK_MODE: (o) => (o.firstEmpty ? 'first-empty' : 'top')
 };
+
+// AUDIO_TRACK: "any free track" | "same as clip track" | "A2–A4" / "A3–∞" -> { mode: any | same | own, from, to }
+function pbParseAudio(v) {
+    const t = String(v || '').trim();
+    if (!t || /^any/i.test(t)) return { mode: 'any', from: null, to: null };
+    if (/same|clip|video/i.test(t)) return { mode: 'same', from: null, to: null };
+    const r = pbParseRange(t.replace(/^own\s*/i, ''), 1);
+    return r ? { mode: 'own', from: r.from, to: r.to } : null;
+}
+function pbJoinAudio(a) {
+    if (!a || a.mode === 'same') return a ? 'same as clip track' : 'any free track';
+    if (a.mode === 'own' && (a.from || a.to)) return pbJoinRange('A', a.from || 1, a.to || null);
+    return 'any free track';
+}
 
 function pbPlacementValue(key) {
     const f = PB_PLACEMENT[key];
@@ -324,9 +343,19 @@ function pbPushToPlacement(row) {
 }
 
 function pbPushFields(row, key) {
-    if (key === 'TRACK_RANGE') {
+    if (key === 'AUDIO_TRACK') {
+        const a = pbParseAudio(row.value);
+        if (!a) { setPromptStatus('AUDIO_TRACK: write any free track, same as clip track, or a range like A2–A4.', 'bad'); return; }
+        if (a.mode === 'own') {
+            pbSetPlaceField('placeAudioTo', 'value', a.to ? String(a.to) : '');
+            pbSetPlaceField('placeAudioFrom', 'value', String(a.from));
+            pbSetPlaceField('placeAudioTo', 'value', a.to ? String(a.to) : '');
+        }
+        pbSetPlaceField('placeAudioMode', 'value', a.mode);
+        setPromptStatus('Placement: audio on ' + pbJoinAudio(a) + '.', 'ok');
+    } else if (key === 'CLIP_TRACK' || key === 'TRACK_RANGE') {
         const r = pbParseTrackRange(row.value);
-        if (!r) { setPromptStatus('TRACK_RANGE: write it like V3–V6 (or V3–∞) to update Placement.', 'bad'); return; }
+        if (!r) { setPromptStatus(key + ': write it like V3–V6 (or V3–∞) to update Placement.', 'bad'); return; }
         // To first when it grows, so the drawer's "To ≥ From" fix-up doesn't fight the new From.
         pbSetPlaceField('placeRangeTo', 'value', r.to ? String(r.to) : '');
         pbSetPlaceField('placeRangeFrom', 'value', String(r.from));
@@ -351,7 +380,8 @@ function promptPlacementChanged() {
         if (v == null || r.value === v) continue;
         if (k === 'TRACK_MODE' && r.value === 'fixed') continue;
         // Same range written another way ("V3-V6") is left as typed.
-        if (k === 'TRACK_RANGE' && JSON.stringify(pbParseTrackRange(r.value)) === JSON.stringify(pbParseTrackRange(v))) continue;
+        if ((k === 'CLIP_TRACK' || k === 'TRACK_RANGE') && JSON.stringify(pbParseTrackRange(r.value)) === JSON.stringify(pbParseTrackRange(v))) continue;
+        if (k === 'AUDIO_TRACK' && JSON.stringify(pbParseAudio(r.value)) === JSON.stringify(pbParseAudio(v))) continue;
         r.value = v; changed = true;
     }
     if (!changed) return;
@@ -425,7 +455,8 @@ function serializeJobPrompt(doc) {
 // The kind of value editor a row gets.
 // Keys of the built-in prompt that get a special editor without being MCP parameters.
 const PB_KEY_KINDS = {
-    WORDS_PER_LINE: { kind: 'range', min: 1 }
+    WORDS_PER_LINE: { kind: 'range', min: 1 },
+    TRACK_RANGE: PB_CATALOG.CLIP_TRACK          // the old name of CLIP_TRACK, still read in saved prompts
 };
 
 function pbKeySpec(key) { return PB_CATALOG[String(key).trim()] || PB_KEY_KINDS[String(key).trim()] || null; }
@@ -434,6 +465,7 @@ function pbRowKind(row, section) {
     const c = pbKeySpec(row.key);
     // A range row whose text can't be read as a range (e.g. "4–5 or so") stays a text box rather than losing words.
     if (c && c.kind === 'range' && String(row.value).trim() && !pbParseRange(row.value, c.min)) return 'text';
+    if (c && c.kind === 'audio' && String(row.value).trim() && !pbParseAudio(row.value)) return 'text';
     if (c && c.kind) return c.kind;
     if (/^PRESETS\b/i.test(section.title) && row.sep === ':') return 'preset';
     return 'text';
@@ -533,6 +565,44 @@ function pbChipsEditor(row, kind) {
     ex.type = 'text'; ex.value = extra; ex.placeholder = 'note, e.g. (vary them)';
     ex.addEventListener('input', () => { write(items, ex.value.trim()); pbChanged(); });
     wrap.appendChild(ex);
+    return wrap;
+}
+
+// AUDIO_TRACK: [Any free track | Same as clip track | Own range] and, for its own range, A[from] to A[to].
+function pbAudioEditor(row) {
+    const a = pbParseAudio(row.value) || { mode: 'any', from: null, to: null };
+    const wrap = pbEl('div', 'pb-range pb-audio');
+    const sel = pbEl('select', 'pb-val');
+    for (const [v, label] of [['any', 'Any free track'], ['same', 'Same as clip track'], ['own', 'Own range']]) { const o = pbEl('option', '', label); o.value = v; sel.appendChild(o); }
+    sel.value = a.mode;
+    wrap.appendChild(sel);
+    const write = (final) => { row.value = pbJoinAudio(a); pbChanged(); if (final) pbPushToPlacement(row); };
+    sel.addEventListener('change', () => {
+        a.mode = sel.value;
+        if (a.mode === 'own' && !a.from) a.from = 2;
+        write(true); pbRebuild();
+    });
+    if (a.mode === 'own') {
+        const box = (val, ph, title) => {
+            wrap.appendChild(pbEl('span', 'pb-range-pre', 'A'));
+            const i = pbEl('input', 'pb-range-in');
+            i.type = 'number'; i.min = '1'; i.step = '1'; i.placeholder = ph; i.title = title;
+            i.value = val == null ? '' : String(val);
+            wrap.appendChild(i);
+            return i;
+        };
+        const f = box(a.from, '1', 'From');
+        wrap.appendChild(pbEl('span', 'pb-range-to', 'to'));
+        const t = box(a.to, '∞', 'To (empty = no limit)');
+        const read = (final) => {
+            let from = Math.max(1, Math.round(Number(f.value)) || 1);
+            let to = t.value === '' ? null : Math.round(Number(t.value));
+            if (to != null && (!Number.isFinite(to) || to < from)) to = final ? from : null;
+            if (final) { f.value = String(from); t.value = to == null ? '' : String(to); }
+            a.from = from; a.to = to; write(final);
+        };
+        for (const i of [f, t]) { i.addEventListener('input', () => read(false)); i.addEventListener('change', () => read(true)); }
+    }
     return wrap;
 }
 
@@ -819,6 +889,7 @@ function pbStyleExceptEl(ex, write) {
 function pbValueEditor(row, kind) {
     if (kind === 'preset' || kind === 'tags') return pbChipsEditor(row, kind);
     if (kind === 'range') return pbRangeEditor(row);
+    if (kind === 'audio') return pbAudioEditor(row);
     if (kind === 'font') return pbFontEditor(row);
     if (kind === 'color') return pbColorEditor(row);
     if (kind === 'style') return pbStyleEditor(row);
@@ -1005,10 +1076,16 @@ function pbAddFromMenu() {
     if (repeatable && it.sep !== '→') { let n = 2; while (sec.rows.some(r => r.key === key)) key = it.key + '_' + n++; }
     if (it.sep === '→') key = pbFreeColour(sec);
     const fromPanel = pbPlacementValue(key);
-    sec.rows.push({ key, sep: it.sep || ':', value: fromPanel != null ? fromPanel : (it.value || ''), note: '', conds: [] });
+    // a key with `after` goes right below that key when it is there (AUDIO_TRACK below CLIP_TRACK)
+    let pos = sec.rows.length;
+    if (it.after) {
+        const ai = sec.rows.findIndex(r => r.key.trim() === it.after || (it.after === 'CLIP_TRACK' && r.key.trim() === 'TRACK_RANGE'));
+        if (ai >= 0) pos = ai + 1;
+    }
+    sec.rows.splice(pos, 0, { key, sep: it.sep || ':', value: fromPanel != null ? fromPanel : (it.value || ''), note: '', conds: [] });
     pbRebuild();
     const rows = document.querySelectorAll('#promptBuilder .pb-sec')[si].querySelectorAll('.pb-row');
-    const row = rows[rows.length - 1];
+    const row = rows[pos];
     pbFlash(row);
     const f = row && row.querySelector('.pb-val, .pb-chip-add, .pb-key');
     if (f) f.focus();

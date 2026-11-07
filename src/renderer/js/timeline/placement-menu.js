@@ -2,7 +2,7 @@
 
 // ---- Placement drawer below Alignment (all unchecked by default; remembered per computer)
 const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty', loopOn: 'placeLoopOn' };
-// Track range: "Between tracks V<from> to V<to>" (to empty = no upper limit). null = not set.
+// Clip track range: "Clip track V<from> to V<to>" (to empty = no upper limit). null = not set.
 const PLACE_RANGE_IDS = { rangeFrom: 'placeRangeFrom', rangeTo: 'placeRangeTo' };
 // Audio tracks for the sound effects: 'any' (lowest free) | 'same' (as the video range) | 'own' (A<from> to A<to>)
 const PLACE_AUDIO_RANGE_IDS = { audioFrom: 'placeAudioFrom', audioTo: 'placeAudioTo' };

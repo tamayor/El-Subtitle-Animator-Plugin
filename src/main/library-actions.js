@@ -4,7 +4,7 @@
 module.exports = {
     addAnimationFile, createCombo, draftFromTimeline, pickFile, removeAnimation, reorderAnimations,
     replaceAnimationFile, revertAnimation, saveAnimationVariant, saveSelectedAsAnimation, saveTags,
-    setAnimationSfx, setDefaultSfx, updateAnimation
+    setAnimationSfx, setDefaultSfx, setUseOrder, updateAnimation
 };
 
 const path = require('path');
@@ -204,7 +204,7 @@ function updateAnimation(event, id, patch) {
     const a = lib.animations.find(x => x.id === id);
     if (!a) return { error: 'Animation not found' };
     const titlesBefore = ('name' in patch) ? presetTitleNames(lib.animations) : null;
-    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig', 'sfxLayers'];
+    const allowed = ['name', 'useSfx', 'linked', 'textOffset', 'sfxOffset', 'sfxTrimIn', 'sfxLen', 'sfxLenMode', 'sfxFade', 'sfxVolume', 'tail', 'textTrack', 'sfxTrack', 'posX', 'posY', 'scale', 'rotation', 'textDesign', 'boxes', 'tags', 'sfx', 'sfxOrig', 'sfxLayers', 'variantGroup'];
     for (const k of allowed) if (k in patch) a[k] = patch[k];
     if ('tags' in patch) {
         const known = new Set(lib.tags.map(t => t.id));
@@ -250,6 +250,15 @@ function reorderAnimations(event, ids) {
     lib.animations = out;
     saveLib(lib);
     syncTemplates(lib.animations, titlesBefore);
+    return { lib: libForUI() };
+}
+
+// The Use tab's own Custom order (a list of ids). The library order (Default) is left as it is.
+function setUseOrder(event, ids) {
+    const lib = loadLib();
+    const known = new Set(lib.animations.map(a => a.id));
+    lib.useOrder = Array.from(new Set(Array.isArray(ids) ? ids : [])).filter(id => known.has(id));
+    saveLib(lib);
     return { lib: libForUI() };
 }
 

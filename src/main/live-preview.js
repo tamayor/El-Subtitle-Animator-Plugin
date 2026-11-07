@@ -309,7 +309,9 @@ async function liveRemove(marks) {
             const sounds = [s.sfxId, ...(s.extraIds || [])].filter(Boolean);
             const leftSounds = await deleteExtraSfx(tl, sounds);
             const leftText = await deleteClipsById(tl, [s.itemId], findItemById);
-            if (leftSounds.length || leftText.length) {
+            // 'restore' = Remove button / panel closed: always sweep, so a sound a preview move placed after the
+            // session was read (or one Resolve refused to delete) does not outlive the preview.
+            if (leftSounds.length || leftText.length || mode === 'restore') {
                 // one more go through the registry sweep (also catches a sound placed by a move that was still running)
                 try { await sweepTempClips(tl); } catch (e) { /* ignore */ }
             }

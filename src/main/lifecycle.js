@@ -10,7 +10,7 @@ const WorkflowIntegration = require('./workflow-integration');
 
 const state = require('./state');
 const { INITIAL_PPID } = require('./config');
-const { liveRemove } = require('./live-preview');
+const { liveRemove, waitIdle } = require('./live-preview');
 const { stopAutomation } = require('./automation');
 
 
@@ -21,8 +21,11 @@ let cleanupRun = null;
 function cleanup() {
     if (cleanupRun) return cleanupRun;
     cleanupRun = (async () => {
-        if (state.liveSession) {
-            try { await Promise.race([liveRemove('restore'), new Promise(r => setTimeout(r, 5000))]); } catch (e) { /* the sweep removes it next time */ }
+        // A preview move / placement still running (state.applying) is waited for first: it may be about to put the
+        // preview's sound on the timeline, and removing the preview before that would leave the sound behind.
+        if (state.liveSession || state.applying) {
+            const run = (async () => { await waitIdle(6000); await liveRemove('restore'); })();
+            try { await Promise.race([run, new Promise(r => setTimeout(r, 10000))]); } catch (e) { /* the sweep removes it next time */ }
         }
         if (state.resolveWatchTimer) { clearInterval(state.resolveWatchTimer); state.resolveWatchTimer = null; }
         try { stopAutomation(); } catch (e) { /* ignore */ }

@@ -233,6 +233,7 @@ function libForUI() {
         alwaysOnTop: lib.alwaysOnTop !== false,
         defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: sfxFilePath(lib.defaultSfx) } : null,
         tags: lib.tags,
+        useOrder: Array.isArray(lib.useOrder) ? lib.useOrder : [],
         sfxOriginals: listSfxOriginals(),
         animations: lib.animations.map(a => {
             const animPath = path.join(ANIM_DIR, a.file);

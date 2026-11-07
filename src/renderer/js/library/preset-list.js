@@ -316,7 +316,61 @@ function setPresetViewMode(mode) {
     renderAnimations();
 }
 
+// ---------------------------------------------------------------- Use tab order: Default (original sequence) or Custom
+function useOrderMode() {
+    if (!state.useOrderMode) {
+        let m = 'default';
+        try { m = localStorage.getItem('sa.useOrder') || 'default'; } catch (e) { m = 'default'; }
+        state.useOrderMode = m === 'custom' ? 'custom' : 'default';
+    }
+    return state.useOrderMode;
+}
+function setUseOrderMode(mode) {
+    state.useOrderMode = mode === 'custom' ? 'custom' : 'default';
+    try { localStorage.setItem('sa.useOrder', state.useOrderMode); } catch (e) { /* ignore */ }
+    renderAnimations();
+}
+function syncOrderButtons() {
+    const m = useOrderMode();
+    const d = $('orderDefaultBtn'), c = $('orderCustomBtn');
+    if (d) d.classList.toggle('on', m === 'default');
+    if (c) c.classList.toggle('on', m === 'custom');
+}
+
+// Every preset in the order the Use tab shows them. Custom: the saved useOrder, presets not in it yet go at the end.
+function orderedForUse() {
+    const all = state.lib.animations;
+    if (useOrderMode() !== 'custom') return all;
+    const order = Array.isArray(state.lib.useOrder) ? state.lib.useOrder : [];
+    const at = new Map(order.map((id, i) => [id, i]));
+    return all.map((a, i) => ({ a, k: at.has(a.id) ? at.get(a.id) : order.length + i })).sort((x, y) => x.k - y.k).map(x => x.a);
+}
+
+// Move the dragged card (a preset or a whole stack) before / after the target card in the Custom order.
+async function moveInUseOrder(dragged, target, after) {
+    const wasDefault = useOrderMode() !== 'custom';
+    const items = variantItems(orderedForUse());          // stacks move as one, so their presets stay together
+    const dIds = new Set(dragged.map(m => m.id)), tIds = new Set(target.map(m => m.id));
+    const moving = items.filter(it => it.some(m => dIds.has(m.id)));
+    const rest = items.filter(it => !it.some(m => dIds.has(m.id)));
+    let at = rest.findIndex(it => it.some(m => tIds.has(m.id)));
+    if (at < 0) return;
+    if (after) at++;
+    rest.splice(at, 0, ...moving);
+    const ids = [].concat(...rest).map(a => a.id);
+    state.lib.useOrder = ids;
+    state.useOrderMode = 'custom';
+    try { localStorage.setItem('sa.useOrder', 'custom'); } catch (e) { /* ignore */ }
+    renderAnimations();
+    takeLib(await window.sa.setUseOrder(ids));
+    if (wasDefault) setStatus('Switched to Custom order. Click Default to see the original sequence again.', 'ok');
+}
+
 function initPresetViewMode() {
+    const ordD = $('orderDefaultBtn'), ordC = $('orderCustomBtn');
+    if (ordD) ordD.addEventListener('click', () => setUseOrderMode('default'));
+    if (ordC) ordC.addEventListener('click', () => setUseOrderMode('custom'));
+    syncOrderButtons();
     let saved = 'list';
     try { saved = localStorage.getItem('sa.presetView') || 'list'; } catch (e) { saved = 'list'; }
     if (saved !== 'grid' && saved !== 'gallery' && saved !== 'list') saved = 'list';
@@ -349,7 +403,7 @@ function initPresetViewMode() {
             if (searchClear) searchClear.classList.toggle('hidden', !state.presetSearch);
             // Typing in the search picks the first match straight away (the panel below follows it).
             const q = state.presetSearch.trim().toLowerCase();
-            const first = q ? state.lib.animations.find(a => passesTagFilter(a, 'use') && a.name.toLowerCase().includes(q)) : null;
+            const first = q ? orderedForUse().find(a => passesTagFilter(a, 'use') && a.name.toLowerCase().includes(q)) : null;
             if (first && first.id !== state.selectedId) {
                 stopPreview();
                 state.selectedId = first.id;
@@ -402,7 +456,8 @@ function renderAnimations() {
     }
 
     const query = (state.presetSearch || '').trim().toLowerCase();
-    const shown = state.lib.animations.filter(a => {
+    syncOrderButtons();
+    const shown = orderedForUse().filter(a => {
         if (!passesTagFilter(a, 'use')) return false;
         if (query && !a.name.toLowerCase().includes(query)) return false;
         return true;
@@ -469,18 +524,21 @@ function renderAnimations() {
 
         const cardEls = [];
         const dotEls = [];
+        const items = variantItems(shown);
+        // the preset on top of item i (a stack shows one variant at a time)
+        const frontOf = (i) => items[i] && (items[i].find(m => cardEls[i] && m.id === cardEls[i].dataset.id) || items[i][0]);
 
-        let activeIdx = shown.findIndex(a => a.id === state.selectedId);
+        let activeIdx = items.findIndex(it => it.some(a => a.id === state.selectedId));
         if (activeIdx < 0) {
             activeIdx = 0;
-            state.selectedId = shown[0].id;
+            state.selectedId = items[0][0].id;
             syncUse(true);
         }
 
         const updateIndicator = (idx) => {
-            const cur = shown[idx];
+            const cur = frontOf(idx);
             if (!cur) return;
-            nameText.textContent = cur.name;
+            nameText.textContent = cur.name + (items[idx].length > 1 ? '  \u00b7  ' + (items[idx].indexOf(cur) + 1) + '/' + items[idx].length + ' variations' : '');
             namePill.title = cur.name;
             dotEls.forEach((dot, i) => {
                 const isActive = (i === idx);
@@ -491,13 +549,13 @@ function renderAnimations() {
                 }
             });
             prevBtn.disabled = (idx <= 0);
-            nextBtn.disabled = (idx >= shown.length - 1);
+            nextBtn.disabled = (idx >= items.length - 1);
         };
 
         const selectPreset = (idx, scrollTrack = true) => {
-            if (idx < 0 || idx >= shown.length) return;
+            if (idx < 0 || idx >= items.length) return;
             activeIdx = idx;
-            const a = shown[idx];
+            const a = frontOf(idx);
             state.selectedId = a.id;
             syncUse(true);
             cardEls.forEach((c, i) => c.classList.toggle('sel', i === idx));
@@ -513,33 +571,34 @@ function renderAnimations() {
             if (state.livePrev && !state.busy) switchLivePreset(a);
         };
 
-        shown.forEach((a, idx) => {
-            const c = document.createElement('div');
-            c.className = 'card' + (idx === activeIdx ? ' sel' : '') + (a.missing ? ' missing' : '');
-            const nm = document.createElement('div');
-            nm.className = 'nm'; nm.textContent = a.name;
-            const sub = document.createElement('div');
-            sub.className = 'sub';
-            const hasSound = a.useSfx !== false && (a.sfx || state.lib.defaultSfx);
-            sub.textContent = hasSound ? '\u266a' : '';
-            sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
-            if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
-            c.append(nm, sub);
-            const dots = tagDotsEl(a);
-            if (dots) c.appendChild(dots);
-
-            c.addEventListener('click', () => {
-                stopPreview();
-                selectPreset(idx, true);
-            });
+        items.forEach((members, idx) => {
+            const a = members[0];
+            let c;
+            if (members.length > 1) {
+                // Stacked variations: swipe up / down on the card flips variants; sideways still moves the gallery.
+                c = variantStackCard(members, members[0].variantGroup, {
+                    axis: 'y',
+                    onPick: () => { stopPreview(); selectPreset(idx, true); },
+                    onFlip: () => { if (idx === activeIdx) updateIndicator(idx); }
+                });
+            } else {
+                c = presetCardEl(a);
+                c.addEventListener('click', () => {
+                    stopPreview();
+                    selectPreset(idx, true);
+                });
+                wireCardStacking(c, a, members);
+            }
+            c.classList.toggle('sel', idx === activeIdx);
             track.appendChild(c);
             cardEls.push(c);
 
             const dot = document.createElement('button');
             dot.type = 'button';
             dot.className = 'gallery-dot' + (idx === activeIdx ? ' active' : '');
-            dot.title = a.name;
-            dot.setAttribute('aria-label', a.name);
+            dot.title = members.map(m => m.name).join(' / ');
+            dot.classList.toggle('stacked', members.length > 1);
+            dot.setAttribute('aria-label', dot.title);
             dot.addEventListener('click', (e) => {
                 e.stopPropagation();
                 stopPreview();
@@ -562,7 +621,7 @@ function renderAnimations() {
         });
         nextBtn.addEventListener('click', () => {
             stopPreview();
-            if (activeIdx < shown.length - 1) selectPreset(activeIdx + 1, true);
+            if (activeIdx < items.length - 1) selectPreset(activeIdx + 1, true);
         });
 
         track.addEventListener('keydown', (e) => {
@@ -573,11 +632,12 @@ function renderAnimations() {
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 stopPreview();
-                if (activeIdx < shown.length - 1) selectPreset(activeIdx + 1, true);
+                if (activeIdx < items.length - 1) selectPreset(activeIdx + 1, true);
             }
         });
 
         track.addEventListener('wheel', (e) => {
+            if (e.defaultPrevented) return;       // a stack card used it to flip variants
             if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
                 e.preventDefault();
                 track.scrollLeft += e.deltaY;
@@ -605,7 +665,7 @@ function renderAnimations() {
         let isScrolling = null;
         track.addEventListener('scroll', () => {
             const cIdx = getCenteredIdx();
-            if (cIdx !== activeIdx && cIdx >= 0 && cIdx < shown.length) {
+            if (cIdx !== activeIdx && cIdx >= 0 && cIdx < items.length) {
                 activeIdx = cIdx;
                 updateIndicator(cIdx);
             }
@@ -620,28 +680,296 @@ function renderAnimations() {
         return;
     }
 
-    for (const a of shown) {
-        const c = document.createElement('div');
-        c.className = 'card' + (a.id === state.selectedId ? ' sel' : '') + (a.missing ? ' missing' : '');
-        const nm = document.createElement('div');
-        nm.className = 'nm'; nm.textContent = a.name;
-        const sub = document.createElement('div');
-        sub.className = 'sub';
-        const hasSound = a.useSfx !== false && (a.sfx || state.lib.defaultSfx);
-        sub.textContent = hasSound ? '\u266a' : '';
-        sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
-        if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
-        c.append(nm, sub);
-        const dots = tagDotsEl(a);
-        if (dots) c.appendChild(dots);
-        c.addEventListener('click', () => {
-            stopPreview();
-            state.selectedId = a.id;
-            syncUse(true);
-            renderAll();
-            refreshLiveBar();
-            if (state.livePrev && !state.busy) switchLivePreset(a);
-        });
+    // List / Grid: presets that share a variantGroup show as ONE stacked card you can swipe through.
+    for (const members of variantItems(shown)) {
+        if (members.length > 1) { grid.appendChild(variantStackCard(members, members[0].variantGroup)); continue; }
+        const a = members[0];
+        const c = presetCardEl(a);
+        c.addEventListener('click', () => pickPresetCard(a));
+        wireCardStacking(c, a, [a]);
         grid.appendChild(c);
     }
 }
+
+// The shown presets as display items: each stack (same variantGroup) becomes one item, at its first member's place.
+function variantItems(shown) {
+    const out = [], emitted = new Set();
+    for (const a of shown) {
+        const g = a.variantGroup;
+        if (g && emitted.has(g)) continue;
+        if (g) emitted.add(g);
+        out.push(g ? shown.filter(x => x.variantGroup === g) : [a]);
+    }
+    return out;
+}
+
+// One preset card's contents (thumb, name, sound note, tag dots).
+function fillPresetCard(c, a) {
+    c.classList.toggle('missing', !!a.missing);
+    const nm = document.createElement('div');
+    nm.className = 'nm'; nm.textContent = a.name;
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    const hasSound = a.useSfx !== false && (a.sfx || state.lib.defaultSfx);
+    sub.textContent = hasSound ? '\u266a' : '';
+    sub.title = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
+    if (window.SAThumbs) c.appendChild(SAThumbs.thumb(a));
+    c.append(nm, sub);
+    const dots = tagDotsEl(a);
+    if (dots) c.appendChild(dots);
+}
+
+function presetCardEl(a) {
+    const c = document.createElement('div');
+    c.className = 'card' + (a.id === state.selectedId ? ' sel' : '');
+    c.dataset.id = a.id;
+    fillPresetCard(c, a);
+    return c;
+}
+
+function pickPresetCard(a) {
+    stopPreview();
+    state.selectedId = a.id;
+    syncUse(true);
+    renderAll();
+    refreshLiveBar();
+    if (state.livePrev && !state.busy) switchLivePreset(a);
+}
+
+// ---------------------------------------------------------------- variation stacks
+// Which variant sits on top of each stack (remembered per viewer).
+function variantFronts() {
+    if (!state.variantFront) {
+        try { state.variantFront = JSON.parse(localStorage.getItem('sa.variantFront') || '{}') || {}; } catch (e) { state.variantFront = {}; }
+    }
+    return state.variantFront;
+}
+function setVariantFront(g, id) {
+    variantFronts()[g] = id;
+    try { localStorage.setItem('sa.variantFront', JSON.stringify(state.variantFront)); } catch (e) { /* ignore */ }
+}
+
+const LAYERS_SVG = '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 1.8 14.5 5 8 8.2 1.5 5z"/><path d="M1.5 8 8 11.2 14.5 8"/><path d="M1.5 11 8 14.2 14.5 11"/></svg>';
+
+// opts: axis 'x' (default) or 'y' for the swipe that flips variants; onPick(a) replaces the click; onFlip(a) after a flip.
+function variantStackCard(members, g, opts) {
+    opts = opts || {};
+    const axis = opts.axis === 'y' ? 'y' : 'x';
+    let idx = members.findIndex(m => m.id === state.selectedId);
+    if (idx < 0) idx = Math.max(0, members.findIndex(m => m.id === variantFronts()[g]));
+    const c = document.createElement('div');
+    c.className = 'card var-stack' + (members.length > 2 ? ' var-3' : '');
+    c.title = (axis === 'y' ? 'Swipe up / down' : 'Swipe sideways') + ' (or use the arrows) to see the other variations';
+
+    const prev = document.createElement('button');
+    prev.type = 'button'; prev.className = 'var-nav var-prev'; prev.title = 'Previous variation';
+    prev.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 2 4 8 10 14"></polyline></svg>';
+    const next = document.createElement('button');
+    next.type = 'button'; next.className = 'var-nav var-next'; next.title = 'Next variation';
+    next.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 2 12 8 6 14"></polyline></svg>';
+    const badge = document.createElement('span');
+    badge.className = 'var-badge';
+    const dots = document.createElement('span');
+    dots.className = 'var-dots';
+    const dotEls = members.map((m, i) => {
+        const d = document.createElement('i');
+        d.title = m.name;
+        d.addEventListener('click', (e) => { e.stopPropagation(); show(i, i > idx ? 1 : -1); });
+        dots.appendChild(d);
+        return d;
+    });
+
+    const paint = (dir) => {
+        const a = members[idx];
+        c.dataset.id = a.id;
+        c.textContent = '';
+        fillPresetCard(c, a);
+        c.classList.toggle('sel', members.some(m => m.id === state.selectedId));
+        const wrap = c.querySelector('.thumb-wrap') || c;
+        badge.innerHTML = LAYERS_SVG + '<b>' + (idx + 1) + '/' + members.length + '</b>';
+        badge.title = members.length + ' variations: ' + members.map(m => m.name).join(', ');
+        dotEls.forEach((d, i) => d.classList.toggle('on', i === idx));
+        wrap.append(badge, dots, prev, next);
+        if (dir) {
+            wrap.classList.remove('var-in-l', 'var-in-r');
+            void wrap.offsetWidth;
+            wrap.classList.add(dir > 0 ? 'var-in-r' : 'var-in-l');
+        }
+    };
+
+    const show = (i, dir) => {
+        const n = members.length;
+        i = ((i % n) + n) % n;
+        if (i === idx) return;
+        idx = i;
+        const a = members[idx];
+        setVariantFront(g, a.id);
+        const wasSel = members.some(m => m.id === state.selectedId);
+        if (wasSel) {
+            // The stack is the selected card: the selection follows the variant on top (like the Gallery view).
+            stopPreview();
+            state.selectedId = a.id;
+            syncUse(true);
+            renderSettings();
+            renderUseSummary();
+            refreshLiveBar();
+            if (state.livePrev && !state.busy) switchLivePreset(a);
+        }
+        paint(dir);
+        if (opts.onFlip) opts.onFlip(a);
+    };
+
+    prev.addEventListener('click', (e) => { e.stopPropagation(); show(idx - 1, -1); });
+    next.addEventListener('click', (e) => { e.stopPropagation(); show(idx + 1, 1); });
+
+    // Two-finger trackpad swipe: one step per gesture.
+    let acc = 0, locked = false, quiet = 0;
+    c.addEventListener('wheel', (e) => {
+        const along = axis === 'y' ? e.deltaY : e.deltaX, across = axis === 'y' ? e.deltaX : e.deltaY;
+        if (Math.abs(along) <= Math.abs(across)) return;
+        e.preventDefault();
+        clearTimeout(quiet);
+        quiet = setTimeout(() => { acc = 0; locked = false; }, 180);
+        if (locked) return;
+        acc += along;
+        if (Math.abs(acc) > 30) { locked = true; show(idx + (acc > 0 ? 1 : -1), acc > 0 ? 1 : -1); acc = 0; }
+    }, { passive: false });
+
+    c.addEventListener('click', () => (opts.onPick || pickPresetCard)(members[idx]));
+    wireCardStacking(c, () => members[idx], members);
+    paint(0);
+    return c;
+}
+
+// Drag a card onto another card to stack them as variations; right-click for the stack menu.
+let stackDrag = null;
+function wireCardStacking(c, front, members) {
+    const cur = () => (typeof front === 'function' ? front() : front);
+    c.draggable = true;
+    c.addEventListener('dragstart', (e) => {
+        stackDrag = members.slice();
+        c.classList.add('var-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', cur().id); } catch (err) { /* ignore */ }
+    });
+    const clear = () => c.classList.remove('over', 'drop-before', 'drop-after');
+    // Where the drop lands: the outer edges of a card move the dragged card there; the middle stacks it.
+    const zone = (e) => {
+        const r = c.getBoundingClientRect();
+        const vertical = state.useViewMode === 'list';
+        const f = vertical ? (e.clientY - r.top) / r.height : (e.clientX - r.left) / r.width;
+        return f < 0.28 ? 'before' : (f > 0.72 ? 'after' : 'stack');
+    };
+    const sameCard = () => !stackDrag || stackDrag.some(m => members.some(x => x.id === m.id));
+    c.addEventListener('dragend', () => {
+        stackDrag = null;
+        c.classList.remove('var-dragging');
+        document.querySelectorAll('#animGrid .card').forEach(x => x.classList.remove('over', 'drop-before', 'drop-after'));
+    });
+    c.addEventListener('dragover', (e) => {
+        if (sameCard()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const z = zone(e);
+        c.classList.toggle('over', z === 'stack');
+        c.classList.toggle('drop-before', z === 'before');
+        c.classList.toggle('drop-after', z === 'after');
+    });
+    c.addEventListener('dragleave', (e) => { if (!c.contains(e.relatedTarget)) clear(); });
+    c.addEventListener('drop', (e) => {
+        e.preventDefault();
+        clear();
+        if (sameCard()) { stackDrag = null; return; }
+        const dragged = stackDrag, z = zone(e);
+        stackDrag = null;
+        if (z === 'stack') stackAsVariations(cur(), dragged);
+        else moveInUseOrder(dragged, members, z === 'after');
+    });
+    c.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openVariantMenu(c, cur(), members);
+    });
+}
+
+function newVariantGroupId() { return 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+// Put `presets` into target's stack (making one if target isn't stacked yet).
+async function stackAsVariations(target, presets) {
+    const g = target.variantGroup || newVariantGroupId();
+    let res = null;
+    if (target.variantGroup !== g) res = await window.sa.updateAnimation(target.id, { variantGroup: g });
+    // a whole stack dropped on a card brings every preset of that group, even ones hidden by the filter
+    const ids = new Set(presets.map(p => p.id));
+    for (const p of presets) if (p.variantGroup) for (const x of state.lib.animations) if (x.variantGroup === p.variantGroup) ids.add(x.id);
+    for (const id of ids) if (id !== target.id) res = await window.sa.updateAnimation(id, { variantGroup: g });
+    setVariantFront(g, target.id);
+    if (res) takeLib(res);
+    setStatus('Stacked ' + ids.size + ' preset' + (ids.size === 1 ? '' : 's') + ' with "' + target.name + '" as variations.', 'ok');
+}
+
+async function unstackVariation(a, all) {
+    const g = a.variantGroup;
+    if (!g) return;
+    const group = state.lib.animations.filter(x => x.variantGroup === g);
+    // the last one left on its own isn't a stack any more
+    const clear = all || group.length <= 2 ? group : [a];
+    let res = null;
+    for (const x of clear) res = await window.sa.updateAnimation(x.id, { variantGroup: null });
+    if (res) takeLib(res);
+    setStatus(all ? 'Unstacked the variations.' : 'Took "' + a.name + '" out of its stack.', 'ok');
+}
+
+function openVariantMenu(anchor, a, members) {
+    openPop(anchor, 'pop-menu', (el) => {
+        const item = (icon, label, fn, cls) => {
+            const it = document.createElement('button');
+            it.className = 'pop-item' + (cls ? ' ' + cls : '');
+            const ck = document.createElement('span'); ck.className = 'pop-check'; ck.textContent = icon;
+            const n = document.createElement('span'); n.className = 'pop-label'; n.textContent = label;
+            it.append(ck, n);
+            it.addEventListener('click', () => { closePop(); fn(); });
+            el.appendChild(it);
+        };
+        const head = document.createElement('div');
+        head.className = 'pop-title'; head.textContent = 'Variations';
+        el.appendChild(head);
+        if (a.variantGroup) {
+            item('\u2197', 'Remove "' + a.name + '" from stack', () => unstackVariation(a, false));
+            item('\u2715', 'Unstack all ' + members.length, () => unstackVariation(a, true));
+        }
+        const head2 = document.createElement('div');
+        head2.className = 'pop-title'; head2.textContent = a.variantGroup ? 'Add to this stack' : 'Stack as variation of\u2026';
+        el.appendChild(head2);
+        const seen = new Set();
+        const others = state.lib.animations.filter(x => {
+            if (members.includes(x) || (a.variantGroup && x.variantGroup === a.variantGroup)) return false;
+            if (x.variantGroup) { if (seen.has(x.variantGroup)) return false; seen.add(x.variantGroup); }
+            return true;
+        });
+        const scroll = document.createElement('div');
+        scroll.className = 'pop-scroll';
+        el.appendChild(scroll);
+        for (const x of others) {
+            const n = x.variantGroup ? state.lib.animations.filter(y => y.variantGroup === x.variantGroup).length : 0;
+            const it = document.createElement('button');
+            it.className = 'pop-item';
+            const ck = document.createElement('span'); ck.className = 'pop-check'; ck.textContent = n ? '\u29C9' : '';
+            const lb = document.createElement('span'); lb.className = 'pop-label';
+            lb.textContent = x.name + (n ? '  (' + n + ')' : '');
+            it.append(ck, lb);
+            // Add-to-this-stack brings x (and its stack) here; otherwise this card joins x's stack.
+            it.addEventListener('click', () => { closePop(); if (a.variantGroup) stackAsVariations(a, [x]); else stackAsVariations(x, members); });
+            scroll.appendChild(it);
+        }
+        if (!others.length) {
+            const e = document.createElement('div');
+            e.className = 'pop-empty'; e.textContent = 'No other presets';
+            el.appendChild(e);
+        }
+        const tip = document.createElement('div');
+        tip.className = 'pop-empty';
+        tip.textContent = 'Tip: drop a card on the middle of another to stack it, on its edge to move it.';
+        el.appendChild(tip);
+    });
+}
+

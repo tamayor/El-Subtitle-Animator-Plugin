@@ -14,7 +14,7 @@ const { libForUI } = require('./library');
 const {
     addAnimationFile, createCombo, draftFromTimeline, pickFile, removeAnimation, reorderAnimations,
     replaceAnimationFile, revertAnimation, saveAnimationVariant, saveSelectedAsAnimation, saveTags,
-    setAnimationSfx, setDefaultSfx, updateAnimation
+    setAnimationSfx, setDefaultSfx, setUseOrder, updateAnimation
 } = require('./library-actions');
 const {
     overwriteAudioFromCurrent, overwriteAudioFromFile, overwriteAudioFromTimeline,
@@ -69,6 +69,7 @@ const SAFE_HANDLERS = {
     'lib:remove': removeAnimation,
     'lib:saveTags': saveTags,
     'lib:reorder': reorderAnimations,
+    'lib:useOrder': setUseOrder,
     'lib:setDefaultSfx': setDefaultSfx,
     'lib:setAnimationSfx': setAnimationSfx,
     'lib:replaceFile': replaceAnimationFile,

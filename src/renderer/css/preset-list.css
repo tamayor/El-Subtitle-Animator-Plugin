@@ -528,3 +528,151 @@
     font-size: 9.5px;
     padding: 0 4px;
 }
+
+/* ---------------------------------------------------------------- variation stacks (List / Grid)
+   Presets sharing a variantGroup show as one card with sheets peeking out behind it (macOS stack).
+   The sheets are box-shadows, so they never fall behind the panel background. */
+.grid .card.var-stack {
+    --sheet1: #1a201c;
+    --sheet2: #141916;
+    box-shadow:
+        0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--line),
+        0 -8px 0 -6px var(--sheet2), 0 -8px 0 -5px var(--line-soft);
+}
+.grid .card.var-stack:not(.var-3) {
+    box-shadow: 0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--line);
+}
+.grid .card.var-stack.sel {
+    box-shadow:
+        0 0 0 1px var(--strawberry-border),
+        0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--strawberry-border),
+        0 -8px 0 -6px var(--sheet2), 0 -8px 0 -5px var(--line);
+}
+.grid .card.var-stack.sel:not(.var-3) {
+    box-shadow: 0 0 0 1px var(--strawberry-border), 0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--strawberry-border);
+}
+.grid.view-list .card.var-stack { margin-top: 5px; }
+.grid .card.var-stack.over,
+.grid .card.over { border-style: dashed; border-color: var(--matcha); background: var(--matcha-tint); }
+.grid .card.var-dragging { opacity: 0.45; }
+
+.card.var-stack .thumb-wrap { position: relative; overflow: hidden; }
+.var-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #e5ece7;
+    font-size: 9.5px;
+    line-height: 14px;
+    pointer-events: auto;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+.var-badge b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.var-dots {
+    position: absolute;
+    left: 50%;
+    bottom: 4px;
+    z-index: 3;
+    transform: translateX(-50%);
+    display: inline-flex;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.45);
+}
+.var-dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.35);
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.var-dots i.on { background: #fff; transform: scale(1.15); }
+.var-nav {
+    position: absolute;
+    top: 50%;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    border: 0;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    opacity: 0;
+    transform: translateY(-50%);
+    transition: opacity 0.15s ease;
+    cursor: pointer;
+}
+.var-prev { left: 3px; }
+.var-next { right: 3px; }
+.card.var-stack:hover .var-nav { opacity: 1; }
+.var-nav:hover { background: var(--matcha); color: var(--matcha-ink); border: 0; }
+.grid.view-list .card.var-stack .var-nav { width: 18px; height: 18px; }
+.grid.view-list .card.var-stack .var-badge { top: 2px; left: 2px; font-size: 9px; padding: 0 4px; }
+.grid.view-list .card.var-stack .var-dots { bottom: 2px; }
+
+/* flip animation when the top variant changes */
+@keyframes var-in-r { from { transform: translateX(22%); opacity: 0.2; } to { transform: none; opacity: 1; } }
+@keyframes var-in-l { from { transform: translateX(-22%); opacity: 0.2; } to { transform: none; opacity: 1; } }
+.thumb-wrap.var-in-r > canvas.thumb { animation: var-in-r 0.22s cubic-bezier(.2, .8, .2, 1); }
+.thumb-wrap.var-in-l > canvas.thumb { animation: var-in-l 0.22s cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) {
+    .thumb-wrap.var-in-r > canvas.thumb, .thumb-wrap.var-in-l > canvas.thumb { animation: none; }
+}
+
+.pop-scroll { max-height: 240px; overflow-y: auto; }
+
+/* Gallery: room above the cards for the stack sheets, and the sheets stay on hover */
+.grid.view-gallery .gallery-track { padding-top: 12px; }
+.grid.view-gallery .card.var-stack:not(.sel):hover {
+    box-shadow:
+        0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--line),
+        0 -8px 0 -6px var(--sheet2), 0 -8px 0 -5px var(--line-soft),
+        0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.grid.view-gallery .card.var-stack:not(.var-3):not(.sel):hover {
+    box-shadow: 0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--line), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.grid.view-gallery .card.var-stack.sel {
+    box-shadow:
+        0 0 0 1px var(--matcha-border),
+        0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--matcha-border),
+        0 -8px 0 -6px var(--sheet2), 0 -8px 0 -5px var(--line),
+        0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.grid.view-gallery .card.var-stack.sel:not(.var-3) {
+    box-shadow: 0 0 0 1px var(--matcha-border), 0 -4px 0 -3px var(--sheet1), 0 -4px 0 -2px var(--matcha-border), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+/* gallery dot that stands for a stack: a small ring behind it */
+.gallery-dot.stacked { box-shadow: 0 -2px 0 -0.5px var(--line); }
+
+/* Custom order: where a dragged card will land (edge of a card) */
+.grid .card.drop-before::after,
+.grid .card.drop-after::after {
+    content: '';
+    position: absolute;
+    z-index: 5;
+    background: var(--matcha);
+    border-radius: 2px;
+    box-shadow: 0 0 6px var(--matcha);
+    pointer-events: none;
+}
+.grid.view-list .card.drop-before::after { left: 4px; right: 4px; top: -4px; height: 3px; }
+.grid.view-list .card.drop-after::after { left: 4px; right: 4px; bottom: -4px; height: 3px; }
+.grid.view-grid .card.drop-before::after,
+.grid.view-gallery .card.drop-before::after { top: 4px; bottom: 4px; left: -6px; width: 3px; }
+.grid.view-grid .card.drop-after::after,
+.grid.view-gallery .card.drop-after::after { top: 4px; bottom: 4px; right: -6px; width: 3px; }
+#orderModeToggle { margin-right: 4px; }

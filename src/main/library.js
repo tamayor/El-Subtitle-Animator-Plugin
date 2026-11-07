@@ -188,8 +188,23 @@ function loadLib() {
     return lib;
 }
 
+// Stamps updatedAt on every preset that is new or changed since the last save (shown and sorted in the Library tab).
+function stampUpdated(lib) {
+    let prev = null;
+    try { prev = JSON.parse(fs.readFileSync(LIB_FILE, 'utf8')); } catch (e) { prev = null; }
+    const key = (a) => { const c = Object.assign({}, a); delete c.updatedAt; return JSON.stringify(c); };
+    const before = new Map(((prev && Array.isArray(prev.animations)) ? prev.animations : []).map(a => [a.id, a]));
+    const now = Date.now();
+    for (const a of (Array.isArray(lib.animations) ? lib.animations : [])) {
+        const old = before.get(a.id);
+        if (!old || key(old) !== key(a)) a.updatedAt = now;
+        else if (!a.updatedAt && old.updatedAt) a.updatedAt = old.updatedAt;
+    }
+}
+
 function saveLib(lib) {
     ensureDirs();
+    stampUpdated(lib);
     const tmp = LIB_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(lib, null, 2));
     // Keep the previous good version (at most once a minute, so rapid edits stay cheap).
@@ -227,7 +242,10 @@ function libForUI() {
             const fileOrig = a.fileOrig || a.file;
             const hasOriginal = fs.existsSync(path.join(ANIM_ORIG_DIR, fileOrig));
             const hasPreview = !!(a.preview && a.preview.count > 0 && fs.existsSync(path.join(PREV_DIR, a.id, 'p00.png')));
+            let updatedAt = a.updatedAt || 0;
+            if (!updatedAt && exists) { try { updatedAt = fs.statSync(animPath).mtimeMs; } catch (e) { /* ignore */ } }
             return Object.assign({}, a, {
+                updatedAt,
                 missing: !exists,
                 fileOrig,
                 hasOriginal,

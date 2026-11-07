@@ -552,3 +552,48 @@
 .tag-chip.tag-chip-plus:hover {
     background: var(--matcha-tint);
 }
+
+/* ---------- library toolbar: search + tag filter + sort ---------- */
+.lib-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 6px;
+}
+.lib-tools .tag-filter { margin: 0; }
+.lib-search-wrap {
+    position: relative;
+    flex: 1 1 160px;
+    min-width: 120px;
+    display: flex;
+    align-items: center;
+}
+.lib-search-wrap svg {
+    position: absolute;
+    left: 9px;
+    color: var(--dim);
+    pointer-events: none;
+}
+#libSearch {
+    width: 100%;
+    padding: 5px 10px 5px 27px;
+    font-size: 11.5px;
+    border-radius: 8px;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    color: var(--text);
+}
+#libSearch:focus { outline: none; border-color: var(--matcha); }
+#libSort {
+    padding: 5px 8px;
+    font-size: 11.5px;
+    border-radius: 8px;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    cursor: pointer;
+}
+#libSort:hover, #libSort:focus { color: var(--text); border-color: var(--matcha-border); outline: none; }
+.libitem .t .lib-date { display: block; font-size: 10.5px; color: var(--dim); opacity: 0.8; }
+#libList.lib-sorted .lib-grip { visibility: hidden; pointer-events: none; }

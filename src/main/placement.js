@@ -490,7 +490,18 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
     // so the title would be ripple-inserted in the middle of the timeline. Playback is stopped first.
     if (!(await ensureStopped(tl))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
     if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
-    const item = await tl.InsertFusionTitleIntoTimeline(titleName);
+    // Resolve 21.2 THROWS ("Expected valid string type title name") instead of returning null for a template it has
+    // not scanned yet - e.g. a preset's template written a moment ago on its first use. Retry once after a short wait,
+    // then return no item so the caller's fallback (plain Text+ / MultiText) runs instead of the whole apply failing.
+    let item = null;
+    for (let attempt = 0; attempt < (title ? 2 : 1); attempt++) {
+        try { item = await tl.InsertFusionTitleIntoTimeline(titleName); break; }
+        catch (e) {
+            dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
+            if (!title) throw e;
+            if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+        }
+    }
     if (item) {
         let st = endFrame;
         try { st = await item.GetStart(); } catch (e) { /* ignore */ }

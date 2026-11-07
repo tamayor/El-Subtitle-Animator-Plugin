@@ -262,7 +262,20 @@
                             <div id="tagList" class="tag-list"></div>
                         </div>
                     </div>
-                    <div id="libFilter" class="tag-filter"></div>
+                    <div class="lib-tools">
+                        <div class="lib-search-wrap">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M11.74 10.33a6.5 6.5 0 1 0-1.41 1.41l3.66 3.67a1 1 0 0 0 1.42-1.42l-3.67-3.66zM6.5 11.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>
+                            <input id="libSearch" type="search" placeholder="Search presets, sounds, tags" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div id="libFilter" class="tag-filter"></div>
+                        <select id="libSort" title="Sort the library">
+                            <option value="custom">Custom order</option>
+                            <option value="name-asc">Name A–Z</option>
+                            <option value="name-desc">Name Z–A</option>
+                            <option value="updated-desc">Recently updated</option>
+                            <option value="updated-asc">Oldest updated</option>
+                        </select>
+                    </div>
                     <div id="libList"></div>
                     <div class="hint">Click a preset to open its settings right below it: its text boxes, alignment, Fusion file and sound.
                         Drop a sound onto a row to change

@@ -106,6 +106,51 @@ async function takeFromTimeline() {
 }
 function clearTimelineDraft() { const d = state.draft; d.fromTimeline = false; d.clipProps = null; d.preview = null; draftPrevHide(); }
 
+// Library search + sort (the sort choice is remembered in this browser).
+const libView = { query: '', sort: 'custom' };
+try { const v = localStorage.getItem('sa.libSort'); if (v) libView.sort = v; } catch (e) { /* ignore */ }
+
+function passesLibSearch(a) {
+    const words = libView.query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const hay = [a.name, a.sfx, ...tagsOf(a).map(t => t.name)].filter(Boolean).join(' ').toLowerCase();
+    return words.every(w => hay.includes(w));
+}
+
+function libSorted(list) {
+    const byName = (x, y) => String(x.name || '').localeCompare(String(y.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const byDate = (x, y) => (x.updatedAt || 0) - (y.updatedAt || 0);
+    switch (libView.sort) {
+        case 'name-asc': return list.slice().sort(byName);
+        case 'name-desc': return list.slice().sort((x, y) => byName(y, x));
+        case 'updated-desc': return list.slice().sort((x, y) => byDate(y, x) || byName(x, y));
+        case 'updated-asc': return list.slice().sort((x, y) => byDate(x, y) || byName(x, y));
+        default: return list;
+    }
+}
+
+function libDateText(ms) {
+    if (!ms) return '';
+    const d = new Date(ms), now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    return 'Updated ' + (sameDay ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' }));
+}
+
+function bindLibTools() {
+    const q = $('libSearch'), so = $('libSort');
+    if (!q || !so) return;
+    if (!Array.from(so.options).some(o => o.value === libView.sort)) libView.sort = 'custom';
+    so.value = libView.sort;
+    q.addEventListener('input', () => { libView.query = q.value; renderCreate(); });
+    q.addEventListener('keydown', (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); q.value = ''; libView.query = ''; renderCreate(); } });
+    so.addEventListener('change', () => {
+        libView.sort = so.value;
+        try { localStorage.setItem('sa.libSort', libView.sort); } catch (e) { /* ignore */ }
+        renderCreate();
+    });
+}
+
 function renderCreate() {
     const d = state.draft;
     const pk = $('animPicked');
@@ -127,7 +172,8 @@ function renderCreate() {
     const list = $('libList');
     const ed = $('editor');
     renderTagFilter('lib', 'libFilter');
-    const libShown = state.lib.animations.filter(a => passesTagFilter(a, 'lib'));
+    const libShown = libSorted(state.lib.animations.filter(a => passesTagFilter(a, 'lib') && passesLibSearch(a)));
+    list.classList.toggle('lib-sorted', libView.sort !== 'custom');
     const openId = libShown.some(a => a.id === state.createId) ? state.createId : null;
     // Rebuild the rows around the settings panel without moving it when it is already in place
     // (moving it would drop focus from whatever you are typing in it).
@@ -139,7 +185,9 @@ function renderCreate() {
         const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'Nothing saved yet.'; put(e, true);
     }
     if (state.lib.animations.length && !libShown.length) {
-        const e = document.createElement('div'); e.className = 'hint'; e.textContent = 'No presets have the selected tags.'; put(e, true);
+        const e = document.createElement('div'); e.className = 'hint';
+        e.textContent = libView.query.trim() ? 'No presets match "' + libView.query.trim() + '".' : 'No presets have the selected tags.';
+        put(e, true);
     }
     let beforeEditor = !!openId;
     for (const a of libShown) {
@@ -152,6 +200,11 @@ function renderCreate() {
         s.className = 'lib-sfx';
         s.textContent = a.sfx ? '♪ ' + a.sfx : (state.lib.defaultSfx ? '♪ default sound' : 'no sound');
         t.append(b, s);
+        if (libView.sort.startsWith('updated') && a.updatedAt) {
+            const dt = document.createElement('span'); dt.className = 'lib-date'; dt.textContent = libDateText(a.updatedAt);
+            dt.title = new Date(a.updatedAt).toLocaleString();
+            t.appendChild(dt);
+        }
         const tagRow = libTagsEl(a);      // the preset's tags, under its name and sound
         if (tagRow) t.appendChild(tagRow);
         const grip = document.createElement('span');

@@ -39,6 +39,7 @@ function bindPlacementMenu() {
         try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
         pushPlaceOptions();
         syncPlaceUI();
+        promptPlacementChanged();   // Prompt tab keys that default from Placement follow it
     };
     for (const k in PLACE_IDS) {
         const e = $(PLACE_IDS[k]); if (!e) continue;
@@ -84,4 +85,5 @@ function bindPlacementMenu() {
     }
     syncPlaceUI();
     pushPlaceOptions();
+    promptPlacementChanged();
 }

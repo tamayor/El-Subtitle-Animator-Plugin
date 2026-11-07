@@ -309,4 +309,5 @@ function renderAll() {
     renderTags();
     renderPin();
     renderLive();
+    refreshPromptPresets();
 }

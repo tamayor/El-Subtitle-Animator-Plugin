@@ -125,3 +125,414 @@ body.tab-prompt footer {
 body.tab-prompt {
     padding-bottom: 24px;
 }
+
+/* ---------------------------------------------------------------- Builder / Text switch */
+.pr-mode {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.pr-mode button {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dim);
+    padding: 5px 12px;
+    font-size: 12px;
+}
+
+.pr-mode button.on {
+    background: var(--matcha-tint);
+    color: var(--matcha);
+}
+
+/* In Builder mode the text box holds only the rules, so it doesn't need the whole window. */
+#tabPrompt:not(.pr-mode-text) #promptText {
+    min-height: 260px;
+    height: 360px;
+}
+
+#promptText:disabled {
+    opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------- settings builder */
+#promptBuilder {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pb-sec {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card-inner);
+    padding: 8px 10px 10px;
+}
+
+.pb-sec-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+#promptBuilder input[type=text].pb-sec-title {
+    flex: 1;
+    background: transparent;
+    border-color: transparent;
+    padding: 3px 6px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--matcha);
+}
+
+#promptBuilder input[type=text].pb-sec-title:hover {
+    border-color: var(--line);
+}
+
+.pb-row {
+    padding: 4px 0;
+    border-top: 1px solid var(--line-soft);
+    border-radius: 6px;
+}
+
+.pb-row.flash {
+    animation: pb-flash 1.2s ease-out;
+}
+
+@keyframes pb-flash {
+    from { background: var(--matcha-tint); }
+    to { background: transparent; }
+}
+
+.pb-row-main {
+    display: grid;
+    grid-template-columns: minmax(90px, 170px) auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+}
+
+#promptBuilder input[type=text],
+#promptBuilder select,
+#promptBuilder textarea,
+.pb-add select {
+    padding: 5px 8px;
+    font-size: 12px;
+    border-radius: 7px;
+    background: var(--card);
+}
+
+#promptBuilder input[type=text].pb-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 700;
+    font-size: 11.5px;
+}
+
+.pb-sep {
+    padding: 2px 6px;
+    min-width: 22px;
+    font-size: 12px;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}
+
+.pb-sep:hover {
+    border-color: var(--line);
+    color: var(--text);
+}
+
+#promptBuilder input[type=text].pb-val {
+    color: #f0c36b;
+}
+
+.pb-acts {
+    display: flex;
+    gap: 3px;
+}
+
+.pb-mini {
+    padding: 3px 7px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+.pb-mini:hover,
+.pb-mini.on {
+    color: var(--matcha);
+    border-color: var(--matcha-border);
+}
+
+.pb-mini.pb-del:hover {
+    color: var(--strawberry);
+    border-color: var(--strawberry-border);
+}
+
+/* Preset / tag chips */
+.pb-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 3px 2px 8px;
+    font-size: 11.5px;
+    color: var(--text);
+    background: var(--matcha-tint);
+    border: 1px solid var(--matcha-border);
+    border-radius: 999px;
+}
+
+.pb-chip.missing {
+    background: var(--strawberry-tint);
+    border: 1px dashed var(--strawberry-border);
+}
+
+.pb-chip-x {
+    padding: 0 5px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+}
+
+.pb-chip-x:hover {
+    color: var(--strawberry);
+}
+
+#promptBuilder select.pb-chip-add {
+    width: auto;
+    max-width: 180px;
+    color: var(--matcha);
+}
+
+#promptBuilder input[type=text].pb-chip-extra {
+    flex: 1;
+    min-width: 110px;
+    width: auto;
+    color: var(--dim);
+}
+
+/* Note and if → then lines sit under the value. */
+#promptBuilder textarea.pb-note,
+.pb-cond {
+    margin: 5px 0 0 calc(min(170px, 30%) + 6px);
+    width: auto;
+}
+
+#promptBuilder textarea.pb-note {
+    display: block;
+    width: calc(100% - min(170px, 30%) - 6px);
+    resize: vertical;
+    color: var(--dim);
+    font-style: italic;
+}
+
+.pb-cond {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.pb-cond-word {
+    font-size: 11px;
+    font-weight: 700;
+    color: #e3b35a;
+}
+
+.pb-add-key {
+    margin-top: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--matcha);
+    background: transparent;
+    border: 1px dashed var(--matcha-border);
+    border-radius: 7px;
+}
+
+.pb-add-key:hover {
+    background: var(--matcha-tint);
+}
+
+/* The "Add from MCP" menu at the very bottom of the builder */
+.pb-add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid var(--matcha-border);
+    border-radius: 10px;
+    background: var(--matcha-tint);
+}
+
+.pb-add-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--matcha);
+}
+
+.pb-add select {
+    flex: 1;
+    min-width: 180px;
+    width: auto;
+}
+
+.pb-add-hint {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--dim);
+}
+
+.pb-rules-label {
+    margin: 14px 0 6px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pb-empty {
+    padding: 12px;
+    color: var(--dim);
+}
+
+@media (max-width: 520px) {
+    .pb-row-main { grid-template-columns: 1fr auto; }
+    .pb-row-main .pb-sep { display: none; }
+    .pb-row-main > :nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
+    #promptBuilder textarea.pb-note, .pb-cond { margin-left: 0; }
+    #promptBuilder textarea.pb-note { width: 100%; }
+}
+
+/* Colour-role keys: the Resolve clip colour with its dot */
+.pb-cdot {
+    display: inline-block;
+    flex: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.pb-cdot.none {
+    background: conic-gradient(#eb6e01, #e2a906, #448f65, #00ada5, #4a90d9, #9e58c3, #f75baf, #eb6e01);
+    opacity: 0.55;
+}
+
+.pb-ckey {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 5px 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: left;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+}
+
+.pb-ckey:hover {
+    border-color: var(--matcha-border);
+}
+
+.pb-ckey-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pb-ckey-caret {
+    color: var(--dim);
+    font-size: 10px;
+}
+
+.pb-cpop {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.pb-cpop .pop-item.on {
+    background: var(--matcha-tint);
+}
+
+.pb-cused {
+    font-size: 10.5px;
+    color: var(--dim);
+}
+
+/* Rows linked with the Placement drawer */
+.pb-link {
+    align-self: center;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--matcha);
+    background: var(--matcha-tint);
+    border: 1px solid var(--matcha-border);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+/* Range rows: [V][from] to [V][to] */
+.pb-range {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+#promptBuilder .pb-range input[type=number].pb-range-in {
+    width: 72px;
+    padding: 5px 8px;
+    font-size: 12px;
+    color: #f0c36b;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font: inherit;
+}
+
+#promptBuilder .pb-range input[type=number].pb-range-in:focus {
+    outline: none;
+    border-color: var(--matcha);
+    box-shadow: 0 0 0 2px var(--matcha-tint);
+}
+
+#promptBuilder .pb-range input[type=number].pb-range-in::placeholder {
+    color: var(--dim);
+}
+
+.pb-range-pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--dim);
+}
+
+.pb-range-to {
+    padding: 0 3px;
+    font-size: 11.5px;
+    color: var(--dim);
+}

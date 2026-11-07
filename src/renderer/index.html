@@ -441,18 +441,33 @@
                 <section class="cr">
                     <div class="cr-head">
                         <span class="label">Job prompt for Claude</span>
-                        <span class="cr-sub">Edit the SETTINGS block at the top (timeline, scope, sizes, spacing,
-                            presets), then copy the whole thing into Claude. Your edits are kept in this panel;
-                            "Save as default" makes the current text what Reset goes back to.</span>
+                        <span class="cr-sub">Set each key in SETTINGS (timeline, scope, sizes, spacing, presets), add
+                            keys with + Add key or from the MCP menu at the bottom, then copy the whole prompt into
+                            Claude. "+ if" adds a condition to a key; "note" adds a special note under it.</span>
                     </div>
                     <div class="pr-bar">
                         <button id="promptCopy" class="primary">Copy prompt</button>
-                        <button id="promptSaveDefault" class="ghost" title="Make the current text your default">Save as default</button>
+                        <button id="promptSaveDefault" class="ghost" title="Make the current prompt your default">Save as default</button>
                         <button id="promptReset" class="ghost" title="Put your default back">Reset to default</button>
                         <button id="promptBuiltIn" class="ghost hidden" title="Drop your saved default and go back to the built-in prompt">Restore built-in</button>
                         <span class="grow"></span>
                         <span id="promptEdited" class="pr-edited hidden">edited</span>
+                        <div class="pr-mode">
+                            <button id="promptModeBuilder" class="on" title="Edit SETTINGS key by key">Builder</button>
+                            <button id="promptModeText" title="Edit the whole prompt as plain text">Text</button>
+                        </div>
                     </div>
+                    <div id="promptBuilderWrap">
+                        <div id="promptBuilder"></div>
+                        <div class="pb-add">
+                            <span class="pb-add-label">Add from MCP</span>
+                            <select id="pbAddSel"></select>
+                            <button id="pbAddBtn" class="primary">Add</button>
+                            <div id="pbAddHint" class="pb-add-hint"></div>
+                        </div>
+                        <div id="pbLists"></div>
+                    </div>
+                    <div id="promptRulesLabel" class="pb-rules-label">Rules &amp; report <span class="cr-sub">(text, after SETTINGS)</span></div>
                     <div class="pr-editor">
                         <pre id="promptHilite" aria-hidden="true"></pre>
                         <textarea id="promptText" spellcheck="false" wrap="soft"></textarea>

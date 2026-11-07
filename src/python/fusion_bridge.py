@@ -334,6 +334,8 @@ def set_typing_frames(comp, frames, clip_frames=None):
                 tool.SetInput("TypingFrames", int(frames))
                 if clip_frames and CLIP_SLIDER_MAX:
                     set_slider_max(tool, "TypingFrames", max(1, int(clip_frames)))
+                    if get_in(tool, "TypingStart") is not None:
+                        set_slider_max(tool, "TypingStart", max(1, int(clip_frames)))
         except Exception:
             pass
 
@@ -389,7 +391,7 @@ def op_set_text(a):
                 except Exception:
                     pass
     for tool in tool_list(comp):
-        if attrs(tool).get("TOOLS_RegID") == "TextPlus":
+        if attrs(tool).get("TOOLS_RegID") == "TextPlus" and not is_mirror(tool):
             if a.get("text") is not None and not has_follower:
                 tool.SetInput("StyledText", a["text"])
             if a.get("textDesign"):
@@ -398,6 +400,7 @@ def op_set_text(a):
             break
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
+    fit_segments(comp, a.get("clipFrames"))
     wake_effects(comp)
     return found
 
@@ -423,6 +426,19 @@ def as_pt(v):
         return None
 
 
+def is_mirror(tool):
+    """A helper Text+ whose text is an expression of another node's text (e.g. the highlight box of "Highlight
+    Select", which copies the MultiText's emphasis). It is not a text box: the plugin never writes text or design to it."""
+    try:
+        if tool.StyledText.GetExpression():
+            return True
+        # or its text comes through a follower whose own text is that expression
+        d = is_driven(tool, "StyledText")
+        return bool(d is not None and attrs(d).get("TOOLS_RegID") in FOLLOWERS and d.Text.GetExpression())
+    except Exception:
+        return False
+
+
 def is_driven(tool, input_id):
     """The modifier (spline, path, follower...) plugged into an input, or None."""
     try:
@@ -440,6 +456,8 @@ def describe(tool):
     rid = at.get("TOOLS_RegID")
     name = at.get("TOOLS_Name")
     if rid == "TextPlus":
+        if is_mirror(tool):
+            return []
         txt = get_in(tool, "StyledText")
         return [{"id": name, "kind": "textplus", "tool": name, "input": "StyledText", "centerInput": "Center",
                  "label": "Text+ · %s" % name, "text": txt if isinstance(txt, str) else "",
@@ -450,7 +468,8 @@ def describe(tool):
         try:
             order = get_in(tool, "TextOrder")
             if isinstance(order, dict):
-                layers = sorted(set(int(float(v)) for v in order.values()))
+                # Resolve adds bookkeeping keys to the table ("__flags": 256): only the numbered entries are layers
+                layers = sorted(set(int(float(v)) for k, v in order.items() if not str(k).startswith("__")))
         except Exception:
             layers = []
         if not layers:
@@ -596,7 +615,12 @@ def op_set_boxes(a):
         if b.get("text") is not None:
             try:
                 if b.get("kind") == "multitext":
-                    tool.SetInput(b.get("input"), str(b["text"]))     # a MultiText layer: Text<n>.StyledText
+                    # a MultiText layer: Text<n>.StyledText, or the follower that animates it
+                    drv = is_driven(tool, b.get("input"))
+                    if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+                        drv.SetInput("Text", str(b["text"]))
+                    else:
+                        tool.SetInput(b.get("input"), str(b["text"]))
                     if b.get("font"):                                 # automation's forced font: Text<n>.Font / .Style
                         prefix = str(b.get("input") or "").rsplit(".", 1)[0]
                         try:
@@ -661,6 +685,7 @@ def op_set_boxes(a):
                 capped = capped or r["capped"]
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
+    fit_segments(comp, a.get("clipFrames"))
     wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
@@ -685,6 +710,8 @@ def op_refresh(a):
     for mod in tools:
         try:
             if attrs(mod).get("TOOLS_RegID") in FOLLOWERS:
+                if mod.Text.GetExpression():
+                    continue      # a mirror (e.g. the highlight's copy of the emphasis): writing it would cut the link
                 txt = mod.GetInput("Text")
                 if txt is not None:
                     mod.SetInput("Text", txt)
@@ -695,7 +722,7 @@ def op_refresh(a):
     if not has_follower:
         for tool in tools:
             try:
-                if attrs(tool).get("TOOLS_RegID") == "TextPlus":
+                if attrs(tool).get("TOOLS_RegID") == "TextPlus" and not is_mirror(tool):
                     inp = tool.StyledText
                     if inp is not None and not inp.GetConnectedOutput():
                         txt = tool.GetInput("StyledText")
@@ -1083,38 +1110,113 @@ def set_bg_colour(item_id, comp_name, bg_name, col):
 
 
 # ---------------------------------------------------------------- Animation timing bar (src/main/anim-timing.js)
-TIMING_INPUTS = (("AnimFrames", "anim"), ("TypingFrames", "typing"))
+# Three kinds of timing a clip can have, each shown as one or more start/end ranges in the panel:
+#   anim      the "Animation Frames" retiming (src/main/retime.js): AnimStart (if the preset has it) .. AnimFrames
+#   typing    word-by-word typing presets: TypingStart (if the preset has it) .. TypingFrames
+#   segments  presets with their own per-text ranges, e.g. MultiText "Highlight Select": Seg<n>Start .. Seg<n>End on
+#             the text node; the Inspector name of Seg<n>Start ("Upper Start") gives the range its label ("Upper").
+TIMING_INPUTS = (("Seg1Start", "segments"), ("AnimFrames", "anim"), ("TypingFrames", "typing"))
+START_INPUT = {"anim": "AnimStart", "typing": "TypingStart"}   # the start head, when the preset has it
 
 
 def timing_tool(comp):
-    for tool in tool_list(comp):
-        for inp, kind in TIMING_INPUTS:
+    for inp, kind in TIMING_INPUTS:
+        for tool in tool_list(comp):
             if get_in(tool, inp) is not None:
                 return tool, inp, kind
     return None, None, None
 
 
+def segment_list(tool):
+    """[(n, label, default start, default end)] for every Seg<n>Start / Seg<n>End pair on the tool."""
+    try:
+        uc = tool.UserControls or {}
+    except Exception:
+        uc = {}
+    out = []
+    for n in range(1, 17):
+        if get_in(tool, "Seg%dStart" % n) is None or get_in(tool, "Seg%dEnd" % n) is None:
+            break
+        cs, ce = (uc.get("Seg%dStart" % n) or {}), (uc.get("Seg%dEnd" % n) or {})
+        label = str(cs.get("LINKS_Name") or ("Text %d" % n))
+        if label.lower().endswith(" start"):
+            label = label[:-6]
+        out.append((n, label, num(cs.get("INP_Default"), 0), num(ce.get("INP_Default"), 0)))
+    return out
+
+
+def num(v, d):
+    try:
+        return float(v)
+    except Exception:
+        return d
+
+
+def fit_segments(comp, clip_frames):
+    """Placement: a clip shorter than a segment preset's own timing gets all its ranges scaled down to fit."""
+    if not clip_frames:
+        return
+    top = max(1, int(clip_frames) - 1)
+    for tool in tool_list(comp):
+        try:
+            segs = segment_list(tool)
+            if not segs:
+                continue
+            last = max(num(get_in(tool, "Seg%dEnd" % n), 0) for n, _, _, _ in segs)
+            if last <= top:
+                continue
+            k = top / last
+            for n, _, _, _ in segs:
+                for key in ("Seg%dStart" % n, "Seg%dEnd" % n):
+                    tool.SetInput(key, int(round(num(get_in(tool, key), 0) * k)))
+        except Exception:
+            pass
+
+
 def op_timing_get(a):
-    """The clip's timing slider: which one, its value, and (Animation Frames) the preset's natural end."""
+    """The clip's timing as ranges: [{key, label, start, end, defStart, defEnd, hasStart}]. Anim / typing ends of 0
+    (= the preset's own timing) are sent as 0 with the natural length, and resolved in src/main/anim-timing.js."""
     comp = get_comp(a["item"], a.get("comp"))
     tool, inp, kind = timing_tool(comp)
     if tool is None:
         return {"kind": None}
+    if kind == "segments":
+        ranges = [{"key": str(n), "label": label, "start": num(get_in(tool, "Seg%dStart" % n), 0),
+                   "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True}
+                  for n, label, ds, de in segment_list(tool)]
+        return {"kind": kind, "ranges": ranges}
     out = {"kind": kind, "input": inp, "value": get_in(tool, inp)}
     if kind == "anim":
         out["natural"] = get_in(tool, "AnimNatural")
+    st = get_in(tool, START_INPUT.get(kind))
+    out["hasStart"] = st is not None
+    out["start"] = num(st, 0)
     return out
 
 
 def op_timing_set(a):
+    """a.ranges: [{key, start, end}] as op_timing_get gave them (a.value: the older single end frame)."""
     comp = get_comp(a["item"], a.get("comp"))
     tool, inp, kind = timing_tool(comp)
     if tool is None:
         return {"ok": False, "why": "That clip has no timing slider"}
-    tool.SetInput(inp, int(a["value"]))
+    ranges = a.get("ranges")
+    if ranges is None:
+        ranges = [{"key": kind, "start": 0, "end": a.get("value")}]
+    for r in ranges:
+        start = max(0, int(round(num(r.get("start"), 0))))
+        end = max(start + 1, int(round(num(r.get("end"), 1))))
+        if kind == "segments":
+            n = int(r.get("key"))
+            tool.SetInput("Seg%dStart" % n, start)
+            tool.SetInput("Seg%dEnd" % n, end)
+        else:
+            if get_in(tool, START_INPUT.get(kind)) is not None:
+                tool.SetInput(START_INPUT[kind], start)
+            tool.SetInput(inp, end)
     if a.get("wake"):
         wake_effects(comp)
-    return {"ok": True, "value": get_in(tool, inp)}
+    return {"ok": True}
 
 
 OPS = {"set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,

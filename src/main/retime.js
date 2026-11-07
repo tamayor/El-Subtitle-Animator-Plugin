@@ -3,12 +3,18 @@
 // A Follower's timing is hard to read: the last letter lands at <per-letter animation> + <delay> x (letters - 1).
 // So a hidden time-remap (TimeStretcher "AnimTime") goes right after the text node, and the text node gets two inputs:
 //   AnimNatural  (hidden)   the frame the animation ends at with the preset's own timing, for the text it holds now
+//   AnimStart    (slider)   the frame the animation starts at (0 = the clip's first frame); before it the text holds
+//                           the animation's first frame
 //   AnimFrames   (slider)   the frame the last effect should end at; the whole text animation (Follower letters, delay,
-//                           the text node's own keyframes) is scaled to land there and plays at normal speed after it.
-//                           0 = the preset's own timing. Placement fills it in with AnimNatural (fusion_bridge.init_retime).
+//                           the text node's own keyframes) is scaled to fit AnimStart .. AnimFrames and plays at normal
+//                           speed after it. 0 = the preset's own timing. Placement fills it in with AnimNatural
+//                           (fusion_bridge.init_retime).
 // Effects after the text (wiggle, glitch, stop motion) keep their own speed.
+// Presets retimed before AnimStart existed get it from upgradeRetiming (when saved, and when their title template is
+// written, see placement.presetTitleFor). Presets with their own per-text ranges (Seg1Start ..., e.g. "Highlight
+// Select") are timed by those and get no retiming.
 
-module.exports = { addRetiming, retimeTerms };
+module.exports = { addRetiming, retimeTerms, upgradeRetiming, upgradeTyping };
 
 const SPLINES = /^(BezierSpline|CubicSpline|LUTBezier|PolyPath|XYPath|Path)$/;
 
@@ -68,13 +74,92 @@ function retimeTerms(s, T, name) {
     return terms;
 }
 
+// The AnimTime remap: the text node's time for comp time `time`.
+function remapExpr(name) {
+    return ': local T = math.floor(tonumber(' + name + '.AnimFrames) or 0)\n' +
+        'local S = math.max(0, math.floor(tonumber(' + name + '.AnimStart) or 0))\n' +
+        'local N = tonumber(' + name + '.AnimNatural) or 1\n' +
+        'local rel = time - comp.RenderStart - S\n' +
+        'if rel <= 0 then return comp.RenderStart end\n' +
+        'if T <= 0 then return comp.RenderStart + rel end\n' +
+        'local D = math.max(1, T - S)\n' +
+        'if rel < D then return comp.RenderStart + rel * N / D end\n' +
+        'return comp.RenderStart + N + rel - D';
+}
+const START_INPUT = 'AnimStart = Input { Value = 0, },';
+const START_UC = 'AnimStart = { LINKS_Name = "Animation Start", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
+    'INP_Integer = true, INP_Default = 0, INP_MinAllowed = 0, INP_MaxAllowed = 100000, INP_MinScale = 0, INP_MaxScale = 120, ' +
+    'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "Frame where the animation starts", }, ';
+
+// A preset retimed before AnimStart existed: the remap gets the start, the text node the AnimStart input and slider.
+// Returns the text unchanged when it is not retimed, already has AnimStart, or does not look as expected.
+function upgradeRetiming(s) {
+    try {
+        if (/\bTypingFrames = Input\b/.test(s)) return upgradeTyping(s);
+        if (!/\bAnimTime = TimeStretcher\b/.test(s) || /\bAnimStart = Input\b/.test(s)) return s;
+        const T = toolMap(s);
+        const at = T.get('AnimTime');
+        if (!at) return s;
+        const atEnd = blockEndAt(s, at.open);
+        let ab = s.slice(at.open, atEnd + 1);
+        const nm = /tonumber\((\w+)\.AnimFrames\)/.exec(ab);
+        if (!nm || !T.get(nm[1])) return s;
+        const name = nm[1];
+        const exprRe = /(SourceTime = Input \{ Value = [-\d.]+, Expression = ")((?:[^"\\]|\\.)*)(")/;
+        if (!exprRe.test(ab)) return s;
+        ab = ab.replace(exprRe, (m0, a, b, c) => a + luaLit(remapExpr(name)) + c);
+        let out = s.slice(0, at.open) + ab + s.slice(atEnd + 1);
+
+        const tn = toolMap(out).get(name);
+        const tEnd = blockEndAt(out, tn.open);
+        let tb = out.slice(tn.open, tEnd + 1);
+        const inRe = /(\n(\t*))(AnimFrames = Input \{)/;
+        const ucRe = /AnimFrames = \{ LINKS_Name = "Animation Frames"/;
+        if (!inRe.test(tb) || !ucRe.test(tb)) return s;
+        tb = tb.replace(inRe, (m0, nl, tabs, rest) => nl + START_INPUT + nl + rest);
+        tb = tb.replace(ucRe, (m0) => START_UC + m0);
+        return out.slice(0, tn.open) + tb + out.slice(tEnd + 1);
+    } catch (e) {
+        return s;
+    }
+}
+
+// Word-by-word typing presets: a "Typing Start" slider (TypingStart, frames from the clip's start) so the timing bar
+// gets a start head too. Before it the first word holds; the typing then runs from TypingStart to the Typing Frames
+// end frame. Returns the text unchanged when it already has it or the typing expression does not look as expected.
+const TYPING_K = 'local k = math.floor((time - comp.RenderStart) * (n - 1) / dur) + 1';
+function upgradeTyping(s) {
+    try {
+        if (/\bTypingStart = Input\b/.test(s) || !s.includes(TYPING_K)) return s;
+        const nm = /tonumber\((\w+)\.TypingFrames\)/.exec(s);
+        const inRe = /(\n(\t*))(TypingFrames = Input \{)/;
+        const ucRe = /TypingFrames = \{ LINKS_Name = "Typing Frames"/;
+        if (!nm || !inRe.test(s) || !ucRe.test(s)) return s;
+        // inside the expression's Lua string, so its line breaks are written as \n
+        const k = 'local S = math.max(0, math.floor(tonumber(' + nm[1] + '.TypingStart) or 0))\\n' +
+            'local k = math.floor((time - comp.RenderStart - S) * (n - 1) / math.max(1, dur - S)) + 1\\n' +
+            'if k < 1 then k = 1 end';
+        let out = s.split(TYPING_K).join(k);
+        out = out.replace(inRe, (m0, nl, tabs, rest) => nl + 'TypingStart = Input { Value = 0, },' + nl + rest);
+        out = out.replace(ucRe, (m0) => 'TypingStart = { LINKS_Name = "Typing Start", LINKID_DataType = "Number", ' +
+            'INPID_InputControl = "SliderControl", INP_Integer = true, INP_Default = 0, INP_MinAllowed = 0, INP_MaxAllowed = 100000, ' +
+            'INP_MinScale = 0, INP_MaxScale = 120, ICS_ControlPage = "Text", INP_External = false, ' +
+            'INPS_StatusText = "Frame where the typing starts", }, ' + m0);
+        return out;
+    } catch (e) {
+        return s;
+    }
+}
+
 const luaLit = (e) => e.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
 // Returns the comp text with the retiming added, or the text unchanged when it does not apply (already retimed,
 // a word-by-word typing preset with its own Typing Frames, no text node, nothing animated, text inside a group).
 function addRetiming(s) {
     try {
-        if (/\bAnimTime = TimeStretcher\b/.test(s) || /\bTypingFrames = Input\b/.test(s)) return s;
+        if (/\bSeg1Start = Input\b/.test(s)) return s;
+        if (/\bTypingFrames = Input\b/.test(s)) return upgradeTyping(s);
+        if (/\bAnimTime = TimeStretcher\b/.test(s)) return upgradeRetiming(s);
         let T = toolMap(s);
         const name = textNode(T);
         if (!name) return s;
@@ -95,9 +180,9 @@ function addRetiming(s) {
         let tb = s.slice(tn.open, end + 1);
         const natural = ': local function n(s) s = tostring(s or ""):gsub("[\\128-\\191]", ""):gsub("[\\r\\n]", ""); return #s end\n' +
             'return math.max(1, ' + terms.join(', ') + ')';
-        tb = tb.replace('Inputs = {', 'Inputs = {\n\t\t\t\tAnimFrames = Input { Value = 0, },\n' +
+        tb = tb.replace('Inputs = {', 'Inputs = {\n\t\t\t\t' + START_INPUT + '\n\t\t\t\tAnimFrames = Input { Value = 0, },\n' +
             '\t\t\t\tAnimNatural = Input { Value = 1, Expression = "' + luaLit(natural) + '", },', );
-        const uc = 'AnimFrames = { LINKS_Name = "Animation Frames", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
+        const uc = START_UC + 'AnimFrames = { LINKS_Name = "Animation Frames", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
             'INP_Integer = true, INP_Default = 0, INP_MinAllowed = 0, INP_MaxAllowed = 100000, INP_MinScale = 0, INP_MaxScale = 120, ' +
             'ICS_ControlPage = "Text", INP_External = false, ' +
             'INPS_StatusText = "Frame where the last effect ends (0 = the preset\'s own timing)", }, ' +
@@ -115,12 +200,7 @@ function addRetiming(s) {
         }
 
         // 3. the time-remap right after the text node
-        const remap = ': local T = math.floor(tonumber(' + name + '.AnimFrames) or 0)\n' +
-            'if T <= 0 then return time end\n' +
-            'local N = tonumber(' + name + '.AnimNatural) or T\n' +
-            'local rel = time - comp.RenderStart\n' +
-            'if rel < T then return comp.RenderStart + rel * N / T end\n' +
-            'return comp.RenderStart + N + rel - T';
+        const remap = remapExpr(name);
         const tool = '\n\t\tAnimTime = TimeStretcher {\n\t\t\tInputs = {\n' +
             '\t\t\t\tSourceTime = Input { Value = 0, Expression = "' + luaLit(remap) + '", },\n' +
             '\t\t\t\tInterpolateBetweenFrames = Input { Value = 0, },\n' +

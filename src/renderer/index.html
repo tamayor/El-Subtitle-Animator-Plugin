@@ -156,18 +156,14 @@
                             </button>
                         </span>
                     </div>
-                    <div id="timingBar" class="tm-bar" role="slider" tabindex="0" aria-valuemin="1"
-                        aria-label="Frame where the last effect ends">
-                        <div class="tm-track"><div id="timingFill" class="tm-fill"></div></div>
-                        <div id="timingNatural" class="tm-mark tm-natural" title="The preset's own timing"></div>
-                        <div id="timingPlayhead" class="tm-mark tm-playhead hidden"><span id="timingPlayheadLabel"></span></div>
-                        <div id="timingThumb" class="tm-thumb"></div>
-                    </div>
+                    <!-- one lane per range (js/timeline/anim-timing.js): a start head, an end head, the range between -->
+                    <div id="timingBar" class="tm-bar" role="group" tabindex="0"
+                        aria-label="Animation timing: where each animation starts and ends"></div>
                     <div class="tm-scale"><span>0</span><span id="timingEnd"></span></div>
                     <div class="row between tm-actions">
                         <span id="timingValue" class="tm-value"></span>
                         <span class="tm-buttons">
-                            <button id="timingToPlayhead" class="ghost" title="End the animation at the playhead (P)">To playhead</button>
+                            <button id="timingToPlayhead" class="ghost" title="Put the selected head at the playhead (P)">To playhead</button>
                             <button id="timingReset" class="ghost" title="Back to the preset's own timing">Preset timing</button>
                         </span>
                     </div>

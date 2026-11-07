@@ -1,6 +1,9 @@
 // The Use tab's Animation timing bar: finds the placed clip the user is working on (the selected video clip, else the
-// top clip under the playhead) and reads / sets its "Animation Frames" (src/main/retime.js) or "Typing Frames" slider.
-// Only an input on the clip's comp is changed, so its Inspector keeps working.
+// top clip under the playhead) and reads / sets its timing as start..end ranges (frames from the clip's start):
+//   anim      one range, "Animation Start" .. "Animation Frames" (src/main/retime.js; no start on older clips)
+//   typing    one range, "Typing Start" .. "Typing Frames" (no start on clips placed before it existed)
+//   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
+// Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
 module.exports = { clipTiming, setClipTiming };
 
@@ -78,15 +81,11 @@ async function clipTiming(event, opts) {
             const info = await readInfo(c.itemId, force && opts.itemId === c.itemId);
             if (!info) continue;
             const length = Math.max(1, c.end - c.start);
-            // Typing presets: 0 = their automatic length, shown as that number
-            const natural = info.kind === 'typing' ? typingFramesFor(length, meta.meta.fps) : Math.max(1, Math.round(Number(info.natural) || 1));
-            const value = Math.round(Number(info.value) || 0) || natural;
-            return {
+            return Object.assign({
                 ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, kind: info.kind,
                 start: c.start, length, fps: meta.meta.fps, frame,
-                playhead: frame >= c.start && frame < c.end ? frame - c.start : null,
-                value: Math.min(length, value), natural: Math.min(length, natural)
-            };
+                playhead: frame >= c.start && frame < c.end ? frame - c.start : null
+            }, { ranges: rangesFor(info, length, meta.meta.fps) });
         }
         // a Fusion clip without a timing slider (a preset saved before retiming existed): say so instead of nothing
         if (first) return { ok: true, noSlider: true, itemId: first.itemId, name: first.name, frame };
@@ -96,11 +95,37 @@ async function clipTiming(event, opts) {
     }
 }
 
-async function setClipTiming(event, itemId, value, wake) {
+// The bridge's timing_get -> [{ key, label, start, end, defStart, defEnd, hasStart }], clamped to the clip.
+// defStart / defEnd: the preset's own timing (what "Preset timing" goes back to).
+function rangesFor(info, length, fps) {
+    const clamp = (v, lo) => Math.max(lo, Math.min(length, Math.round(Number(v) || 0)));
+    if (info.kind === 'segments') {
+        return (info.ranges || []).map(r => {
+            const start = clamp(r.start, 0);
+            return {
+                key: String(r.key), label: r.label || null, hasStart: true,
+                start, end: Math.max(start + 1, clamp(r.end, 1)),
+                defStart: clamp(r.defStart, 0), defEnd: Math.max(1, clamp(r.defEnd, 1))
+            };
+        });
+    }
+    // Typing presets: 0 = their automatic length, shown as that number
+    const natural = info.kind === 'typing' ? typingFramesFor(length, fps) : Math.max(1, Math.round(Number(info.natural) || 1));
+    const hasStart = (info.kind === 'anim' || info.kind === 'typing') && !!info.hasStart;
+    const start = hasStart ? clamp(info.start, 0) : 0;
+    const end = Math.max(start + 1, clamp(Math.round(Number(info.value) || 0) || natural, 1));
+    return [{ key: info.kind, label: null, hasStart, start, end, defStart: 0, defEnd: Math.min(length, natural) }];
+}
+
+// ranges: [{ key, start, end }] (frames from the clip's start).
+async function setClipTiming(event, itemId, ranges, wake) {
     if (!itemId) return { error: 'No clip' };
-    const v = Math.max(1, Math.round(Number(value) || 1));
-    const r = await bridgeCall('timing_set', { item: String(itemId), value: v, wake: !!wake }, 6000);
-    const c = cache.get(String(itemId));
-    if (c && c.info) { c.info = Object.assign({}, c.info, { value: v }); c.at = Date.now(); }
-    return r && r.ok ? { ok: true, value: v } : { error: (r && r.why) || 'Could not set the timing on that clip' };
+    const list = (Array.isArray(ranges) ? ranges : []).map(r => {
+        const start = Math.max(0, Math.round(Number(r.start) || 0));
+        return { key: String(r.key), start, end: Math.max(start + 1, Math.round(Number(r.end) || 1)) };
+    });
+    if (!list.length) return { error: 'No timing to set' };
+    const r = await bridgeCall('timing_set', { item: String(itemId), ranges: list, wake: !!wake }, 6000);
+    cache.delete(String(itemId));      // the next read shows what the clip really has now
+    return r && r.ok ? { ok: true } : { error: (r && r.why) || 'Could not set the timing on that clip' };
 }

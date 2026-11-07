@@ -21,6 +21,7 @@ const { isEditedSfxName, sfxFilePath } = require('./sfx');
 const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
+const { upgradeRetiming } = require('./retime');
 const { frameToTC, tcToFrame } = require('./resolve');
 const { ensureStopped } = require('./playback');
 
@@ -544,7 +545,8 @@ function startupTemplates(animations) {
 function presetTitleFor(compPath, name) {
     try {
         name = name || presetTitleName(compPath);
-        const raw = asSetting(fs.readFileSync(inspectorSafeComp(compPath), 'utf8'));
+        // presets retimed before the Animation Start slider existed get it here (src/main/retime.js)
+        const raw = asSetting(upgradeRetiming(fs.readFileSync(inspectorSafeComp(compPath), 'utf8')));
         if (!raw) return null;
         const body = withOutput(raw);
         const dir = titlesDir();

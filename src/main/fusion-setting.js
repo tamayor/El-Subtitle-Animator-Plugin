@@ -193,8 +193,36 @@ function textPlusChunk(raw, toolName) {
         const m = new RegExp('(?:^|[\\s,{])' + esc + '\\s*=\\s*TextPlus\\s*\\{').exec(raw);
         if (m) return extractBraceBlock(raw, m.index + m[0].indexOf(toolName));
     }
-    const tpIdx = raw.indexOf('= TextPlus');
-    return tpIdx >= 0 ? extractBraceBlock(raw, tpIdx) : raw;
+    // the first Text+ that is a real text box (not a mirror Text+, see isMirrorBlock)
+    const mirrors = [];
+    for (let i = raw.indexOf('= TextPlus'); i >= 0; i = raw.indexOf('= TextPlus', i + 1)) {
+        const b = extractBraceBlock(raw, i);
+        if (!isMirrorBlock(b, raw)) return b;
+        mirrors.push(b);
+        // and the follower that feeds it (its element inputs are the highlight's too)
+        const via = /(?:^|[\s,{])StyledText\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"(\w+)"/.exec(b);
+        const fm = via && new RegExp('(?:^|[\\s,{])' + via[1] + '\\s*=\\s*(?:StyledTextFollower|Follower)\\s*\\{').exec(raw);
+        if (fm) mirrors.push(extractBraceBlock(raw, fm.index + fm[0].indexOf(via[1])));
+    }
+    // only mirrors (e.g. a MultiText preset with a highlight box): the whole file, without them, so their shape and
+    // colour inputs are not read as the preset's text design
+    let rest = raw;
+    for (const b of mirrors) rest = rest.split(b).join('');
+    return rest;
+}
+
+// A helper Text+ whose StyledText is an expression of another node's text (e.g. the highlight box of "Highlight
+// Select", which copies the MultiText's emphasis). It draws a shape, not text: it is never a text box of its own.
+// raw: the whole file, to follow a StyledText that comes through a follower whose Text is such an expression.
+function isMirrorBlock(block, raw) {
+    const b = String(block || '');
+    if (/(?:^|[\s,{])StyledText\s*=\s*Input\s*\{[^{}]*\bExpression\s*=/.test(b)) return true;
+    const via = /(?:^|[\s,{])StyledText\s*=\s*Input\s*\{\s*SourceOp\s*=\s*"(\w+)"/.exec(b);
+    if (!via || !raw) return false;
+    const m = new RegExp('(?:^|[\\s,{])' + via[1] + '\\s*=\\s*(?:StyledTextFollower|Follower)\\s*\\{').exec(raw);
+    if (!m) return false;
+    const fb = extractBraceBlock(raw, m.index + m[0].indexOf(via[1]));
+    return /(?:^|[\s,{])Text\s*=\s*Input\s*\{(?:[^{}]|\{[^{}]*\})*\bExpression\s*=/.test(fb);
 }
 
 // toolName: read the design of that Text+ (a preset with several Text+ has one Text Design per Text+).
@@ -400,7 +428,7 @@ function parseNodes(raw) {
     };
 
     const nodes = [];
-    for (const f of found.filter(x => x.type === 'TextPlus' && !insideGroup(x))) {
+    for (const f of found.filter(x => x.type === 'TextPlus' && !insideGroup(x) && !isMirrorBlock(x.block, raw))) {
         nodes.push(Object.assign({
             id: f.name, kind: 'textplus', tool: f.name, input: 'StyledText', centerInput: 'Center', canMove: true,
             label: 'Text+ · ' + f.name

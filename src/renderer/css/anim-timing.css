@@ -1,0 +1,97 @@
+/* Use tab: Animation timing bar (js/timeline/anim-timing.js). The handle sets the frame where the clip's last effect
+   ends; it snaps to the playhead and to the preset's own timing with an ease-in-out glide. */
+
+.timing-card .tm-bar {
+    --tm-ease: cubic-bezier(0.65, 0, 0.35, 1);
+    position: relative;
+    height: 34px;
+    margin: 10px 8px 2px;
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+}
+.timing-card .tm-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: 8px; }
+
+.timing-card .tm-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 14px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--card-inner);
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+.timing-card .tm-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--matcha-tint), var(--matcha));
+}
+
+.timing-card .tm-thumb {
+    position: absolute;
+    top: 8px;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+    border-radius: 50%;
+    background: var(--matcha);
+    border: 2px solid var(--matcha-ink);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    transition: transform 0.15s var(--tm-ease);
+}
+.timing-card .tm-bar.dragging .tm-thumb { transform: scale(1.12); }
+
+/* glide: on a snap, and on every change that does not come from the pointer */
+.timing-card .tm-bar.glide .tm-thumb { transition: left 0.2s var(--tm-ease), transform 0.15s var(--tm-ease); }
+.timing-card .tm-bar.glide .tm-fill { transition: width 0.2s var(--tm-ease); }
+
+.timing-card .tm-mark {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    width: 0;
+    pointer-events: none;
+    transition: left 0.2s var(--tm-ease);
+}
+.timing-card .tm-natural { border-left: 2px dashed var(--dim); opacity: 0.7; }
+.timing-card .tm-playhead { border-left: 2px solid var(--strawberry); }
+.timing-card .tm-playhead span {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    transform: translateX(-50%);
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--strawberry);
+    color: var(--strawberry-ink);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 14px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.timing-card .tm-mark.hot { filter: drop-shadow(0 0 4px var(--strawberry)); }
+.timing-card .tm-natural.hot { filter: drop-shadow(0 0 4px var(--matcha)); opacity: 1; }
+
+.timing-card .tm-scale {
+    display: flex;
+    justify-content: space-between;
+    margin: 0 8px;
+    color: var(--dim);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+.timing-card .tm-actions { margin-top: 6px; align-items: center; }
+.timing-card .tm-value { font-variant-numeric: tabular-nums; }
+.timing-card .tm-value b { color: var(--matcha); font-weight: 600; }
+.timing-card .tm-buttons { display: inline-flex; gap: 2px; flex-wrap: wrap; }
+
+@media (prefers-reduced-motion: reduce) {
+    .timing-card .tm-bar.glide .tm-thumb,
+    .timing-card .tm-bar.glide .tm-fill,
+    .timing-card .tm-mark,
+    .timing-card .tm-thumb { transition: none; }
+}

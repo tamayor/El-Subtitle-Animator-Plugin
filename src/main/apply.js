@@ -184,13 +184,13 @@ async function apply(event, req) {
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
                 // multitext: automation's sizing for MultiText presets ({ textSize, maxSize, lineSpacing }, see fusion_bridge.size_multitext)
-                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign, multitext: req.multitext || null, typingFrames });
+                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign, multitext: req.multitext || null, typingFrames, clipFrames: finalLen || want });
                 liveNodes = r && r.nodes;
                 if (r && r.unscaled && r.unscaled.length) warnings.push('Not resized (animated): ' + r.unscaled.join(', ') + '.');
                 if (r && r.capped) warnings.push('MultiText size capped at maxSize.');
                 if (r && r.missing && r.missing.length) warnings.push('Not found in Fusion: ' + r.missing.join(', ') + '.');
                 if (r && r.fixedPosition && r.fixedPosition.length) warnings.push('Position not changed (animated or not published): ' + r.fixedPosition.join(', ') + '.');
-            } else if (!(await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames }))) {
+            } else if (!(await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames, clipFrames: finalLen || want }))) {
                 warnings.push('The animation has no Text+ node to put the text in.');
             }
         } catch (e) {

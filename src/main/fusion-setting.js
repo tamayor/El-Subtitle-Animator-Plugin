@@ -9,6 +9,7 @@ module.exports = {
 const fs = require('fs');
 
 const { validFontStyle } = require('./fonts');
+const { addRetiming } = require('./retime');
 
 function rgbToHex(r, g, b) {
     const c = (x) => Math.max(0, Math.min(255, Math.round((Number(x) || 0) * 255))).toString(16).padStart(2, '0');
@@ -630,7 +631,8 @@ function expandAllTools(s) {
 function expandToolsInFile(file) {
     try {
         const s = fs.readFileSync(file, 'utf8');
-        const out = expandAllTools(s);
+        // the Animation Frames retiming (src/main/retime.js) goes into every preset saved into the library
+        const out = addRetiming(expandAllTools(s));
         if (out !== s) fs.writeFileSync(file, out);
     } catch (e) { /* the file stays as it was */ }
     return file;

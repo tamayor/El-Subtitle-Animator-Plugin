@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="./css/multitext-sounds.css">
     <link rel="stylesheet" href="./css/preset-card.css">
     <link rel="stylesheet" href="./css/scrub.css">
+    <link rel="stylesheet" href="./css/anim-timing.css">
     <!-- Classic (non-module) scripts sharing one global scope. ORDER MATTERS: each file may use what the files
          above it declare at load time; app/boot.js starts the panel and must stay last. -->
     <script src="./js/core/bootstrap.js" defer></script>
@@ -61,6 +62,7 @@
     <script src="./js/library/prompt-tab.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
+    <script src="./js/timeline/anim-timing.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
     <script src="./js/app/init.js" defer></script>
     <script src="./js/ui/drag-numbers.js" defer></script>
@@ -125,6 +127,29 @@
                     <textarea id="subText" rows="3"
                         placeholder="Click a subtitle, or move the playhead onto one"></textarea>
                     <div class="hint" id="subHint"></div>
+                </section>
+
+                <section id="timingCard" class="timing-card hidden">
+                    <div class="row between">
+                        <span class="label">Animation timing</span>
+                        <span id="timingMeta" class="meta"></span>
+                    </div>
+                    <div id="timingBar" class="tm-bar" role="slider" tabindex="0" aria-valuemin="1"
+                        aria-label="Frame where the last effect ends">
+                        <div class="tm-track"><div id="timingFill" class="tm-fill"></div></div>
+                        <div id="timingNatural" class="tm-mark tm-natural" title="The preset's own timing"></div>
+                        <div id="timingPlayhead" class="tm-mark tm-playhead hidden"><span id="timingPlayheadLabel"></span></div>
+                        <div id="timingThumb" class="tm-thumb"></div>
+                    </div>
+                    <div class="tm-scale"><span>0</span><span id="timingEnd"></span></div>
+                    <div class="row between tm-actions">
+                        <span id="timingValue" class="tm-value"></span>
+                        <span class="tm-buttons">
+                            <button id="timingToPlayhead" class="ghost" title="End the animation at the playhead (P)">To playhead</button>
+                            <button id="timingReset" class="ghost" title="Back to the preset's own timing">Preset timing</button>
+                        </span>
+                    </div>
+                    <div id="timingHint" class="hint"></div>
                 </section>
 
                 <section>

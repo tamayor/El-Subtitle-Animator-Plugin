@@ -323,16 +323,56 @@ def wake_effects(comp):
 wake_followers = wake_effects   # older name
 
 
-def set_typing_frames(comp, frames):
-    """Word-by-word typing presets: their "Typing Frames" slider = how long the typing takes on this clip."""
+def set_typing_frames(comp, frames, clip_frames=None):
+    """Word-by-word typing presets: their "Typing Frames" slider = how long the typing takes on this clip; like the
+    Animation Frames slider, it runs up to the clip's length."""
     if frames is None:
         return
     for tool in tool_list(comp):
         try:
             if get_in(tool, "TypingFrames") is not None:
                 tool.SetInput("TypingFrames", int(frames))
+                if clip_frames and CLIP_SLIDER_MAX:
+                    set_slider_max(tool, "TypingFrames", max(1, int(clip_frames)))
         except Exception:
             pass
+
+
+def set_slider_max(tool, input_id, top):
+    """The slider's range on this clip: 0 .. top (the clip's length in frames)."""
+    try:
+        uc = tool.UserControls
+        ctl = uc and uc.get(input_id)
+        if not ctl or ctl.get("INP_MaxScale") == top:
+            return
+        ctl["INP_MaxScale"] = top
+        uc[input_id] = ctl
+        tool.UserControls = uc
+        tool.Refresh()
+    except Exception:
+        pass
+
+
+def init_retime(comp, clip_frames):
+    """Presets with the Animation Frames slider (src/main/retime.js): the slider starts at the frame the effect ends at
+    with the preset's own timing (for the text it holds now, at most the clip's length), and runs up to the clip's length."""
+    if not clip_frames:
+        return
+    top = max(1, int(clip_frames))
+    for tool in tool_list(comp):
+        try:
+            if get_in(tool, "AnimFrames") is None:
+                continue
+            nat = get_in(tool, "AnimNatural")
+            n = int(round(float(nat))) if nat is not None else 0
+            tool.SetInput("AnimFrames", max(1, min(top, n)) if n > 0 else 0)
+            if CLIP_SLIDER_MAX:
+                set_slider_max(tool, "AnimFrames", top)
+        except Exception:
+            pass
+
+
+CLIP_SLIDER_MAX = True
 
 
 def op_set_text(a):
@@ -356,7 +396,8 @@ def op_set_text(a):
                 apply_text_design(tool, a["textDesign"])
             found = True
             break
-    set_typing_frames(comp, a.get("typingFrames"))
+    set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+    init_retime(comp, a.get("clipFrames"))
     wake_effects(comp)
     return found
 
@@ -618,7 +659,8 @@ def op_set_boxes(a):
                 r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
                 unscaled += r["skipped"]
                 capped = capped or r["capped"]
-    set_typing_frames(comp, a.get("typingFrames"))
+    set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+    init_retime(comp, a.get("clipFrames"))
     wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
@@ -1040,7 +1082,43 @@ def set_bg_colour(item_id, comp_name, bg_name, col):
     bg.SetInput("TopLeftBlue", float(col[2]))
 
 
-OPS = {"set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume}
+# ---------------------------------------------------------------- Animation timing bar (src/main/anim-timing.js)
+TIMING_INPUTS = (("AnimFrames", "anim"), ("TypingFrames", "typing"))
+
+
+def timing_tool(comp):
+    for tool in tool_list(comp):
+        for inp, kind in TIMING_INPUTS:
+            if get_in(tool, inp) is not None:
+                return tool, inp, kind
+    return None, None, None
+
+
+def op_timing_get(a):
+    """The clip's timing slider: which one, its value, and (Animation Frames) the preset's natural end."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tool, inp, kind = timing_tool(comp)
+    if tool is None:
+        return {"kind": None}
+    out = {"kind": kind, "input": inp, "value": get_in(tool, inp)}
+    if kind == "anim":
+        out["natural"] = get_in(tool, "AnimNatural")
+    return out
+
+
+def op_timing_set(a):
+    comp = get_comp(a["item"], a.get("comp"))
+    tool, inp, kind = timing_tool(comp)
+    if tool is None:
+        return {"ok": False, "why": "That clip has no timing slider"}
+    tool.SetInput(inp, int(a["value"]))
+    if a.get("wake"):
+        wake_effects(comp)
+    return {"ok": True, "value": get_in(tool, inp)}
+
+
+OPS = {"set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+       "timing_get": op_timing_get, "timing_set": op_timing_set}
 
 
 def handle(req):

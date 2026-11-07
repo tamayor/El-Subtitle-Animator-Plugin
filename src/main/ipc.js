@@ -32,6 +32,7 @@ const {
 } = require('./sfx');
 const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setLayoutMode, setOnTop } = require('./window');
+const { clipTiming, setClipTiming } = require('./anim-timing');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
 function wrap(fn) {
@@ -43,6 +44,8 @@ function wrap(fn) {
 // Handlers called as fn(event, ...args); a thrown error comes back as { error }.
 const SAFE_HANDLERS = {
     'app:liveFrame': liveFrame,
+    'timing:get': clipTiming,
+    'timing:set': setClipTiming,
     'app:getVersion': getAppVersion,
     'app:setVersion': setAppVersion,
     'act:scanClip': scanClip,

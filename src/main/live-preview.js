@@ -241,9 +241,9 @@ async function liveUpdate(event, req) {
         }
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps) });
+                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want });
             } else {
-                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps) });
+                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want });
             }
         } catch (e) { warnings.push('Could not set the text: ' + e.message); }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }

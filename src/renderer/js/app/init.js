@@ -210,6 +210,7 @@ async function initApp() {
     if ($('create')) $('create').addEventListener('click', create);
 
     tick();
+    initAnimTiming();
     } catch (err) {
         console.error('Fatal initialization error:', err);
         if (window.sa && window.sa.dlog) window.sa.dlog('FATAL INIT ERROR:', String(err && err.stack || err));

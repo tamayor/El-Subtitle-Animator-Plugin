@@ -1,8 +1,8 @@
-// Second wake for freshly placed titles. Resolve can render a Follower-driven Text+ (the word-by-word reveals,
-// the fly-ins) as blank or static right after the comp is inserted: the refresh apply() sends 120 ms after
-// insertion sometimes lands while Resolve is still loading the comp and is lost. This module remembers every
-// clip placed and wakes its Followers again once the panel has been idle for a moment, and once more a little
-// later, so the animation renders without anyone having to touch the clip.
+// Second wake for freshly placed titles. Resolve can render a title's effects (Follower reveals and fly-ins,
+// Transform/Displace/noise wiggles, any FX in the template) as blank or static right after the comp is
+// inserted: the refresh apply() sends 120 ms after insertion sometimes lands while Resolve is still loading the
+// comp and is lost. This module remembers every clip placed and wakes all its effects again once the panel has
+// been idle for a moment, then twice more a little later, so the animation renders without anyone touching it.
 
 module.exports = {
     settleLater, settleNow
@@ -14,7 +14,7 @@ const { dlog } = require('./log');
 
 const IDLE_MS = 1500;       // wait this long after the last placement before the first pass
 const GAP_MS = 2500;        // between the first and the second pass
-const PASSES = 2;
+const PASSES = 3;           // the third pass catches titles Resolve finished loading late
 
 const pending = new Map();  // itemId -> { comp, passes }
 let timer = null;

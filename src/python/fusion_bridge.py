@@ -269,25 +269,58 @@ def apply_text_design(tool, td):
             put("Offset%d" % idx, {1: ox, 2: oy, 3: 0.0})
 
 
-def wake_followers(comp):
-    """A comp loaded with ImportFusionComp does not apply a Text+ Follower's shading-element overrides
-    (for example an animated opacity that reveals the words) until those elements are switched.
-    Switching every enabled element off and on again makes Fusion render the comp exactly as it was built."""
+# Tools a wake must not switch: I/O and plumbing nodes (toggling MediaOut/Saver/MediaIn can drop the clip's
+# image), and group/macro containers (their own tools are in the list and are woken one by one).
+WAKE_SKIP = {"MediaIn", "MediaOut", "Saver", "Loader", "AudioDisplay", "Note", "Underlay", "PipeRouter",
+             "GroupOperator", "MacroOperator"}
+# Modifiers have no pass-through; the tool they drive is woken instead, which re-renders their result.
+WAKE_MODIFIERS = {"BezierSpline", "CubicSpline", "LUTBezier", "XYPath", "PolyPath", "Path", "PerturbNumber",
+                  "PerturbPoint", "Calculation", "Expression", "Shake", "KeyStretcher", "PublishNumber",
+                  "PublishPoint", "PublishText", "PublishPolyLine", "PublishImage", "Probe", "Offset"}
+
+
+def wake_effects(comp):
+    """Wakes every effect in a freshly inserted title so Resolve renders it exactly as it was built.
+
+    Right after insertion Resolve can render a title as if parts of it were missing: a Text+ Follower's
+    overrides (a word-by-word reveal stays blank, a fly-in sits still), and likewise any other effect in the
+    template (Transform, Displace, FastNoise, Dissolve, BrightnessContrast, wiggles, macro contents...).
+    So: every Follower's enabled shading elements are switched off and on, and every other effect tool is
+    put in pass-through and back. Nothing changes value; tools already in pass-through are left alone."""
     try:
         tools = as_list(comp.GetToolList(False))
     except Exception:
-        return
-    for mod in tools:
+        return 0
+    woken = 0
+    for tool in tools:
+        rid = None
         try:
-            if attrs(mod).get("TOOLS_RegID") not in FOLLOWERS:
+            a = attrs(tool)
+            rid = a.get("TOOLS_RegID")
+            if rid in FOLLOWERS:
+                for i in range(1, 9):
+                    key = "Enabled%d" % i
+                    if tool.GetInput(key) == 1:
+                        tool.SetInput(key, 0)
+                        tool.SetInput(key, 1)
+                woken += 1
+            elif rid in WAKE_SKIP or rid in WAKE_MODIFIERS or a.get("TOOLB_PassThrough"):
                 continue
-            for i in range(1, 9):
-                key = "Enabled%d" % i
-                if mod.GetInput(key) == 1:
-                    mod.SetInput(key, 0)
-                    mod.SetInput(key, 1)
+            else:
+                tool.SetAttrs({"TOOLB_PassThrough": True})
+                tool.SetAttrs({"TOOLB_PassThrough": False})
+                woken += 1
         except Exception:
-            pass
+            # never leave a tool switched off because a later call failed
+            try:
+                if rid not in FOLLOWERS and rid not in WAKE_SKIP and rid not in WAKE_MODIFIERS:
+                    tool.SetAttrs({"TOOLB_PassThrough": False})
+            except Exception:
+                pass
+    return woken
+
+
+wake_followers = wake_effects   # older name
 
 
 def op_set_text(a):
@@ -311,7 +344,7 @@ def op_set_text(a):
                 apply_text_design(tool, a["textDesign"])
             found = True
             break
-    wake_followers(comp)
+    wake_effects(comp)
     return found
 
 
@@ -561,7 +594,7 @@ def op_set_boxes(a):
                 r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
                 unscaled += r["skipped"]
                 capped = capped or r["capped"]
-    wake_followers(comp)
+    wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
 
@@ -605,11 +638,11 @@ def op_refresh(a):
             except Exception:
                 pass
     # The wake in set_text/set_boxes runs while the freshly inserted title is still settling, and Resolve can
-    # then render it as if the Follower were not there (a reveal preset stays hidden, a fly-in preset sits still).
-    # Toggling the Follower's elements again here, once everything is placed, makes the animation render.
-    if has_follower:
-        wake_followers(comp)
-    return {"touched": touched}
+    # then render it as if its effects were not there (a reveal preset stays hidden, a fly-in or wiggle sits still).
+    # Waking every effect again here, once everything is placed, makes the animation render - for every title,
+    # with or without a Follower.
+    woken = wake_effects(comp)
+    return {"touched": touched, "woken": woken}
 
 
 def op_link_clips(a):

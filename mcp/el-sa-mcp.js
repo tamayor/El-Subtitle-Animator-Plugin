@@ -19,7 +19,7 @@ const SERVER_INFO = { name: 'el-subtitle-animator', version: '1.0.0' };
 const INSTRUCTIONS = `El Subtitle Animator turns a DaVinci Resolve timeline's subtitles into animated Text+/MultiText clips (with sound effects) from the user's preset library.
 
 Workflow for editing a video:
-1. Call get_rules first and follow them. The user's "notes" are their own editing rules. If the user states rules for this video (allowed emoji tags, font, layer, placement, max text size, line spacing), save them with set_rules before placing anything.
+1. Call get_rules first and follow them. The user's "notes" are their own editing rules. If the user states rules for this video (allowed emoji tags, font, text colour, emphasis font/colour, layer, placement, max text size, line spacing), save them with set_rules before placing anything. When the font/colour override should only apply to some presets, pass keepPresetStyle: true on place for the others.
 2. list_presets returns only presets allowed by the rules' tags. Never use a preset outside that list.
 3. list_subtitles, then plan: which subtitles get an animation (not necessarily all of them; vary presets and avoid repeating the same one back to back), which preset fits each line (one-word / one-line / multi-line / money / emphasis presets by name and tag), and for MultiText presets which word(s) to emphasize (pass parts {upper, emphasis, lower} that together spell the subtitle).
 4. Layout: if the user gives a safe-zone reference image, call set_layout with its path (look at the image yourself and pass the labels you read as guideNames top to bottom / zoneNames). A layout only applies to timelines of the same shape as its image (a 9:16 social safe zone is ignored on a 16:9 timeline; get_layout says appliesToThisTimeline). When it applies, place keeps every clip inside its safe area and off its zones (shrinking textSize if needed), and the user can say e.g. "centre the subtitle on the captions line" (guide: "captions") or "in the captions area" (guide: "captions", align: "below").
@@ -33,14 +33,30 @@ const subtitleArg = { type: 'integer', description: 'Subtitle number (index from
 
 const TOOLS = [
     { name: 'status', description: 'Connection check: current timeline, size, fps, subtitle count and the active editing rules.', inputSchema: S() },
-    { name: 'get_rules', description: 'The editing rules every placement follows (allowed emoji tags, forced font, video layer policy, safe area, MultiText emphasis, sound, free-text notes).', inputSchema: S() },
+    { name: 'get_rules', description: 'The editing rules every placement follows (allowed emoji tags, forced font and text colour, MultiText emphasis font/colour, video layer policy, safe area, MultiText emphasis, sound, free-text notes).', inputSchema: S() },
     {
         name: 'set_rules',
-        description: 'Change the editing rules (saved to edit-rules.json in the user\'s library folder; only the given fields change). Use when the user says e.g. "only use 🔥 and 💰 presets", "use only Poppins ExtraBold", "keep text on V4", "never cover faces".',
+        description: 'Change the editing rules (saved to edit-rules.json in the user\'s library folder; only the given fields change). Use when the user says e.g. "only use 🔥 and 💰 presets", "use only Poppins ExtraBold", "make the text white", "emphasis in Larken Black yellow", "keep text on V4", "never cover faces".',
         inputSchema: S({
             allowedTags: { type: 'array', items: { type: 'string' }, description: 'Emoji, tag names or ids. Empty array = all presets allowed.' },
             tagMatch: { type: 'string', enum: ['any', 'all'], description: 'any: preset has at least one of the tags; all: every tag' },
             font: { type: ['object', 'null'], properties: { font: { type: 'string' }, style: { type: 'string' } }, description: 'Force this font on every clip, e.g. {"font":"Poppins","style":"ExtraBold"}. null = keep each preset\'s font.' },
+            color: { type: ['string', 'null'], description: 'Force this text fill colour on every clip, as hex, e.g. "#ffffff" (shading element 1, made solid; outlines and shadows keep the preset\'s). MultiText: every layer unless emphasis.color is set. null = keep each preset\'s colour.' },
+            styleShare: {
+                type: 'object',
+                properties: { normal: { type: 'number', minimum: 0, maximum: 100 }, emphasis: { type: 'number', minimum: 0, maximum: 100 } },
+                description: 'Percent of the clips that get the overrides; the rest keep the preset\'s default look, spread evenly (50 = every other clip, 20 = one in five). normal = font/color/kindStyle, emphasis = the MultiText emphasis. Default 100. From the prompt\'s "override N%".'
+            },
+            kindStyle: {
+                type: 'object',
+                properties: { textplus: { type: ['object', 'null'], properties: { font: { type: ['string', 'null'] }, style: { type: ['string', 'null'] }, color: { type: ['string', 'null'] } } }, multitext: { type: ['object', 'null'], properties: { font: { type: ['string', 'null'] }, style: { type: ['string', 'null'] }, color: { type: ['string', 'null'] } } } },
+                description: 'A font/colour pair for one kind of preset only, beating font/color there: textplus = presets with plain Text+ nodes, multitext = MultiText presets. E.g. {"multitext":{"font":"Montserrat","style":"Black","color":"#ffffff"}}. null for a kind = use font/color.'
+            },
+            emphasis: {
+                type: ['object', 'null'],
+                properties: { font: { type: ['string', 'null'] }, style: { type: ['string', 'null'] }, color: { type: ['string', 'null'] } },
+                description: 'MultiText presets only: font/style and fill colour for the emphasis layer (the key word), beating font/color there, e.g. {"font":"Larken","style":"Black","color":"#ffd400"}. Omitted fields follow font/color. null = the emphasis layer gets the same overrides as the rest.'
+            },
             track: { type: 'object', properties: { mode: { type: 'string', enum: ['top', 'first-empty', 'fixed'] }, fixed: { type: 'integer', minimum: 2 }, from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, description: 'Video layer: top = above everything at that time, first-empty = lowest free layer above V1, fixed = always V<fixed>. from/to = keep it between V<from> and V<to> (to null = no limit): starts at V<from> and moves up past locked, disabled or busy tracks; past the range only when it is full. from and to null = use the panel\'s Placement range.' },
             position: {
                 type: 'object',
@@ -103,7 +119,7 @@ const TOOLS = [
     { name: 'get_tracks', description: 'Video layers (top first) with name, locked/enabled, and the clips on each during a subtitle or frame range.', inputSchema: S({ subtitle: subtitleArg, start: { type: 'integer' }, end: { type: 'integer' } }) },
     {
         name: 'place',
-        description: 'Animate one subtitle with one preset. The rules are enforced (allowed tags, font, layer, safe area). x/y = where the text\'s centre goes (0..1, 0,0 = top-left); omit them to keep the preset\'s own position or use zone.',
+        description: 'Animate one subtitle with one preset. The rules are enforced (allowed tags, font and colour overrides, layer, safe area). x/y = where the text\'s centre goes (0..1, 0,0 = top-left); omit them to keep the preset\'s own position or use zone.',
         inputSchema: S({
             subtitle: subtitleArg,
             presetId: { type: 'string', description: 'Preset id (or exact name) from list_presets' },
@@ -125,6 +141,7 @@ const TOOLS = [
             trackRange: { type: 'object', properties: { from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, additionalProperties: false, description: 'Only when the user\'s prompt names tracks: keep the clip between V<from> and V<to> (to null = no limit), starting at V<from> and moving up past locked, disabled or busy tracks, past the range only when it is full. Overrides the rules\' range and the panel\'s Placement range for this call.' },
             holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
+            keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for this call and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
         }, ['subtitle', 'presetId'])
     },
@@ -140,7 +157,8 @@ const TOOLS = [
             lineSpacing: { type: 'number', minimum: 0.3, maximum: 3, description: 'Line Spacing of the block (1 = normal)' },
             maxSize: { type: 'number', minimum: 0.01, maximum: 1 },
             x: { type: 'number', minimum: 0, maximum: 1 },
-            y: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of the block (default 0.5)' }
+            y: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of the block (default 0.5)' },
+            keepPresetStyle: { type: 'boolean', description: 'Measure with the preset\'s own font (match the place call)' }
         }, ['subtitle', 'presetId'])
     },
     {
@@ -156,7 +174,8 @@ const TOOLS = [
             maxSize: { type: 'number', minimum: 0.01, maximum: 1 },
             x: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of every line (default 0.5)' },
             y: { type: 'number', minimum: 0, maximum: 1, description: 'Centre of the whole group, e.g. the middle of the captions band' },
-            sound: { type: 'boolean', description: 'false = no sound effects' }
+            sound: { type: 'boolean', description: 'false = no sound effects' },
+            keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for every line and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
         }, ['subtitles', 'presetId'])
     },
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },

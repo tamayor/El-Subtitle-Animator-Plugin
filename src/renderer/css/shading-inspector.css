@@ -405,3 +405,33 @@
     color: var(--strawberry-ink);
     border-color: var(--strawberry);
 }
+
+/* Colour box clicked: spinner until the system colour picker appears */
+.color-loading {
+    position: fixed;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+
+.color-loading span {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: var(--matcha, #9fd27a);
+    border-radius: 50%;
+    animation: color-spin 0.7s linear infinite;
+}
+
+body.color-opening,
+body.color-opening * {
+    cursor: progress !important;
+}
+
+@keyframes color-spin {
+    to { transform: rotate(360deg); }
+}

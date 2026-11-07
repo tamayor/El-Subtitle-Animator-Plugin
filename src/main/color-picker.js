@@ -1,4 +1,5 @@
-// Native macOS colour picker (osascript / a warm JXA helper) that streams the live colour back to the panel.
+// Native colour picker: macOS's Colors panel (osascript / a warm JXA helper) that streams the live colour back to the
+// panel, or Windows' own Color dialog (PowerShell + System.Windows.Forms.ColorDialog, with your custom colours).
 
 module.exports = {
     cancelNativeColor, pickNativeColor, prepareColorScript, startJxaHelper, stopJxaHelper
@@ -44,13 +45,17 @@ function prepareColorScript() {
     return colorScriptPromise;
 }
 
-// A persistent helper (JXA) keeps AppleScript's runtime loaded, so the Colors panel opens at once.
+// A persistent helper (JXA) keeps AppleScript's runtime and the (hidden) Colors panel loaded, so the panel opens at once.
 // If it is not ready or does not answer quickly, the per-click script below is used as before.
 const JXA_HELPER = [
     "ObjC.import('Foundation'); ObjC.import('AppKit');",
     "var app = Application.currentApplication(); app.includeStandardAdditions = true;",
     "var sin = $.NSFileHandle.fileHandleWithStandardInput, sout = $.NSFileHandle.fileHandleWithStandardOutput;",
     "function say(t) { sout.writeData($(t + '\\n').dataUsingEncoding($.NSUTF8StringEncoding)); }",
+    // Preload AppKit and the Colors panel (hidden) before saying READY: the window-server connection and the panel's
+    // own loading (~250 ms) happen here, in the background, instead of after your click.
+    "try { var NSApp0 = $.NSApplication.sharedApplication; NSApp0.setActivationPolicy(1);",
+    "  var p0 = $.NSColorPanel.sharedColorPanel; p0.setShowsAlpha(false); p0.setMode(1); p0.setContentSize($.NSMakeSize(264, 372)); p0.center; } catch (e) { }",
     "say('READY');",
     "while (true) {",
     "  var d = sin.availableData; if (d.length == 0) break;",
@@ -63,7 +68,7 @@ const JXA_HELPER = [
     "      var NSApp = $.NSApplication.sharedApplication; NSApp.setActivationPolicy(1);",
     "      var panel = $.NSColorPanel.sharedColorPanel; panel.setShowsAlpha(false);",
     "      panel.setColor($.NSColor.colorWithSRGBRedGreenBlueAlpha(a[0] / 65535, a[1] / 65535, a[2] / 65535, 1));",
-    "      panel.setMode(1); panel.setContentSize($.NSMakeSize(264, 372)); panel.center();",
+    "      panel.setMode(1); panel.setContentSize($.NSMakeSize(264, 372)); panel.center;",
     "      panel.makeKeyAndOrderFront(null); NSApp.activateIgnoringOtherApps(true); say('SHOWN');",
     "      var last = '', cur = '';",
     "      while (panel.isVisible) {",
@@ -125,6 +130,7 @@ function pickViaHelper(c, onLive) {
 }
 function pickNativeColor(event, hex) {
     return new Promise((resolve) => {
+        if (process.platform === 'win32') return pickWindowsColor(hex, resolve);
         if (process.platform !== 'darwin') return resolve({ ok: false, unsupported: true });
         if (colorPanelOpen) return resolve({ ok: true, busy: true });      // one Colors panel at a time
         colorPanelOpen = true;
@@ -167,4 +173,35 @@ function pickNativeColor(event, hex) {
         });
         };
     });
+}
+
+// Windows: the system Color dialog (the one with "Define Custom Colors"), kept in front of the panel by a hidden
+// top-most owner window. It is modal, so the colour is applied when you press OK (no live preview while picking).
+function pickWindowsColor(hex, resolve) {
+    if (colorPanelOpen) return resolve({ ok: true, busy: true });
+    colorPanelOpen = true;
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    const v = m ? m[1] : 'ffffff';
+    const [r, g, b] = [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
+    const ps = [
+        'Add-Type -AssemblyName System.Windows.Forms',
+        '$o = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0; StartPosition = "CenterScreen" }',
+        '$o.Show(); $o.Activate()',
+        '$d = New-Object System.Windows.Forms.ColorDialog -Property @{ FullOpen = $true; AnyColor = $true }',
+        '$d.Color = [System.Drawing.Color]::FromArgb(' + r + ', ' + g + ', ' + b + ')',
+        'if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { "" + $d.Color.R + "," + $d.Color.G + "," + $d.Color.B } else { "cancel" }',
+        '$o.Close()'
+    ].join('; ');
+    colorChild = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', ps],
+        { timeout: 15 * 60 * 1000, windowsHide: true }, (err, out) => {
+            colorPanelOpen = false;
+            colorChild = null;
+            try { if (state.mainWindow && !state.mainWindow.isDestroyed()) { state.mainWindow.show(); state.mainWindow.focus(); } } catch (e) { /* ignore */ }
+            if (err) return resolve(err.killed || err.signal ? { ok: true, cancelled: true } : { ok: false, error: String(err.message || err).split('\n')[0] });
+            const t = String(out || '').trim();
+            if (/cancel/i.test(t)) return resolve({ ok: true, cancelled: true });
+            const p = t.split(',').map(x => Math.max(0, Math.min(255, parseInt(x, 10))));
+            if (p.length !== 3 || p.some(x => !Number.isFinite(x))) return resolve({ ok: false, error: 'Unexpected colour answer' });
+            resolve({ ok: true, hex: '#' + p.map(x => x.toString(16).padStart(2, '0')).join('') });
+        });
 }

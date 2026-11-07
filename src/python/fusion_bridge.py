@@ -551,6 +551,17 @@ def op_set_boxes(a):
                                 tool.SetInput(prefix + ".Style", str(b["style"]))
                         except Exception:
                             missing.append((b.get("label") or name) + " (font)")
+                    if b.get("color"):                                # automation's forced colour: Text<n>.Red1 / Green1 / Blue1
+                        prefix = str(b.get("input") or "").rsplit(".", 1)[0]
+                        try:
+                            r, g, bl = hex_to_rgb(b["color"])
+                            if int(get_in(tool, prefix + ".Type1") or 0) == 2:
+                                tool.SetInput(prefix + ".Type1", 0)   # a gradient fill would keep its second stop
+                            for ch, v in (("Red1", r), ("Green1", g), ("Blue1", bl)):
+                                if is_driven(tool, prefix + "." + ch) is None:
+                                    tool.SetInput(prefix + "." + ch, v)
+                        except Exception:
+                            missing.append((b.get("label") or name) + " (colour)")
                 else:
                     set_node_text(tool, b.get("input") or "StyledText", str(b["text"]), all_tools, first_text)
                     first_text = False

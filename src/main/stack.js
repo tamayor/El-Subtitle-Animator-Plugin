@@ -88,10 +88,11 @@ async function measureText(TOOLS, args) {
     const y = Number.isFinite(Number(args.y)) ? Number(args.y) : 0.5;
     const before = await grabBitmap(frame);
     const placeArgs = {
-        subtitle: sub.index, presetId: args.presetId, text: lines.join('\n'), x, y, fit: false, sound: false,
+        subtitle: sub.index, presetId: args.presetId, text: lines.join('\n'), x, y, fit: false, sound: false, _measure: true,
         textSize: Number(args.textSize) || 1, lineSpacing: Number(args.lineSpacing) || 1
     };
     if (args.maxSize) placeArgs.maxSize = args.maxSize;
+    if (args.keepPresetStyle) placeArgs.keepPresetStyle = true;
     const tmp = await TOOLS.place(placeArgs);
     let runs;
     try {
@@ -134,7 +135,7 @@ async function placeStack(TOOLS, args) {
     const n = subs.length;
 
     // 1. the real geometry: the lines as one block
-    const ref = await measureText(TOOLS, { subtitle: last.index, presetId: args.presetId, lines: texts, x, y, textSize, lineSpacing, maxSize: args.maxSize });
+    const ref = await measureText(TOOLS, { subtitle: last.index, presetId: args.presetId, lines: texts, x, y, textSize, lineSpacing, maxSize: args.maxSize, keepPresetStyle: !!args.keepPresetStyle });
     const H = ref.imageHeight;
     // the block is centred on y by its line boxes, so the single clips start from the same evenly spaced centres
     const ys = texts.map((t, i) => y + (i - (n - 1) / 2) * ref.pitch);
@@ -147,6 +148,7 @@ async function placeStack(TOOLS, args) {
             sound: args.sound !== false
         };
         if (args.maxSize) a.maxSize = args.maxSize;
+        if (args.keepPresetStyle) a.keepPresetStyle = true;
         if (i < n - 1) a.holdUntil = last.index;
         if (args.trackRange) a.trackRange = args.trackRange;
         return TOOLS.place(a);

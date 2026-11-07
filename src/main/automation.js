@@ -44,6 +44,14 @@ function defaultRules() {
         allowedTags: [],            // emoji, tag names or ids; empty = every preset may be used
         tagMatch: 'any',            // 'any': a preset needs one of the tags, 'all': every one of them
         font: null,                 // { font: 'Poppins', style: 'ExtraBold' } forces this font on every placed clip
+        color: null,                // '#ffffff' forces this text fill colour (shading element 1) on every placed clip
+        // MultiText emphasis layer only: { font, style, color } (each optional) beats font / color there. null = same as the rest
+        emphasis: null,
+        // { textplus: { font, style, color }, multitext: {...} }: a pair for one kind of preset only, beating font / color there
+        kindStyle: { textplus: null, multitext: null },
+        // % of the clips that get the overrides (normal = font / color / kindStyle, emphasis = emphasis); the rest keep
+        // the preset's default look. Spread evenly: 50 = every other clip, 20 = one clip in five.
+        styleShare: { normal: 100, emphasis: 100 },
         // 'top' above all clips there, 'first-empty' lowest free layer, 'fixed' V<fixed>; from / to = keep the layer
         // between V<from> and V<to> (to null = no limit; null both = the panel's Placement range)
         track: { mode: 'top', fixed: null, from: null, to: null },
@@ -76,6 +84,16 @@ function cleanRules(r) {
         font: (r.font && typeof r.font === 'object' && String(r.font.font || '').trim())
             ? { font: String(r.font.font).trim(), style: String(r.font.style || '').trim() || null }
             : null,
+        color: cleanHex(r.color),
+        emphasis: cleanEmphasis(r.emphasis),
+        styleShare: {
+            normal: num(r.styleShare && r.styleShare.normal, 0, 100, 100),
+            emphasis: num(r.styleShare && r.styleShare.emphasis, 0, 100, 100)
+        },
+        kindStyle: {
+            textplus: cleanEmphasis(r.kindStyle && r.kindStyle.textplus),
+            multitext: cleanEmphasis(r.kindStyle && r.kindStyle.multitext)
+        },
         track: {
             mode: ['top', 'first-empty', 'fixed'].includes(trk.mode) ? trk.mode : 'top',
             fixed: trk.fixed ? Math.max(2, Math.round(Number(trk.fixed)) || 2) : null,
@@ -99,6 +117,44 @@ function cleanRules(r) {
         notes: String(r.notes || '').slice(0, 4000),
         layout: r.layout === undefined ? d.layout : cleanLayout(r.layout)
     };
+}
+
+// Whether this clip gets the override, so that `pct` % of the clips do, spread evenly over the session's clips.
+// peek: only look (dry runs, measuring) without counting the clip.
+const shareCount = { normal: 0, emphasis: 0 };
+function takeShare(which, pct, peek) {
+    const p = Number.isFinite(Number(pct)) ? Math.max(0, Math.min(100, Number(pct))) : 100;
+    if (p >= 100) return true;
+    if (p <= 0) return false;
+    const n = shareCount[which];
+    if (!peek) shareCount[which] = n + 1;
+    return Math.floor((n + 1) * p / 100) > Math.floor(n * p / 100);
+}
+
+// '#fff', 'fff', '#FFFFFF' -> '#ffffff'; anything else -> null
+function cleanHex(v) {
+    let s = String(v === null || v === undefined ? '' : v).trim().replace(/^#/, '').toLowerCase();
+    if (/^[0-9a-f]{3}$/.test(s)) s = s.split('').map(c => c + c).join('');
+    return /^[0-9a-f]{6}$/.test(s) ? '#' + s : null;
+}
+
+function cleanEmphasis(e) {
+    if (!e || typeof e !== 'object') return null;
+    const font = String(e.font || '').trim() || null;
+    const out = { font, style: font ? (String(e.style || '').trim() || null) : null, color: cleanHex(e.color) };
+    return (out.font || out.color) ? out : null;
+}
+
+// The text fill colour: shading element 1, made solid (a gradient fill would keep its second stop).
+function withFillColor(design, color) {
+    if (!color) return design;
+    const out = Object.assign({}, design || {});
+    const els = Array.isArray(out.elements) ? out.elements.map(e => Object.assign({}, e)) : [];
+    const i = els.findIndex(e => Number(e.index) === 1);
+    const el1 = Object.assign(i >= 0 ? els[i] : { index: 1 }, { color, type: 0, enabled: true, modified: true });
+    if (i >= 0) els[i] = el1; else els.unshift(el1);
+    out.elements = els;
+    return out;
 }
 
 function cleanLayout(l) {
@@ -233,10 +289,15 @@ function sizedDesign(design, sizing) {
 
 // What apply() sends to Fusion for each detected node (the main-process twin of SABoxes.payload).
 // sizing: { textSize: multiplier on each Text+ node's own size, maxSize: Size cap, lineSpacing: Line Spacing } (see sizedDesign).
-function boxListFor(a, nodes, text, parts, font, sizing) {
+// look: the rules' forced { font, color, emphasis } (null = the preset's own design).
+function boxListFor(a, nodes, text, parts, look, sizing) {
     if (!nodes.length || nodes[0].nested) return [];
+    const L = look || {};
+    const font = L.font || null;
     const lines = String(text || '').split(/\r?\n/);
-    const mt = nodes.some(n => n.kind === 'multitext') ? mtTexts(nodes, parts) : {};
+    const isMT = nodes.some(n => n.kind === 'multitext');
+    const mt = isMT ? mtTexts(nodes, parts) : {};
+    const emLayer = isMT ? autoRoles(nodes.filter(n => n.kind === 'multitext')).emphasis : null;
     const primary = (nodes.find(n => n.primary) || nodes.find(n => n.kind === 'textplus')) || null;
     const boxes = (a.boxes && typeof a.boxes === 'object') ? a.boxes : {};
     return nodes.map((n, i) => {
@@ -251,14 +312,21 @@ function boxListFor(a, nodes, text, parts, font, sizing) {
         let design = null;
         if (n.kind === 'textplus' && primary && n.id !== primary.id) {
             const own = b.design || n.design || null;
-            if (own || font) design = Object.assign({}, own || {}, font ? { font: font.font, style: font.style } : {});
+            if (own || font || L.color) design = Object.assign({}, own || {}, font ? { font: font.font, style: font.style } : {});
+            if (design && L.color) design = withFillColor(design, L.color);
             if (design) design = sizedDesign(design, sizing).design;
         }
         const out = {
             id: n.id, kind: n.kind, tool: n.tool, input: n.input, centerInput: n.centerInput, label: n.label,
             text: t, cx: null, cy: null, size: null, design
         };
-        if (n.kind === 'multitext' && font) { out.font = font.font; out.style = font.style; }
+        if (n.kind === 'multitext') {
+            const em = (L.emphasis && n.layer === emLayer) ? L.emphasis : null;
+            const f = (em && em.font) ? { font: em.font, style: em.style } : font;
+            if (f) { out.font = f.font; out.style = f.style; }
+            const c = (em && em.color) || L.color || null;
+            if (c) out.color = c;
+        }
         return out;
     });
 }
@@ -343,6 +411,9 @@ const TOOLS = {
         const next = Object.assign({}, cur, args || {});
         for (const k of ['track', 'position', 'multitext', 'text']) if (args && args[k]) next[k] = Object.assign({}, cur[k], args[k]);
         if (args && args.font === null) next.font = null;
+        if (args && args.emphasis && cur.emphasis) next.emphasis = Object.assign({}, cur.emphasis, args.emphasis);
+        if (args && args.styleShare) next.styleShare = Object.assign({}, cur.styleShare, args.styleShare);
+        if (args && args.kindStyle) next.kindStyle = Object.assign({}, cur.kindStyle, args.kindStyle);
         const saved = saveRules(next);
         const { unknown } = resolveTags(loadLib(), saved.allowedTags);
         return Object.assign({ saved: true }, saved, unknown.length ? { warning: 'No tag matches: ' + unknown.join(', ') } : {});
@@ -522,10 +593,23 @@ const TOOLS = {
             if (norm([parts.upper, parts.emphasis, parts.lower].join(' ')) !== norm(text)) notes.push('the MultiText parts do not spell the subtitle exactly');
         }
 
-        // font
-        const font = rules.font || null;
+        // font and colour: the rules' overrides, unless this call keeps the preset's own look
+        // styleShare: only that share of the clips gets the overrides, the rest keep the preset's default look
+        const peek = !!(args.dryRun || args._measure);
+        const share = rules.styleShare || {};
+        const hasNormal = !!(rules.font || rules.color || (rules.kindStyle && (rules.kindStyle.textplus || rules.kindStyle.multitext)));
+        const keepLook = args.keepPresetStyle === true;
+        const useNormal = !keepLook && hasNormal && takeShare('normal', share.normal, peek);
+        const useEm = !keepLook && isMT && !!rules.emphasis && takeShare('emphasis', share.emphasis, peek);
+        if (hasNormal && !keepLook && !useNormal) notes.push('text style: preset default (override share ' + share.normal + '%)');
+        if (isMT && rules.emphasis && !keepLook && !useEm) notes.push('emphasis: preset default (override share ' + share.emphasis + '%)');
+        // a pair for this kind of preset (Text+ / MultiText) beats the general font / color
+        const ks = (rules.kindStyle && rules.kindStyle[isMT ? 'multitext' : 'textplus']) || null;
+        const font = useNormal ? ((ks && ks.font) ? { font: ks.font, style: ks.style } : (rules.font || null)) : null;
+        const look = (useNormal || useEm) ? { font, color: useNormal ? ((ks && ks.color) || rules.color || null) : null, emphasis: useEm ? rules.emphasis : null } : null;
         let textDesign = parseTextStyle(fs.existsSync(compPath) ? compPath : null, a.textDesign) || null;
         if (font) textDesign = Object.assign({}, textDesign || {}, { font: font.font }, font.style ? { style: font.style } : {});
+        if (look && look.color && !isMT) textDesign = withFillColor(textDesign, look.color);
 
         // text size: a multiplier on the preset's own Text+ Size, so long lines can be shrunk to fit the frame
         // (Edit-page scale zooms the whole rendered clip instead and can push the text out of frame)
@@ -647,7 +731,7 @@ const TOOLS = {
             linked: a.linked !== false,
             posX, posY, scale: Number(args.scale) || Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
             textDesign,
-            boxList: boxListFor(a, nodes, text, parts, font, sizing),
+            boxList: boxListFor(a, nodes, text, parts, look, sizing),
             // the bridge sizes every MultiText layer together (sizes, boxes and the gaps between layers)
             multitext: (isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) ? sizing : null,
             keepPresetDefaults: true      // automated positions are not saved into the preset

@@ -536,3 +536,123 @@ body.tab-prompt {
     font-size: 11.5px;
     color: var(--dim);
 }
+
+/* Font rows: [font picker][style]  ·  Colour rows: [swatch][hex] */
+.pb-font,
+.pb-color,
+.pb-style-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+#promptBuilder .pb-font input[type=text].pb-font-fam,
+#promptBuilder .pb-style-line input[type=text].pb-font-fam {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#promptBuilder .pb-font select.pb-font-style,
+#promptBuilder .pb-style-line select.pb-font-style {
+    flex: 0 1 auto;
+    max-width: 130px;
+    color: #f0c36b;
+}
+
+#promptBuilder .pb-color input[type=color].pb-color-sw,
+#promptBuilder .pb-style-line input[type=color].pb-color-sw {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 26px;
+    padding: 2px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+#promptBuilder .pb-color input[type=text].pb-color-hex,
+#promptBuilder .pb-style-line input[type=text].pb-color-hex {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Text-style rows (NORMAL / EMPHASIS): [font][style][colour][hex] on one line */
+#promptBuilder .pb-style-line input[type=text].pb-font-fam {
+    flex: 1 1 0;
+}
+
+#promptBuilder .pb-style-line input[type=text].pb-color-hex {
+    flex: 0 0 82px;
+    width: 82px;
+}
+
+.pb-style {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+#promptBuilder .pb-style-line select.pb-style-on {
+    flex: 0 1 auto;
+    max-width: 150px;
+    color: #f0c36b;
+}
+
+.pb-style-line .pb-mini {
+    flex: 0 0 auto;
+}
+
+/* One pair: [font][weight] over [colour][hex][Text+ / MultiText][+][×] */
+.pb-style-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-width: 0;
+}
+
+.pb-style-line {
+    flex-wrap: nowrap;
+}
+
+#promptBuilder .pb-style-line select.pb-font-style {
+    flex: 0 1 120px;
+    min-width: 70px;
+}
+
+#promptBuilder .pb-style-line select.pb-style-on {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Override share: Default [——o———] Override  "Override 20% · default 80%" */
+.pb-style-share {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.pb-share-end {
+    font-size: 11px;
+    color: var(--dim);
+}
+
+#promptBuilder input[type=range].pb-share-range {
+    flex: 1 1 120px;
+    min-width: 80px;
+    accent-color: var(--matcha);
+}
+
+.pb-share-label {
+    flex: 1 0 100%;
+    font-size: 11.5px;
+    color: #f0c36b;
+}

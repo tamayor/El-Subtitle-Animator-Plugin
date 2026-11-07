@@ -50,15 +50,21 @@ PRESETS
   HYPE:     the most energetic preset my rules allow
 
 TEXT STYLE
-  NORMAL:    Poppins Bold, white — forced on DEFAULT presets only; DANGER / MONEY keep their own font
-  EMPHASIS:  Larken Black, orange — on MultiText, the single key word goes in the emphasis part
+  NORMAL:    Poppins Bold, #ffffff
+             forced on DEFAULT presets only; DANGER / MONEY keep their own font
+  EMPHASIS:  Larken Black, #ff8a00
+             on MultiText, the single key word goes in the emphasis part
   SOUND:     on; every effect keeps its own subtitle's length
 
 ## BEFORE PLACING
 1. Save the project in Resolve (Cmd+S). Subtitle colours are read from the saved project file, so unsaved
    colour changes are invisible.
 2. status / get_layout: confirm the timeline shape and appliesToThisTimeline: true. If not, stop and tell me.
-3. set_rules with SIZE_MAX, LINE_SPACING, font and sound from SETTINGS, then get_rules to confirm they took.
+3. set_rules with SIZE_MAX, LINE_SPACING, the text style pairs and sound from SETTINGS, then get_rules to confirm
+   they took. NORMAL: a pair for both → font + color; (Text+) → kindStyle.textplus; (MultiText) → kindStyle.multitext.
+   EMPHASIS → emphasis (font, style, color). "override N%" → styleShare.normal / styleShare.emphasis (0 = preset
+   default on every clip, 100 = always the override). Presets that keep their own font/colour (DANGER / MONEY): pass
+   keepPresetStyle: true on place / place_stack.
 4. list_subtitles with color "any". Check clipColors. If a colour in COLOUR ROLES is 0 or missing, stop and tell me.
    Never place on a subtitle without a clip colour, however good a fit it looks.
 
@@ -219,7 +225,8 @@ const PB_MCP_PARAMS = [
     { tool: 'set_rules', items: [
         { label: 'allowedTags: only presets with these tags', section: 'PRESETS', key: 'ALLOWED_TAGS', kind: 'tags', value: '', hint: 'Emoji, tag names or ids. Empty = all presets allowed.' },
         { label: 'tagMatch: any / all of the tags', section: 'PRESETS', key: 'TAG_MATCH', kind: 'enum', options: ['any', 'all'], value: 'any', hint: 'any: a preset needs at least one of the tags; all: every tag.' },
-        { label: 'font: force a font on every clip', section: 'TEXT STYLE', key: 'FONT', value: 'Poppins ExtraBold', hint: 'Font and style, or "keep each preset\'s font".' },
+        { label: 'NORMAL: font + colour of the text', section: 'TEXT STYLE', key: 'NORMAL', kind: 'style', value: 'Poppins Bold, #ffffff', hint: 'Sets the rules\' font and color: the font and fill colour forced on the clips.' },
+        { label: 'EMPHASIS: font + colour of the key word', section: 'TEXT STYLE', key: 'EMPHASIS', kind: 'style', value: 'Larken Black, #ffd400', hint: 'Sets the rules\' emphasis: the MultiText key-word layer\'s font and fill colour.' },
         { label: 'text.maxSize: largest text Size', section: 'SIZE (Inspector values)', key: 'SIZE_MAX', value: '0.162', hint: 'Largest Size, as the Inspector shows it.' },
         { label: 'text.lineSpacing: Line Spacing', section: 'SIZE (Inspector values)', key: 'LINE_SPACING', value: '0.7', hint: 'Line Spacing as the Inspector shows it (1 = normal).' },
         { label: 'track.mode: which video layer', section: 'POSITION (vertical 9:16)', key: 'TRACK_MODE', kind: 'enum', options: ['top', 'first-empty', 'fixed'], value: 'top', hint: 'Starts as the panel\'s Placement setting. top = above everything, first-empty = lowest free layer above V1, fixed = always one layer.' },
@@ -244,6 +251,7 @@ const PB_MCP_PARAMS = [
         { label: 'shrink: allow shrinking to fit', section: 'SIZE (Inspector values)', key: 'SHRINK', kind: 'enum', options: ['true', 'false'], value: 'false', hint: 'false = only move the clip, never reduce its size.' },
         { label: 'textSize: size multiplier', section: 'SIZE (Inspector values)', key: 'TEXT_SIZE', value: '1.0', hint: 'Multiplier on the preset\'s own size (0.66 = two thirds).' },
         { label: 'holdUntil: keep on screen until', section: 'STACKS', key: 'HOLD_UNTIL', value: 'the group\'s last subtitle', hint: 'Stacked captions: hold the text until a later subtitle ends.' },
+        { label: 'keepPresetStyle: skip font/colour overrides', section: 'TEXT STYLE', key: 'KEEP_PRESET_STYLE', value: 'DANGER, MONEY', hint: 'Presets or roles that keep their own font and colours (Claude passes keepPresetStyle: true for them).' },
         { label: 'parts: MultiText split', section: 'TEXT STYLE', key: 'PARTS', value: 'upper = opening · emphasis = key word · lower = the rest', hint: 'How a subtitle splits into upper / emphasis / lower.' },
         { label: 'dryRun: only show the plan', section: 'JOB', key: 'DRY_RUN', kind: 'enum', options: ['no', 'yes'], value: 'no', hint: 'yes = Claude shows what it would place without placing.' }
     ] },
@@ -561,9 +569,212 @@ function pbRangeEditor(row) {
     return wrap;
 }
 
+// "Larken Black" -> { family: 'Larken', style: 'Black' }: the longest installed family the text starts with, else a
+// trailing weight word is the style. Text that names no font ("keep each preset's font") stays whole in the family box.
+function pbSplitFont(v) {
+    const t = String(v || '').trim();
+    const lo = t.toLowerCase();
+    let fam = null;
+    for (const f of (state.fonts || [])) {
+        const fl = f.toLowerCase();
+        if ((lo === fl || lo.startsWith(fl + ' ')) && (!fam || f.length > fam.length)) fam = f;
+    }
+    if (fam) return { family: fam, style: t.slice(fam.length).trim() };
+    const m = /^(.+?)\s+((?:extra|ultra|semi|demi)?\s?(?:thin|hairline|light|regular|book|medium|bold|heavy|black|italic|oblique)(?:\s+italic)?)$/i.exec(t);
+    return m ? { family: m[1], style: m[2] } : { family: t, style: '' };
+}
+
+// Font controls: the installed-font picker (as in Text Design) + the styles that font really has. Only the name is
+// written into the prompt; nothing is copied or installed. onChange(text, final).
+function pbFontControls(value, onChange) {
+    const cur = pbSplitFont(value);
+    const fam = pbEl('input', 'pb-val pb-font-fam');
+    fam.type = 'text'; fam.value = cur.family; fam.placeholder = 'font'; fam.spellcheck = false;
+    fam.title = 'Click to pick an installed font, or type to filter';
+    const sty = pbEl('select', 'pb-font-style');
+    sty.title = 'Style';
+    let style = cur.style;
+    const fill = () => {
+        const known = typeof fontStylesOf === 'function' ? fontStylesOf(fam.value.trim()) : null;
+        const opts = (known && known.length) ? known.slice() : (typeof STYLE_OPTIONS !== 'undefined' ? STYLE_OPTIONS.slice() : []);
+        if (known && known.length && style && !known.some(x => x.toLowerCase() === style.toLowerCase())) style = pickStyle(known, style);
+        sty.textContent = '';
+        const none = pbEl('option', '', '—'); none.value = ''; sty.appendChild(none);
+        if (style && !opts.some(x => x.toLowerCase() === style.toLowerCase())) opts.unshift(style);
+        for (const o of opts) { const e = pbEl('option', '', o); e.value = o; sty.appendChild(e); }
+        sty.value = (opts.find(x => x.toLowerCase() === String(style).toLowerCase())) || '';
+    };
+    const text = () => [fam.value.trim(), style].filter(Boolean).join(' ');
+    fill();
+    fam.addEventListener('input', () => { fill(); onChange(text(), false); });
+    fam.addEventListener('change', () => onChange(text(), true));
+    sty.addEventListener('change', () => { style = sty.value; onChange(text(), true); });
+    if (typeof bindFontPicker === 'function') bindFontPicker(fam);
+    return [fam, sty];
+}
+
+// Colour names a prompt may already use, so the colour box shows them.
+const PB_COLOUR_NAMES = {
+    white: '#ffffff', black: '#000000', yellow: '#ffd400', gold: '#f5c542', orange: '#ff8a00', red: '#ff3b30',
+    pink: '#ff4fa3', purple: '#8e5cf7', violet: '#8e5cf7', blue: '#2f7bff', teal: '#1fb5a8', cyan: '#00d1ff',
+    green: '#34c759', grey: '#8e8e93', gray: '#8e8e93'
+};
+function pbTextColourHex(v) { return normHex(v) || PB_COLOUR_NAMES[String(v || '').trim().toLowerCase()] || null; }
+
+// Colour controls: a colour box (macOS Colors panel / Windows Color dialog, like the Text Design swatches) + the hex
+// code. Free text that is not a colour ("same as COLOR", "white") is kept as typed. onChange(text, final).
+function pbColorControls(value, onChange) {
+    const sw = pbEl('input', 'pb-color-sw');
+    sw.type = 'color';
+    sw.value = pbTextColourHex(value) || '#ffffff';
+    sw.title = 'Pick a colour';
+    const hex = pbEl('input', 'pb-val pb-color-hex');
+    hex.type = 'text'; hex.value = value; hex.placeholder = '#ffffff'; hex.spellcheck = false;
+    sw._hex = hex;        // attachHexFields() leaves this box alone: it has its own hex field
+    sw.addEventListener('input', () => { hex.value = sw.value; onChange(sw.value, false); });
+    sw.addEventListener('change', () => onChange(sw.value, true));
+    hex.addEventListener('input', () => { const h = pbTextColourHex(hex.value); if (h) sw.value = h; onChange(hex.value, false); });
+    hex.addEventListener('change', () => {
+        const h = normHex(hex.value);
+        if (h) hex.value = h;
+        onChange(hex.value, true);
+    });
+    return [sw, hex];
+}
+
+function pbRowWriter(row) {
+    return (text, final) => { row.value = text; pbChanged(); if (final) pbPushToPlacement(row); };
+}
+
+function pbFontEditor(row) {
+    const wrap = pbEl('div', 'pb-font');
+    wrap.append(...pbFontControls(row.value, pbRowWriter(row)));
+    return wrap;
+}
+
+function pbColorEditor(row) {
+    const wrap = pbEl('div', 'pb-color');
+    wrap.append(...pbColorControls(row.value, pbRowWriter(row)));
+    return wrap;
+}
+
+// Text-style rows (NORMAL, EMPHASIS): one or more font + colour pairs, each for Text+, MultiText or both:
+// "Poppins Bold, #ffffff · Larken Black, #ffd400 (MultiText)". Anything else the line said (e.g. "— forced on DEFAULT
+// presets only") moves into the row's note, so the value stays just the pairs.
+const PB_STYLE_ON = [['both', 'Text+ & MultiText'], ['textplus', 'Text+'], ['multitext', 'MultiText']];
+function pbParseStyle(v) {
+    const t = String(v || '');
+    const di = t.search(/\s[—–-]\s/);
+    const head = di >= 0 ? t.slice(0, di) : t;
+    const extra = [];
+    if (di >= 0) extra.push(t.slice(di).replace(/^\s[—–-]\s/, '').trim());
+    const pairs = [];
+    let share = 100;
+    for (let chunk of head.split(/\s·\s|;/)) {
+        chunk = chunk.trim();
+        if (!chunk) continue;
+        const sm = /^override\s+(\d{1,3})\s*%/i.exec(chunk);
+        if (sm) { share = Math.max(0, Math.min(100, parseInt(sm[1], 10))); continue; }
+        let on = 'both';
+        const m = /\(([^)]*)\)\s*$/.exec(chunk);
+        if (m) {
+            const w = m[1].toLowerCase().replace(/\s+/g, '');
+            const hit = /text\+.*multi|multi.*text\+|both|all/.test(w) ? 'both' : (/multi/.test(w) ? 'multitext' : (/text\+|textplus/.test(w) ? 'textplus' : null));
+            if (hit) { on = hit; chunk = chunk.slice(0, m.index).trim(); }
+        }
+        const parts = chunk.split(',').map(x => x.trim());
+        const pair = { font: parts.shift() || '', color: '', on };
+        for (const p of parts) {
+            const h = pbTextColourHex(p);
+            if (!pair.color && h) pair.color = h;
+            else if (p) extra.push(p);
+        }
+        pairs.push(pair);
+    }
+    if (!pairs.length) pairs.push({ font: '', color: '', on: 'both' });
+    return { pairs, share, extra: extra.filter(Boolean).join(' — ') };
+}
+function pbJoinStyle(pairs, share) {
+    const s = pairs.map(p => {
+        const head = [p.font, p.color].filter(Boolean).join(', ');
+        const on = (PB_STYLE_ON.find(o => o[0] === p.on) || PB_STYLE_ON[0]);
+        return head && p.on !== 'both' ? head + ' (' + on[1] + ')' : head;
+    }).filter(Boolean);
+    if (share !== undefined && share !== null && share < 100) s.push('override ' + share + '%');
+    return s.join(' · ');
+}
+
+// The slider's words: 0% = every clip keeps the preset's default look, 100% = every clip gets the override.
+function pbShareLabel(n) {
+    if (n <= 0) return 'Preset default';
+    if (n >= 100) return 'Always override';
+    if (n === 50) return 'Balanced · 50%';
+    return 'Override ' + n + '% · default ' + (100 - n) + '%';
+}
+
+function pbStyleEditor(row) {
+    const st = pbParseStyle(row.value);
+    const tidy = pbJoinStyle(st.pairs, st.share);
+    if (tidy !== String(row.value || '').trim()) {
+        if (st.extra) row.note = row.note ? row.note + '\n' + st.extra : st.extra;
+        row.value = tidy;
+        setTimeout(pbChanged, 0);
+    }
+    const write = (final) => { row.value = pbJoinStyle(st.pairs, st.share); pbChanged(); if (final) pbPushToPlacement(row); };
+    const wrap = pbEl('div', 'pb-style');
+    st.pairs.forEach((pair, i) => {
+        const box = pbEl('div', 'pb-style-pair');
+        const fontLine = pbEl('div', 'pb-style-line');
+        const line = pbEl('div', 'pb-style-line');
+        const on = pbEl('select', 'pb-style-on');
+        on.title = 'Which presets this font and colour are for';
+        for (const [v, label] of PB_STYLE_ON) { const o = pbEl('option', '', label); o.value = v; on.appendChild(o); }
+        on.value = pair.on;
+        on.addEventListener('change', () => { pair.on = on.value; write(true); });
+        const add = pbEl('button', 'pb-mini pb-style-add', '+');
+        add.title = 'Add another font + colour pair (e.g. one for Text+, one for MultiText)';
+        add.addEventListener('click', () => {
+            const used = st.pairs.map(p => p.on);
+            const next = ['textplus', 'multitext'].find(x => !used.includes(x)) || 'both';
+            st.pairs.splice(i + 1, 0, { font: pair.font, color: pair.color, on: next });
+            if (pair.on === 'both' && next !== 'both') pair.on = next === 'multitext' ? 'textplus' : 'multitext';
+            write(true); pbRebuild();
+        });
+        fontLine.append(...pbFontControls(pair.font, (t, f) => { pair.font = t; write(f); }));
+        line.append(
+            ...pbColorControls(pair.color, (t, f) => { const h = normHex(t); if (h || !t.trim()) { pair.color = h || ''; write(f); } }),
+            on, add
+        );
+        if (st.pairs.length > 1) {
+            const del = pbEl('button', 'pb-mini pb-del', '×');
+            del.title = 'Remove this pair';
+            del.addEventListener('click', () => { st.pairs.splice(i, 1); write(true); pbRebuild(); });
+            line.appendChild(del);
+        }
+        box.append(fontLine, line);
+        wrap.appendChild(box);
+    });
+    // How many of the clips get this override: left = the preset's default look, right = always the override.
+    const sl = pbEl('div', 'pb-style-share');
+    const cap = pbEl('span', 'pb-share-end', 'Default');
+    const rng = pbEl('input', 'pb-share-range');
+    rng.type = 'range'; rng.min = '0'; rng.max = '100'; rng.step = '5'; rng.value = String(st.share);
+    rng.title = 'Share of the clips that get this font and colour; the rest keep the preset\'s default';
+    const cap2 = pbEl('span', 'pb-share-end', 'Override');
+    const lab = pbEl('span', 'pb-share-label', pbShareLabel(st.share));
+    rng.addEventListener('input', () => { st.share = Number(rng.value); lab.textContent = pbShareLabel(st.share); write(false); });
+    rng.addEventListener('change', () => write(true));
+    sl.append(cap, rng, cap2, lab);
+    wrap.appendChild(sl);
+    return wrap;
+}
+
 function pbValueEditor(row, kind) {
     if (kind === 'preset' || kind === 'tags') return pbChipsEditor(row, kind);
     if (kind === 'range') return pbRangeEditor(row);
+    if (kind === 'font') return pbFontEditor(row);
+    if (kind === 'color') return pbColorEditor(row);
+    if (kind === 'style') return pbStyleEditor(row);
     if (kind === 'enum') {
         const sel = pbSelect('pb-val', (pbKeySpec(row.key) || {}).options || [], row.value);
         sel.addEventListener('change', () => { row.value = sel.value; pbChanged(); pbPushToPlacement(row); });

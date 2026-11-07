@@ -1,4 +1,4 @@
-// Colour boxes (macOS Colors panel / web picker), double-click-to-reset and hex fields.
+// Colour boxes (macOS Colors panel / Windows Color dialog / web picker), double-click-to-reset and hex fields.
 
 // Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
 // web colour picker instead. If the system panel cannot open, the web picker is used.
@@ -11,6 +11,31 @@ if (window.sa && window.sa.onColorLive) window.sa.onColorLive((hex) => {
     const wait = Math.max(0, 150 - (Date.now() - colorLiveLast));
     colorLiveTimer = setTimeout(() => { if (t.value !== hex) { t.value = hex; colorLiveApplied = true; colorLiveLast = Date.now(); colorLiveTimer = 0; t.dispatchEvent(new Event('input', { bubbles: true })); } }, wait);
 });
+// The system picker takes a moment to appear: a spinner sits on the clicked box until it does (this window loses focus
+// to the picker, a live colour arrives, or the pick ends), so the click is never left without an answer.
+let colorSpinner = null, colorSpinnerTimer = 0;
+function showColorLoading(t) {
+    hideColorLoading();
+    const r = t.getBoundingClientRect();
+    const d = document.createElement('div');
+    d.className = 'color-loading';
+    d.style.left = r.left + 'px'; d.style.top = r.top + 'px';
+    d.style.width = r.width + 'px'; d.style.height = r.height + 'px';
+    d.appendChild(document.createElement('span'));
+    document.body.appendChild(d);
+    document.body.classList.add('color-opening');
+    colorSpinner = d;
+    window.addEventListener('blur', hideColorLoading, { once: true });
+    colorSpinnerTimer = setTimeout(hideColorLoading, 10000);
+}
+function hideColorLoading() {
+    clearTimeout(colorSpinnerTimer); colorSpinnerTimer = 0;
+    window.removeEventListener('blur', hideColorLoading);
+    document.body.classList.remove('color-opening');
+    if (colorSpinner) { colorSpinner.remove(); colorSpinner = null; }
+}
+if (window.sa && window.sa.onColorLive) window.sa.onColorLive(() => hideColorLoading());
+
 document.addEventListener('click', async (e) => {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
@@ -28,9 +53,14 @@ document.addEventListener('click', async (e) => {
     colorLiveTarget = t; colorLiveApplied = false;
     const dbg = (msg) => { try { window.sa.dlog('[color] ' + msg + ' (' + (Date.now() - colorPanelSince) + ' ms) id=' + (t.id || '?') + ' from=' + t.value); } catch (err) { /* ignore */ } };
     dbg('panel opening');
-    setStatus('Pick a color in the macOS Colors panel: it applies as you pick. Close the panel (or click the color box again) when done.', '');
+    showColorLoading(t);
+    setStatus('Opening the colour picker…', '');
+    window.addEventListener('blur', () => setStatus(/^Win/i.test(navigator.platform || '')
+        ? 'Pick a color in the Windows Color dialog and press OK.'
+        : 'Pick a color in the macOS Colors panel: it applies as you pick. Close the panel (or click the color box again) when done.', ''), { once: true });
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
+    hideColorLoading();
     colorPanelBusy = false;
     clearTimeout(colorLiveTimer); colorLiveTimer = 0;
     colorPanelUntil = Date.now() + 400;

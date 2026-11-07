@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('sa', {
     setLayoutMode: (mode) => ipcRenderer.invoke('win:setLayoutMode', mode),
     dlog: (...parts) => ipcRenderer.invoke('dbg:log', ...parts),
     fitWidth: (width, mode) => ipcRenderer.invoke('win:fitWidth', width, mode),
+    saveJobPromptFile: (text) => ipcRenderer.invoke('prompt:saveFile', text),
 
     // Files: the real disk path of a file dropped onto the panel.
     pathForFile: (file) => {

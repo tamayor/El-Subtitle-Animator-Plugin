@@ -1,5 +1,7 @@
 // Every IPC channel the panel can call (see src/preload.js for the renderer side).
 
+const fs = require('fs');
+const path = require('path');
 const { app, ipcMain, shell } = require('electron');
 
 const state = require('./state');
@@ -83,6 +85,15 @@ const SAFE_HANDLERS = {
     'win:setOnTop': setOnTop,
     'win:setLayoutMode': setLayoutMode,
     'win:fitWidth': fitWidth,
+    // The Prompt tab text, mirrored to a file so Claude Code (/elsa-prompt) can read it.
+    'prompt:saveFile': (e, text) => {
+        if (typeof text !== 'string' || !text.trim()) return false;
+        const file = path.join(DATA_DIR, 'job-prompt.md');
+        const tmp = file + '.tmp';
+        fs.writeFileSync(tmp, text, 'utf8');
+        fs.renameSync(tmp, file);
+        return true;
+    },
 };
 
 // Handlers that deal with their own errors (or must not be wrapped).

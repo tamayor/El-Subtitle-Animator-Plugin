@@ -3,7 +3,7 @@
 // Builder mode shows SETTINGS as sections of key rows (each with its own input, "+ if" conditions and a note),
 // preset keys pick from the library, and the bottom menu adds keys for the MCP call parameters. Text mode edits
 // the whole prompt as plain text; both write the same text.
-// Edits are kept in localStorage (this panel only). "Save as default" stores the current text as the user's own
+// Edits are kept in localStorage and mirrored to <library>/job-prompt.md (read by the /elsa-prompt command). "Save as default" stores the current text as the user's own
 // default; Reset goes back to that (or to the built-in text when none is saved); "Restore built-in" drops it.
 
 const JOB_PROMPT_KEY = 'sa.jobPrompt';
@@ -128,9 +128,15 @@ function loadJobPrompt() {
 }
 
 function saveJobPrompt(text) {
+    mirrorJobPromptToFile(text);
     try {
         if (text === effectiveJobPromptDefault()) localStorage.removeItem(JOB_PROMPT_KEY); else localStorage.setItem(JOB_PROMPT_KEY, text);
     } catch (e) { /* ignore */ }
+}
+
+// Also written to job-prompt.md in the library folder so Claude Code's /elsa-prompt command can read it.
+function mirrorJobPromptToFile(text) {
+    try { if (window.sa && window.sa.saveJobPromptFile) window.sa.saveJobPromptFile(String(text || '')); } catch (e) { /* ignore */ }
 }
 
 function saveJobPromptDefault(text) {
@@ -908,6 +914,7 @@ function initPromptTab() {
     const ta = $('promptText');
     if (!ta) return;
     pb.full = loadJobPrompt();
+    mirrorJobPromptToFile(pb.full);
     try { if (localStorage.getItem(JOB_PROMPT_MODE_KEY) === 'text') pb.mode = 'text'; } catch (e) { /* ignore */ }
     pbFillAddMenu();
     $('pbAddBtn').addEventListener('click', pbAddFromMenu);

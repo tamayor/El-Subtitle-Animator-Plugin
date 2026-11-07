@@ -1281,6 +1281,17 @@ function renderSavedPrompts(select) {
     $('promptSavedDelete').disabled = sel.value === SAVED_DEFAULT_VALUE;
 }
 
+// Snack bar at the bottom of the panel ("<title> · Saved"), same look as the preset save toast.
+function showPromptToast(name, what) {
+    document.querySelectorAll('.saved-toast').forEach(x => x.remove());
+    const t = document.createElement('div');
+    t.className = 'saved-toast';
+    const n = document.createElement('b'); n.textContent = name;
+    t.append(n, document.createTextNode(' · ' + what));
+    document.body.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, 3000);
+}
+
 function initSavedPrompts() {
     const sel = $('promptSavedSel'), title = $('promptSavedTitle');
     if (!sel || !title) return;
@@ -1320,7 +1331,9 @@ function initSavedPrompts() {
         if (!storeSavedPrompts(list)) { setPromptStatus('Could not save the prompt.', 'bad'); return; }
         saveJobPrompt(pb.full);
         renderSavedPrompts(t);
+        title.value = '';
         setPromptStatus((i >= 0 ? 'Updated "' : 'Saved "') + t + '".', 'ok');
+        showPromptToast(t, i >= 0 ? 'Updated' : 'Saved');
     };
     $('promptSavedSave').addEventListener('click', save);
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
@@ -1331,6 +1344,7 @@ function initSavedPrompts() {
         title.value = '';
         renderSavedPrompts(null);
         setPromptStatus('Deleted "' + t + '". The current prompt is unchanged.', 'ok');
+        showPromptToast(t, 'Deleted');
     });
 }
 

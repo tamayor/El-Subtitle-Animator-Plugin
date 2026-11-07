@@ -80,7 +80,7 @@ async function apply(event, req) {
             if (!fs.existsSync(sfxPath)) {
                 warnings.push('The sound effect file is missing.');
             } else {
-                const { mp, item: mpi } = await importSfx(project, sfxPath);
+                const { mp, item: mpi } = await importSfx(project, sfxPath, true);      // applied: the timeline keeps its own copy
                 if (!mpi) {
                     warnings.push('Resolve could not import the sound effect.');
                 } else {
@@ -280,7 +280,7 @@ async function apply(event, req) {
         // 4b. Layered sounds: extra sound effects of the preset, each aligned to the text start or end.
         if (!live && req.useSfx !== false) {
             const extra = layerList(req, anim);
-            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place);
+            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place, true);
         }
 
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can

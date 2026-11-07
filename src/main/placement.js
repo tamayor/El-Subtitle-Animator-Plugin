@@ -6,7 +6,7 @@ const FADE_WARNING = 'Resolve did not take the sound\'s fade-out. Drag the fade 
 
 module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
-    importSfx, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
+    importSfx, insertTitleAtEnd, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
     placeExtraSfx, sfxCutFor, sfxCutFrames, titleKindFor, trackUsable
 };
@@ -16,7 +16,7 @@ const fs = require('fs');
 const os = require('os');
 
 const state = require('./state');
-const { ANIM_DIR } = require('./config');
+const { ANIM_DIR, APP_DATA_DIR, DATA_DIR } = require('./config');
 const { isEditedSfxName, sfxFilePath } = require('./sfx');
 const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
@@ -194,7 +194,95 @@ async function fitDuration(item, want) {
     return (await item.GetDuration()) === want;
 }
 
-async function importSfx(project, sfxPath) {
+// ------------------------------------------------------------------ sounds copied next to the footage
+// When a subtitle is APPLIED (not while previewing), its sounds are copied into
+// "<footage folder>/El Subtitle Animator SFX/" and imported from there, so the project keeps its own copy beside its
+// media (it stays online when moved or archived with the footage, and does not depend on the plugin's library).
+// The footage folder is chosen once per timeline - the folder most of the timeline's own clips come from (titles,
+// generators and the plugin's sounds skipped) - and saved in _app/timeline-sfx-dirs.json, so every later apply on that
+// timeline reuses the same location. With no footage on the timeline yet, or when the folder cannot be written, the
+// sound is imported from the library as before (and nothing is saved, so the next apply tries again).
+const PROJECT_SFX_DIR = 'El Subtitle Animator SFX';
+const TL_SFX_DIRS_FILE = path.join(APP_DATA_DIR, 'timeline-sfx-dirs.json');
+function readTlSfxDirs() { try { return JSON.parse(fs.readFileSync(TL_SFX_DIRS_FILE, 'utf8')) || {}; } catch (e) { return {}; } }
+function isOwnSound(dir) {
+    return path.basename(dir) === PROJECT_SFX_DIR || dir.startsWith(DATA_DIR + path.sep) || dir === DATA_DIR;
+}
+async function scanFootageDir(tl) {
+    const counts = new Map(), seen = new Set();
+    for (const kind of ['video', 'audio']) {
+        const n = (await tl.GetTrackCount(kind)) || 0;
+        for (let t = 1; t <= n; t++) {
+            for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
+                let p = '';
+                try { const m = await it.GetMediaPoolItem(); p = m ? String(await m.GetClipProperty('File Path') || '') : ''; } catch (e) { /* title / generator */ }
+                if (!p || seen.has(p)) continue;
+                seen.add(p);
+                const dir = path.dirname(p);
+                if (!isOwnSound(dir)) counts.set(dir, (counts.get(dir) || 0) + 1);
+            }
+        }
+    }
+    let dir = null, best = 0;
+    for (const [d, c] of counts) if (c > best) { dir = d; best = c; }
+    return dir;
+}
+// The timeline's saved footage folder, or (first apply) the scanned one, saved for next time.
+async function timelineSfxDir(project) {
+    const tl = await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const key = String(await project.GetName()) + '::' + String(await tl.GetUniqueId());
+    const saved = readTlSfxDirs();
+    if (saved[key] && fs.existsSync(saved[key])) return saved[key];
+    const dir = await scanFootageDir(tl);
+    if (!dir || !fs.existsSync(dir)) return null;
+    saved[key] = dir;
+    try { fs.mkdirSync(APP_DATA_DIR, { recursive: true }); fs.writeFileSync(TL_SFX_DIRS_FILE, JSON.stringify(saved, null, 2)); } catch (e) { /* reused this session only */ }
+    dlog('TIMELINE-SFX-DIR', key, dir);
+    return dir;
+}
+function sameFile(a, b) {
+    try {
+        const sa = fs.statSync(a), sb = fs.statSync(b);
+        return sa.size === sb.size && fs.readFileSync(a).equals(fs.readFileSync(b));
+    } catch (e) { return false; }
+}
+// The path to import: the timeline's copy of sfxPath (made when missing), or sfxPath itself when no copy can be made.
+async function projectSfxCopy(project, sfxPath) {
+    try {
+        if (path.basename(path.dirname(sfxPath)) === PROJECT_SFX_DIR) return sfxPath;      // already a timeline copy
+        const dir = await timelineSfxDir(project);
+        if (!dir) return sfxPath;
+        const outDir = path.join(dir, PROJECT_SFX_DIR);
+        fs.mkdirSync(outDir, { recursive: true });
+        let dst = path.join(outDir, path.basename(sfxPath));
+        if (fs.existsSync(dst) && !sameFile(sfxPath, dst)) {
+            // another sound under the same name (e.g. a re-edited cut): keep both, tag this one by its content
+            const tag = require('crypto').createHash('sha1').update(fs.readFileSync(sfxPath)).digest('hex').slice(0, 8);
+            const ext = path.extname(sfxPath);
+            dst = path.join(outDir, path.basename(sfxPath, ext) + ' ' + tag + ext);
+        }
+        if (!fs.existsSync(dst)) fs.copyFileSync(sfxPath, dst);
+        return dst;
+    } catch (e) {
+        dlog('PROJECT-SFX-COPY-FAIL', String(e && e.message || e));
+        return sfxPath;
+    }
+}
+// A kept preview's sound was placed from the library: its Media Pool clip is pointed at the timeline's copy instead.
+async function relinkToProjectCopy(project, sfxItem) {
+    try {
+        const mpi = await sfxItem.GetMediaPoolItem();
+        const cur = mpi ? String(await mpi.GetClipProperty('File Path') || '') : '';
+        if (!cur || !fs.existsSync(cur) || path.basename(path.dirname(cur)) === PROJECT_SFX_DIR) return;
+        const copy = await projectSfxCopy(project, cur);
+        if (copy !== cur) await mpi.ReplaceClip(copy);
+    } catch (e) { dlog('PROJECT-SFX-RELINK-FAIL', String(e && e.message || e)); }
+}
+
+// projectCopy: true when the subtitle is being applied (see projectSfxCopy); previews import from the library.
+async function importSfx(project, sfxPath, projectCopy) {
+    if (projectCopy) sfxPath = await projectSfxCopy(project, sfxPath);
     const mp = await project.GetMediaPool();
     const keep = await mp.GetCurrentFolder();
     let target = null;
@@ -205,17 +293,26 @@ async function importSfx(project, sfxPath) {
         if (!target) target = await mp.AddSubFolder(root, 'Subtitle Animator');
     } catch (e) { /* ignore */ }
     const want = path.basename(sfxPath);
-    if (target) {
+    // A clip is reused only when it is THIS file: matching the name alone picked up stale clips imported from an older
+    // data folder (e.g. ~/Documents/Subtitle Animator/sfx/applepay.mp3), which are offline once that folder is gone.
+    const samePath = async (c) => {
+        try { return path.resolve(String(await c.GetClipProperty('File Path') || '')) === path.resolve(sfxPath); } catch (e) { return false; }
+    };
+    const findSame = async () => {
         for (const c of ((await target.GetClipList()) || [])) {
-            if ((await c.GetName()) === want) return { mp, item: c };
+            if ((await c.GetName()) === want && await samePath(c)) return c;
         }
+        return null;
+    };
+    if (target) {
+        const hit = await findSame();
+        if (hit) return { mp, item: hit };
         try { await mp.SetCurrentFolder(target); } catch (e) { /* ignore */ }
     }
     let items = await mp.ImportMedia([sfxPath]);
     if ((!items || !items.length) && target) {
-        for (const c of ((await target.GetClipList()) || [])) {
-            if ((await c.GetName()) === want) { items = [c]; break; }
-        }
+        const hit = await findSame();
+        if (hit) items = [hit];
     }
     try { if (keep) await mp.SetCurrentFolder(keep); } catch (e) { /* ignore */ }
     return { mp, item: items && items[0] };
@@ -698,7 +795,7 @@ function layerList(req, anim) {
     const raw = (req && Array.isArray(req.sfxLayers)) ? req.sfxLayers : (anim && Array.isArray(anim.sfxLayers) ? anim.sfxLayers : []);
     return raw.filter(l => l && l.enabled !== false && l.file);
 }
-async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place) {
+async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy) {
     const out = [];
     if (!layers || !layers.length) return out;
     const tlStart = await tl.GetStartFrame();
@@ -706,7 +803,7 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
         try {
             const p = sfxFilePath(l.file);
             if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); continue; }
-            const { mp, item: mpi } = await importSfx(project, p);
+            const { mp, item: mpi } = await importSfx(project, p, projectCopy);
             if (!mpi) { warnings.push('Resolve could not import "' + path.basename(l.file) + '".'); continue; }
             const total = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
             const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(l.trimIn) || 0)));

@@ -18,7 +18,7 @@ const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
-    placeExtraSfx, sfxCutFor, sfxCutFrames, trackUsable
+    placeExtraSfx, relinkToProjectCopy, sfxCutFor, sfxCutFrames, trackUsable
 } = require('./placement');
 const { getProject, timelineMeta } = require('./resolve');
 
@@ -354,6 +354,7 @@ async function liveFinish(event, req) {
             const sfxItem = await findAudioItemById(tl, s.sfxId);
             regDel(s.sfxId);
             if (sfxItem) {
+                await relinkToProjectCopy(project, sfxItem);      // placed from the library while previewing
                 state.lastPlacedAudioId = String(s.sfxId);
                 try { const ti2 = await sfxItem.GetTrackTypeAndIndex(); sfxTrack = ti2 ? ti2[1] : null; } catch (e) { /* ignore */ }
                 const wantLink = req.linked !== false;
@@ -368,7 +369,7 @@ async function liveFinish(event, req) {
         } else if (req.useSfx !== false && sfxPath) {
             if (!fs.existsSync(sfxPath)) warnings.push('The sound effect file is missing.');
             else {
-                const { mp, item: mpi } = await importSfx(project, sfxPath);
+                const { mp, item: mpi } = await importSfx(project, sfxPath, true);      // kept = applied: the timeline keeps its own copy
                 if (!mpi) warnings.push('Resolve could not import the sound effect.');
                 else {
                     const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
@@ -397,7 +398,11 @@ async function liveFinish(event, req) {
         // layered sounds: the ones from the preview stay; if the preview had none, they are placed now
         try {
             if (s.extraIds && s.extraIds.length) {
-                for (const id of s.extraIds) regDel(id);
+                for (const id of s.extraIds) {
+                    regDel(id);
+                    const it = await findAudioItemById(tl, id);
+                    if (it) await relinkToProjectCopy(project, it);
+                }
                 for (const id of (s.extraLinkIds || [])) {
                     const it = await findAudioItemById(tl, id);
                     try { if (it && typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([item, it], true); } catch (e) { /* linking is optional */ }
@@ -405,7 +410,7 @@ async function liveFinish(event, req) {
             }
             else if (req.useSfx !== false) {
                 const extra = layerList(req, anim);
-                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings, req.place);
+                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings, req.place, true);
             }
         } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
         // remember the transform / link choice on the preset, like Add to timeline does

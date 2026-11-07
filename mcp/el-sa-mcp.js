@@ -24,7 +24,7 @@ Workflow for editing a video:
 3. list_subtitles, then plan. Read the subtitles as sentences, not as Resolve's cuts: a cut often falls mid-thought ("If this is the bar then it's" / "fine, but the bar is this."). Group the words by thought ("If this is the bar then" / "it's fine, but the bar is this."; "So yeah, watch this" / "shit man. Come on." -> "So yeah," / "watch this shit man." / "Come on."): never leave a word stranded from the phrase it belongs to. For such a run call regroup with the subtitle numbers and your phrases, then place each phrase with its text, subtitle, startFrame and endFrame. Plan which subtitles get an animation (not necessarily all of them; vary presets and avoid repeating the same one back to back), which preset fits each line (one-word / one-line / multi-line / money / emphasis presets by name and tag), and for MultiText presets which word(s) to emphasize (pass parts {upper, emphasis, lower} that together spell the subtitle).
 4. Layout: if the user gives a safe-zone reference image, call set_layout with its path (look at the image yourself and pass the labels you read as guideNames top to bottom / zoneNames). A layout only applies to timelines of the same shape as its image (a 9:16 social safe zone is ignored on a 16:9 timeline; get_layout says appliesToThisTimeline). When it applies, place keeps every clip inside its safe area and off its zones (shrinking textSize if needed), and the user can say e.g. "centre the subtitle on the captions line" (guide: "captions") or "in the captions area" (guide: "captions", align: "below").
 5. When rules.position.avoidFaces is true, call get_frame for the subtitle and look at it. Choose x/y (0..1, top-left origin = where the text's centre goes) so the text sits on empty space and never over a face, eyes or mouth, and stays inside the safe area. Check get_tracks if layer placement matters.
-6. Call place for each subtitle. Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
+6. Call place for each subtitle (once placed, its subtitle clip is disabled so it does not show under the animation; remove_placed re-enables it). Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
 7. Report what you placed, where, and any warnings.
 Show the user your plan before placing more than about 10 clips.`;
 
@@ -153,6 +153,7 @@ const TOOLS = [
             holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
             keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for this call and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
+            keepSubtitle: { type: 'boolean', description: 'true = leave the subtitle clip enabled. By default the subtitle clip(s) under the placed words are disabled once the animation is on the timeline (remove_placed turns them back on).' },
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
         }, ['subtitle', 'presetId'])
     },
@@ -227,8 +228,10 @@ async function callPlugin(tool, args) {
 }
 
 function toContent(result) {
-    if (result && result.image) {
-        return [{ type: 'image', data: result.image, mimeType: result.mime || 'image/jpeg' }, { type: 'text', text: result.note || '' }];
+    // Only a real frame (get_frame: base64 data + mime) is sent as an image. Other results can have an `image` field
+    // that is not picture data (get_layout's "1080x1920" size), which MCP clients reject as invalid base64.
+    if (result && typeof result.image === 'string' && result.mime) {
+        return [{ type: 'image', data: result.image, mimeType: result.mime }, { type: 'text', text: result.note || '' }];
     }
     return [{ type: 'text', text: JSON.stringify(result, null, 2) }];
 }

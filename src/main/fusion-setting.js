@@ -233,7 +233,9 @@ function parseTextStyle(filePath, savedDesign, toolName) {
     const def = {
         font: 'Poppins',
         style: 'Bold',
-        size: 0.12,
+        // Resolve's own Text+ default: a preset file with no Size input is inserted at 0.08. Any other value here makes
+        // designForFusion skip the Size write when the wanted size equals it, leaving the clip at 0.08.
+        size: 0.08,
         tracking: 1.0,
         lineSpacing: 1.0,
         vAnchor: 0, vJustify: 0, hAnchor: 0, hJustify: 0, direction: 0, lineDirection: 0, strikeout: 0, underline: 0,

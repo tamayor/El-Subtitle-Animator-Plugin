@@ -2,7 +2,7 @@
 // and timeline item lookups by id.
 
 module.exports = {
-    frameToTC, getProject, getSubtitles, listSubtitles, tcToFrame, timelineMeta
+    frameToTC, getProject, getSubtitles, listSubtitles, setSubtitlesEnabled, tcToFrame, timelineMeta
 };
 
 const WorkflowIntegration = require('./workflow-integration');
@@ -128,6 +128,30 @@ async function getSubtitles(tl, force) {
     list.forEach((item, i) => { item.index = i + 1; });
     state.subCache = { key, at: Date.now(), list };
     return list;
+}
+
+// Turns the subtitle clips under an animated caption off (or back on), so the subtitle track stops showing the same
+// words underneath the animation. range = { start, end } in timeline frames (the caption's own words, not a held
+// tail). A subtitle counts when it is mostly (half its length or more) inside the range, so a regrouped phrase
+// takes the subtitles it re-split. Returns the clips changed as [{ track, start, end, text }].
+async function setSubtitlesEnabled(tl, range, enabled) {
+    const out = [];
+    if (!tl || !range || !(range.end > range.start)) return out;
+    const tracks = (await tl.GetTrackCount('subtitle')) || 0;
+    for (let t = 1; t <= tracks; t++) {
+        if (range.track && Number(range.track) !== t) continue;
+        for (const it of ((await tl.GetItemListInTrack('subtitle', t)) || [])) {
+            try {
+                const s = await it.GetStart(), e = await it.GetEnd();
+                const overlap = Math.min(e, range.end) - Math.max(s, range.start);
+                if (overlap <= 0 || overlap * 2 < (e - s)) continue;
+                if (((await it.GetClipEnabled()) !== false) === !!enabled) continue;
+                if (await it.SetClipEnabled(!!enabled)) out.push({ track: t, start: s, end: e, text: await it.GetName() });
+            } catch (err) { /* one clip that will not switch does not stop the rest */ }
+        }
+    }
+    if (out.length) state.subCache.at = 0;
+    return out;
 }
 
 // The panel's subtitle list for the current timeline.

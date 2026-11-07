@@ -20,7 +20,7 @@ const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
     placeExtraSfx, relinkToProjectCopy, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
-const { getProject, timelineMeta } = require('./resolve');
+const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 
 
 // In/Out on the timeline around the preview clip, so Resolve plays (loops) just that range. The user's own In/Out
@@ -420,8 +420,14 @@ async function liveFinish(event, req) {
             const a2 = lib.animations.find(a => a.id === s.animId);
             if (a2) { a2.posX = Number(req.posX) || 0; a2.posY = Number(req.posY) || 0; a2.scale = Math.max(0.1, Math.min(5, Number(req.scale) || 1)); a2.rotation = Number(req.rotation) || 0; a2.linked = req.linked !== false; saveLib(lib); }
         } catch (e) { /* ignore */ }
+        // the preview is now a real clip: its subtitle clip is turned off, like Add to timeline does (see apply.js step 6)
+        let subtitlesDisabled = [];
+        if (req.disableSubtitle !== false) {
+            try { subtitlesDisabled = await setSubtitlesEnabled(tl, { start: Number(req.start), end: Number(req.end) }, false); }
+            catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
+        }
         state.subCache.at = 0;
-        return { ok: true, videoTrack: ((await item.GetTrackTypeAndIndex()) || [0, 0])[1], audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: await item.GetDuration(), warnings, trackNotes };
+        return { ok: true, subtitlesDisabled, videoTrack: ((await item.GetTrackTypeAndIndex()) || [0, 0])[1], audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: await item.GetDuration(), warnings, trackNotes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };
     } finally { state.applying = false; }

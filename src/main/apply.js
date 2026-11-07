@@ -23,7 +23,7 @@ const {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
     layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
 } = require('./placement');
-const { frameToTC, getProject, timelineMeta } = require('./resolve');
+const { frameToTC, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 
 async function apply(event, req) {
     const warnings = [];
@@ -317,8 +317,15 @@ async function apply(event, req) {
             else { try { if ((await tl.GetCurrentTimecode()) !== origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } }      // the preview goes where the playhead is; the playhead stays
         }
         { const w = cutCheck(live ? 'apply-live' : 'apply', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
+        // 6. The animation is on the timeline: turn its subtitle clip(s) off so the plain subtitle does not show
+        //    under it. Only for a real placement (a preview keeps the subtitle on); req.disableSubtitle = { start, end }.
+        let subtitlesDisabled = [];
+        if (!live && req.disableSubtitle) {
+            try { subtitlesDisabled = await setSubtitlesEnabled(tl, req.disableSubtitle, false); }
+            catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
+        }
         state.subCache.at = 0;
-        return { ok: true, live, itemId, videoTrack: vTrack, audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
+        return { ok: true, live, itemId, subtitlesDisabled, videoTrack: vTrack, audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };
     } finally {

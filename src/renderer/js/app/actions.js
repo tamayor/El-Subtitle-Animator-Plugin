@@ -71,13 +71,15 @@ async function create() {
         scale: Number(m.scale) || 1, rotation: Number(m.rotation) || 0,
         textDesign: m.textDesign || a.textDesign || null,
         sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined,
-        boxList: window.SABoxes ? SABoxes.payload(m, a, text) : []
+        boxList: window.SABoxes ? SABoxes.payload(m, a, text) : [],
+        disableSubtitle: s ? { start: s.start, end: s.end, track: s.track } : null      // the subtitle clip is turned off once placed
     });
     state.busy = false;
     if (res && res.ok) {
         const parts = ['Placed on V' + res.videoTrack, res.frames + ' frames'];
         if (res.audioTrack) parts.push('sound on A' + res.audioTrack + (res.linked ? ' (linked)' : ''));
         if (res.trackNotes && res.trackNotes.length) parts.push('(' + res.trackNotes.join(', ') + ')');
+        if (res.subtitlesDisabled && res.subtitlesDisabled.length) parts.push('subtitle clip disabled');
         if (window.SABoxes && res.liveNodes && res.liveNodes.length) parts.push(SABoxes.liveSummary(res.liveNodes));
         state.liveBg.key = '';
         refreshLiveBg();

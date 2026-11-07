@@ -22,7 +22,7 @@ const { settleNow } = require('./settle');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
-const { frameToTC, getProject, getSubtitles, timelineMeta } = require('./resolve');
+const { frameToTC, getProject, getSubtitles, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 const LAYOUT = require('./layout');
 const STACK = require('./stack');
 const { regroup } = require('./regroup');
@@ -789,19 +789,23 @@ const TOOLS = {
             boxList: boxListFor(a, nodes, text, parts, look, sizing),
             // the bridge sizes every MultiText layer together (sizes, boxes and the gaps between layers)
             multitext: (isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) ? sizing : null,
-            keepPresetDefaults: true      // automated positions are not saved into the preset
+            keepPresetDefaults: true,      // automated positions are not saved into the preset
+            // once placed, the subtitle clip(s) under the phrase's own words are turned off (not a measuring clip,
+            // not the held tail: later subtitles keep theirs until they are placed themselves)
+            disableSubtitle: (args._measure || args.keepSubtitle) ? null : { start: clipStart, end: clipEnd, track: sub.track }
         };
         if (args.dryRun) return { dryRun: true, preset: a.name, subtitle: sub.index, text, parts, textSize, request: Object.assign({}, req, { boxList: req.boxList.length + ' text layers' }), notes };
 
         state.lastPlacedAudioId = null;
         const res = await apply(null, req);
         if (!res || !res.ok) throw new Error((res && res.error) || 'Placement failed');
-        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined };
+        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined, subtitlesDisabled: res.subtitlesDisabled || [] };
         placed.push(rec);
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
         return {
             placed: true, itemId: res.itemId, preset: a.name, subtitle: sub.index, text, parts: parts || undefined,
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
+            subtitleClipsDisabled: (res.subtitlesDisabled || []).map(s => s.text),
             start: res.start, frames: res.frames, holdUntil: held || undefined, position: { posX, posY }, textSize,
             notes: notes.concat(res.trackNotes || []), warnings: res.warnings || []
         };
@@ -848,7 +852,17 @@ const TOOLS = {
         if (!items.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.' }; }
         const ok = await tl.DeleteClips(items, false);
         if (ok) placed.splice(i, 1);
-        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset };
+        // the subtitle clips this placement turned off come back on, unless another placed clip still covers them
+        let restored = 0;
+        if (ok) {
+            const key = (s) => s.track + ':' + s.start;
+            const still = new Set(placed.flatMap(p => (p.subtitlesDisabled || []).map(key)));
+            for (const s of (rec.subtitlesDisabled || [])) {
+                if (still.has(key(s))) continue;
+                try { restored += (await setSubtitlesEnabled(tl, { start: s.start, end: s.end, track: s.track }, true)).length; } catch (e) { /* ignore */ }
+            }
+        }
+        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset, subtitleClipsReEnabled: restored };
     }
 };
 

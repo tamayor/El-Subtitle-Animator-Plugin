@@ -75,16 +75,37 @@ function retimeTerms(s, T, name) {
 }
 
 // The AnimTime remap: the text node's time for comp time `time`.
+// Never past comp.RenderEnd: the text node only renders inside the clip, and asking it for a later frame (a clip shorter
+// than the preset's natural animation, N > D) fails the render, which Resolve shows as a fully black timeline frame.
 function remapExpr(name) {
     return ': local T = math.floor(tonumber(' + name + '.AnimFrames) or 0)\n' +
         'local S = math.max(0, math.floor(tonumber(' + name + '.AnimStart) or 0))\n' +
         'local N = tonumber(' + name + '.AnimNatural) or 1\n' +
         'local rel = time - comp.RenderStart - S\n' +
         'if rel <= 0 then return comp.RenderStart end\n' +
-        'if T <= 0 then return comp.RenderStart + rel end\n' +
+        'if T <= 0 then return math.min(comp.RenderStart + rel, comp.RenderEnd) end\n' +
         'local D = math.max(1, T - S)\n' +
-        'if rel < D then return comp.RenderStart + rel * N / D end\n' +
-        'return comp.RenderStart + N + rel - D';
+        'if rel < D then return math.min(comp.RenderStart + rel * N / D, comp.RenderEnd) end\n' +
+        'return math.min(comp.RenderStart + N + rel - D, comp.RenderEnd)';
+}
+
+// A preset that already has AnimStart but was saved with the unclamped remap (before the RenderEnd clamp): only its
+// SourceTime expression is replaced. Returns the text unchanged when it is already clamped or does not look as expected.
+function refreshRemap(s) {
+    try {
+        const at = toolMap(s).get('AnimTime');
+        if (!at) return s;
+        const atEnd = blockEndAt(s, at.open);
+        const ab = s.slice(at.open, atEnd + 1);
+        const nm = /tonumber\((\w+)\.AnimFrames\)/.exec(ab);
+        const exprRe = /(SourceTime = Input \{ Value = [-\d.]+, Expression = ")((?:[^"\\]|\\.)*)(")/;
+        const m = exprRe.exec(ab);
+        if (!nm || !m || m[2].includes('comp.RenderEnd')) return s;
+        const nb = ab.replace(exprRe, (m0, a, b, c) => a + luaLit(remapExpr(nm[1])) + c);
+        return s.slice(0, at.open) + nb + s.slice(atEnd + 1);
+    } catch (e) {
+        return s;
+    }
 }
 const START_INPUT = 'AnimStart = Input { Value = 0, },';
 const START_UC = 'AnimStart = { LINKS_Name = "Animation Start", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
@@ -92,11 +113,13 @@ const START_UC = 'AnimStart = { LINKS_Name = "Animation Start", LINKID_DataType 
     'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "Frame where the animation starts", }, ';
 
 // A preset retimed before AnimStart existed: the remap gets the start, the text node the AnimStart input and slider.
-// Returns the text unchanged when it is not retimed, already has AnimStart, or does not look as expected.
+// Returns the text unchanged when it is not retimed or does not look as expected; one that already has AnimStart only
+// gets its remap refreshed to the RenderEnd-clamped version (refreshRemap).
 function upgradeRetiming(s) {
     try {
         if (/\bTypingFrames = Input\b/.test(s)) return upgradeTyping(s);
-        if (!/\bAnimTime = TimeStretcher\b/.test(s) || /\bAnimStart = Input\b/.test(s)) return s;
+        if (!/\bAnimTime = TimeStretcher\b/.test(s)) return s;
+        if (/\bAnimStart = Input\b/.test(s)) return refreshRemap(s);
         const T = toolMap(s);
         const at = T.get('AnimTime');
         if (!at) return s;

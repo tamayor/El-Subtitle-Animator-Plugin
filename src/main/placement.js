@@ -8,7 +8,7 @@ module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, sfxCutFor, sfxCutFrames, titleKindFor, trackUsable
+    placeExtraSfx, sfxCutFor, sfxCutFrames, titleKindFor, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -563,6 +563,14 @@ function isTitleClipName(n) { return /^(Text\+|MultiText)/.test(String(n || ''))
 // The tool that feeds a preset's output (its MediaOut's SourceOp in the title template), e.g. "StopMotion1" for a
 // wiggle preset. Resolve connects an inserted title's MediaOut to "Template" regardless, so apply reconnects it to
 // this one (bridge op set_output). Null when the template cannot be read or has no MediaOut.
+// Word-by-word typing presets have a "Typing Frames" slider (0 = follow the clip length). Placement sets it from the
+// clip's length so the typing takes the clip minus 1 second (at least 10 frames, never past the last frame); extending
+// the clip afterwards then leaves the typing as it is, and the user can change it in the Inspector.
+function typingFramesFor(len, fps) {
+    const n = Math.round(Number(len) || 0);
+    if (n < 2) return 1;
+    return Math.max(1, Math.min(n - 1, Math.max(10, n - Math.round(Number(fps) || 25))));
+}
 function presetOutputFor(title) {
     try {
         const s = fs.readFileSync(path.join(titlesDir(), title + '.setting'), 'utf8');

@@ -21,7 +21,7 @@ const {
 const { ensureStopped } = require('./playback');
 const {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor
+    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
 } = require('./placement');
 const { frameToTC, getProject, timelineMeta } = require('./resolve');
 
@@ -179,17 +179,18 @@ async function apply(event, req) {
         }
         if (!compName) { const names = (await item.GetFusionCompNameList()) || []; compName = names[names.length - 1]; }
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null);
+        const typingFrames = typingFramesFor(finalLen || want, meta.fps);
         let liveNodes = null;
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
                 // multitext: automation's sizing for MultiText presets ({ textSize, maxSize, lineSpacing }, see fusion_bridge.size_multitext)
-                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign, multitext: req.multitext || null });
+                const r = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList), textDesign, multitext: req.multitext || null, typingFrames });
                 liveNodes = r && r.nodes;
                 if (r && r.unscaled && r.unscaled.length) warnings.push('Not resized (animated): ' + r.unscaled.join(', ') + '.');
                 if (r && r.capped) warnings.push('MultiText size capped at maxSize.');
                 if (r && r.missing && r.missing.length) warnings.push('Not found in Fusion: ' + r.missing.join(', ') + '.');
                 if (r && r.fixedPosition && r.fixedPosition.length) warnings.push('Position not changed (animated or not published): ' + r.fixedPosition.join(', ') + '.');
-            } else if (!(await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign }))) {
+            } else if (!(await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames }))) {
                 warnings.push('The animation has no Text+ node to put the text in.');
             }
         } catch (e) {

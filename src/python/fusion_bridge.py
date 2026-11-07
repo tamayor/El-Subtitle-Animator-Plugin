@@ -323,6 +323,18 @@ def wake_effects(comp):
 wake_followers = wake_effects   # older name
 
 
+def set_typing_frames(comp, frames):
+    """Word-by-word typing presets: their "Typing Frames" slider = how long the typing takes on this clip."""
+    if frames is None:
+        return
+    for tool in tool_list(comp):
+        try:
+            if get_in(tool, "TypingFrames") is not None:
+                tool.SetInput("TypingFrames", int(frames))
+        except Exception:
+            pass
+
+
 def op_set_text(a):
     comp = get_comp(a["item"], a.get("comp"))
     found = False
@@ -344,6 +356,7 @@ def op_set_text(a):
                 apply_text_design(tool, a["textDesign"])
             found = True
             break
+    set_typing_frames(comp, a.get("typingFrames"))
     wake_effects(comp)
     return found
 
@@ -605,6 +618,7 @@ def op_set_boxes(a):
                 r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
                 unscaled += r["skipped"]
                 capped = capped or r["capped"]
+    set_typing_frames(comp, a.get("typingFrames"))
     wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 

@@ -18,7 +18,7 @@ const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
-    placeExtraSfx, relinkToProjectCopy, sfxCutFor, sfxCutFrames, trackUsable
+    placeExtraSfx, relinkToProjectCopy, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
 const { getProject, timelineMeta } = require('./resolve');
 
@@ -241,9 +241,9 @@ async function liveUpdate(event, req) {
         }
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign });
+                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps) });
             } else {
-                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign });
+                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps) });
             }
         } catch (e) { warnings.push('Could not set the text: ' + e.message); }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }

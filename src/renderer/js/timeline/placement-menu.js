@@ -4,16 +4,22 @@
 const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty', loopOn: 'placeLoopOn' };
 // Track range: "Between tracks V<from> to V<to>" (to empty = no upper limit). null = not set.
 const PLACE_RANGE_IDS = { rangeFrom: 'placeRangeFrom', rangeTo: 'placeRangeTo' };
-function placeRangeVal(id) {
+// Audio tracks for the sound effects: 'any' (lowest free) | 'same' (as the video range) | 'own' (A<from> to A<to>)
+const PLACE_AUDIO_RANGE_IDS = { audioFrom: 'placeAudioFrom', audioTo: 'placeAudioTo' };
+function placeRangeVal(id, min) {
     const e = $(id); if (!e) return null;
     const n = Math.round(Number(e.value));
-    return (e.value !== '' && Number.isFinite(n) && n >= 2) ? n : null;
+    return (e.value !== '' && Number.isFinite(n) && n >= (min || 2)) ? n : null;
 }
 function placeOptions() {
     const o = {};
     for (const k in PLACE_IDS) { const e = $(PLACE_IDS[k]); o[k] = !!(e && e.checked); }
     for (const k in PLACE_RANGE_IDS) o[k] = placeRangeVal(PLACE_RANGE_IDS[k]);
     if (o.rangeFrom && o.rangeTo && o.rangeTo < o.rangeFrom) o.rangeTo = o.rangeFrom;
+    const am = $('placeAudioMode');
+    o.audioMode = am && (am.value === 'same' || am.value === 'own') ? am.value : 'any';
+    for (const k in PLACE_AUDIO_RANGE_IDS) o[k] = placeRangeVal(PLACE_AUDIO_RANGE_IDS[k], 1);
+    if (o.audioFrom && o.audioTo && o.audioTo < o.audioFrom) o.audioTo = o.audioFrom;
     return o;
 }
 function placeRangeActive(o) { return !!(o.rangeFrom || o.rangeTo); }
@@ -57,10 +63,28 @@ function bindPlacementMenu() {
             save();
         });
     }
+    const am = $('placeAudioMode');
+    if (am) {
+        am.value = (saved.audioMode === 'same' || saved.audioMode === 'own') ? saved.audioMode : 'any';
+        am.addEventListener('change', save);
+    }
+    for (const k in PLACE_AUDIO_RANGE_IDS) {
+        const e = $(PLACE_AUDIO_RANGE_IDS[k]); if (!e) continue;
+        e.value = saved[k] ? String(saved[k]) : '';
+        e.addEventListener('change', () => {
+            const v = placeRangeVal(PLACE_AUDIO_RANGE_IDS[k], 1);
+            e.value = v ? String(v) : '';
+            const o = placeOptions();
+            if (o.audioTo && $(PLACE_AUDIO_RANGE_IDS.audioTo)) $(PLACE_AUDIO_RANGE_IDS.audioTo).value = String(o.audioTo);
+            save();
+        });
+    }
     const syncPlaceUI = () => {
         const o = placeOptions();
         const range = placeRangeActive(o);
-        const n = Object.keys(PLACE_IDS).filter(k => o[k]).length + (range ? 1 : 0);
+        const own = $('placeAudioOwn');
+        if (own) own.classList.toggle('hidden', o.audioMode !== 'own');
+        const n = Object.keys(PLACE_IDS).filter(k => o[k]).length + (range ? 1 : 0) + (o.audioMode !== 'any' ? 1 : 0);
         const summary = $('placeSummaryU');
         const rangeTxt = range ? 'V' + (o.rangeFrom || 2) + '–' + (o.rangeTo ? 'V' + o.rangeTo : '∞') : '';
         if (summary) {

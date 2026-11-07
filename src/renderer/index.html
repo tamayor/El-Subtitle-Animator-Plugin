@@ -207,6 +207,18 @@
                                             <span>Between tracks</span>
                                             <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
                                         </div>
+                                        <div class="place-range place-audio" title="Which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as video range: the same numbers as Between tracks (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
+                                            <span>Audio tracks</span>
+                                            <select id="placeAudioMode">
+                                                <option value="any">Any free track</option>
+                                                <option value="same">Same as video range</option>
+                                                <option value="own">Own range</option>
+                                            </select>
+                                        </div>
+                                        <div id="placeAudioOwn" class="place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
+                                            <span>Audio between</span>
+                                            <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
+                                        </div>
                                         <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
                                         <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
                                         <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>
@@ -459,10 +471,20 @@
                     </div>
                     <div class="pr-saved">
                         <span class="pb-add-label">Saved prompts</span>
-                        <select id="promptSavedSel" title="Load a saved prompt exactly as it was saved"></select>
-                        <input id="promptSavedTitle" type="text" placeholder="Title" spellcheck="false">
-                        <button id="promptSavedSave" class="primary" title="Save the current prompt, as it is, under this title">Save prompt</button>
-                        <button id="promptSavedDelete" class="ghost" title="Delete the selected saved prompt">Delete</button>
+                        <div class="pr-saved-row">
+                            <select id="promptSavedSel" title="Load a saved prompt exactly as it was saved"></select>
+                            <button id="promptSavedToggle" class="icon-btn" title="Save or delete prompts"
+                                aria-label="Save or delete prompts" aria-expanded="false" aria-controls="promptSavedEdit">
+                                <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+                                    <path d="M2 1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.4a1 1 0 0 0-.3-.7l-2.4-2.4a1 1 0 0 0-.7-.3H2zm1 1h1.5v3h6V2h.3L13 4.2V14h-1V9.5a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V14H3V2zm2.5 0h4v2h-4V2zM5 10h6v4H5v-4z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="promptSavedEdit" class="pr-saved-edit hidden">
+                            <input id="promptSavedTitle" type="text" placeholder="Title" spellcheck="false">
+                            <button id="promptSavedSave" class="pr-saved-btn" title="Save the current prompt, as it is, under this title">Save</button>
+                            <button id="promptSavedDelete" class="ghost pr-saved-btn" title="Delete the selected saved prompt">Delete</button>
+                        </div>
                     </div>
                     <div id="promptBuilderWrap">
                         <div id="promptBuilder"></div>

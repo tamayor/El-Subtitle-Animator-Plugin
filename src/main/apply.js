@@ -87,7 +87,7 @@ async function apply(event, req) {
                     // the original file, cut by the preset's settings (nothing rendered): trim / length / fade-out
                     const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, sfxEnd));
                     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-                    const sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes);
+                    const sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes, req.place);
                     sfxInfo = { mp, mpi, cut, sfxStart, sfxTrack };
                 }
             }
@@ -280,7 +280,7 @@ async function apply(event, req) {
         // 4b. Layered sounds: extra sound effects of the preset, each aligned to the text start or end.
         if (!live && req.useSfx !== false) {
             const extra = layerList(req, anim);
-            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings);
+            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place);
         }
 
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can
@@ -304,7 +304,7 @@ async function apply(event, req) {
             let extraIds = [], extraLinkIds = [];
             try {
                 if (req.useSfx !== false) {
-                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, trackNotes, null, itemId, warnings);
+                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, trackNotes, null, itemId, warnings, req.place);
                     extraIds = extra.map(x => x.id);
                     extraLinkIds = extra.filter(x => x.link).map(x => x.id);
                 }

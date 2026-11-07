@@ -21,7 +21,7 @@ const INSTRUCTIONS = `El Subtitle Animator turns a DaVinci Resolve timeline's su
 Workflow for editing a video:
 1. Call get_rules first and follow them. The user's "notes" are their own editing rules. If the user states rules for this video (allowed emoji tags, font, text colour, emphasis font/colour, layer, placement, max text size, line spacing), save them with set_rules before placing anything. When the font/colour override should only apply to some presets, pass keepPresetStyle: true on place for the others.
 2. list_presets returns only presets allowed by the rules' tags. Never use a preset outside that list.
-3. list_subtitles, then plan: which subtitles get an animation (not necessarily all of them; vary presets and avoid repeating the same one back to back), which preset fits each line (one-word / one-line / multi-line / money / emphasis presets by name and tag), and for MultiText presets which word(s) to emphasize (pass parts {upper, emphasis, lower} that together spell the subtitle).
+3. list_subtitles, then plan. Read the subtitles as sentences, not as Resolve's cuts: a cut often falls mid-thought ("If this is the bar then it's" / "fine, but the bar is this."). Group the words by thought ("If this is the bar then" / "it's fine, but the bar is this."; "So yeah, watch this" / "shit man. Come on." -> "So yeah," / "watch this shit man." / "Come on."): never leave a word stranded from the phrase it belongs to. For such a run call regroup with the subtitle numbers and your phrases, then place each phrase with its text, subtitle, startFrame and endFrame. Plan which subtitles get an animation (not necessarily all of them; vary presets and avoid repeating the same one back to back), which preset fits each line (one-word / one-line / multi-line / money / emphasis presets by name and tag), and for MultiText presets which word(s) to emphasize (pass parts {upper, emphasis, lower} that together spell the subtitle).
 4. Layout: if the user gives a safe-zone reference image, call set_layout with its path (look at the image yourself and pass the labels you read as guideNames top to bottom / zoneNames). A layout only applies to timelines of the same shape as its image (a 9:16 social safe zone is ignored on a 16:9 timeline; get_layout says appliesToThisTimeline). When it applies, place keeps every clip inside its safe area and off its zones (shrinking textSize if needed), and the user can say e.g. "centre the subtitle on the captions line" (guide: "captions") or "in the captions area" (guide: "captions", align: "below").
 5. When rules.position.avoidFaces is true, call get_frame for the subtitle and look at it. Choose x/y (0..1, top-left origin = where the text's centre goes) so the text sits on empty space and never over a face, eyes or mouth, and stays inside the safe area. Check get_tracks if layer placement matters.
 6. Call place for each subtitle. Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
@@ -46,6 +46,14 @@ const TOOLS = [
                 type: 'object',
                 properties: { normal: { type: 'number', minimum: 0, maximum: 100 }, emphasis: { type: 'number', minimum: 0, maximum: 100 } },
                 description: 'Percent of the clips that get the overrides; the rest keep the preset\'s default look, spread evenly (50 = every other clip, 20 = one in five). normal = font/color/kindStyle, emphasis = the MultiText emphasis. Default 100. From the prompt\'s "override N%".'
+            },
+            styleExcept: {
+                type: 'object',
+                properties: {
+                    normal: { type: ['object', 'null'], properties: { tags: { type: 'array', items: { type: 'string' } }, keep: { type: 'string', enum: ['both', 'font', 'color'] } } },
+                    emphasis: { type: ['object', 'null'], properties: { tags: { type: 'array', items: { type: 'string' } }, keep: { type: 'string', enum: ['both', 'font', 'color'] } } }
+                },
+                description: 'Presets with one of these tags skip the overrides. keep: both = their own font and colour, font = their own font (the colour override still applies), color = their own colour (the font override still applies). normal = font/color/kindStyle, emphasis = the MultiText emphasis. null = no exception. From the prompt\'s "except TAG, TAG (keep font & colour | keep font | keep colour)". place enforces it on its own, no keepPresetStyle needed.'
             },
             kindStyle: {
                 type: 'object',
@@ -139,6 +147,8 @@ const TOOLS = [
             parts: { type: 'object', properties: { upper: { type: 'string' }, emphasis: { type: 'string' }, lower: { type: 'string' } }, description: 'MultiText presets: how the subtitle splits into the upper line, the emphasized word(s) and the lower line' },
             track: { type: 'integer', minimum: 2, description: 'Force a video layer for this clip (overrides the rules)' },
             trackRange: { type: 'object', properties: { from: { type: ['integer', 'null'], minimum: 2 }, to: { type: ['integer', 'null'], minimum: 2 } }, additionalProperties: false, description: 'Only when the user\'s prompt names tracks: keep the clip between V<from> and V<to> (to null = no limit), starting at V<from> and moving up past locked, disabled or busy tracks, past the range only when it is full. Overrides the rules\' range and the panel\'s Placement range for this call.' },
+            startFrame: { type: 'integer', minimum: 0, description: 'A phrase regrouped by thought (from regroup): the clip starts here instead of at the subtitle\'s start' },
+            endFrame: { type: 'integer', minimum: 1, description: 'A phrase regrouped by thought (from regroup): the clip and its sound end here instead of at the subtitle\'s end' },
             holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
             keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for this call and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
@@ -177,6 +187,14 @@ const TOOLS = [
             sound: { type: 'boolean', description: 'false = no sound effects' },
             keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for every line and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
         }, ['subtitles', 'presetId'])
+    },
+    {
+        name: 'regroup',
+        description: 'Re-split consecutive subtitles into phrases by thought, when Resolve\'s cuts break a thought apart (e.g. subtitles "If this is the bar then it\'s" + "fine, but the bar is this." -> phrases "If this is the bar then" + "it\'s fine, but the bar is this."). The phrases must spell the subtitles\' words in order (punctuation may differ). Each word is timed inside its own subtitle by its length; returns each phrase\'s startFrame / endFrame and anchor subtitle, ready for place.',
+        inputSchema: S({
+            subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Consecutive subtitle numbers' },
+            phrases: { type: 'array', items: { type: 'string' }, description: 'The text as it should read, one phrase per clip, in order' }
+        }, ['subtitles', 'phrases'])
     },
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },
     { name: 'remove_placed', description: 'Remove a clip placed through this tool (and its sound) from the timeline.', inputSchema: S({ itemId: { type: 'string' } }, ['itemId']) }

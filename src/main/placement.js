@@ -41,9 +41,26 @@ function rangeOf(o) {
     if (to !== null && to < from) to = from;
     return { rangeFrom: from, rangeTo: to, ranged: int(o.rangeFrom) !== null || to !== null };
 }
+// Audio tracks for the sound effects (audioMode):
+//   'any'  (default) the lowest free audio track
+//   'same' the same numbers as the video track range (V3-V5 -> A3-A5); no video range set = 'any'
+//   'own'  its own range A<audioFrom> to A<audioTo> (audioTo null = no upper limit)
+function audioRangeOf(o, vr) {
+    const int = (v) => { if (v === null || v === undefined || v === '') return null; const n = Math.round(Number(String(v).replace(/^a/i, ''))); return Number.isFinite(n) && n > 0 ? n : null; };
+    const mode = (o.audioMode === 'same' || o.audioMode === 'own') ? o.audioMode : 'any';
+    if (mode === 'same' && vr.ranged) return { audioMode: 'same', audioFrom: vr.rangeFrom, audioTo: vr.rangeTo, audioRanged: true };
+    if (mode === 'own') {
+        const from = int(o.audioFrom) || 1;
+        let to = int(o.audioTo);
+        if (to !== null && to < from) to = from;
+        if (int(o.audioFrom) !== null || to !== null) return { audioMode: 'own', audioFrom: from, audioTo: to, audioRanged: true };
+    }
+    return { audioMode: mode, audioFrom: 1, audioTo: null, audioRanged: false };
+}
 function placeOpts(o) {
     o = o || {};
-    return Object.assign({ locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }, rangeOf(o));
+    const vr = rangeOf(o);
+    return Object.assign({ locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }, vr, audioRangeOf(o, vr));
 }
 
 async function trackUsable(tl, kind, t) {
@@ -82,7 +99,8 @@ async function trackIsFree(tl, kind, t, s, e) {
 // Auto (video) = the top: one track above the highest track that counts as occupied at that moment (see the
 // placement options), never a gap lower down; or the lowest empty layer with "first empty layer". With a track range
 // (rangeFrom / rangeTo): the first usable empty layer from rangeFrom up, past the range when it is full. A new track is
-// added when there is none. Auto (audio) = the lowest free audio track.
+// added when there is none. Auto (audio) = the lowest free audio track, or with an audio range (see audioRangeOf) the
+// first free usable track from audioFrom up, past the range when it is full.
 async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
     const n = await tl.GetTrackCount(kind);
     const label = (kind === 'audio' ? 'A' : 'V');
@@ -133,6 +151,27 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
         }
         await tl.AddTrack('video');
         notes.push(ranged ? (label + lo + '-' + label + hi + ' are all taken there, added ' + label + (n + 1) + ' above the range') : ('no empty layer, added ' + label + (n + 1)));
+        return n + 1;
+    }
+    if (kind === 'audio' && po.audioRanged) {
+        const lo = Math.max(firstAuto, po.audioFrom), hi = po.audioTo === null ? Infinity : po.audioTo;
+        const span = 'A' + lo + '-' + (hi === Infinity ? '∞' : 'A' + hi);
+        for (let t = lo; t <= Math.min(n, hi); t++) {
+            if (!(await trackUsable(tl, kind, t))) continue;
+            if (await trackIsFree(tl, kind, t, s, e)) return t;
+        }
+        if (n < hi) {                                   // room in the range for new tracks
+            const target = Math.max(lo, n + 1);
+            for (let c = n; c < target; c++) await tl.AddTrack('audio', 'stereo');
+            notes.push('audio range ' + span + ': no free track yet, added A' + (n + 1) + (target > n + 1 ? '-A' + target : ''));
+            return target;
+        }
+        for (let t = hi + 1; t <= n; t++) {
+            if (!(await trackUsable(tl, kind, t))) continue;
+            if (await trackIsFree(tl, kind, t, s, e)) { notes.push(span + ' are all taken there, so A' + t + ' (above the range) was used'); return t; }
+        }
+        await tl.AddTrack('audio', 'stereo');
+        notes.push(span + ' are all taken there, added A' + (n + 1) + ' above the range');
         return n + 1;
     }
     for (let t = firstAuto; t <= n; t++) {
@@ -648,7 +687,7 @@ function layerList(req, anim) {
     const raw = (req && Array.isArray(req.sfxLayers)) ? req.sfxLayers : (anim && Array.isArray(anim.sfxLayers) ? anim.sfxLayers : []);
     return raw.filter(l => l && l.enabled !== false && l.file);
 }
-async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings) {
+async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place) {
     const out = [];
     if (!layers || !layers.length) return out;
     const tlStart = await tl.GetStartFrame();
@@ -670,7 +709,7 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             len = Math.max(1, len);
             let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);
             start = Math.max(tlStart, start);
-            const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes);
+            const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes, place);
             const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: start, startFrame: trimIn, endFrame: trimIn + len }]);
             if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed.'); continue; }
             const it = placed[0];

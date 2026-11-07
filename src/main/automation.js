@@ -25,6 +25,7 @@ const { dlog } = require('./log');
 const { frameToTC, getProject, getSubtitles, timelineMeta } = require('./resolve');
 const LAYOUT = require('./layout');
 const STACK = require('./stack');
+const { regroup } = require('./regroup');
 
 const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'mcp-endpoint.json');
@@ -52,6 +53,9 @@ function defaultRules() {
         // % of the clips that get the overrides (normal = font / color / kindStyle, emphasis = emphasis); the rest keep
         // the preset's default look. Spread evenly: 50 = every other clip, 20 = one clip in five.
         styleShare: { normal: 100, emphasis: 100 },
+        // presets with one of these tags skip the overrides: keep 'both' = their own font and colour, 'font' = their own
+        // font (the colour override still applies), 'color' = their own colour (the font override still applies)
+        styleExcept: { normal: null, emphasis: null },
         // 'top' above all clips there, 'first-empty' lowest free layer, 'fixed' V<fixed>; from / to = keep the layer
         // between V<from> and V<to> (to null = no limit; null both = the panel's Placement range)
         track: { mode: 'top', fixed: null, from: null, to: null },
@@ -89,6 +93,10 @@ function cleanRules(r) {
         styleShare: {
             normal: num(r.styleShare && r.styleShare.normal, 0, 100, 100),
             emphasis: num(r.styleShare && r.styleShare.emphasis, 0, 100, 100)
+        },
+        styleExcept: {
+            normal: cleanExcept(r.styleExcept && r.styleExcept.normal),
+            emphasis: cleanExcept(r.styleExcept && r.styleExcept.emphasis)
         },
         kindStyle: {
             textplus: cleanEmphasis(r.kindStyle && r.kindStyle.textplus),
@@ -136,6 +144,15 @@ function cleanHex(v) {
     let s = String(v === null || v === undefined ? '' : v).trim().replace(/^#/, '').toLowerCase();
     if (/^[0-9a-f]{3}$/.test(s)) s = s.split('').map(c => c + c).join('');
     return /^[0-9a-f]{6}$/.test(s) ? '#' + s : null;
+}
+
+// { tags: [...], keep: 'both' | 'font' | 'color' } or null (no exception)
+function cleanExcept(x) {
+    if (!x || typeof x !== 'object') return null;
+    const tags = (Array.isArray(x.tags) ? x.tags : []).map(t => String(t).trim()).filter(Boolean).slice(0, 50);
+    if (!tags.length) return null;
+    const k = String(x.keep || 'both').toLowerCase();
+    return { tags, keep: /^font$/.test(k) ? 'font' : (/^colou?r$/.test(k) ? 'color' : 'both') };
 }
 
 function cleanEmphasis(e) {
@@ -191,6 +208,7 @@ function tagMatches(t, token) {
     if (!k) return false;
     if (t.id === k || t.name.toLowerCase() === k.toLowerCase()) return true;
     if (!t.emoji) return false;
+    if ((t.emoji + ' ' + t.name).toLowerCase() === k.toLowerCase()) return true;      // the panel's label, "🔥 Danger"
     return bare(t.emoji) === bare(k) || graphemes(t.emoji).some(e => bare(e) === bare(k));
 }
 
@@ -322,9 +340,9 @@ function boxListFor(a, nodes, text, parts, look, sizing) {
         };
         if (n.kind === 'multitext') {
             const em = (L.emphasis && n.layer === emLayer) ? L.emphasis : null;
-            const f = (em && em.font) ? { font: em.font, style: em.style } : font;
+            const f = (em && em.font) ? { font: em.font, style: em.style } : ((em && em.keepFont) ? null : font);
             if (f) { out.font = f.font; out.style = f.style; }
-            const c = (em && em.color) || L.color || null;
+            const c = (em && em.color) || ((em && em.keepColor) ? null : L.color) || null;
             if (c) out.color = c;
         }
         return out;
@@ -414,6 +432,7 @@ const TOOLS = {
         if (args && args.emphasis && cur.emphasis) next.emphasis = Object.assign({}, cur.emphasis, args.emphasis);
         if (args && args.styleShare) next.styleShare = Object.assign({}, cur.styleShare, args.styleShare);
         if (args && args.kindStyle) next.kindStyle = Object.assign({}, cur.kindStyle, args.kindStyle);
+        if (args && args.styleExcept) next.styleExcept = Object.assign({}, cur.styleExcept, args.styleExcept);
         const saved = saveRules(next);
         const { unknown } = resolveTags(loadLib(), saved.allowedTags);
         return Object.assign({ saved: true }, saved, unknown.length ? { warning: 'No tag matches: ' + unknown.join(', ') } : {});
@@ -599,14 +618,33 @@ const TOOLS = {
         const share = rules.styleShare || {};
         const hasNormal = !!(rules.font || rules.color || (rules.kindStyle && (rules.kindStyle.textplus || rules.kindStyle.multitext)));
         const keepLook = args.keepPresetStyle === true;
-        const useNormal = !keepLook && hasNormal && takeShare('normal', share.normal, peek);
-        const useEm = !keepLook && isMT && !!rules.emphasis && takeShare('emphasis', share.emphasis, peek);
+        // styleExcept: presets with one of the listed tags keep their own font and / or colour
+        const exceptFor = (x) => {
+            if (!x) return null;
+            const { ids } = resolveTags(lib, x.tags);
+            return (ids.length && passes(a, ids, 'any')) ? x.keep : null;
+        };
+        const exN = exceptFor(rules.styleExcept && rules.styleExcept.normal);
+        const exE = exceptFor(rules.styleExcept && rules.styleExcept.emphasis);
+        if (exN) notes.push('text style: preset keeps its own ' + (exN === 'both' ? 'font and colour' : (exN === 'font' ? 'font' : 'colour')) + ' (tag exception)');
+        if (exE && isMT) notes.push('emphasis: preset keeps its own ' + (exE === 'both' ? 'font and colour' : (exE === 'font' ? 'font' : 'colour')) + ' (tag exception)');
+        const useNormal = !keepLook && exN !== 'both' && hasNormal && takeShare('normal', share.normal, peek);
+        const useEm = !keepLook && exE !== 'both' && isMT && !!rules.emphasis && takeShare('emphasis', share.emphasis, peek);
         if (hasNormal && !keepLook && !useNormal) notes.push('text style: preset default (override share ' + share.normal + '%)');
         if (isMT && rules.emphasis && !keepLook && !useEm) notes.push('emphasis: preset default (override share ' + share.emphasis + '%)');
         // a pair for this kind of preset (Text+ / MultiText) beats the general font / color
         const ks = (rules.kindStyle && rules.kindStyle[isMT ? 'multitext' : 'textplus']) || null;
-        const font = useNormal ? ((ks && ks.font) ? { font: ks.font, style: ks.style } : (rules.font || null)) : null;
-        const look = (useNormal || useEm) ? { font, color: useNormal ? ((ks && ks.color) || rules.color || null) : null, emphasis: useEm ? rules.emphasis : null } : null;
+        const font = (useNormal && exN !== 'font') ? ((ks && ks.font) ? { font: ks.font, style: ks.style } : (rules.font || null)) : null;
+        const normColor = (useNormal && exN !== 'color') ? ((ks && ks.color) || rules.color || null) : null;
+        // the emphasis layer: its own override, minus what the exception keeps; an exception also stops the normal
+        // font / colour from reaching the emphasis layer (keepFont / keepColor)
+        let emLook = useEm ? Object.assign({}, rules.emphasis) : null;
+        if (isMT && exE) {
+            emLook = Object.assign({}, emLook || {});
+            if (exE !== 'color') { emLook.font = null; emLook.style = null; emLook.keepFont = true; }
+            if (exE !== 'font') { emLook.color = null; emLook.keepColor = true; }
+        }
+        const look = (font || normColor || emLook) ? { font, color: normColor, emphasis: emLook } : null;
         let textDesign = parseTextStyle(fs.existsSync(compPath) ? compPath : null, a.textDesign) || null;
         if (font) textDesign = Object.assign({}, textDesign || {}, { font: font.font }, font.style ? { style: font.style } : {});
         if (look && look.color && !isMT) textDesign = withFillColor(textDesign, look.color);
@@ -709,13 +747,27 @@ const TOOLS = {
             locked: !!pp.locked, disabledTrack: !!pp.disabledTrack, disabledClip: !!pp.disabledClip,
             firstEmpty: rules.track.mode === 'first-empty' || !!pp.firstEmpty,
             rangeFrom: tr ? (tr.from || null) : pp.rangeFrom,
-            rangeTo: tr ? (tr.to || null) : pp.rangeTo
+            rangeTo: tr ? (tr.to || null) : pp.rangeTo,
+            audioMode: pp.audioMode, audioFrom: pp.audioFrom, audioTo: pp.audioTo
         };
         if (args.track) textTrack = Math.max(2, Math.round(Number(String(args.track).replace(/^v/i, ''))) || 0);
         else if (rules.track.mode === 'fixed' && rules.track.fixed) textTrack = rules.track.fixed;
 
+        // a phrase regrouped by thought (see regroup): its own start / end frames instead of the subtitle's
+        let clipStart = sub.start, clipEnd = sub.end;
+        const hasStart = args.startFrame !== undefined && args.startFrame !== null;
+        const hasEnd = args.endFrame !== undefined && args.endFrame !== null;
+        if (hasStart || hasEnd) {
+            if (args.holdUntil) throw new Error('Use either startFrame / endFrame or holdUntil, not both');
+            if (hasStart) clipStart = Math.round(Number(args.startFrame));
+            if (hasEnd) clipEnd = Math.round(Number(args.endFrame));
+            if (!Number.isFinite(clipStart) || !Number.isFinite(clipEnd) || clipEnd <= clipStart) throw new Error('endFrame must come after startFrame');
+            notes.push('timed as a regrouped phrase: frames ' + clipStart + '-' + clipEnd + ' (' + (clipEnd - clipStart) + ' frames)');
+            if (clipEnd - clipStart < 12) notes.push('only ' + (clipEnd - clipStart) + ' frames on screen: the animation may not finish');
+        }
+
         // hold the text on screen until a later subtitle ends (stacked consecutive captions); the sound is not extended
-        let holdEnd = sub.end, held = null;
+        let holdEnd = clipEnd, held = null;
         if (args.holdUntil) {
             const later = await subtitleAt(tl, args.holdUntil);
             if (later.end <= sub.end) throw new Error('holdUntil must be a later subtitle (subtitle ' + later.index + ' ends before ' + sub.index + ')');
@@ -724,7 +776,7 @@ const TOOLS = {
         }
 
         const req = {
-            animationId: a.id, text, start: sub.start, end: holdEnd, sfxEnd: held ? sub.end : undefined,
+            animationId: a.id, text, start: clipStart, end: holdEnd, sfxEnd: held ? sub.end : undefined,
             textOffset: a.textOffset || 0, sfxOffset: a.sfxOffset || 0, sfxVolume: a.sfxVolume, tail: a.tail || 0,
             textTrack, sfxTrack: a.sfxTrack || 0, place,
             useSfx: rules.sound && args.sound !== false && a.useSfx !== false,
@@ -749,6 +801,23 @@ const TOOLS = {
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
             start: res.start, frames: res.frames, holdUntil: held || undefined, position: { posX, posY }, textSize,
             notes: notes.concat(res.trackNotes || []), warnings: res.warnings || []
+        };
+    },
+
+    // Consecutive subtitles re-split into phrases by thought, each timed from its own words (see regroup.js).
+    async regroup(args) {
+        args = args || {};
+        const { tl, meta } = await currentTimeline();
+        const subs = await getSubtitles(tl, true);
+        const want = (Array.isArray(args.subtitles) ? args.subtitles : []).map(Number);
+        if (!want.length) throw new Error('Give the subtitle numbers to regroup');
+        const picked = want.map(n => { const s = subs.find(x => x.index === n); if (!s) throw new Error('No subtitle #' + n); return s; });
+        for (let i = 1; i < picked.length; i++) if (picked[i].index !== picked[i - 1].index + 1) throw new Error('The subtitles must be consecutive');
+        const out = regroup(picked, args.phrases);
+        return {
+            subtitles: picked.map(s => ({ index: s.index, text: s.text, start: s.start, end: s.end })),
+            phrases: out.map(p => Object.assign(p, { tc: frameToTC(p.startFrame, meta) })),
+            next: 'Place each phrase with place: subtitle, text, startFrame and endFrame from here.'
         };
     },
 

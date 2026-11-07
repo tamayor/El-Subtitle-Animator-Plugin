@@ -651,6 +651,20 @@ body.tab-prompt {
     accent-color: var(--matcha);
 }
 
+/* Except tags: [chips] [+ tag…] [keep font & colour ▾] */
+.pb-style-except {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+#promptBuilder .pb-style-except select {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
 .pb-share-label {
     flex: 1 0 100%;
     font-size: 11.5px;
@@ -678,11 +692,47 @@ body.tab-prompt {
     background: var(--card);
 }
 
+.pr-saved > .pb-add-label {
+    flex: 1 0 100%;
+}
+
+.pr-saved-row,
+.pr-saved-edit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 0 100%;
+    min-width: 0;
+}
+
+.pr-saved-edit.hidden {
+    display: none;
+}
+
 .pr-saved select {
-    min-width: 180px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pr-saved-row button.icon-btn {
+    flex: 0 0 auto;
 }
 
 .pr-saved input[type=text] {
     flex: 1;
-    min-width: 140px;
+    min-width: 0;
+}
+
+.pr-saved button.pr-saved-btn {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 7px;
+}
+
+.pr-saved button.pr-saved-btn:not(.ghost) {
+    background: var(--matcha);
+    color: var(--matcha-ink);
 }

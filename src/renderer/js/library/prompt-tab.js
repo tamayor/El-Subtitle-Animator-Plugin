@@ -63,7 +63,8 @@ TEXT STYLE
 3. set_rules with SIZE_MAX, LINE_SPACING, the text style pairs and sound from SETTINGS, then get_rules to confirm
    they took. NORMAL: a pair for both → font + color; (Text+) → kindStyle.textplus; (MultiText) → kindStyle.multitext.
    EMPHASIS → emphasis (font, style, color). "override N%" → styleShare.normal / styleShare.emphasis (0 = preset
-   default on every clip, 100 = always the override). Presets that keep their own font/colour (DANGER / MONEY): pass
+   default on every clip, 100 = always the override). "except TAG, TAG (keep font & colour | keep font | keep colour)"
+   → styleExcept.normal / styleExcept.emphasis = { tags, keep: both | font | color }. Presets that keep their own font/colour (DANGER / MONEY): pass
    keepPresetStyle: true on place / place_stack.
 4. list_subtitles with color "any". Check clipColors. If a colour in COLOUR ROLES is 0 or missing, stop and tell me.
    Never place on a subtitle without a clip colour, however good a fit it looks.
@@ -670,11 +671,19 @@ function pbParseStyle(v) {
     if (di >= 0) extra.push(t.slice(di).replace(/^\s[—–-]\s/, '').trim());
     const pairs = [];
     let share = 100;
+    const except = { tags: [], keep: 'both' };
     for (let chunk of head.split(/\s·\s|;/)) {
         chunk = chunk.trim();
         if (!chunk) continue;
         const sm = /^override\s+(\d{1,3})\s*%/i.exec(chunk);
         if (sm) { share = Math.max(0, Math.min(100, parseInt(sm[1], 10))); continue; }
+        const em = /^except\s+(.*?)\s*(?:\(\s*keep\s+([^)]*)\))?\s*$/i.exec(chunk);
+        if (em) {
+            except.tags = em[1].split(',').map(x => x.trim()).filter(Boolean);
+            const k = String(em[2] || '').toLowerCase();
+            except.keep = /font/.test(k) && /colou?r/.test(k) ? 'both' : (/font/.test(k) ? 'font' : (/colou?r/.test(k) ? 'color' : 'both'));
+            continue;
+        }
         let on = 'both';
         const m = /\(([^)]*)\)\s*$/.exec(chunk);
         if (m) {
@@ -692,15 +701,19 @@ function pbParseStyle(v) {
         pairs.push(pair);
     }
     if (!pairs.length) pairs.push({ font: '', color: '', on: 'both' });
-    return { pairs, share, extra: extra.filter(Boolean).join(' — ') };
+    return { pairs, share, except, extra: extra.filter(Boolean).join(' — ') };
 }
-function pbJoinStyle(pairs, share) {
+const PB_EXCEPT_KEEP = [['both', 'keep font & colour'], ['font', 'keep font'], ['color', 'keep colour']];
+function pbJoinStyle(pairs, share, except) {
     const s = pairs.map(p => {
         const head = [p.font, p.color].filter(Boolean).join(', ');
         const on = (PB_STYLE_ON.find(o => o[0] === p.on) || PB_STYLE_ON[0]);
         return head && p.on !== 'both' ? head + ' (' + on[1] + ')' : head;
     }).filter(Boolean);
     if (share !== undefined && share !== null && share < 100) s.push('override ' + share + '%');
+    if (except && except.tags && except.tags.length) {
+        s.push('except ' + except.tags.join(', ') + ' (' + (PB_EXCEPT_KEEP.find(k => k[0] === except.keep) || PB_EXCEPT_KEEP[0])[1] + ')');
+    }
     return s.join(' · ');
 }
 
@@ -714,13 +727,13 @@ function pbShareLabel(n) {
 
 function pbStyleEditor(row) {
     const st = pbParseStyle(row.value);
-    const tidy = pbJoinStyle(st.pairs, st.share);
+    const tidy = pbJoinStyle(st.pairs, st.share, st.except);
     if (tidy !== String(row.value || '').trim()) {
         if (st.extra) row.note = row.note ? row.note + '\n' + st.extra : st.extra;
         row.value = tidy;
         setTimeout(pbChanged, 0);
     }
-    const write = (final) => { row.value = pbJoinStyle(st.pairs, st.share); pbChanged(); if (final) pbPushToPlacement(row); };
+    const write = (final) => { row.value = pbJoinStyle(st.pairs, st.share, st.except); pbChanged(); if (final) pbPushToPlacement(row); };
     const wrap = pbEl('div', 'pb-style');
     st.pairs.forEach((pair, i) => {
         const box = pbEl('div', 'pb-style-pair');
@@ -766,7 +779,41 @@ function pbStyleEditor(row) {
     rng.addEventListener('change', () => write(true));
     sl.append(cap, rng, cap2, lab);
     wrap.appendChild(sl);
+    wrap.appendChild(pbStyleExceptEl(st.except, write));
     return wrap;
+}
+
+// "Except presets tagged [chips] [keep font & colour | keep font | keep colour]": those presets skip this override.
+function pbStyleExceptEl(ex, write) {
+    const box = pbEl('div', 'pb-style-except');
+    box.appendChild(pbEl('span', 'pb-share-end', 'Except tags'));
+    const tags = pbTagNames();
+    ex.tags.forEach((name, i) => {
+        const chip = pbEl('span', 'pb-chip' + (tags.includes(name) ? '' : ' missing'));
+        chip.title = tags.includes(name) ? 'Presets with this tag skip the override' : 'No tag with this name in your library';
+        chip.appendChild(pbEl('span', '', name));
+        const x = pbEl('button', 'pb-chip-x', '×');
+        x.title = 'Remove';
+        x.addEventListener('click', () => { ex.tags.splice(i, 1); write(true); pbRebuild(); });
+        chip.appendChild(x);
+        box.appendChild(chip);
+    });
+    const sel = pbEl('select', 'pb-chip-add');
+    const ph = pbEl('option', '', '+ tag…'); ph.value = ''; sel.appendChild(ph);
+    for (const n of tags.filter(n => !ex.tags.includes(n))) { const o = pbEl('option', '', n); o.value = n; sel.appendChild(o); }
+    if (sel.options.length === 1) { ph.textContent = tags.length ? 'all tags added' : 'no tags yet'; sel.disabled = true; }
+    sel.title = 'Presets with this tag skip the override';
+    sel.addEventListener('change', () => { if (sel.value) { ex.tags.push(sel.value); write(true); pbRebuild(); } });
+    box.appendChild(sel);
+    if (ex.tags.length) {
+        const keep = pbEl('select', 'pb-except-keep');
+        keep.title = 'What the tagged presets keep of their own look; the rest of the override still applies to them';
+        for (const [v, label] of PB_EXCEPT_KEEP) { const o = pbEl('option', '', label); o.value = v; keep.appendChild(o); }
+        keep.value = ex.keep;
+        keep.addEventListener('change', () => { ex.keep = keep.value; write(true); });
+        box.appendChild(keep);
+    }
+    return box;
 }
 
 function pbValueEditor(row, kind) {
@@ -1161,6 +1208,15 @@ function initSavedPrompts() {
     const sel = $('promptSavedSel'), title = $('promptSavedTitle');
     if (!sel || !title) return;
     renderSavedPrompts(null);
+    const toggle = $('promptSavedToggle'), edit = $('promptSavedEdit');
+    if (toggle && edit) {
+        toggle.addEventListener('click', () => {
+            const open = edit.classList.toggle('hidden') === false;
+            toggle.classList.toggle('on', open);
+            toggle.setAttribute('aria-expanded', String(open));
+            if (open) title.focus();
+        });
+    }
     sel.addEventListener('change', () => {
         clearTimeout(pbSaveTimer);
         $('promptSavedDelete').disabled = sel.value === SAVED_DEFAULT_VALUE;

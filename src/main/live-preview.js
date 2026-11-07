@@ -144,7 +144,7 @@ async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, no
     const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
     const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, notes);
+    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, notes, req.place);
     const it = await appendSfxCut(mp, mpi, track, sfxStart, cut);
     if (!it) return null;
     if (cut.fadeFailed && warnings) warnings.push(FADE_WARNING);
@@ -223,7 +223,7 @@ async function liveUpdate(event, req) {
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
             try {
                 if (req.useSfx !== false) {
-                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, [], null, state.liveSession.itemId, warnings);
+                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, [], null, state.liveSession.itemId, warnings, req.place);
                     state.liveSession.extraIds = extra.map(x => x.id);
                     state.liveSession.extraLinkIds = extra.filter(x => x.link).map(x => x.id);
                 }
@@ -374,7 +374,7 @@ async function liveFinish(event, req) {
                     const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
                     const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
                     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-                    sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes);
+                    sfxTrack = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, trackNotes, req.place);
                     const sfxItem = await appendSfxCut(mp, mpi, sfxTrack, sfxStart, cut);
                     if (!sfxItem) warnings.push('The sound effect could not be placed.');
                     else {
@@ -405,7 +405,7 @@ async function liveFinish(event, req) {
             }
             else if (req.useSfx !== false) {
                 const extra = layerList(req, anim);
-                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings);
+                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings, req.place);
             }
         } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
         // remember the transform / link choice on the preset, like Add to timeline does

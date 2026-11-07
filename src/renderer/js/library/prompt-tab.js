@@ -941,7 +941,7 @@ function pbRowEl(section, row, si, ri) {
         acts.appendChild(pl);
     }
     acts.append(ifb, nb, del);
-    main.append(key, sep, pbValueEditor(row, kind), acts);
+    main.append(pbDragHandle(el, si, ri), key, sep, pbValueEditor(row, kind), acts);
     el.appendChild(main);
 
     if (row.note || row._noteOpen) {
@@ -972,6 +972,86 @@ function pbRowEl(section, row, si, ri) {
         el.appendChild(ce);
     });
     return el;
+}
+
+// ---------------------------------------------------------------- drag to reorder keys
+// The handle at the left of a row drags that row (with its note and conditions) to another place, in the same
+// section or another one. The row is only draggable while the handle is held, so text in its inputs stays selectable.
+let pbDrag = null;   // { si, ri } of the row being dragged
+
+function pbDragHandle(rowEl, si, ri) {
+    const h = pbEl('span', 'pb-handle', '⋮⋮');
+    h.title = 'Drag to move this key';
+    h.addEventListener('mousedown', () => { rowEl.draggable = true; });
+    h.addEventListener('mouseup', () => { rowEl.draggable = false; });
+    rowEl.addEventListener('dragstart', (e) => {
+        if (!rowEl.draggable) return;
+        pbDrag = { si, ri };
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', ''); } catch (err) { /* ignore */ }
+        requestAnimationFrame(() => rowEl.classList.add('pb-dragging'));
+    });
+    rowEl.addEventListener('dragend', () => {
+        rowEl.draggable = false; pbDrag = null;
+        rowEl.classList.remove('pb-dragging');
+        pbClearDropMarks();
+    });
+    return h;
+}
+
+function pbClearDropMarks() {
+    document.querySelectorAll('#promptBuilder .pb-drop-before, #promptBuilder .pb-drop-after')
+        .forEach(x => x.classList.remove('pb-drop-before', 'pb-drop-after'));
+}
+
+// Where a drop at clientY lands: { si, ri } = insert before row ri of section si (ri may equal rows.length).
+function pbDropTarget(e) {
+    const secEl = e.target.closest && e.target.closest('#promptBuilder .pb-sec');
+    if (!secEl) return null;
+    const secs = [...document.querySelectorAll('#promptBuilder .pb-sec')];
+    const si = secs.indexOf(secEl);
+    const rows = [...secEl.querySelectorAll(':scope > .pb-row')];
+    let ri = rows.length;
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i].getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) { ri = i; break; }
+    }
+    return { si, ri, rows };
+}
+
+function initPromptBuilderDrag() {
+    const host = $('promptBuilder');
+    if (!host) return;
+    host.addEventListener('dragover', (e) => {
+        if (!pbDrag) return;
+        const t = pbDropTarget(e);
+        if (!t) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        pbClearDropMarks();
+        if (t.ri < t.rows.length) t.rows[t.ri].classList.add('pb-drop-before');
+        else if (t.rows.length) t.rows[t.rows.length - 1].classList.add('pb-drop-after');
+        else t.rows = null;
+    });
+    host.addEventListener('dragleave', (e) => { if (!host.contains(e.relatedTarget)) pbClearDropMarks(); });
+    host.addEventListener('drop', (e) => {
+        if (!pbDrag || !pb.doc) return;
+        const t = pbDropTarget(e);
+        pbClearDropMarks();
+        if (!t) return;
+        e.preventDefault();
+        const from = pb.doc.sections[pbDrag.si], to = pb.doc.sections[t.si];
+        if (!from || !to) return;
+        let ri = t.ri;
+        if (pbDrag.si === t.si && pbDrag.ri < ri) ri--;   // removing the row first shifts the ones after it
+        if (pbDrag.si === t.si && ri === pbDrag.ri) return;
+        const [row] = from.rows.splice(pbDrag.ri, 1);
+        to.rows.splice(ri, 0, row);
+        pbDrag = null;
+        pbRebuild();
+        const moved = document.querySelectorAll('#promptBuilder .pb-sec')[t.si];
+        pbFlash(moved && moved.querySelectorAll(':scope > .pb-row')[ri]);
+    });
 }
 
 function pbFocusLast(si, ri, sel) {
@@ -1320,6 +1400,16 @@ function setJobPromptText(text) {
 // prompt Reset restores), then each saved title. Picking one loads its text as the current prompt.
 const SAVED_PROMPTS_KEY = 'sa.savedPrompts';
 const SAVED_DEFAULT_VALUE = '__default__';
+// The saved prompt last opened (or saved), so the dropdown shows it again when the panel reopens.
+const SAVED_PROMPT_LAST_KEY = 'sa.savedPromptLast';
+
+function rememberSavedPrompt(title) {
+    try { if (title) localStorage.setItem(SAVED_PROMPT_LAST_KEY, title); else localStorage.removeItem(SAVED_PROMPT_LAST_KEY); } catch (e) { /* ignore */ }
+}
+
+function lastSavedPrompt() {
+    try { return localStorage.getItem(SAVED_PROMPT_LAST_KEY) || null; } catch (e) { return null; }
+}
 
 function loadSavedPrompts() {
     try {
@@ -1365,7 +1455,7 @@ function showPromptToast(name, what) {
 function initSavedPrompts() {
     const sel = $('promptSavedSel'), title = $('promptSavedTitle');
     if (!sel || !title) return;
-    renderSavedPrompts(null);
+    renderSavedPrompts(lastSavedPrompt());
     const toggle = $('promptSavedToggle'), edit = $('promptSavedEdit');
     if (toggle && edit) {
         toggle.addEventListener('click', () => {
@@ -1378,6 +1468,7 @@ function initSavedPrompts() {
     sel.addEventListener('change', () => {
         clearTimeout(pbSaveTimer);
         $('promptSavedDelete').disabled = sel.value === SAVED_DEFAULT_VALUE;
+        rememberSavedPrompt(sel.value === SAVED_DEFAULT_VALUE ? null : sel.value);
         if (sel.value === SAVED_DEFAULT_VALUE) {
             title.value = '';
             setJobPromptText(effectiveJobPromptDefault());
@@ -1400,6 +1491,7 @@ function initSavedPrompts() {
         if (i >= 0) list[i].text = pb.full; else list.push({ title: t, text: pb.full });
         if (!storeSavedPrompts(list)) { setPromptStatus('Could not save the prompt.', 'bad'); return; }
         saveJobPrompt(pb.full);
+        rememberSavedPrompt(t);
         renderSavedPrompts(t);
         title.value = '';
         setPromptStatus((i >= 0 ? 'Updated "' : 'Saved "') + t + '".', 'ok');
@@ -1411,6 +1503,7 @@ function initSavedPrompts() {
         const t = sel.value;
         if (t === SAVED_DEFAULT_VALUE) return;
         storeSavedPrompts(loadSavedPrompts().filter(x => x.title !== t));
+        if (lastSavedPrompt() === t) rememberSavedPrompt(null);
         title.value = '';
         renderSavedPrompts(null);
         setPromptStatus('Deleted "' + t + '". The current prompt is unchanged.', 'ok');
@@ -1418,9 +1511,39 @@ function initSavedPrompts() {
     });
 }
 
+// Hovering a one-line input whose text is cut off shows the whole value in a tooltip, wrapped to the input's width.
+function initPromptInputTips(root) {
+    const tip = document.createElement('div');
+    tip.className = 'pr-input-tip hidden';
+    document.body.appendChild(tip);
+    let cur = null;
+    const isTextInput = (el) => el && el.tagName === 'INPUT' && (!el.type || el.type === 'text' || el.type === 'search');
+    const hide = () => { cur = null; tip.classList.add('hidden'); };
+    const show = (el) => {
+        cur = el;
+        if (!el.value || el.scrollWidth <= el.clientWidth + 1) { tip.classList.add('hidden'); return; }
+        const r = el.getBoundingClientRect();
+        tip.textContent = el.value;
+        tip.style.width = Math.max(r.width, 120) + 'px';
+        tip.style.left = Math.min(r.left, window.innerWidth - Math.max(r.width, 120) - 4) + 'px';
+        tip.style.top = '0px';
+        tip.classList.remove('hidden');
+        const h = tip.offsetHeight;
+        // Below the input, or above it when there is no room underneath.
+        tip.style.top = (r.bottom + 4 + h > window.innerHeight ? Math.max(4, r.top - 4 - h) : r.bottom + 4) + 'px';
+    };
+    root.addEventListener('mouseover', (e) => { if (isTextInput(e.target)) show(e.target); });
+    root.addEventListener('mouseout', (e) => { if (e.target === cur && !cur.contains(e.relatedTarget)) hide(); });
+    root.addEventListener('input', (e) => { if (e.target === cur) show(cur); });
+    root.addEventListener('scroll', hide, true);
+    root.addEventListener('mousedown', (e) => { if (e.target !== cur) hide(); });
+}
+
 function initPromptTab() {
     const ta = $('promptText');
     if (!ta) return;
+    initPromptInputTips($('tabPrompt'));
+    initPromptBuilderDrag();
     initSavedPrompts();
     pb.full = loadJobPrompt();
     mirrorJobPromptToFile(pb.full);

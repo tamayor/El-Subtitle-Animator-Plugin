@@ -129,10 +129,32 @@
                     <div class="hint" id="subHint"></div>
                 </section>
 
+                <div id="timingHome" hidden></div>
                 <section id="timingCard" class="timing-card hidden">
-                    <div class="row between">
-                        <span class="label">Animation timing</span>
-                        <span id="timingMeta" class="meta"></span>
+                    <div class="row between tm-head">
+                        <span class="label tm-label">Animation timing</span>
+                        <span class="tm-head-right">
+                            <span id="timingMeta" class="meta"></span>
+                            <span id="timingMini" class="tm-mini"></span>
+                            <button id="timingCompactBtn" type="button" class="icon-btn tm-tool" aria-pressed="false"
+                                title="Ultra compact" aria-label="Ultra compact">
+                                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M5 2v3H2M11 2v3h3M5 14v-3H2M11 14v-3h3" />
+                                </svg>
+                            </button>
+                            <button id="timingDockBtn" type="button" class="icon-btn tm-tool"
+                                title="Dock at the bottom, above the status message" aria-label="Dock at the bottom">
+                                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M8 2v7M5 6l3 3 3-3M2.5 13.5h11" />
+                                </svg>
+                            </button>
+                            <button id="timingUndockBtn" type="button" class="icon-btn tm-tool"
+                                title="Remove from the bottom" aria-label="Remove from the bottom">
+                                <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M4 4l8 8M12 4l-8 8" />
+                                </svg>
+                            </button>
+                        </span>
                     </div>
                     <div id="timingBar" class="tm-bar" role="slider" tabindex="0" aria-valuemin="1"
                         aria-label="Frame where the last effect ends">

@@ -25,18 +25,55 @@ function tmSecs(f) {
     return (f / fps).toFixed(2) + ' s';
 }
 
+// View: 'full' (the card), 'compact' (one thin row) or 'docked' (that row above the status message at the bottom).
+function tmView() {
+    if (!tmState.view) {
+        let v = 'full';
+        try { v = localStorage.getItem('sa.timingView') || 'full'; } catch (e) { v = 'full'; }
+        tmState.view = (v === 'compact' || v === 'docked') ? v : 'full';
+    }
+    return tmState.view;
+}
+function setTimingView(v) {
+    tmState.view = (v === 'compact' || v === 'docked') ? v : 'full';
+    try { localStorage.setItem('sa.timingView', tmState.view); } catch (e) { /* ignore */ }
+    applyTimingView();
+    renderTiming();
+}
+// Moves the card into the footer (above the status message) or back to its place in the Use tab.
+function applyTimingView() {
+    const card = $('timingCard'), home = $('timingHome');
+    const footer = document.querySelector('#footerUse .footer-inner'), status = $('status');
+    if (!card || !home) return;
+    const v = tmView();
+    const docked = v === 'docked' && footer && status;
+    if (docked && card.parentNode !== footer) footer.insertBefore(card, status);
+    if (!docked && card.previousElementSibling !== home) home.after(card);
+    card.classList.toggle('compact', v !== 'full');
+    card.classList.toggle('docked', !!docked);
+    document.body.classList.toggle('tm-docked', !!docked && !card.classList.contains('hidden'));
+    const cb = $('timingCompactBtn');
+    if (cb) {
+        cb.setAttribute('aria-pressed', String(v !== 'full'));
+        cb.title = v === 'full' ? 'Ultra compact' : 'Full size';
+        cb.setAttribute('aria-label', cb.title);
+    }
+}
+
 function renderTiming() {
     const card = $('timingCard');
     if (!card) return;
     const i = tmState.info;
-    if (!i) { card.classList.add('hidden'); return; }
+    if (!i) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); return; }
     card.classList.remove('hidden');
+    document.body.classList.toggle('tm-docked', tmView() === 'docked');
     const bare = !!i.noSlider;
     for (const id of ['timingBar', 'timingToPlayhead', 'timingReset']) $(id).classList.toggle('hidden', bare);
     card.querySelector('.tm-scale').classList.toggle('hidden', bare);
     if (bare) {
         $('timingMeta').textContent = i.name || 'Clip';
         $('timingValue').textContent = '';
+        $('timingMini').textContent = 'No timing slider';
         $('timingHint').textContent = 'This clip\'s preset has no timing slider yet. Presets get it when they are saved into the library again.';
         return;
     }
@@ -58,6 +95,8 @@ function renderTiming() {
     const what = i.kind === 'typing' ? 'Last word at' : 'Last effect ends at';
     $('timingValue').innerHTML = what + ' <b>' + v + '</b> f · ' + tmSecs(v) + (v === i.natural ? ' (preset timing)' : '');
     $('timingMeta').textContent = (i.name || 'Clip') + ' · ' + i.length + ' f';
+    $('timingMini').innerHTML = '<b>' + v + '</b>/' + i.length + ' f' + (i.playhead != null ? ' · <span class="ph">▸ ' + i.playhead + '</span>' : '');
+    $('timingMini').title = (i.name || 'Clip') + ': ' + what.toLowerCase() + ' ' + v + ' f (' + tmSecs(v) + ')' + (i.playhead != null ? ', playhead at ' + i.playhead : '');
     bar.setAttribute('aria-valuemax', String(i.length));
     bar.setAttribute('aria-valuenow', String(v));
     bar.setAttribute('aria-valuetext', v + ' frames');
@@ -163,6 +202,10 @@ function initAnimTiming() {
     });
     $('timingToPlayhead').addEventListener('click', () => { if (tmState.info && tmState.info.playhead != null) tmSet(tmState.info.playhead); });
     $('timingReset').addEventListener('click', () => { if (tmState.info) tmSet(tmState.info.natural); });
+    $('timingCompactBtn').addEventListener('click', () => setTimingView(tmView() === 'full' ? 'compact' : 'full'));
+    $('timingDockBtn').addEventListener('click', () => setTimingView('docked'));
+    $('timingUndockBtn').addEventListener('click', () => setTimingView('compact'));
+    applyTimingView();
     tmTick();
 }
 

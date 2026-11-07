@@ -95,3 +95,61 @@
     .timing-card .tm-mark,
     .timing-card .tm-thumb { transition: none; }
 }
+
+/* ---------------------------------------------------------------- header tools, ultra compact, docked */
+.timing-card .tm-head { align-items: center; gap: 6px; }
+.timing-card .tm-head-right { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.timing-card .tm-head-right .meta { margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-card button.tm-tool { width: 22px; height: 22px; border-radius: 6px; }
+.timing-card button.tm-tool[aria-pressed="true"] { color: var(--matcha); background: var(--matcha-tint); }
+.timing-card .tm-mini,
+.timing-card #timingDockBtn,
+.timing-card #timingUndockBtn { display: none; }
+
+/* ultra compact: one thin row = bar + readout + tools */
+.timing-card.compact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+.timing-card.compact .tm-head { order: 2; flex: none; margin: 0; }
+.timing-card.compact .tm-label,
+.timing-card.compact #timingMeta,
+.timing-card.compact .tm-scale,
+.timing-card.compact .tm-actions,
+.timing-card.compact .hint { display: none; }
+.timing-card.compact .tm-mini {
+    display: inline;
+    margin-right: 2px;
+    color: var(--dim);
+    font-size: 11px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.timing-card.compact .tm-mini b { color: var(--matcha); font-weight: 600; }
+.timing-card.compact .tm-mini .ph { color: var(--strawberry); }
+.timing-card.compact .tm-bar { order: 1; flex: 1; min-width: 60px; height: 22px; margin: 0 6px; }
+.timing-card.compact .tm-track { top: 9px; height: 4px; }
+.timing-card.compact .tm-thumb { top: 4px; width: 14px; height: 14px; margin-left: -7px; }
+.timing-card.compact .tm-playhead span { display: none; }
+.timing-card.compact #timingDockBtn { display: inline-grid; }
+
+/* docked above the status message (inside the fixed footer) */
+.timing-card.docked {
+    margin: 0 0 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.35);
+}
+.timing-card.docked #timingDockBtn,
+.timing-card.docked #timingCompactBtn { display: none; }
+.timing-card.docked #timingUndockBtn { display: inline-grid; }
+body.tab-apply.tm-docked { padding-bottom: 84px; }
+/* the compact / docked layout rules must not bring back anything hidden */
+.timing-card.hidden,
+.timing-card .hidden { display: none !important; }
+/* docked in the shared footer: only on the Use tab */
+body:not(.tab-apply) .timing-card.docked { display: none !important; }

@@ -35,6 +35,9 @@ function bindTextDesign(ctx) {
             SAThumbs.drawAll(performance.now());
         }
 
+        // While the colour picker is open only the panel follows; the final colour saves and goes to Resolve on close.
+        if (state.colorPicking) return;
+
         if (S === 'C') saveField(m.id, { textDesign: m.textDesign, boxes: m.boxes || {} });
 
         if (typeof triggerLiveSync === 'function') {

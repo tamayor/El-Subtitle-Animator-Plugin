@@ -49,6 +49,9 @@ document.addEventListener('click', async (e) => {
     }
     if (Date.now() < colorPanelUntil) return;
     colorPanelBusy = true;
+    // While the picker is open, live colours only update the panel and the canvas; saving, the update of the clip in
+    // Resolve and the Fusion re-render wait until it closes (doing them on every live step made everything glitch).
+    state.colorPicking = true;
     colorPanelSince = Date.now();
     colorLiveTarget = t; colorLiveApplied = false;
     const dbg = (msg) => { try { window.sa.dlog('[color] ' + msg + ' (' + (Date.now() - colorPanelSince) + ' ms) id=' + (t.id || '?') + ' from=' + t.value); } catch (err) { /* ignore */ } };
@@ -60,6 +63,7 @@ document.addEventListener('click', async (e) => {
         : 'Pick a color in the macOS Colors panel: it applies as you pick. Close the panel (or click the color box again) when done.', ''), { once: true });
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
+    state.colorPicking = false;
     hideColorLoading();
     colorPanelBusy = false;
     clearTimeout(colorLiveTimer); colorLiveTimer = 0;
@@ -76,8 +80,14 @@ document.addEventListener('click', async (e) => {
             dbg('input handled');
             setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);      // boxes that listen for 'change' follow right after
         } else if (colorLiveApplied) {
+            // the colour was already shown live: one full update now (save, Resolve, render) for the final colour
+            t.dispatchEvent(new Event('input', { bubbles: true }));
             setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);
         }
+    } else if (r && r.cancelled && colorLiveApplied) {
+        // closed without an answer after live colours were shown: keep what is on screen, fully applied
+        t.dispatchEvent(new Event('input', { bubbles: true }));
+        setTimeout(() => { try { t.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) { /* ignore */ } }, 60);
     } else if (!(r && r.ok)) {
         try { if (t.showPicker) t.showPicker(); } catch (err) { /* ignore */ }
     }

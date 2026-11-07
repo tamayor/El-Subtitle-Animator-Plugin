@@ -142,7 +142,7 @@ if (window.sa && window.sa.onPreviewDraft) window.sa.onPreviewDraft((d) => {
 
 // Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
 function ensureUsePreview(a) {
-    if (state.idle) return;
+    if (state.idle || state.colorPicking) return;      // no Fusion render while the colour picker is open
     const u = state.use;
     if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
     const want = normSub(currentSubText());
@@ -207,7 +207,7 @@ const designRev = new Map();      // preset id -> number of design edits this se
 const lastRendered = new Map();   // preset id -> 'text|revision' last rendered successfully
 // Create tab: renders the preset's default preview with its sample text when its default design is edited.
 function ensureRealPreview(a, m) {
-    if (state.idle) return;
+    if (state.idle || state.colorPicking) return;      // no Fusion render while the colour picker is open
     if (!a || a.missing || !window.sa || !window.sa.makePreview) return;
     const want = '';
     const rev = designRev.get(a.id) || 0;

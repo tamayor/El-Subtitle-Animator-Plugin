@@ -1121,9 +1121,90 @@ function setJobPromptText(text) {
     applyPromptMode();
 }
 
+// ---------------------------------------------------------------- saved prompts
+// Prompts the user saved under a title, stored exactly as they were. The dropdown lists "Default" first (the
+// prompt Reset restores), then each saved title. Picking one loads its text as the current prompt.
+const SAVED_PROMPTS_KEY = 'sa.savedPrompts';
+const SAVED_DEFAULT_VALUE = '__default__';
+
+function loadSavedPrompts() {
+    try {
+        const a = JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || '[]');
+        if (Array.isArray(a)) return a.filter(p => p && typeof p.title === 'string' && typeof p.text === 'string');
+    } catch (e) { /* ignore */ }
+    return [];
+}
+
+function storeSavedPrompts(list) {
+    try { localStorage.setItem(SAVED_PROMPTS_KEY, JSON.stringify(list)); return true; } catch (e) { return false; }
+}
+
+// Fill the dropdown; select = the title to show selected (or the Default entry).
+function renderSavedPrompts(select) {
+    const sel = $('promptSavedSel');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = SAVED_DEFAULT_VALUE;
+    def.textContent = 'Default';
+    sel.appendChild(def);
+    loadSavedPrompts().forEach(p => {
+        const o = document.createElement('option');
+        o.value = p.title; o.textContent = p.title;
+        sel.appendChild(o);
+    });
+    sel.value = select && [...sel.options].some(o => o.value === select) ? select : SAVED_DEFAULT_VALUE;
+    $('promptSavedDelete').disabled = sel.value === SAVED_DEFAULT_VALUE;
+}
+
+function initSavedPrompts() {
+    const sel = $('promptSavedSel'), title = $('promptSavedTitle');
+    if (!sel || !title) return;
+    renderSavedPrompts(null);
+    sel.addEventListener('change', () => {
+        clearTimeout(pbSaveTimer);
+        $('promptSavedDelete').disabled = sel.value === SAVED_DEFAULT_VALUE;
+        if (sel.value === SAVED_DEFAULT_VALUE) {
+            title.value = '';
+            setJobPromptText(effectiveJobPromptDefault());
+            setPromptStatus('Loaded the default prompt.', 'ok');
+            return;
+        }
+        const p = loadSavedPrompts().find(x => x.title === sel.value);
+        if (!p) return;
+        title.value = p.title;
+        setJobPromptText(p.text);
+        setPromptStatus('Loaded "' + p.title + '".', 'ok');
+    });
+    const save = () => {
+        clearTimeout(pbSaveTimer);
+        const t = title.value.trim();
+        if (!t) { setPromptStatus('Type a title first.', 'bad'); title.focus(); return; }
+        if (t.toLowerCase() === 'default') { setPromptStatus('"Default" is taken; use Save as default for that.', 'bad'); return; }
+        const list = loadSavedPrompts();
+        const i = list.findIndex(x => x.title === t);
+        if (i >= 0) list[i].text = pb.full; else list.push({ title: t, text: pb.full });
+        if (!storeSavedPrompts(list)) { setPromptStatus('Could not save the prompt.', 'bad'); return; }
+        saveJobPrompt(pb.full);
+        renderSavedPrompts(t);
+        setPromptStatus((i >= 0 ? 'Updated "' : 'Saved "') + t + '".', 'ok');
+    };
+    $('promptSavedSave').addEventListener('click', save);
+    title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+    $('promptSavedDelete').addEventListener('click', () => {
+        const t = sel.value;
+        if (t === SAVED_DEFAULT_VALUE) return;
+        storeSavedPrompts(loadSavedPrompts().filter(x => x.title !== t));
+        title.value = '';
+        renderSavedPrompts(null);
+        setPromptStatus('Deleted "' + t + '". The current prompt is unchanged.', 'ok');
+    });
+}
+
 function initPromptTab() {
     const ta = $('promptText');
     if (!ta) return;
+    initSavedPrompts();
     pb.full = loadJobPrompt();
     mirrorJobPromptToFile(pb.full);
     try { if (localStorage.getItem(JOB_PROMPT_MODE_KEY) === 'text') pb.mode = 'text'; } catch (e) { /* ignore */ }

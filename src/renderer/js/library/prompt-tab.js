@@ -29,6 +29,13 @@ SIZE (Inspector values)
   WORDS_PER_LINE:  4–5
   LONG_SENTENCE:   6+ words
 
+SUBTITLE TRIMMING
+  WORDS_PER_BLOCK: 1–3
+                   words per subtitle block when chopping an .srt (chop_srt minWords / maxWords)
+  CHARS_PER_BLOCK: 1–20
+                   characters per block, spaces included (chop_srt minChars / maxChars)
+                   both limits apply together: a block over either is cut smaller (e.g. 2 + 1 words)
+
 POSITION (vertical 9:16)
   X:               0.5 — centre of the frame, always
   OVERFLOW:        a small run past the safe-zone side edges is fine; never shift text off centre to avoid it
@@ -268,6 +275,10 @@ const PB_MCP_PARAMS = [
     ] },
     { tool: 'get_frame', items: [
         { label: 'at: which frame to check', section: 'JOB', key: 'CHECK_AT', kind: 'enum', options: ['end', 'middle', 'start'], value: 'end', hint: 'Frame Claude looks at to check each placed clip.' }
+    ] },
+    { tool: 'chop_srt', items: [
+        { label: 'minWords / maxWords: words per block', section: 'SUBTITLE TRIMMING', key: 'WORDS_PER_BLOCK', kind: 'range', min: 1, value: '1–3', hint: 'Words per subtitle block when chopping an .srt. Works together with CHARS_PER_BLOCK.' },
+        { label: 'minChars / maxChars: characters per block', section: 'SUBTITLE TRIMMING', key: 'CHARS_PER_BLOCK', kind: 'range', min: 1, value: '1–20', hint: 'Characters per block, spaces included. A block over this or WORDS_PER_BLOCK is cut smaller (e.g. 2 + 1 words).' }
     ] },
     { tool: 'custom', items: [
         { label: 'Text key', section: null, key: 'NEW_KEY', value: '', hint: 'A free key/value in the last section.' },
@@ -1539,9 +1550,48 @@ function initPromptInputTips(root) {
     root.addEventListener('mousedown', (e) => { if (e.target !== cur) hide(); });
 }
 
+// Once per panel: prompts saved before SUBTITLE TRIMMING existed (the current prompt, the user's default and every
+// saved prompt) get the section added at the end of their SETTINGS block. Only that text is inserted; the rest of
+// each prompt stays exactly as it was.
+const TRIMMING_MIGRATED_KEY = 'sa.migrated.subtitleTrimming';
+const TRIMMING_SECTION = [
+    'SUBTITLE TRIMMING',
+    '  WORDS_PER_BLOCK: 1–3',
+    '                   words per subtitle block when chopping an .srt (chop_srt minWords / maxWords)',
+    '  CHARS_PER_BLOCK: 1–20',
+    '                   characters per block, spaces included (chop_srt minChars / maxChars)',
+    '                   both limits apply together: a block over either is cut smaller (e.g. 2 + 1 words)'
+].join('\n');
+
+function withTrimmingSection(text) {
+    const lines = String(text || '').split('\n');
+    const si = lines.findIndex(l => /^##\s+SETTINGS\b/i.test(l));
+    if (si < 0 || /^SUBTITLE TRIMMING\b/im.test(text)) return text;
+    let ei = lines.findIndex((l, i) => i > si && /^##\s/.test(l));
+    if (ei < 0) ei = lines.length;
+    let at = ei;
+    while (at > si + 1 && !lines[at - 1].trim()) at--;
+    lines.splice(at, 0, '', TRIMMING_SECTION, ...(at === ei && at < lines.length ? [''] : []));
+    return lines.join('\n');
+}
+
+function migrateTrimmingSection() {
+    try {
+        if (localStorage.getItem(TRIMMING_MIGRATED_KEY)) return;
+        for (const key of [JOB_PROMPT_KEY, JOB_PROMPT_DEFAULT_KEY]) {
+            const t = localStorage.getItem(key);
+            if (t && t.trim()) localStorage.setItem(key, withTrimmingSection(t));
+        }
+        const saved = loadSavedPrompts();
+        if (saved.length) storeSavedPrompts(saved.map(p => Object.assign({}, p, { text: withTrimmingSection(p.text) })));
+        localStorage.setItem(TRIMMING_MIGRATED_KEY, '1');
+    } catch (e) { /* ignore */ }
+}
+
 function initPromptTab() {
     const ta = $('promptText');
     if (!ta) return;
+    migrateTrimmingSection();
     initPromptInputTips($('tabPrompt'));
     initPromptBuilderDrag();
     initSavedPrompts();

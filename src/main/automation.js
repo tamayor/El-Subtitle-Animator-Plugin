@@ -905,7 +905,7 @@ function startAutomation() {
         const { port } = server.address();
         try {
             fs.mkdirSync(ENDPOINT_DIR, { recursive: true, mode: 0o700 });
-            fs.writeFileSync(ENDPOINT_FILE, JSON.stringify({ port, token, pid: process.pid, started: new Date().toISOString() }), { mode: 0o600 });
+            fs.writeFileSync(ENDPOINT_FILE, JSON.stringify({ port, token, pid: process.pid, dataDir: DATA_DIR, started: new Date().toISOString() }), { mode: 0o600 });
             fs.chmodSync(ENDPOINT_FILE, 0o600);
         } catch (e) { dlog('[automation] could not write endpoint', String(e && e.message || e)); }
         dlog('[automation] listening on 127.0.0.1:' + port);

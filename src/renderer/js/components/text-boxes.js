@@ -812,13 +812,18 @@
         const r = mtRoles(a);
         const role = MT_ROLES.map(x => x[0]).find(k => r[k] === n.layer);
         if (!role) return null;
-        const t = Object.assign({}, mtParts(sub).parts);
-        // A role with no layer: fold its text into a neighbouring layer instead of losing it.
+        return mtFold(r, mtParts(sub).parts)[role];
+    }
+    // A role with no layer: fold its text into a neighbouring layer instead of losing it.
+    function mtFold(r, parts) {
+        const t = Object.assign({}, parts);
         const join = (x, y) => [x, y].filter(Boolean).join(' ');
         if (r.upper === null && t.upper) { if (r.lower !== null) t.lower = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.upper, t.emphasis); t.upper = ''; }
         if (r.lower === null && t.lower) { if (r.upper !== null) t.upper = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.emphasis, t.lower); t.lower = ''; }
-        return t[role];
+        return t;
     }
+    // Upper / lower parts only show in the panel when the preset has a layer for them.
+    const mtShown = (r, role) => role === 'emphasis' || r[role] !== null;
     const textFor = (a, n, b, sub) => n.kind === 'multitext' ? mtText(a, n, sub) : resolveText(b, sub);
 
     // ---- the panel
@@ -865,8 +870,10 @@
         host.textContent = '';
         const roles = mtRoles(a);
         // the three inputs, colour coded
+        if (!mtShown(roles, mt.active)) mt.active = 'emphasis';
         const ins = mk('div', 'mt-ins');
         for (const [role, label, col] of MT_ROLES) {
+            if (!mtShown(roles, role)) continue;
             const ta = document.createElement('textarea');
             ta.rows = 1; ta.className = 'mt-in'; ta.dataset.role = role;
             ta.style.setProperty('--mt', col);
@@ -878,6 +885,8 @@
                 const sub = subtitleText();
                 if (!mt.over || mt.over.sub !== sub) mt.over = { sub };
                 mt.over[role] = ta.value;
+                // the hidden part's words are folded into this input: typing here replaces them too
+                for (const [k] of MT_ROLES) if (!mtShown(roles, k)) mt.over[k] = '';
                 mtSave(); changed('U'); mtPreviewSoon();
             });
             const wrap = mk('div', 'mt-inwrap');
@@ -903,6 +912,7 @@
         // which part a click on a word sets
         const bar = mk('div', 'mt-roles');
         for (const [role, , col] of MT_ROLES) {
+            if (!mtShown(roles, role)) continue;
             const b = mk('button', 'mt-rbtn' + (mt.active === role ? ' on' : ''), role === 'emphasis' ? 'Emphasize' : (role === 'upper' ? 'Upper' : 'Lower'));
             b.type = 'button';
             b.style.setProperty('--mt', col);
@@ -922,7 +932,13 @@
         mt.lastSub = sig;
         if (mt.over && mt.over.sub !== sub) mt.over = null;
         mtPreviewSoon();                  // the subtitle (or the split) changed: refresh the preview
-        const { parts, split } = mtParts(sub);
+        const roles = mtRoles(a);
+        const { split } = mtParts(sub);
+        const parts = mtFold(roles, mtParts(sub).parts);
+        // words of a hidden part are coloured as the part they fold into
+        const fold = { upper: roles.upper !== null ? 'upper' : (roles.lower !== null ? 'lower' : 'emphasis'),
+            lower: roles.lower !== null ? 'lower' : (roles.upper !== null ? 'upper' : 'emphasis'), emphasis: 'emphasis' };
+        split.roles = split.roles.map(x => fold[x] || x);
         const chips = host.querySelector('#mtChips');
         if (chips) {
             chips.textContent = '';

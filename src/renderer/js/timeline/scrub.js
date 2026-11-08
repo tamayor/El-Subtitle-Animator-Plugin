@@ -106,17 +106,21 @@ function scrubBuffer(p) {
 // Every sound under frame tf (the main one and any extra sound layers), as { buf, at (seconds into the file), vol }.
 function scrubVoices(ctx, m, tf, g) {
     const out = [];
-    const add = (p, start, end, tin, db) => {
+    // Volume follows the line on the clip: its dB level (boosts above 0 dB included) and the fade-out at its end.
+    const add = (p, start, end, tin, db, fade) => {
         if (!p || tf < start || tf >= end) return;
         const buf = scrubBuffer(p);                      // starts decoding on first use; heard from the next step on
         if (!buf) return;
         const at = Math.max(0, (tin + (tf - start)) / g.fps);
         if (at >= buf.duration) return;
-        out.push({ buf, at, vol: clamp(Math.pow(10, (Number(db) || 0) / 20), 0, 1) });
+        let vol = clamp(Math.pow(10, (Number(db) || 0) / 20), 0, 4);
+        const left = end - tf, f = Number(fade) || 0;
+        if (f > 0 && left < f) vol *= clamp(left / f, 0, 1);
+        out.push({ buf, at, vol });
     };
-    if (m.useSfx !== false) add(origSfxPath(m) || currentSfxPath(m), g.sfxS, g.sfxE, g.sfxTrimIn, m.sfxVolume);
+    if (m.useSfx !== false) add(origSfxPath(m) || currentSfxPath(m), g.sfxS, g.sfxE, g.sfxTrimIn, m.sfxVolume, g.fadeFrames);
     if (window.SASounds && SASounds.voices) {
-        try { for (const v of SASounds.voices(ctx, m, g)) add(v.path, v.start, v.end, v.tin, v.volume); } catch (e) { /* ignore */ }
+        try { for (const v of SASounds.voices(ctx, m, g)) add(v.path, v.start, v.end, v.tin, v.volume, v.fade); } catch (e) { /* ignore */ }
     }
     return out;
 }

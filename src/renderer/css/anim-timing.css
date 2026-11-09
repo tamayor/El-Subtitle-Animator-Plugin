@@ -192,20 +192,10 @@
 .timing-card.compact .tm-playhead span { display: none; }
 .timing-card.compact #timingDockBtn { display: inline-grid; }
 
-/* docked above the status message (inside the fixed footer) */
-.timing-card.docked {
-    margin: 0 0 4px;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.35);
-}
+/* docked: inside the bottom dock (css/bottom-dock.css) */
 .timing-card.docked #timingDockBtn,
 .timing-card.docked #timingCompactBtn { display: none; }
 .timing-card.docked #timingUndockBtn { display: inline-grid; }
-body.tab-apply.tm-docked { padding-bottom: 84px; }
 /* the compact / docked layout rules must not bring back anything hidden */
 .timing-card.hidden,
 .timing-card .hidden { display: none !important; }
-/* docked in the shared footer: only on the Use tab */
-body:not(.tab-apply) .timing-card.docked { display: none !important; }

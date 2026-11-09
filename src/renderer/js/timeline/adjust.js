@@ -9,6 +9,30 @@ function fillAdjust(ctx) {
     fillTextDesign(ctx);
 }
 
+// Real-time render (Use tab): whether Resolve renders the selected preset with the subtitle after every change,
+// including each time the playhead lands on another subtitle. Off keeps Resolve free while you jump around the
+// timeline; the Render button then renders on demand. Shown both by the scrub view and in the bottom dock.
+try { if (localStorage.getItem('sa.autoRender') === '0') state.autoRender = false; } catch (e) { /* ignore */ }
+function syncAutoRenderUI() {
+    const on = state.autoRender !== false;
+    const autoBtn = $('scrubAutoU'), renderBtn = $('scrubRenderU'), dockChk = $('dockRealtime');
+    if (autoBtn) {
+        autoBtn.classList.remove('hidden');
+        autoBtn.classList.toggle('on', on);
+        autoBtn.textContent = on ? 'Auto render' : 'Auto render off';
+    }
+    if (renderBtn) renderBtn.classList.toggle('hidden', on);
+    if (dockChk) dockChk.checked = on;
+}
+function setAutoRender(on) {
+    state.autoRender = !!on;
+    try { localStorage.setItem('sa.autoRender', state.autoRender ? '1' : '0'); } catch (e) { /* ignore */ }
+    syncAutoRenderUI();
+    if (state.autoRender) { try { ensureUsePreview(selected()); } catch (e) { /* ignore */ } }
+    setStatus(state.autoRender ? 'Real-time render on: changes are rendered in Resolve as you make them.'
+        : 'Real-time render off: nothing renders in Resolve while you move the playhead. Press Render to see the subtitle in this preset.', 'ok');
+}
+
 function bindAdjust(ctx) {
     const S = ctx.s;
     const changed = () => {
@@ -77,22 +101,9 @@ function bindAdjust(ctx) {
     // Use tab only: whether the subtitle render in Resolve happens after every change or on demand
     const autoBtn = $('scrubAuto' + S), renderBtn = $('scrubRender' + S);
     if (S === 'U' && autoBtn && renderBtn) {
-        try { if (localStorage.getItem('sa.autoRender') === '0') state.autoRender = false; } catch (e) { /* ignore */ }
-        const syncAuto = () => {
-            autoBtn.classList.remove('hidden');
-            autoBtn.classList.toggle('on', !!state.autoRender);
-            autoBtn.textContent = state.autoRender ? 'Auto render' : 'Auto render off';
-            renderBtn.classList.toggle('hidden', !!state.autoRender);
-        };
-        autoBtn.addEventListener('click', () => {
-            state.autoRender = !state.autoRender;
-            try { localStorage.setItem('sa.autoRender', state.autoRender ? '1' : '0'); } catch (e) { /* ignore */ }
-            syncAuto();
-            if (state.autoRender) { try { ensureUsePreview(selected()); } catch (e) { /* ignore */ } }
-            setStatus(state.autoRender ? 'Auto render on: changes are rendered in Resolve as you make them.' : 'Auto render off: press Render to see the subtitle in this preset.', 'ok');
-        });
+        autoBtn.addEventListener('click', () => setAutoRender(!state.autoRender));
         renderBtn.addEventListener('click', () => { try { ensureUsePreview(selected(), true); } catch (e) { /* ignore */ } });
-        syncAuto();
+        syncAutoRenderUI();
     }
     bindScrubKeys();
     syncPlayUI();

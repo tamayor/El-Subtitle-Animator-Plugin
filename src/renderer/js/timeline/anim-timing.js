@@ -47,15 +47,13 @@ function setTimingView(v) {
     applyTimingView();
     renderTiming();
 }
-// Moves the card into the footer (above the status message) or back to its place in the Use tab.
+// Moves the card into the bottom dock (above the status message) or back to its place in the Use tab.
 function applyTimingView() {
     const card = $('timingCard'), home = $('timingHome');
-    const footer = document.querySelector('#footerUse .footer-inner'), status = $('status');
     if (!card || !home) return;
     const v = tmView();
-    const docked = v === 'docked' && footer && status;
-    if (docked && card.parentNode !== footer) footer.insertBefore(card, status);
-    if (!docked && card.previousElementSibling !== home) home.after(card);
+    const docked = v === 'docked' && !!$('dockScroll');
+    dockPut(card, docked, home);
     card.classList.toggle('compact', v !== 'full');
     card.classList.toggle('docked', !!docked);
     document.body.classList.toggle('tm-docked', !!docked && !card.classList.contains('hidden'));
@@ -246,6 +244,12 @@ async function tmSend(wake) {
     try {
         const res = await window.sa.setClipTiming(i.itemId, ranges, wake);
         if (res && res.error) setStatus(res.error, 'bad');
+        else if (res && res.sounds) {
+            // the Upper / Emphasis / Lower sounds of this clip followed their row's start
+            const q = res.sounds;
+            if (q.error || q.failed) setStatus('Could not move ' + (q.failed || 'the') + ' row sound' + (q.failed === 1 ? '' : 's') + ' with the timing' + (q.error ? ': ' + q.error : ' (another clip may be in the way on that audio track).'), 'bad');
+            else if (q.moved) setStatus('Moved ' + q.moved + ' row sound' + (q.moved === 1 ? '' : 's') + ' with the animation start.', 'ok');
+        }
     } catch (e) { setStatus('Could not set the timing: ' + e.message, 'bad'); }
 }
 function tmQueue() {

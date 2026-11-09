@@ -175,6 +175,7 @@ function readLibRaw() {
     libRaw.key = raw === null ? '' : key; libRaw.raw = raw;
     return raw;
 }
+const segCache = new Map();      // segmentsOf: preset file -> { mt, list }
 function loadLib() {
     ensureDirs();
     let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
@@ -198,7 +199,38 @@ function loadLib() {
         libMigratedOnce = true;
         migrateAndCleanLib(lib);
     }
+    if (seedRowSounds(lib)) { try { saveLib(lib); } catch (e) { /* seeded again next time */ } }
     return lib;
+}
+
+// Every MultiText row preset (Upper / Emphasis / Lower timing) starts with a default sound in each row's slot, aligned
+// to that row's in-animation start. Done once per preset (segSfxSeeded), so a slot the user empties stays empty.
+// Rows other than these three get no default. Sounds missing from sounds/original are skipped.
+const ROW_SOUND_DEFAULTS = {
+    upper: { file: 'tap-tiny-wooden-gamemaster-audio-higher-tone-1-00-00.mp3', volume: -10 },
+    emphasis: { file: 'faith_mulato-shine-193240.mp3', volume: -8 },
+    lower: { file: 'tap-tiny-wooden-gamemaster-audio-higher-tone-1-00-00.mp3', volume: -12 }
+};
+function seedRowSounds(lib) {
+    let changed = false;
+    for (const a of lib.animations) {
+        if (!a || a.segSfxSeeded || !a.file) continue;
+        const segs = segmentsOf(path.join(ANIM_DIR, a.file));
+        if (!segs.length) continue;
+        if (!Array.isArray(a.sfxLayers)) a.sfxLayers = [];
+        for (const sg of segs) {
+            const d = ROW_SOUND_DEFAULTS[String(sg.label || '').toLowerCase()];
+            if (!d || !fs.existsSync(path.join(SFX_ORIG_DIR, d.file))) continue;
+            if (a.sfxLayers.some(l => l && l.align === 'seg' && Number(l.seg) === sg.n)) continue;
+            a.sfxLayers.push({
+                id: 'lseg' + sg.n + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: d.file, orig: d.file, enabled: true,
+                volume: d.volume, offset: 0, align: 'seg', seg: sg.n, trimIn: 0, len: 0, lenMode: 'clip', link: false, track: 0
+            });
+        }
+        a.segSfxSeeded = true;
+        changed = true;
+    }
+    return changed;
 }
 
 // Stamps updatedAt on every preset that is new or changed since the last save (shown and sorted in the Library tab).
@@ -237,6 +269,29 @@ function uniqueName(dir, base) {
     return name;
 }
 
+// The preset's own row timing (MultiText segment presets: Seg<n>Start / Seg<n>End on the Template) as
+// [{ n, label, start, end }], so the Alignment timeline can line the Upper / Emphasis / Lower sounds up with them.
+function segmentsOf(file) {
+    let mt = 0;
+    try { mt = fs.statSync(file).mtimeMs; } catch (e) { return []; }
+    const c = segCache.get(file);
+    if (c && c.mt === mt) return c.list;
+    const list = [];
+    try {
+        const txt = fs.readFileSync(file, 'utf8');
+        for (let n = 1; n <= 16; n++) {
+            const s = new RegExp('\\bSeg' + n + 'Start = Input \\{ Value = (-?[\\d.]+)').exec(txt);
+            const e = new RegExp('\\bSeg' + n + 'End = Input \\{ Value = (-?[\\d.]+)').exec(txt);
+            if (!s || !e) break;
+            const nm = new RegExp('\\bSeg' + n + 'Start = \\{[^}]*?LINKS_Name = "([^"]*)"').exec(txt);
+            let label = nm ? nm[1].replace(/\s*start$/i, '') : '';
+            list.push({ n, label: label || ('Text ' + n), start: Math.round(Number(s[1]) || 0), end: Math.round(Number(e[1]) || 0) });
+        }
+    } catch (e) { /* no segments */ }
+    segCache.set(file, { mt, list });
+    return list;
+}
+
 function libForUI() {
     const lib = loadLib();
     return {
@@ -266,6 +321,7 @@ function libForUI() {
                 hasOriginal,
                 nodes,
                 isMultiText: nodes.some(n => n.kind === 'multitext'),
+                segments: exists ? segmentsOf(animPath) : [],
                 textDesign,
                 textStyle: textDesign,
                 // Frames deleted from disk (previews folder cleared): reported as no preview, so the panel renders one.

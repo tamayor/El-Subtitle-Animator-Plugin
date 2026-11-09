@@ -173,7 +173,42 @@ async function ccTick() {
     setTimeout(ccTick, 700);
 }
 
+// View, like Animation timing: 'full' (the card), 'compact' (dense rows, two columns when wide) or 'docked'
+// (compact, in the bottom dock above the status message - js/timeline/bottom-dock.js).
+function ccView() {
+    if (!ccState.view) {
+        let v = 'full';
+        try { v = localStorage.getItem('sa.clipCtlView') || 'full'; } catch (e) { v = 'full'; }
+        ccState.view = (v === 'compact' || v === 'docked') ? v : 'full';
+    }
+    return ccState.view;
+}
+function setClipCtlView(v) {
+    ccState.view = (v === 'compact' || v === 'docked') ? v : 'full';
+    try { localStorage.setItem('sa.clipCtlView', ccState.view); } catch (e) { /* ignore */ }
+    applyClipCtlView();
+}
+function applyClipCtlView() {
+    const card = $('clipCtlCard'), home = $('clipCtlHome');
+    if (!card || !home) return;
+    const v = ccView();
+    const docked = v === 'docked' && !!$('dockScroll');
+    dockPut(card, docked, home);
+    card.classList.toggle('compact', v !== 'full');
+    card.classList.toggle('docked', docked);
+    const cb = $('clipCtlCompactBtn');
+    if (cb) {
+        cb.setAttribute('aria-pressed', String(v !== 'full'));
+        cb.title = v === 'full' ? 'Ultra compact' : 'Full size';
+        cb.setAttribute('aria-label', cb.title);
+    }
+}
+
 function initClipControls() {
     if (!$('clipCtlCard')) return;
+    $('clipCtlCompactBtn').addEventListener('click', () => setClipCtlView(ccView() === 'full' ? 'compact' : 'full'));
+    $('clipCtlDockBtn').addEventListener('click', () => setClipCtlView('docked'));
+    $('clipCtlUndockBtn').addEventListener('click', () => setClipCtlView('compact'));
+    applyClipCtlView();
     ccTick();
 }

@@ -18,7 +18,7 @@
     font-size: 12px;
 }
 .clip-ctl .cc-label { color: var(--text); cursor: default; user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.clip-ctl .cc-range { width: 100%; min-width: 0; accent-color: var(--matcha); }
+.clip-ctl .cc-range { width: 100%; min-width: 0; accent-color: var(--matcha); --sl-c: var(--matcha); --sl-t: var(--matcha-border); }
 .clip-ctl .cc-num {
     width: 100%;
     min-width: 0;
@@ -44,7 +44,7 @@
     padding: 3px 6px;
     font-size: 12px;
 }
-.clip-ctl .cc-color {
+.clip-ctl input.cc-color {
     width: 44px;
     height: 22px;
     padding: 0;
@@ -54,3 +54,37 @@
     cursor: pointer;
 }
 .clip-ctl .cc-row.cc-missing { opacity: 0.4; }
+
+/* ---------------------------------------------------------------- header tools, ultra compact, docked
+   (same tools as Animation timing: compact -> dock -> undock) */
+.clip-ctl .cc-top { align-items: center; gap: 6px; }
+.clip-ctl .cc-head-right { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.clip-ctl .cc-head-right .meta { margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-ctl button.cc-tool { width: 22px; height: 22px; border-radius: 6px; }
+.clip-ctl button.cc-tool[aria-pressed="true"] { color: var(--matcha); background: var(--matcha-tint); }
+.clip-ctl #clipCtlDockBtn,
+.clip-ctl #clipCtlUndockBtn { display: none; }
+.clip-ctl.compact #clipCtlDockBtn { display: inline-grid; }
+.clip-ctl.docked #clipCtlDockBtn,
+.clip-ctl.docked #clipCtlCompactBtn { display: none; }
+.clip-ctl.docked #clipCtlUndockBtn { display: inline-grid; }
+
+/* ultra compact: dense rows, two columns when there is room */
+.clip-ctl.compact { padding-top: 6px; padding-bottom: 6px; }
+.clip-ctl.compact .cc-top .label { font-size: 10px; }
+.clip-ctl.compact .cc-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 1px 14px;
+    margin-top: 2px;
+}
+.clip-ctl.compact .cc-head { grid-column: 1 / -1; margin: 4px 0 0; font-size: 9.5px; }
+.clip-ctl.compact .cc-head:first-child { margin-top: 0; }
+.clip-ctl.compact .cc-row { grid-template-columns: minmax(62px, 34%) 1fr 52px; gap: 6px; min-height: 20px; font-size: 11px; }
+.clip-ctl.compact .cc-row.cc-check { grid-template-columns: 16px 1fr; }
+.clip-ctl.compact .cc-row.cc-combo,
+.clip-ctl.compact .cc-row.cc-color { grid-template-columns: minmax(62px, 34%) 1fr; }
+.clip-ctl.compact .cc-num { padding: 1px 4px; font-size: 10.5px; }
+.clip-ctl.compact .cc-select { padding: 1px 4px; font-size: 11px; }
+.clip-ctl.compact input.cc-color { height: 18px; }
+.clip-ctl.hidden { display: none !important; }

@@ -1,0 +1,87 @@
+/* Use tab: the bottom dock (js/timeline/bottom-dock.js) - docked Animation timing and Clip controls above the status
+   message, in one scrollable area. Drag the top edge to resize it. */
+
+.bottom-dock {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+.bottom-dock.hidden,
+body:not(.tab-apply) .bottom-dock { display: none !important; }
+
+.dock-grip {
+    flex: none;
+    height: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ns-resize;
+    touch-action: none;
+    outline: none;
+}
+.dock-grip::before {
+    content: "";
+    width: 34px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    transition: background 0.15s ease, width 0.15s ease;
+}
+.dock-grip:hover::before,
+.dock-grip:focus-visible::before,
+.bottom-dock.resizing .dock-grip::before { background: var(--matcha); width: 48px; }
+.bottom-dock.resizing { user-select: none; }
+
+.dock-scroll {
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+/* the bar: a tiny Real-time render switch in the corner (always shown in the Use tab; details in its tooltip) */
+.dock-bar {
+    flex: none;
+    display: flex;
+    justify-content: flex-end;
+    padding: 2px 8px 0;
+    height: 16px;
+}
+.bottom-dock.empty .dock-grip,
+.bottom-dock.empty .dock-scroll { display: none; }
+.dock-switch {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 9.5px; line-height: 1; color: var(--dim);
+    cursor: pointer; user-select: none; opacity: 0.6; transition: opacity 0.15s ease;
+}
+.dock-switch:hover { opacity: 1; }
+.dock-switch input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.dock-switch i {
+    position: relative; width: 18px; height: 10px; border-radius: 5px;
+    background: var(--line); transition: background 0.15s ease;
+}
+.dock-switch i::after {
+    content: ""; position: absolute; top: 1px; left: 1px; width: 8px; height: 8px; border-radius: 50%;
+    background: #fff; transition: transform 0.15s ease;
+}
+.dock-switch input:checked + i { background: var(--matcha); }
+.dock-switch input:checked + i::after { transform: translateX(8px); }
+.dock-switch input:focus-visible + i { outline: 1px solid var(--matcha); outline-offset: 1px; }
+
+/* the cards inside lose their own frame: the dock is the frame */
+.dock-scroll > section {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding-top: 4px;
+}
+.dock-scroll > section:not(.hidden) ~ section:not(.hidden) { border-top: 1px solid var(--line-soft); padding-top: 6px; }
+
+/* the Use tab scrolls clear of the dock */
+body.tab-apply.dock-on { padding-bottom: calc(var(--footer-h, 40px) + 16px); }

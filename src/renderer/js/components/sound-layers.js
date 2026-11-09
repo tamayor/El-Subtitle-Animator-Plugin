@@ -41,15 +41,28 @@
         clearTimeout(saveTimer);
         saveTimer = setTimeout(() => { try { window.sa.updateAnimation(id, { sfxLayers: list }); } catch (e) { /* ignore */ } }, 400);
     }
+    // MultiText row presets (Upper / Emphasis / Lower): the preset's own row timing [{ n, label, start, end }] from the
+    // library. A sound with align 'seg' (seg: n) starts where row n's in-animation starts, + its offset; each row gets a
+    // fixed slot lane in the timeline. Placed clips keep following the row: dragging its start in the Animation timing
+    // bar moves the sound in Resolve too (src/main/anim-timing.js).
+    const segsOf = (ctx) => { const m = ctx.model(); const a = m ? libEntry(m.id) : null; return (a && Array.isArray(a.segments)) ? a.segments : []; };
+    const ROLE_COL = { upper: '#7fb8ff', emphasis: '#f0c36b', lower: '#8ccf8e' };
+    const segColor = (sg) => ROLE_COL[String(sg && sg.label || '').toLowerCase()] || '#c9a7ff';
+    // Frame (relative to the subtitle start) the sound's offset counts from: the text start, or its row's start.
+    const baseOf = (l, textS, segs) => {
+        if (l.align !== 'seg') return textS;
+        const sg = (segs || []).find(x => x.n === Number(l.seg));
+        return textS + (sg ? sg.start : 0);
+    };
     // Length mode of an extra sound: 'clip' = follows the text clip's duration when placed (default), 'fixed' = the set
     // length (len 0 = the rest of the sound). Older sounds with a set length are fixed.
     const lenModeOf = (l) => (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (num(l.len, 0) > 0 ? 'fixed' : 'clip');
     // Length of a 'clip' sound: from its start to the text end ('start' anchor), else the text's own duration.
-    const clipLen = (l, off, textS, textE, max) => clamp(Math.round(l.align === 'end' || l.align === 'after' ? textE - textS : textE - (textS + off)), 1, Math.max(1, max));
-    const offsetFor = (align, start, len, textS, textE) => align === 'end' ? start + len - textE : (align === 'after' ? start - textE : start - textS);
+    const clipLen = (l, off, textS, textE, max, base) => clamp(Math.round(l.align === 'end' || l.align === 'after' ? textE - textS : textE - ((base === undefined ? textS : base) + off)), 1, Math.max(1, max));
+    const offsetFor = (align, start, len, textS, textE, base) => align === 'end' ? start + len - textE : (align === 'after' ? start - textE : start - (base === undefined ? textS : base));
 
     // ---------------------------------------------------------------- geometry of an extra sound (frames, relative to the subtitle start)
-    function layerGeo(m, g, l) {
+    function layerGeo(m, g, l, segs) {
         const p = pathOf(l.file);
         let w = null;
         if (p) { w = state.waves.get(p); if (w === undefined) { loadWave(p); w = null; } }
@@ -58,14 +71,15 @@
         const cap = Math.round(num(l.len, 0));
         const mode = lenModeOf(l);
         const off = Math.round(num(l.offset, 0));
+        const base = baseOf(l, g.textS, segs);
         let len = full - tin;
-        if (mode === 'clip') len = clipLen(l, off, g.textS, g.textE, full - tin);
+        if (mode === 'clip') len = clipLen(l, off, g.textS, g.textE, full - tin, base);
         else if (cap > 0) len = Math.min(len, cap);
         len = Math.max(1, len);
-        const start = l.align === 'end' ? g.textE - len + off : (l.align === 'after' ? g.textE + off : g.textS + off);
+        const start = l.align === 'end' ? g.textE - len + off : (l.align === 'after' ? g.textE + off : base + off);
         // fade-out at its end (1 s unless changed), kept in both length modes
         const fade = clamp((l.fade === null || l.fade === undefined) ? Math.round(g.fps) : Math.round(num(l.fade, 0)), 0, len);
-        return { full, tin, len, fade, fps: g.fps, start, end: start + len, wave: w, path: p, auto: mode === 'clip', mode, textS: g.textS, textE: g.textE };
+        return { full, tin, len, fade, fps: g.fps, start, end: start + len, wave: w, path: p, auto: mode === 'clip', mode, textS: g.textS, textE: g.textE, base };
     }
 
     // ---------------------------------------------------------------- one interface for every sound (main or extra)
@@ -127,7 +141,7 @@
     }
 
     function layerHandle(ctx, m, l) {
-        const geo = () => layerGeo(m, geometry(m), l);
+        const geo = () => layerGeo(m, geometry(m), l, segsOf(ctx));
         const save = () => { persist(ctx); renderTimeline(ctx); };
         const setFile = (file) => { l.file = file; l.orig = file; l.trimIn = 0; l.len = 0; l.lenMode = 'clip'; l.enabled = true; };
         return {
@@ -142,7 +156,7 @@
                     case 'fade': return geo().fade;
                     case 'track': return Number(l.track) || 0;
                     case 'link': return !!l.link;
-                    case 'anchor': return ANCHORS.some(x => x[0] === l.align) ? l.align : 'start';
+                    case 'anchor': return l.align === 'seg' ? 'seg:' + (Number(l.seg) || 1) : (ANCHORS.some(x => x[0] === l.align) ? l.align : 'start');
                 }
             },
             set(f, v) {
@@ -155,7 +169,12 @@
                     case 'fade': l.fade = Math.max(0, Math.round(v)); break;
                     case 'track': l.track = Number(v) || 0; break;
                     case 'link': l.link = !!v; break;
-                    case 'anchor': { const q = geo(); l.align = v; l.offset = offsetFor(v, q.start, q.len, q.textS, q.textE); break; }
+                    case 'anchor': {
+                        const q = geo();
+                        if (String(v).indexOf('seg:') === 0) { l.align = 'seg'; l.seg = Number(String(v).slice(4)) || 1; l.offset = 0; }
+                        else { l.align = v; delete l.seg; l.offset = offsetFor(v, q.start, q.len, q.textS, q.textE); }
+                        break;
+                    }
                 }
                 save();
             },
@@ -195,7 +214,7 @@
     }
 
     // ---------------------------------------------------------------- adding
-    async function addFromPath(ctx, p) {
+    async function addFromPath(ctx, p, seg) {
         const a = entryOf(ctx);
         if (!a || !p) return;
         const res = await window.sa.addSfxOriginal(p);
@@ -204,13 +223,14 @@
         const cur = holderOf(ctx) || a;
         if (!Array.isArray(cur.sfxLayers)) cur.sfxLayers = [];
         const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, lenMode: 'clip', link: false, track: 0 };
+        if (seg) { l.align = 'seg'; l.seg = Number(seg); }
         cur.sfxLayers.push(l);
         sel[ctx.s] = l.id;
         persist(ctx); renderTimeline(ctx);
     }
-    async function addSound(ctx) {
+    async function addSound(ctx, seg) {
         const p = await window.sa.pickFile('sfx');
-        if (p && !p.error) addFromPath(ctx, p);
+        if (p && !p.error) addFromPath(ctx, p, seg);
     }
 
     // ---------------------------------------------------------------- the shared pieces of UI
@@ -354,6 +374,7 @@
         if (h0.kind === 'layer') {
             const a = document.createElement('select'); a.className = 'snd-anchor'; a.title = 'What this sound lines up with. "Repeat per row": the sound is placed again at every row of a row-by-row preset (Kinetic Cloud): the copies follow the clip\'s Frames Per Row and Animation Frames, so their number and spacing come from the placed text, not from this timeline.';
             ANCHORS.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; a.appendChild(o); });
+            segsOf(ctx).forEach(sg => { const o = document.createElement('option'); o.value = 'seg:' + sg.n; o.textContent = sg.label + ' in-animation start'; a.appendChild(o); });
             a.addEventListener('change', () => { const h = H(); if (h) h.set('anchor', a.value); });
             refs.push(() => { const h = H(); if (h && document.activeElement !== a) a.value = h.get('anchor'); });
             pos.appendChild(a);
@@ -371,6 +392,9 @@
                 'On presets without rows the sound plays once at the text start.');
             refs.push(() => { const h = H(); rep.style.display = (h && h.get('anchor') === 'rows') ? '' : 'none'; });
             card.appendChild(rep);
+            const segHint = mk('div', 'hint snd-repeat', '\u2192 Starts with this row\'s in-animation (+ Offset). On a placed clip, dragging the row\'s start in Animation timing moves this sound in Resolve too.');
+            refs.push(() => { const h = H(); segHint.style.display = (h && String(h.get('anchor')).indexOf('seg:') === 0) ? '' : 'none'; });
+            card.appendChild(segHint);
         }
 
         const misc = mk('div', 'snd-row');
@@ -462,22 +486,74 @@
         let lo = null, hi = null;
         for (const l of layersOf(ctx)) {
             if (l.enabled === false || !l.file) continue;
-            const q = layerGeo(m, g, l);
+            const q = layerGeo(m, g, l, segsOf(ctx));
             lo = lo === null ? q.start : Math.min(lo, q.start);
             hi = hi === null ? q.end : Math.max(hi, q.end);
         }
         return lo === null ? null : { lo: lo - 12, hi: hi + 12 };
     }
 
+    // The lanes under the main sound: a group per MultiText row (Upper / Emphasis / Lower) with one lane for every
+    // sound aligned to that row (one empty slot when it has none), then every other extra sound.
+    // -> [{ seg, l, k (index within the row), last (last lane of the row) }]
+    function laneRows(ctx) {
+        const list = layersOf(ctx), used = new Set(), out = [];
+        for (const sg of segsOf(ctx)) {
+            const mine = list.filter(x => x.align === 'seg' && Number(x.seg) === sg.n);
+            mine.forEach(x => used.add(x.id));
+            if (!mine.length) out.push({ seg: sg, l: null, k: 0, last: true });
+            else mine.forEach((l, k) => out.push({ seg: sg, l, k, last: k === mine.length - 1 }));
+        }
+        list.forEach(l => { if (!used.has(l.id)) out.push({ seg: null, l, k: 0, last: true }); });
+        return out;
+    }
+    const laneCount = (ctx) => laneRows(ctx).length;
+
     // Extra lanes (and their drag handlers) under the main sound's lane.
     function lanes(env) {
         const { ctx, m, g, box, add, X, ppf, begin, resets, top0 } = env;
         if (!box._dz && typeof dropZone === 'function') { box._dz = true; dropZone(box, (p) => addFromPath(ctx, p)); }
-        layersOf(ctx).forEach((l, i) => {
-            const lane = add('lane sfx');
+        const segs = segsOf(ctx);
+        // where each row's in-animation starts, marked on the text bar
+        const laneT = box.querySelector('.lane.text');
+        if (laneT) segs.forEach(sg => {
+            const mk2 = add('seg-mark', laneT);
+            mk2.style.left = X(g.textS + sg.start) + 'px';
+            mk2.style.setProperty('--mt', segColor(sg));
+            mk2.title = sg.label + ' starts animating in at frame ' + sg.start + ' (the preset\'s own timing)';
+            add('seg-mark-l', mk2).textContent = sg.label.charAt(0).toUpperCase();
+        });
+        let extraN = 1;
+        laneRows(ctx).forEach(({ seg, l, k, last }, i) => {
+            const lane = add('lane sfx' + (seg ? ' seg-slot' + (k > 0 ? ' seg-more' : '') + (last ? ' seg-last' : '') : ''));
             lane.style.top = (top0 + i * LANE_H) + 'px'; lane.style.height = LANE_H + 'px';
-            add('tag', lane).textContent = 'Sound ' + (i + 2) + (l.align === 'rows' ? ' \u21bb per row' : '');
-            const q = layerGeo(m, g, l);
+            if (seg) lane.style.setProperty('--mt', segColor(seg));
+            add('tag', lane).textContent = seg ? seg.label + ' SFX' + (k > 0 ? ' ' + (k + 1) : '') : 'Sound ' + (++extraN) + (l.align === 'rows' ? ' \u21bb per row' : '');
+            if (seg) {
+                const guide = add('seg-guide', lane);
+                guide.style.left = X(g.textS + seg.start) + 'px';
+                // dropping a file on any lane of a row adds one more sound to that row
+                if (typeof dropZone === 'function') dropZone(lane, (p) => addFromPath(ctx, p, seg.n));
+                if (l && last) {
+                    // the row's "+": another sound that also starts with this row's in-animation
+                    const plus = add('seg-plus', lane);
+                    plus.textContent = '+';
+                    plus.title = 'Add another ' + seg.label + ' sound (it moves with the ' + seg.label + ' in-animation too). Or drop a file on this row.';
+                    plus.addEventListener('pointerdown', (e) => e.stopPropagation());
+                    plus.addEventListener('click', (e) => { e.stopPropagation(); addSound(ctx, seg.n); });
+                }
+            }
+            if (!l) {
+                // empty slot: click (or drop a file) to give this row its own sound
+                const b = add('seg-add', lane);
+                b.style.left = Math.max(46, X(g.textS + seg.start)) + 'px';
+                b.textContent = '+ ' + seg.label + ' sound';
+                b.title = 'Add a sound that starts with the ' + seg.label + ' in-animation (or drop a file here)';
+                b.addEventListener('pointerdown', (e) => e.stopPropagation());
+                b.addEventListener('click', (e) => { e.stopPropagation(); addSound(ctx, seg.n); });
+                return;
+            }
+            const q = layerGeo(m, g, l, segs);
             const on = l.enabled !== false && !!l.file;
             const vol = num(l.volume, 0);
             if (on && (q.tin > 0 || q.len < q.full)) {
@@ -500,7 +576,7 @@
             fh.style.left = Math.max(0, Math.min(w - 10, (q.len - q.fade) * ppf - 5)) + 'px';
             fh.title = 'Drag to change the fade-out length (double-click: 1 s)';
             volLine(add, bar, vol, begin, 'lyrVol', l.id);
-            const snap = () => ({ start: q.start, len: q.len, tin: q.tin, full: q.full, fade: q.fade, fps: q.fps, auto: q.auto, mode: q.mode, textS: q.textS, textE: q.textE, align: l.align });
+            const snap = () => ({ start: q.start, len: q.len, tin: q.tin, full: q.full, fade: q.fade, fps: q.fps, auto: q.auto, mode: q.mode, textS: q.textS, textE: q.textE, align: l.align, base: q.base });
             const cap = (kind, el) => {
                 el.addEventListener('pointerdown', begin(kind, l.id));
                 el.addEventListener('pointerdown', () => { if (state.drag && state.drag.kind === kind && state.drag.lid === l.id) state.drag.l0 = snap(); });
@@ -521,8 +597,8 @@
     function apply(l, start, len, tin, q, lenGiven) {
         l.trimIn = tin;
         if (lenGiven) { l.len = len; l.lenMode = 'fixed'; }
-        const useLen = lenModeOf(l) === 'clip' ? clipLen(l, 0, q.textS, q.textE, q.full - tin) : ((num(l.len, 0) > 0) ? l.len : (q.full - tin));
-        l.offset = clamp(Math.round(offsetFor(q.align === 'end' || q.align === 'after' ? q.align : 'start', start, useLen, q.textS, q.textE)), -900, 900);
+        const useLen = lenModeOf(l) === 'clip' ? clipLen(l, 0, q.textS, q.textE, q.full - tin, q.base) : ((num(l.len, 0) > 0) ? l.len : (q.full - tin));
+        l.offset = clamp(Math.round(offsetFor(q.align === 'end' || q.align === 'after' ? q.align : 'start', start, useLen, q.textS, q.textE, q.base)), -900, 900);
     }
 
     function drag(d, df, dy) {
@@ -547,7 +623,8 @@
         let start = q.start, len = q.len, tin = q.tin, lenGiven = false;
         if (d.kind === 'lyr') {
             start = q.start + df;
-            if (Math.abs(start - q.textS) <= 1) start = q.textS;                       // snap to the text start
+            if (q.align === 'seg' && Math.abs(start - q.base) <= 2) start = q.base;    // a row sound snaps to its row's start
+            else if (Math.abs(start - q.textS) <= 1) start = q.textS;                       // snap to the text start
             else if (Math.abs(start + q.len - q.textE) <= 1) start = q.textE - q.len;  // or so it ends with the text
         } else if (d.kind === 'lyrIn') {
             const dd = clamp(df, -q.tin, q.len - 1);
@@ -567,11 +644,11 @@
         const out = [];
         for (const l of layersOf(ctx)) {
             if (l.enabled === false || !l.file) continue;
-            const q = layerGeo(m, g, l);
+            const q = layerGeo(m, g, l, segsOf(ctx));
             if (q.path) out.push({ path: q.path, start: q.start, end: q.end, tin: q.tin, volume: num(l.volume, 0), fade: q.fade });
         }
         return out;
     }
 
-    window.SASounds = { sync, lanes, range, voices, selectFor, drag, handle, pickerButtons, moreButton, layersFor: layersOf, volLine, volFrac, LANE_H, LANE0 };
+    window.SASounds = { sync, lanes, range, voices, selectFor, drag, handle, pickerButtons, moreButton, layersFor: layersOf, laneCount, segsFor: segsOf, volLine, volFrac, LANE_H, LANE0 };
 })();

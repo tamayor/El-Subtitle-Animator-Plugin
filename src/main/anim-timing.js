@@ -10,7 +10,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming };
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
-const { typingFramesFor } = require('./placement');
+const { typingFramesFor, segSfxFor, segSfxForget, findAudioItemById, findItemById } = require('./placement');
 
 // itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
 const cache = new Map();
@@ -143,5 +143,39 @@ async function setClipTiming(event, itemId, ranges, wake) {
     if (!list.length) return { error: 'No timing to set' };
     const r = await bridgeCall('timing_set', { item: String(itemId), ranges: list, wake: !!wake }, 6000);
     cache.delete(String(itemId));      // the next read shows what the clip really has now
-    return r && r.ok ? { ok: true } : { error: (r && r.why) || 'Could not set the timing on that clip' };
+    if (!(r && r.ok)) return { error: (r && r.why) || 'Could not set the timing on that clip' };
+    // A change made outright (release, keys, buttons): the Upper / Emphasis / Lower sounds follow their row's start.
+    let sounds = null;
+    if (wake) { try { sounds = await moveSegSounds(String(itemId), list); } catch (e) { sounds = { error: e.message }; } }
+    return { ok: true, sounds };
+}
+
+// Puts every sound placed for one row of this clip (placement.js segSfx*) at that row's start + its own offset.
+// -> { moved, failed } (null when the clip has no row sounds)
+async function moveSegSounds(itemId, list) {
+    const links = segSfxFor(itemId);
+    if (!links.length) return null;
+    const starts = {};
+    for (const r of list) if (/^\d+$/.test(r.key)) starts[Number(r.key)] = r.start;
+    const want = links.filter(x => starts[x.seg] !== undefined);
+    if (!want.length) return null;
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const text = await findItemById(tl, itemId);
+    if (!text) return null;
+    const clipStart = Number(await text.GetStart());
+    let moved = 0, failed = 0;
+    const gone = [];
+    for (const x of want) {
+        const it = await findAudioItemById(tl, x.id);
+        if (!it) { gone.push(x.id); continue; }
+        const target = clipStart + starts[x.seg] + (Number(x.off) || 0);
+        if (Number(await it.GetStart()) === target) continue;
+        let ok = false;
+        try { if (typeof it.SetPosition === 'function') ok = !!(await it.SetPosition({ startFrame: target }, false)); } catch (e) { ok = false; }
+        if (ok) moved++; else failed++;
+    }
+    if (gone.length) segSfxForget(itemId, gone);
+    return { moved, failed };
 }

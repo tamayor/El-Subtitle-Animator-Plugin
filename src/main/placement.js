@@ -8,7 +8,7 @@ module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, rowFramesFor, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
+    placeExtraSfx, rowFramesFor, segSfxFor, segSfxForget, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -864,12 +864,27 @@ function layerList(req, anim) {
 }
 // rowFrames: for layers aligned to 'rows' (one sound per row of a row-by-row preset such as Kinetic Cloud), the
 // clip-relative frames where the rows start (bridge row_times); null / empty = those layers fall back to the text start.
+// rowFrames may also be { rows, segs } (rowFramesFor): segs = { <n>: clip-relative start of segment n's in-animation }
+// for layers aligned to one row of a MultiText preset (align 'seg', seg: n = Upper / Emphasis / Lower).
 async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames) {
     const out = [];
     if (!layers || !layers.length) return out;
     const tlStart = await tl.GetStartFrame();
+    const rf = Array.isArray(rowFrames) ? { rows: rowFrames, segs: null } : (rowFrames || {});
+    rowFrames = rf.rows || null;
+    const segLinks = [];
     for (const l of layers) {
         try {
+            if (l.align === 'seg') {
+                const n = Math.max(1, Math.round(Number(l.seg) || 1));
+                const segStart = rf.segs && rf.segs[n] !== undefined ? rf.segs[n] : null;
+                if (segStart === null) notes.push('sound "' + path.basename(l.file) + '": the preset has no row ' + n + ' timing, placed at the text start');
+                const placed = await placeExtraSfx(tl, project, meta, [Object.assign({}, l, { align: 'start', offset: (segStart || 0) + (Math.round(Number(l.offset) || 0)) })],
+                    textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, null);
+                for (const x of placed) { x.seg = n; x.off = Math.round(Number(l.offset) || 0); segLinks.push({ id: x.id, seg: n, off: x.off }); }
+                out.push(...placed);
+                continue;
+            }
             if (l.align === 'rows') {
                 const rows = (Array.isArray(rowFrames) && rowFrames.length) ? rowFrames : [0];
                 if (rows.length === 1 && !(Array.isArray(rowFrames) && rowFrames.length)) notes.push('sound "' + path.basename(l.file) + '": the preset has no rows, placed once');
@@ -909,17 +924,62 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             out.push({ id, track, start, frames: len, link: !!l.link });
         } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
     }
+    if (segLinks.length && videoId) segSfxAdd(String(videoId), segLinks);
     return out;
+}
+
+// ------------------------------------------------------------------ row sounds follow the row's timing
+// Sounds aligned to one MultiText row (Upper / Emphasis / Lower) are remembered per text clip, so the Animation timing
+// bar can move them when that row's start is dragged: _app/seg-sounds.json = { <text item id>: [{ id, seg, off }] }
+// (off = frames after the row's start). Entries whose clips are gone are dropped when they are next looked up.
+const SEG_SFX_FILE = path.join(APP_DATA_DIR, 'seg-sounds.json');
+function segSfxRead() { try { const o = JSON.parse(fs.readFileSync(SEG_SFX_FILE, 'utf8')); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+function segSfxWrite(o) {
+    try {
+        const keys = Object.keys(o);
+        if (keys.length > 2000) for (const k of keys.slice(0, keys.length - 2000)) delete o[k];
+        fs.mkdirSync(APP_DATA_DIR, { recursive: true });
+        fs.writeFileSync(SEG_SFX_FILE, JSON.stringify(o));
+    } catch (e) { dlog('SEG-SFX-WRITE', e.message); }
+}
+function segSfxAdd(videoId, links) {
+    const o = segSfxRead();
+    o[videoId] = (o[videoId] || []).filter(x => !links.some(y => y.id === x.id)).concat(links);
+    segSfxWrite(o);
+}
+function segSfxFor(videoId) { return segSfxRead()[String(videoId)] || []; }
+function segSfxForget(videoId, ids) {
+    const o = segSfxRead(), k = String(videoId);
+    if (!o[k]) return;
+    o[k] = ids ? o[k].filter(x => !ids.includes(x.id)) : [];
+    if (!o[k].length) delete o[k];
+    segSfxWrite(o);
 }
 // The clip-relative row start frames for the 'rows' layers (null when no layer repeats per row or the comp has no
 // rows). Call it AFTER the text is written to the comp: the rows are counted from the Pop<k> texts.
+// With layers aligned to a MultiText row ('seg'), it returns { rows, segs } instead: segs = { <n>: Seg<n>Start }, read
+// from the placed clip (after any fit to a short clip), so the sound lands where that row's in-animation starts.
 async function rowFramesFor(itemId, compName, layers, warnings) {
-    if (!layers || !layers.some(l => l.align === 'rows')) return null;
+    const wantRows = !!(layers && layers.some(l => l.align === 'rows'));
+    const wantSegs = !!(layers && layers.some(l => l.align === 'seg'));
+    if (!wantRows && !wantSegs) return null;
+    const { bridgeCall } = require('./fusion-bridge');              // required here: fusion-bridge loads before this module
+    let rows = null, segs = null;
+    if (wantRows) {
+        try {
+            const r = await bridgeCall('row_times', { item: itemId, comp: compName });
+            rows = (r && Array.isArray(r.frames) && r.frames.length) ? r.frames : null;
+        } catch (e) { if (warnings) warnings.push('Could not read the row timing for the repeated sound: ' + e.message); }
+    }
+    if (!wantSegs) return rows;
     try {
-        const { bridgeCall } = require('./fusion-bridge');          // required here: fusion-bridge loads before this module
-        const r = await bridgeCall('row_times', { item: itemId, comp: compName });
-        return (r && Array.isArray(r.frames) && r.frames.length) ? r.frames : null;
-    } catch (e) { if (warnings) warnings.push('Could not read the row timing for the repeated sound: ' + e.message); return null; }
+        const r = await bridgeCall('timing_get', { item: itemId, comp: compName }, 6000);
+        if (r && r.kind === 'segments' && Array.isArray(r.ranges)) {
+            segs = {};
+            for (const x of r.ranges) segs[Number(x.key)] = Math.max(0, Math.round(Number(x.start) || 0));
+        }
+    } catch (e) { if (warnings) warnings.push('Could not read the Upper / Emphasis / Lower timing for their sounds: ' + e.message); }
+    return { rows, segs };
 }
 // One copy of the sound per row: each starts at its row's frame (+ the layer's offset); a 'clip' length runs until the
 // next row starts (and never past the text end), a fixed length is kept. All copies share one audio track.

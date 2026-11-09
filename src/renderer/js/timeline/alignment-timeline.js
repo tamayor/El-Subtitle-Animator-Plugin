@@ -77,7 +77,7 @@ function renderTimeline(ctx) {
     box.textContent = '';
     const add = (cls, parent) => { const d = document.createElement('div'); d.className = cls; (parent || box).appendChild(d); return d; };
     const L0 = 26, LH = 56;                                  // first lane's top, and every lane's height
-    const nExtra = window.SASounds ? SASounds.layersFor(ctx).length : 0;
+    const nExtra = window.SASounds ? SASounds.laneCount(ctx) : 0;   // extra sounds + one slot per MultiText row
     box.style.height = (L0 + (2 + nExtra) * LH + 4) + 'px';
 
     // ruler

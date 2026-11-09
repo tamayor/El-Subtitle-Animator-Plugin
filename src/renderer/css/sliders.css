@@ -1,0 +1,46 @@
+/* Every slider in the app: a thin line, filled in the slider's colour up to the dot, a faint tint of it after.
+   --sl-c is the colour, --sl-t its faint tint (strawberry unless a rule sets matcha); --fill is kept up to date by js/ui/slider-fill.js.
+   .rv-slider (Text design RGB) keeps its own look. */
+
+input[type=range]:not(.rv-slider) {
+    --sl-c: var(--strawberry);
+    --sl-t: var(--strawberry-border);
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+}
+
+input[type=range]:not(.rv-slider)::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg,
+            var(--sl-c) 0, var(--sl-c) var(--fill, 0%),
+            var(--sl-t) var(--fill, 0%));
+}
+
+input[type=range]:not(.rv-slider)::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4.5px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--sl-c);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+input[type=range]:not(.rv-slider):hover::-webkit-slider-thumb { transform: scale(1.15); }
+input[type=range]:not(.rv-slider):active::-webkit-slider-thumb,
+input[type=range]:not(.rv-slider):focus-visible::-webkit-slider-thumb {
+    transform: scale(1.2);
+    box-shadow: 0 0 0 4px var(--sl-t), 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+input[type=range]:not(.rv-slider):disabled { cursor: default; opacity: 0.45; }

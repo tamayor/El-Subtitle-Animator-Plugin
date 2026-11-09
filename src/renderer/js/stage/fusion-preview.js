@@ -228,7 +228,6 @@ function ensureUsePreview(a, manual) {
         u.renderReq = reqKey;
         u.rendering = true;
         u.renderStart = Date.now();
-        setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
         const look = textStyleLook(a, false);
@@ -296,7 +295,6 @@ function ensureRealPreview(a, m) {
         subPv.running = true;
         lastRendered.set(a.id, reqKey);       // claim it now so nothing can queue the same render again
         if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(a.id, true);
-        setStatus('Rendering the real animation in Resolve…');
         let res;
         try { res = await window.sa.makePreview(a.id, want || null, td ? cloneTextDesign(td) : null, designKeyOf(td), false, boxRenderList(curM || cur, cur, '', false), { maxDim: Math.max(stageDim('C'), 1280) }); } catch (e) { res = { error: String(e && e.message || e) }; }
         subPv.running = false;
@@ -321,7 +319,7 @@ function ensureRealPreview(a, m) {
     let running = false;
     setInterval(async () => {
         try {
-            if (running || state.idle || !window.sa || !window.sa.makePreview) return;
+            if (running || state.idle || state.autoRender === false || !window.sa || !window.sa.makePreview) return;
             if (!state.live || !state.live.ok || !state.lib || !state.lib.animations) return;
             const u = state.use;
             if (state.busy || state.drag || state.stageDrag || state.preview || state.livePrev

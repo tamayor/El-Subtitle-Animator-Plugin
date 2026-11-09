@@ -714,7 +714,7 @@ body.tab-prompt {
 :is(#promptBuilder, #styleBodyU) input[type=range].pb-share-range {
     flex: 1 1 120px;
     min-width: 80px;
-    accent-color: var(--matcha);
+    accent-color: var(--matcha); --sl-c: var(--matcha); --sl-t: var(--matcha-border);
 }
 
 /* Except tags: [chips] [+ tag…] [keep font & colour ▾] */
@@ -895,7 +895,7 @@ body.tab-prompt {
 }
 
 :is(#promptBuilder, #styleBodyU) input[type=range].pb-hl-slider {
-    accent-color: var(--matcha);
+    accent-color: var(--matcha); --sl-c: var(--matcha); --sl-t: var(--matcha-border);
     width: 100%;
     min-width: 0;
     margin: 0;

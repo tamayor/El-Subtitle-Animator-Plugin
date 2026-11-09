@@ -6,6 +6,11 @@
     gap: 8px;
 }
 
+/* the id rule above outranks the .hidden class; keep the drawer collapsed until its toggle opens it */
+#styleBodyU.hidden {
+    display: none;
+}
+
 #styleBodyU .ts-row {
     margin: 0;
 }

@@ -1777,8 +1777,29 @@ def key_followers(comp):
                         getattr(fol, inp_id).SetExpression(expr)     # never leave the letters without their animation
                     continue
                 ts = sorted(set([float(j) for j in range(int(r) + 1)] + [r]))
-                sp.SetKeyFrames({rs + s + t: {1: anim_value(kind, min(1.0, t / r)), "Flags": {"Linear": True}}
-                                 for t in ts}, True)
+                lo, hi = rs + s, rs + s + r
+                keys = {lo + t: {1: anim_value(kind, min(1.0, t / r)), "Flags": {"Linear": True}} for t in ts}
+                # Keys outside the new range (AddModifier's own key at frame 0 = the input's static value, e.g.
+                # Opacity 1, or keys from an earlier timing) would make the letters show before their lane starts
+                # and fade out into it. SetKeyFrames(..., True) does not drop them, and DeleteKeyFrames always
+                # leaves one key, so they are first overwritten with the held value, then deleted.
+                try:
+                    old = [float(k) for k in (sp.GetKeyFrames() or {}).keys()]
+                except Exception:
+                    old = []
+                for k in old:
+                    if k < lo - 1e-3:
+                        keys[k] = {1: anim_value(kind, 0.0), "Flags": {"Linear": True}}
+                    elif k > hi + 1e-3:
+                        keys[k] = {1: anim_value(kind, 1.0), "Flags": {"Linear": True}}
+                    elif k not in keys:
+                        keys[k] = {1: anim_value(kind, min(1.0, max(0.0, (k - lo) / r))), "Flags": {"Linear": True}}
+                sp.SetKeyFrames(keys, True)
+                try:
+                    sp.DeleteKeyFrames(-1e6, lo - 0.5)
+                    sp.DeleteKeyFrames(hi + 0.5, 1e6)
+                except Exception:
+                    pass
                 keyed += 1
             except Exception:
                 continue

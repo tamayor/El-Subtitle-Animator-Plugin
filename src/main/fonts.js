@@ -12,13 +12,45 @@ const { execFile } = require('child_process');
 const { ANIM_DIR, FONTS_DIR, ensureDirs } = require('./config');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
+const { bridgeCall } = require('./fusion-bridge');
 
-// Every font family installed on this Mac with the styles each one really has (what Text+ offers in its Font
-// and Style boxes), looked up once per run. A Text+ shows "Font Not Found" when the style is not one of these.
-let fontCache = null, fontStyleMap = {};
+// Every font family with the styles each one really has, as Text+ offers them in its Font and Style boxes. The list
+// comes from Resolve's own font manager (exactly what Text+ shows, e.g. every named instance of a variable font);
+// when Resolve cannot be reached, macOS's font manager stands in until Resolve answers. A Text+ shows
+// "Font Not Found" when the style is not one of these.
+let fontCache = null, fontStyleMap = {}, fontsFromResolve = false, fontsPending = null;
 function listSystemFonts() {
+    if (fontCache && fontsFromResolve) return Promise.resolve({ fonts: fontCache, styles: fontStyleMap, fromResolve: true });
+    if (fontsPending) return fontsPending;
+    fontsPending = (async () => {
+        const mac = await listMacFonts();
+        let res = null;
+        try { res = await bridgeCall('fonts', {}, 15000); } catch (e) { dlog('fonts: Resolve list unavailable: ' + (e && e.message)); }
+        if (res && typeof res === 'object' && Object.keys(res).length) {
+            // Resolve's set of styles, in macOS's weight order where macOS knows the family (Resolve lists them A-Z).
+            const styles = {};
+            for (const fam of Object.keys(res)) {
+                const rs = Array.from(new Set((res[fam] || []).filter(Boolean)));
+                const macKey = Object.keys(mac.styles).find(k => k.toLowerCase() === fam.toLowerCase());
+                const ordered = macKey ? mac.styles[macKey].filter(x => rs.some(r => r.toLowerCase() === x.toLowerCase())).map(x => rs.find(r => r.toLowerCase() === x.toLowerCase())) : [];
+                styles[fam] = ordered.concat(rs.filter(r => !ordered.includes(r)));
+            }
+            fontStyleMap = styles;
+            fontCache = Object.keys(styles).sort((a, b) => a.localeCompare(b));
+            fontsFromResolve = true;
+        } else if (!fontCache) {
+            fontStyleMap = mac.styles;
+            fontCache = mac.fonts;
+        }
+        fontsPending = null;
+        return { fonts: fontCache || [], styles: fontStyleMap, fromResolve: fontsFromResolve };
+    })();
+    return fontsPending;
+}
+let macFontsCache = null;
+function listMacFonts() {
     return new Promise((resolve) => {
-        if (fontCache) return resolve({ fonts: fontCache, styles: fontStyleMap });
+        if (macFontsCache) return resolve(macFontsCache);
         if (process.platform !== 'darwin') return resolve({ fonts: [], styles: {} });
         const js = 'ObjC.import("AppKit"); const fm = $.NSFontManager.sharedFontManager; const out = {};' +
             'for (const f of ObjC.deepUnwrap(fm.availableFontFamilies)) { let st = []; try { st = (ObjC.deepUnwrap(fm.availableMembersOfFontFamily(f)) || []).map(m => String(m[1])); } catch (e) {} out[f] = st; }' +
@@ -27,11 +59,11 @@ function listSystemFonts() {
             try {
                 const map = JSON.parse(String(out || '').trim());
                 const names = Object.keys(map).filter(x => x && !x.startsWith('.')).sort((a, b) => a.localeCompare(b));
-                fontStyleMap = {};
-                for (const n of names) fontStyleMap[n] = Array.from(new Set((map[n] || []).filter(Boolean)));
-                fontCache = names;
-            } catch (e) { fontCache = null; }
-            resolve({ fonts: fontCache || [], styles: fontStyleMap });
+                const styles = {};
+                for (const n of names) styles[n] = Array.from(new Set((map[n] || []).filter(Boolean)));
+                macFontsCache = { fonts: names, styles };
+            } catch (e) { /* no macOS list this time */ }
+            resolve(macFontsCache || { fonts: [], styles: {} });
         });
     });
 }

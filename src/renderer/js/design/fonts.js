@@ -11,18 +11,25 @@ const FONT_OPTIONS = [
 // All fonts installed on this computer (loaded once in the background); the short list above is the fallback.
 state.fonts = FONT_OPTIONS.slice();
 state.fontStyles = {};      // font family -> the styles it really has
+// Resolve's own list is the exact one (what Text+ shows); until Resolve answers, macOS's list stands in and the
+// load is retried for a while.
 (async () => {
-    try {
-        let list = null;
-        if (window.sa && window.sa.listFonts) { const r = await window.sa.listFonts(); list = r && r.fonts; if (r && r.styles) state.fontStyles = r.styles; }
-        if ((!list || !list.length) && typeof window.queryLocalFonts === 'function') {
-            const f = await window.queryLocalFonts();
-            list = Array.from(new Set(f.map(x => x.family))).sort((a, b) => a.localeCompare(b));
-            for (const x of f) { (state.fontStyles[x.family] = state.fontStyles[x.family] || []).includes(x.style) || state.fontStyles[x.family].push(x.style); }
-        }
-        if (list && list.length) state.fonts = list;
-    } catch (e) { /* keep the short list */ }
+    for (const wait of [0, 15000, 30000, 60000, 120000]) {
+        if (wait) await new Promise(r => setTimeout(r, wait));
+        try {
+            let list = null, fromResolve = false;
+            if (window.sa && window.sa.listFonts) { const r = await window.sa.listFonts(); list = r && r.fonts; if (r && r.styles) state.fontStyles = r.styles; fromResolve = !!(r && r.fromResolve); }
+            if ((!list || !list.length) && typeof window.queryLocalFonts === 'function') {
+                const f = await window.queryLocalFonts();
+                list = Array.from(new Set(f.map(x => x.family))).sort((a, b) => a.localeCompare(b));
+                for (const x of f) { (state.fontStyles[x.family] = state.fontStyles[x.family] || []).includes(x.style) || state.fontStyles[x.family].push(x.style); }
+            }
+            if (list && list.length) state.fonts = list;
+            if (fromResolve) break;
+        } catch (e) { /* keep the short list */ }
+    }
 })();
+
 
 // null = font not in the installed list (typed by hand). A font with no styles, or whose family name already carries
 // its weight (Larken-Black, Arial Black), is listed by Resolve with the single style "Regular".

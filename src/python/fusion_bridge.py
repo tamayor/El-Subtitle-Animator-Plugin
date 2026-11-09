@@ -786,8 +786,33 @@ def hl_original(tool):
     return orig
 
 
-def hl_set(tool, orig, w, h, dx, dy):
-    """The preset's own box times w / h, moved by dx / dy (Offset units). 1, 1, 0, 0 restores the preset's box."""
+HL_CTRL = ("HighlightWidth", "HighlightHeight", "HighlightX", "HighlightY")
+
+
+def hl_controls(comp):
+    """The Template tool when the preset has the Box Width / Height / X / Y Inspector controls
+    (tools/add-highlight-box-controls.py), else None."""
+    try:
+        t = comp.FindTool("Template")
+        if t is not None and get_in(t, "HighlightWidth") is not None:
+            return t
+    except Exception:
+        pass
+    return None
+
+
+def hl_set(tool, orig, w, h, dx, dy, ctrl=None):
+    """The preset's own box times w / h, moved by dx / dy (Offset units). 1, 1, 0, 0 restores the preset's box.
+    With ctrl (the Template that has the Box controls) the values go into those Inspector controls, which the box's
+    expressions read, so the user can fine-tune them in the Inspector afterwards."""
+    if ctrl is not None:
+        hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0)             # put back any expression hl_ink took off
+        for k, v in zip(HL_CTRL, (w, h, dx, dy)):
+            try:
+                ctrl.SetInput(k, float(v))
+            except Exception:
+                pass
+        return
     import re
     tname = attrs(tool).get("TOOLS_Name") or ""
     for n, e in orig.items():
@@ -883,22 +908,23 @@ def hl_center(b):
 def hl_adjust(comp, tool, W, H, X, Y, auto):
     import math
     orig = hl_original(tool)
-    hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0)
+    ctrl = hl_controls(comp)
+    hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0, ctrl)
     name = attrs(tool).get("TOOLS_Name")
     if not auto and abs(W - 1) < 1e-6 and abs(H - 1) < 1e-6 and abs(X) < 1e-6 and abs(Y) < 1e-6:
         return {"tool": name, "reset": True}
     if not auto:
-        hl_set(tool, orig, W, H, X, Y)
+        hl_set(tool, orig, W, H, X, Y, ctrl)
         return {"tool": name, "width": W, "height": H, "offset": [X, Y]}
     # Rendering a Text+ whose text comes through a Follower (Highlight Select, Soft Marker, Underline Draw) from a
     # script crashed Resolve (2026-11-09): those boxes are never measured, they only get the sliders.
     if is_driven(tool, "StyledText") is not None:
-        hl_set(tool, orig, W, H, X, Y)
+        hl_set(tool, orig, W, H, X, Y, ctrl)
         return {"tool": name, "width": W, "height": H, "offset": [X, Y], "note": "Follower-driven box: not measured, sliders only"}
     t = hl_full_time(comp, tool)
     box = hl_window(tool, t) if t is not None else None
     if box is None:
-        hl_set(tool, orig, W, H, X, Y)
+        hl_set(tool, orig, W, H, X, Y, ctrl)
         return {"tool": name, "note": "the box did not render, so only the sliders were applied"}
     bw, bh = box[2] - box[0], box[3] - box[1]
     tw, th = bw * W, bh * H
@@ -922,17 +948,17 @@ def hl_adjust(comp, tool, W, H, X, Y, auto):
         else:
             out["note"] = "not a full box (underline / marker): only the sliders were applied"
     wm, hm = tw / bw, th / bh
-    hl_set(tool, orig, wm, hm, 0.0, 0.0)
+    hl_set(tool, orig, wm, hm, 0.0, 0.0, ctrl)
     b0 = hl_window(tool, t)
     if b0:                                                  # SizeX / SizeY may not scale exactly linearly: one fix-up
         wm *= tw / max(1.0, b0[2] - b0[0])
         hm *= th / max(1.0, b0[3] - b0[1])
-        hl_set(tool, orig, wm, hm, 0.0, 0.0)
+        hl_set(tool, orig, wm, hm, 0.0, 0.0, ctrl)
         b0 = hl_window(tool, t)
     dx = dy = 0.0
     if b0:
         probe = 0.05                                        # Offset units -> pixels, measured
-        hl_set(tool, orig, wm, hm, probe, probe)
+        hl_set(tool, orig, wm, hm, probe, probe, ctrl)
         b1 = hl_window(tool, t)
         c0, c1 = hl_center(b0), (hl_center(b1) if b1 else None)
         if c1:
@@ -940,7 +966,7 @@ def hl_adjust(comp, tool, W, H, X, Y, auto):
             dx = (tcx - c0[0]) / kx if abs(kx) > 1 else 0.0
             dy = (tcy - c0[1]) / ky if abs(ky) > 1 else 0.0
     dx, dy = dx + X, dy + Y                                 # the user's nudge, in Offset units on top
-    hl_set(tool, orig, wm, hm, dx, dy)
+    hl_set(tool, orig, wm, hm, dx, dy, ctrl)
     fin = hl_window(tool, t)
     out.update({"width": round(wm, 4), "height": round(hm, 4), "offset": [round(dx, 4), round(dy, 4)]})
     if fin:

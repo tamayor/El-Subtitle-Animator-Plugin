@@ -1,5 +1,9 @@
 """Generate Pill Soft / Pill Outline / Pill Solid from Glass Pill.setting (flat pills like the reference image)."""
-import re, sys
+import importlib.util, os, re, sys
+
+_spec = importlib.util.spec_from_file_location("box", os.path.join(os.path.dirname(os.path.abspath(__file__)), "add-highlight-box-controls.py"))
+BOX = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(BOX)
 
 SRC = sys.argv[1]
 OUT_DIR = sys.argv[2]
@@ -77,5 +81,6 @@ for name, (fill, textcol, extra) in VARIANTS.items():
     anchor = '\t\t\t\tRed1 = Input { Value = 1, Expression = "Template.HighlightRed", },\n'
     assert s.count(anchor) == 1
     s = s.replace(anchor, "\t\t\t\tPriorityBack1 = Input { Value = 8, },\n" + "".join(extra) + anchor)
+    s = BOX.patch(s)                                  # Box Width / Height / X / Y in the Inspector
     open("%s/%s.setting" % (OUT_DIR, name), "w", encoding="utf-8").write(s)
     print("wrote", name, len(s))

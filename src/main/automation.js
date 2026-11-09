@@ -70,6 +70,10 @@ function defaultRules() {
         // Marker, Underline Draw): width / height multiply the preset's box, x / y are added to its Offset (Inspector
         // units, + = right / up), auto evens out the padding around the word (fusion_bridge.op_highlight_box)
         highlight: { auto: false, width: 1, height: 1, x: 0, y: 0 },
+        // MultiText row layout (Inspector Row controls, tools/add-multitext-row-controls.py): gap = space between the
+        // upper / emphasis / lower rows in text lines (null = the preset's own), justify = manual / center / left / right
+        // (null = the preset's: manual). fusion_bridge.op_multitext_rows
+        rows: { gap: null, justify: null },
         sound: true,               // place the presets' sound effects
         notes: '',                  // free-text editing rules Claude reads before editing
         // Safe-zone layout read from a reference image (see layout.js): safe bands, named guides, zones to keep clear.
@@ -128,6 +132,7 @@ function cleanRules(r) {
         },
         text: { maxSize: opt(tx.maxSize, 0.01, 1), lineSpacing: opt(tx.lineSpacing, 0.3, 3) },
         highlight: cleanHighlight(r.highlight),
+        rows: cleanRows(r.rows),
         sound: r.sound !== false,
         notes: String(r.notes || '').slice(0, 4000),
         layout: r.layout === undefined ? d.layout : cleanLayout(r.layout)
@@ -138,6 +143,38 @@ function cleanHighlight(h) {
     h = (h && typeof h === 'object') ? h : {};
     const num = (v, lo, hi, def) => { const n = Number(v); return (v !== null && v !== '' && Number.isFinite(n)) ? Math.max(lo, Math.min(hi, n)) : def; };
     return { auto: !!h.auto, width: num(h.width, 0.2, 4, 1), height: num(h.height, 0.2, 4, 1), x: num(h.x, -2, 2, 0), y: num(h.y, -2, 2, 0) };
+}
+
+const ROW_JUSTIFY = ['manual', 'center', 'left', 'right'];
+function cleanRows(r) {
+    r = (r && typeof r === 'object') ? r : {};
+    const g = Number(r.gap);
+    return {
+        gap: (r.gap === null || r.gap === undefined || r.gap === '' || !Number.isFinite(g)) ? null : Math.max(-3, Math.min(6, g)),
+        justify: ROW_JUSTIFY.includes(String(r.justify || '').toLowerCase()) ? String(r.justify).toLowerCase() : null
+    };
+}
+
+// The bridge's multitext_rows args from the rules' rows and this call's (gap, justify, link, all / upper / emphasis /
+// lower {x, y}), or null when nothing is set.
+function rowsReq(rules, own) {
+    const out = {};
+    const r = cleanRows(rules);
+    if (r.gap !== null) out.gap = r.gap;
+    if (r.justify) out.justify = r.justify;
+    own = (own && typeof own === 'object') ? own : {};
+    const o = cleanRows(own);
+    if (o.gap !== null) out.gap = o.gap;
+    if (o.justify) out.justify = o.justify;
+    if (own.link !== undefined && own.link !== null) out.link = !!own.link;
+    for (const k of ['all', 'upper', 'emphasis', 'lower']) {
+        const v = own[k];
+        if (!v || typeof v !== 'object') continue;
+        const xy = {};
+        for (const ax of ['x', 'y']) { const n = Number(v[ax]); if (v[ax] !== null && v[ax] !== undefined && Number.isFinite(n)) xy[ax] = Math.max(-2, Math.min(2, n)); }
+        if (Object.keys(xy).length) out[k] = xy;
+    }
+    return Object.keys(out).length ? out : null;
 }
 
 // The bridge's highlight_box args, or null when nothing would change (no auto, every slider at its default).
@@ -449,7 +486,7 @@ const TOOLS = {
     async set_rules(args) {
         const cur = loadRules();
         const next = Object.assign({}, cur, args || {});
-        for (const k of ['track', 'position', 'multitext', 'text', 'highlight']) if (args && args[k]) next[k] = Object.assign({}, cur[k], args[k]);
+        for (const k of ['track', 'position', 'multitext', 'text', 'highlight', 'rows']) if (args && args[k]) next[k] = Object.assign({}, cur[k], args[k]);
         if (args && args.font === null) next.font = null;
         if (args && args.emphasis && cur.emphasis) next.emphasis = Object.assign({}, cur.emphasis, args.emphasis);
         if (args && args.styleShare) next.styleShare = Object.assign({}, cur.styleShare, args.styleShare);
@@ -829,6 +866,8 @@ const TOOLS = {
             textDesign,
             // this call's highlight values over the rules' (only fields given change)
             highlight: isMT ? highlightReq(Object.assign({}, rules.highlight, (args.highlight && typeof args.highlight === 'object') ? args.highlight : {})) : null,
+            // the MultiText Row controls (gap between the rows, justify, per-row nudges): the rules' + this call's
+            rows: isMT ? rowsReq(rules.rows, args.rows) : null,
             boxList: boxListFor(a, nodes, text, parts, look, sizing),
             // the bridge sizes every MultiText layer together (sizes, boxes and the gaps between layers)
             multitext: (isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) ? sizing : null,
@@ -908,6 +947,41 @@ const TOOLS = {
             }
         } finally { state.applying = false; }
         return { values: h, saved: !!args.save, clips: out.length, results: out };
+    },
+
+    // The MultiText Row controls (gap / justify / link / per-row x y) on clips already on the timeline (all MultiText
+    // clips, or itemIds / a frame range). save: true also stores gap / justify in the rules.
+    async adjust_rows(args) {
+        args = args || {};
+        await waitFree(10000);
+        const rules = loadRules();
+        const req = rowsReq(rules.rows, args.rows) || {};
+        if (args.save) saveRules(Object.assign({}, rules, { rows: cleanRows(Object.assign({}, rules.rows, args.rows || {})) }));
+        const { tl } = await currentTimeline();
+        const ids = Array.isArray(args.itemIds) && args.itemIds.length ? new Set(args.itemIds.map(String)) : null;
+        const from = Number.isFinite(Number(args.fromFrame)) ? Number(args.fromFrame) : -Infinity;
+        const to = Number.isFinite(Number(args.toFrame)) ? Number(args.toFrame) : Infinity;
+        const out = [];
+        state.applying = true;
+        try {
+            const nTracks = await tl.GetTrackCount('video');
+            for (let t = 1; t <= nTracks; t++) {
+                for (const it of (await tl.GetItemListInTrack('video', t)) || []) {
+                    const id = String(await it.GetUniqueId());
+                    if (ids && !ids.has(id)) continue;
+                    const st = await it.GetStart();
+                    if (st < from || st > to) continue;
+                    let n = 0;
+                    try { n = await it.GetFusionCompCount(); } catch (e) { n = 0; }
+                    if (!n) continue;
+                    try {
+                        const r = await bridgeCall('multitext_rows', Object.assign({ item: id }, req), 30000);
+                        if (r && r.hasControls) out.push({ itemId: id, track: 'V' + t, start: st, name: await it.GetName(), rows: r });
+                    } catch (e) { if (ids) out.push({ itemId: id, track: 'V' + t, start: st, error: e.message }); }
+                }
+            }
+        } finally { state.applying = false; }
+        return { values: req, saved: !!args.save, clips: out.length, results: out };
     },
 
     // Clips with an empty Inspector (a preset imported onto a plain "Text+" / "MultiText") are rebuilt as title-template

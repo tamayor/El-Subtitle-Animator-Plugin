@@ -97,6 +97,13 @@ So `presetTitleFor` (in `placement.js`) writes each preset to `Fusion/Templates/
 - To change which preset a clip uses, insert a new clip. Don't swap the comp on the existing one.
 - `npm run check` fails on any comp-replacing call without an `// inspector-ok: <reason>` comment. Use that comment only for clips the user never inspects (temporary render clips) or for the logged fallback in `apply.js`, which warns the user.
 
+### MultiText Inspector controls
+
+The Upper / Emphasis / Lower MultiText presets (Highlight Select, Glass Pill, Pill Soft / Outline / Solid, Soft Marker, Underline Draw) carry extra Inspector controls on the Template, added by scripts in `tools/` (run them on a preset file; running them again changes nothing; `gen-pills.py` applies both):
+
+- `add-highlight-box-controls.py`: Box Width / Height / X / Y for the box or pill behind the emphasised word. The panel's HIGHLIGHT_BOX row and `rules.highlight` write the same controls (bridge op `highlight_box`).
+- `add-multitext-row-controls.py`: Row Gap, Link Rows, All / Upper / Emphasis / Lower Y, All / Upper / Emphasis / Lower X, Justify. The layers' `Center`, H Anchor and justification become expressions of these controls and of each row's Size, line count (read from the followers' `Text.Value`, never a follower output) and Line Spacing, so the gap above and below the emphasis is always the same and follows a resize or a Box Height change. Row Gap is in text lines (0 = touching; gap = Row Gap × 0.32 × the two rows' mean Size). Every Template input read inside an expression costs about 0.15 ms per frame, so the expressions read as little as they can (own offsets unless Link Rows is on, Line Spacing only for multi-line rows, text widths only for Left / Right): about 4.5 ms per frame for the three rows against 0.5 ms without them. Justify Center / Left / Right lines the rows' edges up and overrides the per-row X sliders; Manual (the default) lets the X sliders place each row. `size_multitext` leaves expression-driven Centers alone. `rules.rows` { gap, justify }, the `place` argument `rows` and the MCP tool `adjust_rows` write the controls (bridge op `multitext_rows`).
+
 ### Python bridge
 
 `fusion_bridge.py` reads JSON requests on stdin and writes replies on stdout. The ops are in its `OPS` table (`scan`, `set_boxes`, `capture`, `live_frame`, …). Call them from JS with `bridgeCall(op, args, timeoutMs)`.

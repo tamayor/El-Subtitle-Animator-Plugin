@@ -103,6 +103,18 @@ def attrs(obj):
 
 
 # ---------------------------------------------------------------- operations
+def op_fonts(a):
+    """Every font family Text+ offers, with the styles its Style box lists for each (Fusion's own font manager)."""
+    fu = resolve().Fusion()
+    fl = fu.FontManager.GetFontList() or {}
+    out = {}
+    for fam, styles in fl.items():
+        if not fam or str(fam).startswith("."):
+            continue
+        out[str(fam)] = [str(k) for k in (styles.keys() if isinstance(styles, dict) else as_list(styles))]
+    return out
+
+
 def op_ping(a):
     resolve()
     return True
@@ -537,6 +549,22 @@ def is_driven(tool, input_id):
     return None
 
 
+def expr_inputs(tool):
+    """The ids of the tool's expression-driven inputs (one scan of the input list; e.g. the row layout of a
+    MultiText with Row controls)."""
+    out = set()
+    try:
+        for inp in as_list(tool.GetInputList()):
+            try:
+                if inp.GetExpression():
+                    out.add(attrs(inp).get("INPS_ID"))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
 def describe(tool):
     at = attrs(tool)
     rid = at.get("TOOLS_RegID")
@@ -657,6 +685,7 @@ def size_multitext(tool, f=1.0, max_size=None, line_spacing=None):
             except Exception:
                 pass
     centres = {n: as_pt(get_in(tool, "Text%d.Center" % n)) for n in layers}
+    exprs = expr_inputs(tool) if abs(f * gap - 1.0) > 1e-6 else set()
     pts = [c for c in centres.values() if c]
     ax = (min(p[0] for p in pts) + max(p[0] for p in pts)) / 2 if pts else 0.5
     ay = (min(p[1] for p in pts) + max(p[1] for p in pts)) / 2 if pts else 0.5
@@ -676,6 +705,8 @@ def size_multitext(tool, f=1.0, max_size=None, line_spacing=None):
                 skipped.append("%s (%s)" % (name, k))
         c = centres.get(n)
         k = f * gap
+        if c and abs(k - 1.0) > 1e-6 and (pre + "Center") in exprs:
+            continue                                   # Row controls (tools/add-multitext-row-controls.py): the rows follow the sizes
         if c and abs(k - 1.0) > 1e-6:
             if is_driven(tool, pre + "Center") is not None:
                 skipped.append("%s (Center)" % name)
@@ -999,6 +1030,54 @@ def op_highlight_box(a):
     finally:
         comp.Unlock()
     return {"highlights": res}
+
+
+ROW_JUSTIFY = {"manual": 0, "center": 1, "centre": 1, "left": 2, "right": 3}
+ROW_CTRL = {"gap": "RowGap", "link": "RowsLink", "justify": "RowsJustify"}
+ROW_XY = {"all": "Rows", "upper": "Upper", "emphasis": "Emphasis", "lower": "Lower"}
+
+
+def op_multitext_rows(a):
+    """Set the Row controls of a MultiText clip (tools/add-multitext-row-controls.py): gap (text lines between the
+    rows), justify (manual / center / left / right), link (bool), all / upper / emphasis / lower {x, y} (Inspector
+    Center units). Only the given values change. Returns the controls' values, or hasControls false for a preset
+    without them."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tpl = None
+    for t in tool_list(comp):
+        if attrs(t).get("TOOLS_RegID") == "MultiText" and get_in(t, "RowGap") is not None:
+            tpl = t
+            break
+    if tpl is None:
+        return {"hasControls": False}
+    comp.Lock()
+    try:
+        if a.get("gap") is not None:
+            tpl.SetInput("RowGap", max(-3.0, min(6.0, float(a["gap"]))))
+        if a.get("link") is not None:
+            tpl.SetInput("RowsLink", 1 if a["link"] else 0)
+        j = a.get("justify")
+        if j is not None:
+            jv = ROW_JUSTIFY.get(str(j).strip().lower()) if not isinstance(j, (int, float)) else int(j)
+            if jv is not None:
+                tpl.SetInput("RowsJustify", max(0, min(3, int(jv))))
+        for key, pre in ROW_XY.items():
+            v = a.get(key)
+            if isinstance(v, dict):
+                for ax in ("x", "y"):
+                    if v.get(ax) is not None:
+                        tpl.SetInput(pre + ax.upper(), max(-2.0, min(2.0, float(v[ax]))))
+    finally:
+        comp.Unlock()
+    jv = int(num(get_in(tpl, "RowsJustify"), 0))
+    names = {v: k for k, v in ROW_JUSTIFY.items() if k != "centre"}
+    out = {"hasControls": True, "tool": attrs(tpl).get("TOOLS_Name"), "gap": get_in(tpl, "RowGap"),
+           "link": bool(num(get_in(tpl, "RowsLink"), 0) >= 0.5), "justify": names.get(jv, "manual")}
+    for key, pre in ROW_XY.items():
+        out[key] = {"x": get_in(tpl, pre + "X"), "y": get_in(tpl, pre + "Y")}
+    out["rows"] = [{"layer": n, "name": get_in(tpl, "TextName%d" % n), "center": as_pt(get_in(tpl, "Text%d.Center" % n))}
+                   for n in range(1, 17) if get_in(tpl, "Text%d.Size" % n) is not None]
+    return out
 
 
 def op_set_boxes(a):
@@ -1759,7 +1838,7 @@ def op_row_times(a):
     return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
 
 
-OPS = {"highlight_box": op_highlight_box, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs}
 
 

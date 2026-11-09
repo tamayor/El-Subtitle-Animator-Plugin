@@ -92,7 +92,11 @@ if rel > 0 then
 end
 '''
 
-GEOM = ROWS + REMAP + r'''local asp = (tonumber(T.Width) or 1080) / (tonumber(T.Height) or 1920)
+# Speed: the word-wrap (ROWS), the shared row size and the stack positions don't depend on time. They are worked out
+# ONCE, in one expression on Template's Comments input (a built-in Text input; a Text user control loads into Resolve
+# as a Number), and handed on as text (first line the row count, then one line per row
+# "accent<TAB>size<TAB>x<TAB>y<TAB>text"); the per-row expressions only parse it (PARSE) and add the slide-in (GEOM).
+LAYOUT = ROWS + r'''local asp = (tonumber(T.Width) or 1080) / (tonumber(T.Height) or 1920)
 local TW = (tonumber(T.StackWidth) or 0.85) * asp
 local LH = tonumber(T.RowGap) or 0.42
 local MH = tonumber(T.MaxHeight) or 0.6
@@ -105,7 +109,31 @@ local h = v * LH
 local cy = {}
 local yy = cnt * h / 2
 for k = 1, cnt do cy[k] = yy - h / 2; yy = yy - h end
-local STEP = tonumber(T.StepFrames) or 5
+local o = { tostring(cnt) }
+for k = 1, cnt do
+  local r = c[k]
+  local acc = r:find("%*") and 1 or 0
+  r = r:gsub("%*", ""):gsub("[\t\r\n]", " ")
+  o[#o + 1] = string.format("%d\t%.17g\t%.17g\t%.17g\t%s", acc, v, 0, cy[k], r)
+end
+return table.concat(o, "\n")'''
+
+PARSE = r'''local T = Template
+local c, acc, sz, cx, cy = {}, {}, {}, {}, {}
+local first = true
+for ln in tostring(T.Comments.Value or ""):gmatch("[^\n]+") do
+  if first then first = false else
+    local a, s1, x1, y1, t = ln:match("^(%d)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
+    if a then
+      local k = #c + 1
+      c[k] = t; acc[k] = a == "1"; sz[k] = tonumber(s1) or 0.01; cx[k] = tonumber(x1) or 0; cy[k] = tonumber(y1) or 0
+    end
+  end
+end
+local cnt = #c
+'''
+
+GEOM = PARSE + REMAP + r'''local STEP = tonumber(T.StepFrames) or 5
 local SLIDE = math.max(1, tonumber(T.SlideFrames) or 12)
 local DIST = tonumber(T.SlideDist) or 0.16
 local PAT = math.floor(tonumber(T.Pattern) or 0)
@@ -138,16 +166,15 @@ return Point(T.Center.X + dirof(K) * DIST * (1 - e), T.Center.Y + cy[K])'''
 def slot_size(k):
     return GEOM + f'''local K = {k}
 if K > cnt then return 0.01 end
-return v'''
+return sz[K]'''
 
 def slot_text(k):
-    return ROWS + f'''local K = {k}
-local r = (c[K] or ""):gsub("%*", "")
-return r'''
+    return PARSE + f'''local K = {k}
+return c[K] or ""'''
 
 def slot_colour(k, ch):
-    return ROWS + f'''local K = {k}
-if (c[K] or ""):find("%*") then return T.{ch}2 end
+    return PARSE + f'''local K = {k}
+if acc[K] then return T.{ch}2 end
 return T.{ch}1'''
 
 def pop_prelude(k):
@@ -157,7 +184,7 @@ local p = (tt - ({k} - 1) * STEP) / SLIDE
 if p < 0 then p = 0 elseif p > 1 then p = 1 end
 '''
 
-natural = ROWS + r'''local STEP = tonumber(T.StepFrames) or 5
+natural = PARSE + r'''local STEP = tonumber(T.StepFrames) or 5
 local SLIDE = math.max(1, tonumber(T.SlideFrames) or 12)
 return math.max(1, math.ceil((math.max(1, cnt) - 1) * STEP + SLIDE + 1))'''
 
@@ -192,6 +219,7 @@ tools.append(f'''		Template = TextPlus {{
 				AnimStart = Input {{ Value = 0, }},
 				AnimFrames = Input {{ Value = 0, }},
 				AnimNatural = Input {{ Value = 1, Expression = "{lua(': ' + natural)}", }},
+				Comments = Input {{ Value = "0", Expression = "{lua(': ' + LAYOUT)}", }},
 {slider_inputs}
 				GlobalOut = Input {{ Value = 89, }},
 				Width = Input {{ Value = 1080, }},

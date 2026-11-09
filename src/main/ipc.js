@@ -33,6 +33,7 @@ const {
 } = require('./sfx');
 const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setLayoutMode, setOnTop } = require('./window');
+const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { clipTiming, setClipTiming } = require('./anim-timing');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
@@ -48,6 +49,9 @@ const SAFE_HANDLERS = {
     'timing:get': clipTiming,
     'timing:set': setClipTiming,
     'app:getVersion': getAppVersion,
+    // Header "Fusion" button: which Fusion fixes are applied to placed titles (fusion-fixes.js)
+    'fusion:getFixes': () => ({ fixes: getFixes(), defaults: FIX_DEFAULTS }),
+    'fusion:setFixes': setFixes,
     'app:setVersion': setAppVersion,
     'act:scanClip': scanClip,
     'act:updateLatest': updateLatest,

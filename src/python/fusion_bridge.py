@@ -27,6 +27,11 @@ MODIFIER_IDS = {
 }
 
 _resolve = None
+
+# The Fusion fixes the panel applies (src/main/fusion-fixes.js; set with the "config" operation).
+FIX = {"wakeMode": "all", "wakeOnInsert": True, "retouchText": True,
+       "fitFollowerDelay": True, "fitSegments": True, "clipSliderMax": True}
+
 _items = {}   # item id -> TimelineItem
 _comps = {}   # (item id, comp name) -> comp
 
@@ -101,6 +106,13 @@ def attrs(obj):
 def op_ping(a):
     resolve()
     return True
+
+
+def op_config(a):
+    for k, v in (a or {}).items():
+        if k in FIX:
+            FIX[k] = v
+    return dict(FIX)
 
 
 def hex_to_rgb(hex_str):
@@ -287,6 +299,9 @@ def wake_effects(comp):
     template (Transform, Displace, FastNoise, Dissolve, BrightnessContrast, wiggles, macro contents...).
     So: every Follower's enabled shading elements are switched off and on, and every other effect tool is
     put in pass-through and back. Nothing changes value; tools already in pass-through are left alone."""
+    mode = FIX.get("wakeMode", "all")
+    if mode == "off":
+        return 0
     try:
         tools = as_list(comp.GetToolList(False))
     except Exception:
@@ -304,7 +319,7 @@ def wake_effects(comp):
                         tool.SetInput(key, 0)
                         tool.SetInput(key, 1)
                 woken += 1
-            elif rid in WAKE_SKIP or rid in WAKE_MODIFIERS or a.get("TOOLB_PassThrough"):
+            elif mode == "followers" or rid in WAKE_SKIP or rid in WAKE_MODIFIERS or a.get("TOOLB_PassThrough"):
                 continue
             else:
                 tool.SetAttrs({"TOOLB_PassThrough": True})
@@ -332,7 +347,7 @@ def set_typing_frames(comp, frames, clip_frames=None):
         try:
             if get_in(tool, "TypingFrames") is not None:
                 tool.SetInput("TypingFrames", int(frames))
-                if clip_frames and CLIP_SLIDER_MAX:
+                if clip_frames and FIX.get("clipSliderMax", True):
                     set_slider_max(tool, "TypingFrames", max(1, int(clip_frames)))
                     if get_in(tool, "TypingStart") is not None:
                         set_slider_max(tool, "TypingStart", max(1, int(clip_frames)))
@@ -367,13 +382,13 @@ def init_retime(comp, clip_frames):
                 continue
             nat = get_in(tool, "AnimNatural")
             n = int(round(float(nat))) if nat is not None else 0
-            if n > top and fit_follower_delay(comp, float(nat), top):
+            if n > top and FIX.get("fitFollowerDelay", True) and fit_follower_delay(comp, float(nat), top):
                 # the letters now land inside the clip at normal speed: no remap needed
                 tool.SetInput("AnimFrames", 0)
             else:
                 restore_follower_delay(comp)
                 tool.SetInput("AnimFrames", max(1, min(top, n)) if n > 0 else 0)
-            if CLIP_SLIDER_MAX:
+            if FIX.get("clipSliderMax", True):
                 set_slider_max(tool, "AnimFrames", top)
         except Exception:
             pass
@@ -443,7 +458,6 @@ def base_delay(f):
     return get_in(f, "Delay")
 
 
-CLIP_SLIDER_MAX = True
 
 
 def op_set_text(a):
@@ -470,7 +484,8 @@ def op_set_text(a):
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))
-    wake_effects(comp)
+    if FIX.get("wakeOnInsert", True):
+        wake_effects(comp)
     return found
 
 
@@ -1053,7 +1068,8 @@ def op_set_boxes(a):
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))
-    wake_effects(comp)
+    if FIX.get("wakeOnInsert", True):
+        wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
 
@@ -1073,8 +1089,8 @@ def op_refresh(a):
     comp = get_comp(a["item"], a.get("comp"))
     touched = 0
     tools = as_list(comp.GetToolList(False))
-    has_follower = False
-    for mod in tools:
+    has_follower = not FIX.get("retouchText", True)      # off: no text is re-written
+    for mod in (tools if not has_follower else []):
         try:
             if attrs(mod).get("TOOLS_RegID") in FOLLOWERS:
                 if mod.Text.GetExpression():
@@ -1521,7 +1537,7 @@ def num(v, d):
 
 def fit_segments(comp, clip_frames):
     """Placement: a clip shorter than a segment preset's own timing gets all its ranges scaled down to fit."""
-    if not clip_frames:
+    if not clip_frames or not FIX.get("fitSegments", True):
         return
     top = max(1, int(clip_frames) - 1)
     for tool in tool_list(comp):
@@ -1713,7 +1729,7 @@ def op_row_times(a):
     return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
 
 
-OPS = {"highlight_box": op_highlight_box, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+OPS = {"highlight_box": op_highlight_box, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs}
 
 
@@ -1721,7 +1737,9 @@ def handle(req):
     fn = OPS.get(req.get("op"))
     if not fn:
         return {"id": req.get("id"), "ok": False, "error": "Unknown operation"}
-    for attempt in (1, 2):
+    # A failed render or frame grab is not run a second time: it already took its time, and the panel retries itself.
+    attempts = (2,) if req.get("op") in ("capture", "live_frame") else (1, 2)
+    for attempt in attempts:
         try:
             return {"id": req.get("id"), "ok": True, "result": fn(req.get("args") or {})}
         except Cancelled:

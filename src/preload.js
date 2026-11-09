@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('sa', {
 
     // Window and app
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
+    getFusionFixes: () => ipcRenderer.invoke('fusion:getFixes'),
+    setFusionFixes: (patch) => ipcRenderer.invoke('fusion:setFixes', patch || {}),
     setVersion: (v) => ipcRenderer.invoke('app:setVersion', v),
     onWinIdle: (cb) => ipcRenderer.on('win:idle', (e, v, why) => { try { cb(!!v, why); } catch (err) { /* ignore */ } }),
     parkUntilFocus: () => ipcRenderer.invoke('win:park'),

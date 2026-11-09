@@ -29,7 +29,23 @@ const ROOT = path.join(os.homedir(), 'Library', 'Application Support', 'Blackmag
 const cache = { key: '', mtime: 0, map: null };
 
 // Newest Project.db in a folder named after the project (projects can sit in sub-folders of Projects/).
+// The folder walk is synchronous and covers the whole project library, and the panel asks every couple of seconds, so
+// where the file is is remembered: after that only the file itself is checked (its mtime), and the library is walked
+// again at most every WALK_MS (a project saved elsewhere, a copy made) or when the file is gone.
+const WALK_MS = 60000;
+const found = new Map();      // project name -> { file, at }
 function findProjectDb(projectName) {
+    const hit = found.get(projectName);
+    if (hit && Date.now() - hit.at < WALK_MS) {
+        if (!hit.file) return null;                                    // not found a moment ago: not walked again yet
+        try { return { file: hit.file, mtime: fs.statSync(hit.file).mtimeMs }; } catch (e) { found.delete(projectName); }
+    }
+    const best = walkProjectDb(projectName);
+    if (best) found.set(projectName, { file: best.file, at: Date.now() });
+    else found.set(projectName, { file: '', at: Date.now() });      // walked again next minute at most
+    return best;
+}
+function walkProjectDb(projectName) {
     let best = null;
     const walk = (dir, depth) => {
         let entries;

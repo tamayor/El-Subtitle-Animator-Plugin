@@ -11,6 +11,7 @@ const state = require('./state');
 const { ANIM_DIR, SAMPLE_TEXTS } = require('./config');
 const { presetSfxName, sfxFilePath } = require('./sfx');
 const { bridgeCall } = require('./fusion-bridge');
+const { getFixes } = require('./fusion-fixes');
 const { dlog } = require('./log');
 const { settleLater } = require('./settle');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
@@ -289,10 +290,12 @@ async function apply(event, req) {
 
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can
         //    otherwise stay blank on a freshly imported comp).
-        try {
-            await new Promise(r => setTimeout(r, 120));
-            await bridgeCall('refresh', { item: itemId, comp: compName });
-        } catch (e) { /* the clip is placed; this is only a safety refresh */ }
+        if (getFixes().refreshAfterPlace) {
+            try {
+                await new Promise(r => setTimeout(r, 120));
+                await bridgeCall('refresh', { item: itemId, comp: compName });
+            } catch (e) { /* the clip is placed; this is only a safety refresh */ }
+        }
         // That refresh can land while Resolve is still loading the comp and be lost (the title then stays blank or
         // static in the viewer), so the clip is woken again once the panel has been idle for a moment.
         if (!live) settleLater(itemId, compName);

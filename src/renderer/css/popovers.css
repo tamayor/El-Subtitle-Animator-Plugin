@@ -336,3 +336,30 @@ body.tag-dragging * {
     cursor: grabbing !important;
     user-select: none !important;
 }
+
+/* ---------- Fusion fixes (header "Fusion" button) ---------- */
+.pop.pop-fixes {
+    min-width: 290px;
+    max-width: 330px;
+    max-height: 80vh;
+    padding: 6px 6px 8px;
+}
+
+.fx-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.fx-row:hover { background: var(--matcha-tint); }
+.fx-row.off { opacity: 0.45; }
+.fx-row label { flex: 1; cursor: pointer; }
+.fx-hint { display: block; font-size: 10.5px; color: var(--dim); margin-top: 1px; line-height: 1.3; }
+.fx-row input[type="number"] { width: 64px; }
+.fx-row select { width: 110px; }
+.fx-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.fx-actions { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 0; font-size: 11px; color: var(--dim); }

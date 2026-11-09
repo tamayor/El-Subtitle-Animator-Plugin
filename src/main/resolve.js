@@ -98,16 +98,20 @@ async function getSubtitles(tl, force) {
     if (!force && state.subCache.key === key && Date.now() - state.subCache.at < 2000) return state.subCache.list;
     const list = [];
     const tracks = (await tl.GetTrackCount('subtitle')) || 0;
+    // Each subtitle needs five calls into Resolve. Made one after another that was thousands of round trips every couple
+    // of seconds on a long timeline (the panel lagged), so each item's calls run together, CHUNK items at a time.
+    const CHUNK = 40;
+    const readItem = async (it, t) => {
+        const color = (typeof it.GetClipColor === 'function') ? Promise.resolve(it.GetClipColor()).catch(() => '') : '';
+        const dur = (typeof it.GetDuration === 'function') ? it.GetDuration() : 0;
+        const [start, end, d, c, text] = await Promise.all([it.GetStart(), it.GetEnd(), dur, color, it.GetName()]);
+        const duration = (d && d > 0) ? d : Math.max(1, end - start);
+        return { text, start, end, duration, track: t, color: c || '' };
+    };
     for (let t = 1; t <= tracks; t++) {
         const items = (await tl.GetItemListInTrack('subtitle', t)) || [];
-        for (const it of items) {
-            const start = await it.GetStart();
-            const end = await it.GetEnd();
-            let duration = (typeof it.GetDuration === 'function') ? await it.GetDuration() : 0;
-            if (!duration || duration <= 0) duration = Math.max(1, end - start);
-            let color = '';
-            try { color = (typeof it.GetClipColor === 'function') ? ((await it.GetClipColor()) || '') : ''; } catch (e) { color = ''; }
-            list.push({ text: await it.GetName(), start, end, duration, track: t, color });
+        for (let i = 0; i < items.length; i += CHUNK) {
+            list.push(...await Promise.all(items.slice(i, i + CHUNK).map(it => readItem(it, t))));
         }
     }
     // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.

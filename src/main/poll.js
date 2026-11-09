@@ -43,9 +43,14 @@ async function poll(event, force) {
         // A selected subtitle wins; otherwise the subtitle under the playhead.
         let sub = null, source = 'playhead';
         try {
-            const sel = (await tl.GetSelectedClips()) || [];
-            for (const c of sel) {
-                const tt = await c.GetTrackTypeAndIndex();
+            // Polled 5 times a second: with many clips selected, asking each one's track in turn flooded Resolve. Only
+            // the first MAX_SEL are looked at, all at once.
+            const MAX_SEL = 12;
+            const all = (await tl.GetSelectedClips()) || [];
+            const sel = (Array.isArray(all) ? all : Object.values(all)).slice(0, MAX_SEL);
+            const types = await Promise.all(sel.map(c => Promise.resolve(c.GetTrackTypeAndIndex()).catch(() => null)));
+            for (let k = 0; k < sel.length; k++) {
+                const c = sel[k], tt = types[k];
                 if (tt && tt[0] === 'subtitle') {
                     const sStart = await c.GetStart();
                     const sEnd = await c.GetEnd();

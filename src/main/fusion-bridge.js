@@ -11,6 +11,7 @@ const { spawn } = require('child_process');
 
 const state = require('./state');
 const { BRIDGE_SCRIPT } = require('./config');
+const { bridgeFixes } = require('./fusion-fixes');
 
 // Resolve's JavaScript plugin interface cannot read the nodes inside a Fusion composition, but its Python
 // scripting can, so a small helper (fusion_bridge.py) is kept running and asked to do those parts.
@@ -58,6 +59,8 @@ function startBridge() {
     };
     proc.on('error', (e) => fail('Could not start Python: ' + e.message));
     proc.on('exit', () => fail('The Fusion helper stopped.'));
+    // the user's Fusion fixes settings, before any other request (id 0: its answer is not waited for)
+    try { proc.stdin.write(JSON.stringify({ id: 0, op: 'config', args: bridgeFixes() }) + '\n'); } catch (e) { /* the exit handler reports it */ }
     return proc;
 }
 

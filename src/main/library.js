@@ -242,6 +242,7 @@ function libForUI() {
             const sfxOrig = a.sfxOrig || a.sfx || null;
             const fileOrig = a.fileOrig || a.file;
             const hasOriginal = fs.existsSync(path.join(ANIM_ORIG_DIR, fileOrig));
+            const nodes = exists ? nodesWithDesign(animPath) : [];
             const hasPreview = !!(a.preview && a.preview.count > 0 && fs.existsSync(path.join(PREV_DIR, a.id, 'p00.png')));
             let updatedAt = a.updatedAt || 0;
             if (!updatedAt && exists) { try { updatedAt = fs.statSync(animPath).mtimeMs; } catch (e) { /* ignore */ } }
@@ -250,8 +251,8 @@ function libForUI() {
                 missing: !exists,
                 fileOrig,
                 hasOriginal,
-                nodes: exists ? nodesWithDesign(animPath) : [],
-                isMultiText: exists ? nodesWithDesign(animPath).some(n => n.kind === 'multitext') : false,
+                nodes,
+                isMultiText: nodes.some(n => n.kind === 'multitext'),
                 textDesign,
                 textStyle: textDesign,
                 // Frames deleted from disk (previews folder cleared): reported as no preview, so the panel renders one.

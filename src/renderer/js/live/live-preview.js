@@ -123,19 +123,11 @@ async function getAllSubtitles(force) {
 
 function findNextSubtitle(subs, curStart, curEnd) {
     if (!subs || !subs.length) return null;
-    let curIdx = subs.findIndex(s => s.start === curStart);
-    if (curIdx === -1) {
-        curIdx = subs.findIndex(s => curStart >= s.start && curStart < s.end);
-    }
-    if (curIdx !== -1 && curIdx + 1 < subs.length) {
-        return subs[curIdx + 1];
-    }
-    const after = subs.filter(s => s.start > curStart);
-    if (after.length) {
-        const nonOverlap = after.find(s => s.start >= (curEnd - 2));
-        return nonOverlap || after[0];
-    }
-    return null;
+    // the next ACTIVE subtitle: disabled ones (already animated, or a muted subtitle track) are skipped, and the list
+    // is sorted by time (several subtitle tracks are listed track by track, so index + 1 is not "next")
+    const after = subs.filter(s => s && s.enabled !== false && s.start > curStart).sort((x, y) => x.start - y.start);
+    if (!after.length) return null;
+    return after.find(s => s.start >= (curEnd - 2)) || after[0];
 }
 
 // Puts the preview clip on the timeline ({start, end, text}).
@@ -150,6 +142,10 @@ async function addLiveClip(sub, keepPlayhead) {
     p.sfxClip = await liveSfxFor(m, sub.start, sub.end);
     const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
     p.busy = false;
+    if (p.cancelled) {                                 // Remove was clicked while this clip was going in: take it off again
+        if (res && res.ok) { try { await window.sa.liveRemove(); } catch (e) { /* ignore */ } }
+        return;
+    }
     if (state.livePrev !== p) return;                  // this preview was ended / replaced meanwhile
     if (res && res.ok) {
         p.hasClip = true;
@@ -243,6 +239,17 @@ async function startLivePreview() {
 }
 async function endLivePreview(keep) {
     const p = state.livePrev;
+    if (!keep && p && p.busy) {
+        // Remove while the preview is still being placed / updated: the clip lands after this click, so the session
+        // is cancelled (addLiveClip removes its clip when it comes back) and main deletes whatever is there once idle.
+        p.cancelled = true;
+        exitLiveSession();
+        try { window.sa.liveLoopRestore(); } catch (e) { /* ignore */ }
+        setStatus('Removing the preview…');
+        try { await window.sa.liveRemove(); } catch (e) { /* ignore */ }
+        setStatus('Preview stopped and removed.', 'ok');
+        return;
+    }
     if (!p || p.busy) {
         exitLiveSession();
         return;
@@ -259,8 +266,10 @@ async function endLivePreview(keep) {
             sfxPath: (sfxClip && sfxClip.sfxPath) || undefined, sfxCut: (sfxClip && sfxClip.sfxCut) || undefined
         }));
         state.busy = false;
-    } else if (p.hasClip) {
-        await window.sa.liveRemove();
+        if (p.cancelled) return;                       // Remove was clicked during Apply: do not go on to the next caption
+    } else {
+        // always: main also sweeps temporary clips the panel no longer knows about (hasClip can be false mid-switch)
+        try { await window.sa.liveRemove(); } catch (e) { /* ignore */ }
     }
     if (keep && res && !res.ok && !res.gone) { p.busy = false; setStatus((res && res.error) || 'Could not apply', 'bad'); return; }
 
@@ -288,8 +297,14 @@ async function endLivePreview(keep) {
     const nextSub = findNextSubtitle(subs, curStart, curEnd);
 
     if (nextSub) {
-        // Jump playhead straight to next caption
-        try { await window.sa.seek(nextSub.start); } catch (e) { /* ignore */ }
+        // Jump playhead straight to next caption. main refuses a seek while it is still placing (state.applying),
+        // so it is retried; the preview insert below also puts the playhead on the caption (keepPlayhead false).
+        for (let i = 0; i < 12; i++) {
+            let ok = false;
+            try { ok = await window.sa.seek(nextSub.start); } catch (e) { ok = false; }
+            if (ok) break;
+            await new Promise(r => setTimeout(r, 150));
+        }
 
         // Update UI text input if present
         if ($('subText') && nextSub.text) {
@@ -312,7 +327,7 @@ async function endLivePreview(keep) {
         setStatus(`Applied · Jumped to next caption (${capNum})`, 'ok');
 
         // Immediately execute preview clip on this next caption!
-        await addLiveClip({ start: nextSub.start, end: nextSub.end, text: nextText }, true);
+        await addLiveClip({ start: nextSub.start, end: nextSub.end, text: nextText }, false);
         refreshLiveBar();
         return;
     }

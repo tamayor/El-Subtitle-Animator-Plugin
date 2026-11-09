@@ -326,6 +326,11 @@ async function liveRemove(marks) {
         try { if (tl) tcR = await tl.GetCurrentTimecode(); } catch (e) { tcR = null; }
         if (tl && mode === 'restore') await liveRestoreMarks(tl);
         else if (tl && mode === 'clear') await liveClearMarks(tl);
+        if (tl && !s && mode === 'restore') {
+            // Remove with no session in main (the panel lost track of it, or the place was still running): the
+            // registry still lists every temporary preview clip, so they are swept off the timeline anyway.
+            try { await sweepTempClips(tl); } catch (e) { /* ignore */ }
+        }
         if (tl && s) {
             // Sounds first, each checked: a sound Resolve refused to delete stays in the registry for the next sweep.
             const sounds = [s.sfxId, ...(s.extraIds || [])].filter(Boolean);

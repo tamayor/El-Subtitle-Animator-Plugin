@@ -133,7 +133,8 @@ const RAW_HANDLERS = {
     'act:apply': apply,
     'live:update': liveUpdate,
     'live:alive': liveAlive,
-    'live:remove': () => liveRemove(false),
+    // Remove: a preview being placed right now would land after the delete and stay (Chocolate) - wait for it first
+    'live:remove': async () => { await waitIdle(20000); return liveRemove(false); },
     'live:drop': async () => { await waitIdle(6000); return liveRemove('keep'); },      // switching presets: the In/Out stay put
     'live:loopOn': (e, already) => loopOn(!!already),
     'live:loopRestore': () => loopRestore(),

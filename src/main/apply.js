@@ -21,7 +21,7 @@ const {
 const { ensureStopped } = require('./playback');
 const {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
+    layerList, moveTitleSafe, pickTrack, placeExtraSfx, rowFramesFor, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
 } = require('./placement');
 const { frameToTC, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 
@@ -279,9 +279,12 @@ async function apply(event, req) {
         }
 
         // 4b. Layered sounds: extra sound effects of the preset, each aligned to the text start or end.
+        //     Every copy's id is kept (extraSfxIds) so remove_placed can delete them even after they were moved by hand.
+        let extraSfxIds = [];
         if (!live && req.useSfx !== false) {
             const extra = layerList(req, anim);
-            if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place, true);
+            const rowFrames = await rowFramesFor(itemId, compName, extra, warnings);
+            if (extra.length) extraSfxIds = (await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place, true, rowFrames)).map(x => x.id);
         }
 
         // 5. Once everything is placed, touch the text again so Resolve renders the Follower animation (it can
@@ -305,7 +308,10 @@ async function apply(event, req) {
             let extraIds = [], extraLinkIds = [];
             try {
                 if (req.useSfx !== false) {
-                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, trackNotes, null, itemId, warnings, req.place);
+                    // per-row sounds (Kinetic Cloud) repeat in the preview too, so a looped play sounds like the final clip
+                    const layers = layerList(req, anim);
+                    const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
+                    const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, trackNotes, null, itemId, warnings, req.place, false, rowFrames);
                     extraIds = extra.map(x => x.id);
                     extraLinkIds = extra.filter(x => x.link).map(x => x.id);
                 }
@@ -325,7 +331,7 @@ async function apply(event, req) {
             catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
         }
         state.subCache.at = 0;
-        return { ok: true, live, itemId, subtitlesDisabled, videoTrack: vTrack, audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
+        return { ok: true, live, itemId, subtitlesDisabled, videoTrack: vTrack, audioTrack: sfxTrack, extraSfxIds, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };
     } finally {

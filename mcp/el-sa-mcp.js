@@ -280,6 +280,14 @@ const TOOLS = [
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },
     { name: 'remove_placed', description: 'Remove a clip placed through this tool (and its sound) from the timeline.', inputSchema: S({ itemId: { type: 'string' } }, ['itemId']) },
     {
+        name: 'repair_inspector',
+        description: 'Fix clips whose Edit-page Inspector is empty. A clip named just "Text+" or "MultiText" that holds a preset got it by a comp import (the old fallback), and Resolve shows no controls for it. Each such clip on the current timeline is replaced by the same preset inserted as a Resolve title template, at the same place and length, with its texts, positions, sizes, timing sliders, colours and clip transform copied over, so the Inspector shows its controls again. A link to a sound clip is not kept. Use dryRun first to see what would be rebuilt.',
+        inputSchema: S({
+            dryRun: { type: 'boolean', description: 'true = only list the clips that would be rebuilt' },
+            itemIds: { type: 'array', items: { type: 'string' }, description: 'Only these clips (any name); default: every plain "Text+" / "MultiText" clip that holds a preset' }
+        })
+    },
+    {
         name: 'read_srt',
         description: 'Read an .srt subtitle file: its blocks (number, start, end, text, word count), the SUBTITLE TRIMMING limits (words and characters per block) and the chopping rules to follow before calling chop_srt. Runs locally; Resolve and the panel are not needed.',
         inputSchema: S({

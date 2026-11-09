@@ -6,9 +6,9 @@ const FADE_WARNING = 'Resolve did not take the sound\'s fade-out. Drag the fade 
 
 module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
-    importSfx, insertTitleAtEnd, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
+    importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, sfxCutFor, sfxCutFrames, titleKindFor, trackUsable, typingFramesFor
+    placeExtraSfx, rowFramesFor, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -526,7 +526,34 @@ function syncTemplates(animations, before) {
             dlog('TEMPLATE-RENAMED', o, '->', n);
         });
     } catch (e) { dlog('TEMPLATES-SYNC-FAIL', String(e && e.message || e)); }
-    return pruneTemplates(animations);
+    const removed = pruneTemplates(animations);
+    installAllTemplates(animations);
+    return removed;
+}
+// Writes the title template of every preset whose file exists (presetTitleFor), so each one is installed - and scanned
+// by Resolve - long before its first use. Written only on first use, a template could still be unknown to Resolve at
+// that moment; the clip then fell back to a plain title with an empty Inspector. Returns the names written or refreshed.
+function installAllTemplates(animations) {
+    const done = [];
+    try {
+        const names = presetTitleNames(animations);
+        for (const a of animations || []) {
+            const name = names.get(a.id);
+            if (!name) continue;
+            const f = path.join(ANIM_DIR, a.file);
+            const file = path.join(titlesDir(), name + '.setting');
+            const had = fs.existsSync(file);
+            let before = null;
+            try { before = had ? fs.statSync(file).mtimeMs : null; } catch (e) { /* ignore */ }
+            if (presetTitleFor(f, name)) {
+                let after = null;
+                try { after = fs.statSync(file).mtimeMs; } catch (e) { /* ignore */ }
+                if (!had || after !== before) done.push(name);
+            }
+        }
+        if (done.length) dlog('TEMPLATES-INSTALLED', done);
+    } catch (e) { dlog('TEMPLATES-INSTALL-FAIL', String(e && e.message || e)); }
+    return done;
 }
 // At start-up: templates made by older versions are named after the preset's file; they are renamed to the preset's
 // name (instead of deleted and rebuilt on the next apply), and templates of presets that are gone are deleted.
@@ -600,13 +627,16 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
     // Resolve 21.2 THROWS ("Expected valid string type title name") instead of returning null for a template it has
     // not scanned yet - e.g. a preset's template written a moment ago on its first use. Retry once after a short wait,
     // then return no item so the caller's fallback (plain Text+ / MultiText) runs instead of the whole apply failing.
+    // A template Resolve has not picked up yet is tried again for a few seconds (every attempt about 1.5 s apart): a
+    // clip that falls back to the plain title gets an EMPTY Inspector, so the fallback is the last resort.
     let item = null;
-    for (let attempt = 0; attempt < (title ? 2 : 1); attempt++) {
+    const attempts = title ? 5 : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
         try { item = await tl.InsertFusionTitleIntoTimeline(titleName); break; }
         catch (e) {
             dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
             if (!title) throw e;
-            if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+            if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
         }
     }
     if (item) {
@@ -805,12 +835,20 @@ function layerList(req, anim) {
     const raw = (req && Array.isArray(req.sfxLayers)) ? req.sfxLayers : (anim && Array.isArray(anim.sfxLayers) ? anim.sfxLayers : []);
     return raw.filter(l => l && l.enabled !== false && l.file);
 }
-async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy) {
+// rowFrames: for layers aligned to 'rows' (one sound per row of a row-by-row preset such as Kinetic Cloud), the
+// clip-relative frames where the rows start (bridge row_times); null / empty = those layers fall back to the text start.
+async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames) {
     const out = [];
     if (!layers || !layers.length) return out;
     const tlStart = await tl.GetStartFrame();
     for (const l of layers) {
         try {
+            if (l.align === 'rows') {
+                const rows = (Array.isArray(rowFrames) && rowFrames.length) ? rowFrames : [0];
+                if (rows.length === 1 && !(Array.isArray(rowFrames) && rowFrames.length)) notes.push('sound "' + path.basename(l.file) + '": the preset has no rows, placed once');
+                out.push(...await placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy));
+                continue;
+            }
             const p = sfxFilePath(l.file);
             if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); continue; }
             const { mp, item: mpi } = await importSfx(project, p, projectCopy);
@@ -844,6 +882,65 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             out.push({ id, track, start, frames: len, link: !!l.link });
         } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
     }
+    return out;
+}
+// The clip-relative row start frames for the 'rows' layers (null when no layer repeats per row or the comp has no
+// rows). Call it AFTER the text is written to the comp: the rows are counted from the Pop<k> texts.
+async function rowFramesFor(itemId, compName, layers, warnings) {
+    if (!layers || !layers.some(l => l.align === 'rows')) return null;
+    try {
+        const { bridgeCall } = require('./fusion-bridge');          // required here: fusion-bridge loads before this module
+        const r = await bridgeCall('row_times', { item: itemId, comp: compName });
+        return (r && Array.isArray(r.frames) && r.frames.length) ? r.frames : null;
+    } catch (e) { if (warnings) warnings.push('Could not read the row timing for the repeated sound: ' + e.message); return null; }
+}
+// One copy of the sound per row: each starts at its row's frame (+ the layer's offset); a 'clip' length runs until the
+// next row starts (and never past the text end), a fixed length is kept. All copies share one audio track.
+async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy) {
+    const out = [];
+    const p = sfxFilePath(l.file);
+    if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); return out; }
+    const { mp, item: mpi } = await importSfx(project, p, projectCopy);
+    if (!mpi) { warnings.push('Resolve could not import "' + path.basename(l.file) + '".'); return out; }
+    const total = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
+    const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(l.trimIn) || 0)));
+    const cap = Math.round(Number(l.len) || 0);
+    const off = Math.round(Number(l.offset) || 0);
+    const mode = (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (cap > 0 ? 'fixed' : 'clip');
+    const fps = Math.round((meta && meta.fps) || 25);
+    const cuts = [];
+    for (let i = 0; i < rows.length; i++) {
+        const start = Math.max(tlStart, textStart + Math.round(Number(rows[i]) || 0) + off);
+        let len = total - trimIn;
+        if (mode === 'clip') {
+            const next = i + 1 < rows.length ? textStart + Math.round(Number(rows[i + 1]) || 0) + off : textEnd;
+            len = Math.min(len, Math.max(1, Math.min(next, textEnd) - start));
+        } else if (cap > 0) len = Math.min(len, cap);
+        len = Math.max(1, len);
+        if (start >= textEnd) continue;
+        cuts.push({ start, len });
+    }
+    if (!cuts.length) return out;
+    const first = cuts[0].start, last = cuts[cuts.length - 1];
+    const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, first, last.start + last.len, 1, notes, place);
+    const items = [];
+    for (const c of cuts) {
+        const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: c.start, startFrame: trimIn, endFrame: trimIn + c.len }]);
+        if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed at frame ' + (c.start - textStart) + '.'); continue; }
+        const it = placed[0];
+        const fade = Math.max(0, Math.min(c.len, (l.fade === null || l.fade === undefined) ? Math.min(c.len, Math.round(fps / 5)) : Math.round(Number(l.fade) || 0)));
+        if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
+        const vol = Number(l.volume) || 0;
+        try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+        const id = String(await it.GetUniqueId());
+        regAdd(id);
+        items.push(it);
+        out.push({ id, track, start: c.start, frames: c.len, link: !!l.link });
+    }
+    if (l.link && videoItem && items.length) {
+        try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, ...items], true); } catch (e) { /* linking is optional */ }
+    }
+    notes.push('sound "' + path.basename(l.file) + '" repeated for ' + items.length + ' row' + (items.length === 1 ? '' : 's'));
     return out;
 }
 // Deletes the given sound clips and forgets only the ones that are really gone. One that Resolve refused to delete

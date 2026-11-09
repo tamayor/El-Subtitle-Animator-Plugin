@@ -25,6 +25,7 @@ const { dlog } = require('./log');
 const { frameToTC, getProject, getSubtitles, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 const LAYOUT = require('./layout');
 const STACK = require('./stack');
+const REPAIR = require('./repair');
 const { regroup } = require('./regroup');
 
 const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
@@ -34,7 +35,7 @@ const LAYOUT_DIR = path.join(DATA_DIR, 'layouts');
 
 let server = null;
 let token = null;
-const placed = [];      // clips placed through automation this session: { itemId, audioId, subtitle, presetId, preset, track }
+const placed = [];      // clips placed through automation this session: { itemId, audioId, extraAudioIds, subtitle, presetId, preset, track }
 
 // ------------------------------------------------------------------ editing rules
 
@@ -799,7 +800,7 @@ const TOOLS = {
         state.lastPlacedAudioId = null;
         const res = await apply(null, req);
         if (!res || !res.ok) throw new Error((res && res.error) || 'Placement failed');
-        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined, subtitlesDisabled: res.subtitlesDisabled || [] };
+        const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, extraAudioIds: res.extraSfxIds || [], subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined, subtitlesDisabled: res.subtitlesDisabled || [] };
         placed.push(rec);
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
         return {
@@ -830,6 +831,10 @@ const TOOLS = {
 
     async list_placed() { return placed.slice(); },
 
+    // Clips with an empty Inspector (a preset imported onto a plain "Text+" / "MultiText") are rebuilt as title-template
+    // clips with everything copied over (src/main/repair.js).
+    async repair_inspector(args) { await waitFree(10000); return REPAIR.repairInspector(args || {}); },
+
     // The real rendered geometry of some lines (one temporary clip, measured from the frame, removed again).
     async measure_text(args) { return STACK.measureText(TOOLS, args); },
 
@@ -840,7 +845,8 @@ const TOOLS = {
     _timeline: currentTimeline,
     _subtitle: subtitleAt,
 
-    // Removes a clip placed through automation (and its main sound).
+    // Removes a clip placed through automation with its main sound and every layered / per-row sound copy. The clips
+    // are found by unique id, so they are removed wherever they were dragged to since.
     async remove_placed(args) {
         const id = String((args && args.itemId) || '');
         const i = placed.findIndex(p => p.itemId === id);
@@ -848,9 +854,15 @@ const TOOLS = {
         await waitFree(10000);
         const { tl } = await currentTimeline();
         const rec = placed[i];
-        const items = [await findItem(tl, 'video', rec.itemId), rec.audioId ? await findItem(tl, 'audio', rec.audioId) : null].filter(Boolean);
-        if (!items.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.' }; }
-        const ok = await tl.DeleteClips(items, false);
+        const audioIds = [rec.audioId, ...(rec.extraAudioIds || [])].filter(Boolean);
+        const items = [await findItem(tl, 'video', rec.itemId)];
+        for (const aid of audioIds) items.push(await findItem(tl, 'audio', aid));
+        const found = items.filter(Boolean);
+        if (!found.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.' }; }
+        let ok = await tl.DeleteClips(found, false);
+        // a copy that survived the batch delete (Resolve sometimes skips linked clips) is deleted on its own
+        for (const aid of audioIds) { try { const it = await findItem(tl, 'audio', aid); if (it) ok = (await tl.DeleteClips([it], false)) && ok; } catch (e) { /* ignore */ } }
+        const soundsRemoved = found.length - 1;
         if (ok) placed.splice(i, 1);
         // the subtitle clips this placement turned off come back on, unless another placed clip still covers them
         let restored = 0;
@@ -862,7 +874,7 @@ const TOOLS = {
                 try { restored += (await setSubtitlesEnabled(tl, { start: s.start, end: s.end, track: s.track }, true)).length; } catch (e) { /* ignore */ }
             }
         }
-        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset, subtitleClipsReEnabled: restored };
+        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset, soundClipsRemoved: soundsRemoved, subtitleClipsReEnabled: restored };
     }
 };
 

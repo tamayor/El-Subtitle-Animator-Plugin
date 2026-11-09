@@ -10,7 +10,7 @@
     const sel = { U: 'main', C: 'main' };          // selected lane per panel: 'text' | 'main' | an extra sound's id
     const LANE_H = 56, LANE0 = 26;
     const VOL_MAX = 6, VOL_MIN = -30;
-    const ANCHORS = [['start', 'Start of text'], ['end', 'End of text (ends there)'], ['after', 'After the text']];
+    const ANCHORS = [['start', 'Start of text'], ['end', 'End of text (ends there)'], ['after', 'After the text'], ['rows', 'Repeat per row \u2013 one copy at every row pop-in']];
     let saveTimer = 0;
 
     const num = (v, d) => { const n = Number(v); return isNaN(n) ? d : n; };
@@ -352,7 +352,7 @@
         // where it sits and how long
         const pos = mk('div', 'snd-row');
         if (h0.kind === 'layer') {
-            const a = document.createElement('select'); a.className = 'snd-anchor'; a.title = 'What this sound lines up with';
+            const a = document.createElement('select'); a.className = 'snd-anchor'; a.title = 'What this sound lines up with. "Repeat per row": the sound is placed again at every row of a row-by-row preset (Kinetic Cloud): the copies follow the clip\'s Frames Per Row and Animation Frames, so their number and spacing come from the placed text, not from this timeline.';
             ANCHORS.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; a.appendChild(o); });
             a.addEventListener('change', () => { const h = H(); if (h) h.set('anchor', a.value); });
             refs.push(() => { const h = H(); if (h && document.activeElement !== a) a.value = h.get('anchor'); });
@@ -363,6 +363,15 @@
         pos.appendChild(numField(refs, 'Fade out', 'f', () => (H() || h0).get('fade'), (v) => { const h = H(); if (h) h.set('fade', Math.max(0, v)); }, 'change'));
         pos.appendChild(lenModeField(refs, () => (H() || h0).get('mode'), (v) => { const h = H(); if (h) h.set('mode', v); }));
         card.appendChild(pos);
+        if (h0.kind === 'layer') {
+            // Repeat per row: say plainly what is placed, because the Alignment timeline can only show the first copy
+            const rep = mk('div', 'hint snd-repeat', '\u21bb Repeats: one copy of this sound is placed at every row of the text as it pops in. ' +
+                'The number of copies and their spacing are based on the placed clip (its rows, Frames Per Row and Animation Frames), ' +
+                'not on this preview, which shows only the first copy. "Follow the clip" length = each copy ends when the next row starts. ' +
+                'On presets without rows the sound plays once at the text start.');
+            refs.push(() => { const h = H(); rep.style.display = (h && h.get('anchor') === 'rows') ? '' : 'none'; });
+            card.appendChild(rep);
+        }
 
         const misc = mk('div', 'snd-row');
         misc.appendChild(trackField(refs, 'Track', 'A', () => (H() || h0).get('track'), (v) => { const h = H(); if (h) h.set('track', v); }));
@@ -467,7 +476,7 @@
         layersOf(ctx).forEach((l, i) => {
             const lane = add('lane sfx');
             lane.style.top = (top0 + i * LANE_H) + 'px'; lane.style.height = LANE_H + 'px';
-            add('tag', lane).textContent = 'Sound ' + (i + 2);
+            add('tag', lane).textContent = 'Sound ' + (i + 2) + (l.align === 'rows' ? ' \u21bb per row' : '');
             const q = layerGeo(m, g, l);
             const on = l.enabled !== false && !!l.file;
             const vol = num(l.volume, 0);

@@ -1219,8 +1219,107 @@ def op_timing_set(a):
     return {"ok": True}
 
 
-OPS = {"set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set}
+# ---------------------------------------------------------------- Inspector repair (src/main/repair.js)
+def op_tools(a):
+    """The tools of a clip's composition: [[name, RegID], ...]. Used to tell which preset a clip holds."""
+    comp = get_comp(a["item"], a.get("comp"))
+    return {"tools": [[attrs(t).get("TOOLS_Name"), attrs(t).get("TOOLS_RegID")] for t in tool_list(comp)]}
+
+
+# Inputs never copied between two clips of the same preset: the clip's own range / format, and the MultiText
+# bookkeeping tables (the same in both clips, and not plain values).
+COPY_SKIP = {"GlobalIn", "GlobalOut", "Width", "Height", "PixelAspect", "UseFrameFormatSettings", "Depth",
+             "TextOrder", "TableIndices", "TextSelection", "GlobalTransformation", "GlobalTransformationAspectRatio",
+             "Index"}
+
+
+def op_copy_inputs(a):
+    """Copies every plain input value from one clip's comp (from) to another's (to) that holds the same preset:
+    tools are matched by name, inputs by id. Inputs that are animated / driven by a modifier or carry an expression in
+    either clip are left alone (the same spline or expression already drives both). Nothing is imported or pasted,
+    so the target clip stays a Resolve-built title and its Inspector keeps working."""
+    src = get_comp(a["from"], None)
+    dst = get_comp(a["to"], None)
+    by_name = {attrs(t).get("TOOLS_Name"): t for t in tool_list(src)}
+    copied, failed, skipped_tools = 0, [], []
+    dst.Lock()
+    try:
+        for t in tool_list(dst):
+            at = attrs(t)
+            name = at.get("TOOLS_Name")
+            if at.get("TOOLS_RegID") in ("MediaOut", "Saver"):
+                continue
+            s = by_name.get(name)
+            if s is None or attrs(s).get("TOOLS_RegID") != at.get("TOOLS_RegID"):
+                skipped_tools.append(name)
+                continue
+            src_inputs = {}
+            for si in as_list(s.GetInputList()):
+                sid = attrs(si).get("INPS_ID")
+                if sid:
+                    src_inputs[sid] = si
+            for inp in as_list(t.GetInputList()):
+                iid = attrs(inp).get("INPS_ID")
+                if not iid or iid in COPY_SKIP:
+                    continue
+                si = src_inputs.get(iid)
+                if si is None:
+                    continue
+                try:
+                    if inp.GetConnectedOutput() is not None or si.GetConnectedOutput() is not None:
+                        continue
+                    if inp.GetExpression() or si.GetExpression():
+                        continue
+                    v = s.GetInput(iid)
+                    # only plain values travel: numbers, text, points / colours (tables); gradients and other
+                    # objects are the preset's own and the same in both clips
+                    if v is None or not isinstance(v, (bool, int, float, str, dict, list)) or v == t.GetInput(iid):
+                        continue
+                    t.SetInput(iid, v)
+                    copied += 1
+                except Exception:
+                    failed.append("%s.%s" % (name, iid))
+    finally:
+        dst.Unlock()
+    return {"ok": True, "copied": copied, "failed": failed, "skippedTools": skipped_tools}
+
+
+def op_row_times(a):
+    """Row-by-row presets (a Template with a "StepFrames" slider and Pop<k> followers, e.g. Kinetic Cloud): the clip
+    frame (from the clip's start) at which each row starts to pop in, with the Animation Start / Frames retiming
+    applied, so one sound can be placed per row. {"frames": []} when the comp is not such a preset."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tpl = comp.FindTool("Template")
+    step = get_in(tpl, "StepFrames") if tpl is not None else None
+    if not isinstance(step, (int, float)) or step <= 0:
+        return {"frames": [], "count": 0}
+    rows = 0
+    for k in range(1, 65):
+        pop = comp.FindTool("Pop%d" % k)
+        if pop is None:
+            break
+        try:
+            if str(pop.GetInput("Text") or "").strip():
+                rows += 1
+        except Exception:
+            pass
+    start = max(0, int(num(get_in(tpl, "AnimStart"), 0)))
+    frames_in = int(num(get_in(tpl, "AnimFrames"), 0))
+    natural = max(1.0, num(get_in(tpl, "AnimNatural"), 1))
+    out = []
+    for k in range(rows):
+        tt = k * float(step)
+        if frames_in <= 0:
+            f = start + tt
+        else:
+            d = max(1, frames_in - start)
+            f = start + (tt * d / natural if tt < natural else natural + tt - natural)
+        out.append(int(round(f)))
+    return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
+
+
+OPS = {"row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs}
 
 
 def handle(req):

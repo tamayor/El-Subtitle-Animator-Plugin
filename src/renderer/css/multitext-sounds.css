@@ -52,6 +52,7 @@
 .snd-check { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
 .snd-anchor { flex: 1 1 140px; min-width: 0; }
 .snd-volhint { margin: 0; font-size: 11px; }
+.snd-repeat { margin: 2px 0 0; font-size: 11px; line-height: 1.35; max-width: 560px; }
 .snd-del:hover { color: var(--strawberry); }
 .setup-files { margin-bottom: 8px; }
 .setup-files.hidden { display: none; }

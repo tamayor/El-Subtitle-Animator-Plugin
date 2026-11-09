@@ -18,7 +18,7 @@ const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
-    placeExtraSfx, relinkToProjectCopy, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
+    placeExtraSfx, relinkToProjectCopy, rowFramesFor, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
 const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 
@@ -221,13 +221,7 @@ async function liveUpdate(event, req) {
                 const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId, warnings);
                 if (r) { state.liveSession.sfxId = r.id; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
-            try {
-                if (req.useSfx !== false) {
-                    const extra = await placeExtraSfx(tl, project, meta, layerList(req, anim), textStart, textStart + want, [], null, state.liveSession.itemId, warnings, req.place);
-                    state.liveSession.extraIds = extra.map(x => x.id);
-                    state.liveSession.extraLinkIds = extra.filter(x => x.link).map(x => x.id);
-                }
-            } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
+            // the layered sounds are placed below, once the new text is in the comp (per-row copies follow its rows)
         }
         const compPath = state.liveSession.compPath, compName = state.liveSession.compName, itemId = state.liveSession.itemId;
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null, undefined, true);
@@ -246,6 +240,17 @@ async function liveUpdate(event, req) {
                 await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want });
             }
         } catch (e) { warnings.push('Could not set the text: ' + e.message); }
+        if (moved) {
+            try {
+                if (req.useSfx !== false) {
+                    const layers = layerList(req, anim);
+                    const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
+                    const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rowFrames);
+                    state.liveSession.extraIds = extra.map(x => x.id);
+                    state.liveSession.extraLinkIds = extra.filter(x => x.link).map(x => x.id);
+                }
+            } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
+        }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
         try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ }
         await liveSetMarks(tl, item);
@@ -412,7 +417,8 @@ async function liveFinish(event, req) {
             }
             else if (req.useSfx !== false) {
                 const extra = layerList(req, anim);
-                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings, req.place, true);
+                const rowFrames = await rowFramesFor(itemId, s.compName, extra, warnings);
+                if (extra.length) await placeExtraSfx(tl, project, meta, extra, textStart, textStart + (await item.GetDuration()), trackNotes, item, itemId, warnings, req.place, true, rowFrames);
             }
         } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
         // remember the transform / link choice on the preset, like Add to timeline does

@@ -28,6 +28,8 @@ function cleanup() {
             try { await Promise.race([run, new Promise(r => setTimeout(r, 10000))]); } catch (e) { /* the sweep removes it next time */ }
         }
         if (state.resolveWatchTimer) { clearInterval(state.resolveWatchTimer); state.resolveWatchTimer = null; }
+        if (state.segWatchTimer) { clearInterval(state.segWatchTimer); state.segWatchTimer = null; }
+        if (state.segSweepTimer) { clearInterval(state.segSweepTimer); state.segSweepTimer = null; }
         try { stopAutomation(); } catch (e) { /* ignore */ }
         try { if (state.bridge) state.bridge.kill(); } catch (e) { /* ignore */ }
         try { WorkflowIntegration.CleanUp(); } catch (e) { /* ignore */ }

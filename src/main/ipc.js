@@ -35,6 +35,7 @@ const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { clipTiming, setClipTiming } = require('./anim-timing');
+const { clipControls, setClipControls } = require('./clip-controls');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
 function wrap(fn) {
@@ -48,6 +49,8 @@ const SAFE_HANDLERS = {
     'app:liveFrame': liveFrame,
     'timing:get': clipTiming,
     'timing:set': setClipTiming,
+    'controls:get': clipControls,
+    'controls:set': setClipControls,
     'app:getVersion': getAppVersion,
     // Header "Fusion" button: which Fusion fixes are applied to placed titles (fusion-fixes.js)
     'fusion:getFixes': () => ({ fixes: getFixes(), defaults: FIX_DEFAULTS }),

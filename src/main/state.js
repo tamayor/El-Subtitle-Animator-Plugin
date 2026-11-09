@@ -19,5 +19,7 @@ module.exports = {
     placePrefs: null,          // the panel's Placement settings (locked / disabled / first-empty / track range), for MCP placements
     bridge: null,
     mainWindow: null,
-    resolveWatchTimer: null
+    resolveWatchTimer: null,
+    segWatchTimer: null,
+    segSweepTimer: null
 };

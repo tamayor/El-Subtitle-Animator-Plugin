@@ -5,7 +5,7 @@
 //   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
 // Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
-module.exports = { clipTiming, setClipTiming };
+module.exports = { clipTiming, currentFusionClip, setClipTiming };
 
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
@@ -60,6 +60,19 @@ async function candidates(tl, frame, tlName) {
         try { if ((await x.item.GetFusionCompCount()) > 0) out.push(await clipFacts(x.item)); } catch (e) { /* gone */ }
     }
     return out;
+}
+
+// The Fusion clip the user is working on, picked like the timing bar's: the selected video clip, else the top clip
+// under the playhead. -> { itemId, name, start, end, selected } or null. Used by the Clip controls (clip-controls.js).
+async function currentFusionClip() {
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const tlName = await tl.GetName();
+    if (meta.key !== tlName || Date.now() - meta.at > 5000) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
+    const frame = tcToFrame(await tl.GetCurrentTimecode(), meta.meta);
+    const list = await candidates(tl, frame, tlName);
+    return list[0] || null;
 }
 
 async function clipTiming(event, opts) {

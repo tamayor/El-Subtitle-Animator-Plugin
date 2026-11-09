@@ -308,13 +308,13 @@ async function apply(event, req) {
                 for (const h of (r && r.highlights) || []) if (h.error || h.note) warnings.push('Highlight box: ' + (h.error || h.note));
             } catch (e) { warnings.push('Highlight box not adjusted: ' + e.message); }
         }
-        // 5c. MultiText Row controls (gap between the rows, justify, per-row nudges; fusion_bridge.op_multitext_rows)
-        if (req.rows) {
-            try {
-                const r = await bridgeCall('multitext_rows', Object.assign({ item: itemId, comp: compName }, req.rows), 30000);
-                if (r && r.hasControls === false) warnings.push('This preset has no Row controls (Row Gap / Justify): rows not adjusted.');
-            } catch (e) { warnings.push('Rows not adjusted: ' + e.message); }
-        }
+        // 5c. MultiText Row controls (gap between the rows, justify, per-row nudges; fusion_bridge.op_multitext_rows).
+        //     Called for every clip: with no rows it only fills the Inspector's pixel gaps from the layout on screen
+        //     (Gap Mode Lines), and a preset without Row controls answers hasControls false.
+        try {
+            const r = await bridgeCall('multitext_rows', Object.assign({ item: itemId, comp: compName }, req.rows || {}), 30000);
+            if (req.rows && r && r.hasControls === false) warnings.push('This preset has no Row controls (Row Gap / Justify): rows not adjusted.');
+        } catch (e) { if (req.rows) warnings.push('Rows not adjusted: ' + e.message); }
 
         if (live) {
             let liveSfxId = null;

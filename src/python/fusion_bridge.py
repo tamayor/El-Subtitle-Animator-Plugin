@@ -1038,6 +1038,53 @@ ROW_CTRL = {"gap": "RowGap", "link": "RowsLink", "equalize": "RowsEqualize", "ju
 ROW_XY = {"all": "Rows", "upper": "Upper", "emphasis": "Emphasis", "lower": "Lower"}
 
 
+def controls_tool(comp, ids):
+    """The tool holding a preset's own Inspector add-ons (its "Template"): the one that has the first of `ids`."""
+    t = comp.FindTool("Template")
+    if t is not None and any(get_in(t, i) is not None for i in ids[:3]):
+        return t
+    for t in tool_list(comp):
+        if any(get_in(t, i) is not None for i in ids[:3]):
+            return t
+    return None
+
+
+def op_controls_get(a):
+    """The panel's Clip controls (src/main/clip-controls.js): current values of the preset's add-on inputs
+    {item, ids} -> {values: {id: number | null}}. They are hidden in Resolve's Inspector and edited from the panel."""
+    ids = [str(i) for i in (a.get("ids") or [])]
+    comp = get_comp(a["item"], a.get("comp"))
+    tool = controls_tool(comp, ids)
+    if tool is None:
+        return {"values": {}}
+    out = {}
+    for i in ids:
+        v = get_in(tool, i)
+        out[i] = v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    return {"values": out}
+
+
+def op_controls_set(a):
+    """Sets add-on inputs from the panel's Clip controls: {item, values: {id: number}}. Each value is clamped to the
+    range the panel sent (min / max). -> {values} as read back."""
+    vals = a.get("values") or {}
+    ids = [str(i) for i in vals.keys()]
+    comp = get_comp(a["item"], a.get("comp"))
+    tool = controls_tool(comp, ids)
+    if tool is None:
+        raise RuntimeError("This clip has none of those controls")
+    comp.Lock()
+    try:
+        for i, v in vals.items():
+            try:
+                tool.SetInput(str(i), float(v))
+            except Exception:
+                continue
+    finally:
+        comp.Unlock()
+    return {"values": {i: get_in(tool, i) for i in ids}}
+
+
 def op_multitext_rows(a):
     """Set the Row controls of a MultiText clip (tools/add-multitext-row-controls.py): gap (text lines between the
     rows), equalize (bool: equal ink-to-ink gaps above and below the emphasis), justify (manual / center / left / right), link (bool), all / upper / emphasis / lower {x, y} (Inspector
@@ -1059,13 +1106,21 @@ def op_multitext_rows(a):
             tpl.SetInput("RowsLink", 1 if a["link"] else 0)
         if a.get("equalize") is not None and get_in(tpl, "RowsEqualize") is not None:
             tpl.SetInput("RowsEqualize", 1 if a["equalize"] else 0)
-        dist = a.get("distance")
-        if isinstance(dist, dict) and get_in(tpl, "RowsDistOn") is not None:
+        dist = a.get("distance") if isinstance(a.get("distance"), dict) else {}
+        if get_in(tpl, "RowsDistOn") is not None:
+            given = {k: dist[k] for k in ("upperEmphasis", "emphasisLower") if dist.get(k) is not None}
+            # Lines mode: the pixel gaps (Gap Above / Below Emphasis) are kept equal to the gaps on screen, so
+            # switching Gap Mode to Pixels (here or in the Inspector) starts from the current layout, no jump.
+            if num(get_in(tpl, "RowsDistOn"), 0) < 0.5 and not given:
+                for src, idn in (("RowsGapUE", "RowsSetUE"), ("RowsGapEL", "RowsSetEL")):
+                    v = get_in(tpl, src)
+                    if v is not None:
+                        tpl.SetInput(idn, round(max(-300.0, min(1000.0, float(v))), 1))
+            for k, idn in (("upperEmphasis", "RowsSetUE"), ("emphasisLower", "RowsSetEL")):
+                if k in given:
+                    tpl.SetInput(idn, max(-300.0, min(1000.0, float(given[k]))))
             if dist.get("on") is not None:
                 tpl.SetInput("RowsDistOn", 1 if dist["on"] else 0)
-            for k, idn in (("upperEmphasis", "RowsSetUE"), ("emphasisLower", "RowsSetEL")):
-                if dist.get(k) is not None:
-                    tpl.SetInput(idn, max(-300.0, min(1000.0, float(dist[k]))))
         j = a.get("justify")
         if j is not None:
             jv = ROW_JUSTIFY.get(str(j).strip().lower()) if not isinstance(j, (int, float)) else int(j)
@@ -1688,11 +1743,13 @@ def fit_segments(comp, clip_frames):
 # letter at that letter's delayed time, every frame, and Resolve does not cache them: ~200 Lua runs (60-80 ms) per frame
 # for one clip, which made dragging any Inspector control lag. key_followers swaps those expressions for plain
 # keyframes (native, ~free) written from the Seg values, and re-keys them whenever the plugin changes the timing.
-# Seg sliders dragged in the Inspector itself do not re-key, so they are hidden in the presets (the panel's timing bar
-# sets the ranges).
+# Seg sliders dragged in the Inspector itself are picked up by op_seg_watch (polled by src/main/seg-watch.js while a
+# MultiText clip is selected), which re-keys when the values changed.
 FOLLOWER_ANIM = {"Opacity1": "smooth", "WordSizeX": "size", "WordSizeY": "size", "WordOffset": "rise"}
 FOLLOWER_ANIM_TAIL = {"smooth": "p * p * (3 - 2 * p)", "size": "0.82 + 0.18 * e", "rise": "-0.035 * (1 - e)"}
 ANIM_DATA = "ElsaSegAnim"
+# last lines of the light letter expressions, spaces removed (WordSize has none: the light form drops the size pop)
+LIGHT_TAIL = {"smooth": ("returnp*p*(3-2*p)",), "rise": ("returnPoint(0,-0.035*q*q*q)",)}
 
 
 def anim_value(kind, p):
@@ -1708,7 +1765,15 @@ def anim_spec(inp_id, expr):
     """{seg, k, kind} parsed from one of the generated per-letter expressions, or None (anything else stays)."""
     import re
     kind = FOLLOWER_ANIM.get(inp_id)
-    if not kind or not expr or "time" not in expr or FOLLOWER_ANIM_TAIL[kind] not in expr.strip().split("\n")[-1]:
+    if not kind or not expr or "time" not in expr:
+        return None
+    # the light form (tools/gen-light-letters.py): Seg<n>Start only, a fixed ramp, tails written without spaces
+    light = re.match(r": local p = \(time - comp\.RenderStart - \(tonumber\(Template\.Seg(\d+)Start\) or 0\)\) / ([\d.]+)\n",
+                     expr)
+    tail = expr.strip().split("\n")[-1].replace(" ", "")
+    if light and tail in (LIGHT_TAIL.get(kind) or ()):
+        return {"seg": int(light.group(1)), "k": 1.0, "kind": kind, "ramp": float(light.group(2))}
+    if FOLLOWER_ANIM_TAIL[kind] not in expr.strip().split("\n")[-1]:
         return None
     m = re.search(r"Template\.Seg(\d+)Start.*?Template\.Seg\1End.*?\(E - S\) \* ([\d.]+)\)", expr, re.S)
     if not m:
@@ -1777,7 +1842,7 @@ def key_followers(comp):
                 s = num(get_in(tpl, "Seg%dStart" % int(spec["seg"])), 0)
                 e = num(get_in(tpl, "Seg%dEnd" % int(spec["seg"])), s)
                 d = max(1.0, (e - s) * float(spec["k"]))
-                r = max(2.0, min(9.0, d * 0.5))
+                r = float(spec["ramp"]) if spec.get("ramp") else max(2.0, min(9.0, d * 0.5))
                 kind = spec["kind"]
                 if expr:
                     getattr(fol, inp_id).SetExpression(None)
@@ -1818,6 +1883,11 @@ def key_followers(comp):
                 fol.SetData(ANIM_DATA, specs)
             except Exception:
                 pass
+    if keyed:
+        try:
+            tpl.SetData(SEG_KEYED_DATA, json.dumps(seg_state(comp, tpl)))
+        except Exception:
+            pass
     return keyed
 
 
@@ -1825,6 +1895,92 @@ def op_key_followers(a):
     """key_followers on one clip (also converts clips placed before the keyframe change)."""
     return {"keyed": key_followers(get_comp(a["item"], a.get("comp")))}
 
+
+_seg_seen = {}    # item id -> (comp, Template, last keyed state: RenderStart + Seg values)
+SEG_KEYED_DATA = "ElsaSegKeyed"   # Template CustomData: the state the followers were last keyed for
+
+
+def op_seg_watch(a):
+    """The selected MultiText clip's Seg Start / End, re-keyed when they changed since the last look (an Inspector drag).
+    Reads 6 inputs per call; the comp and its Template are kept between calls. {segments: False} = not a segment clip."""
+    item = str(a["item"])
+    ent = _seg_seen.get(item)
+    if ent is not None:
+        try:
+            comp, tpl, last = ent
+            if get_in(tpl, "Seg1Start") is None:
+                raise RuntimeError("stale")
+        except Exception:
+            _seg_seen.pop(item, None)
+            ent = None
+    if ent is None:
+        comp = get_comp(item, a.get("comp"))
+        tpl = next((t for t in tool_list(comp) if get_in(t, "Seg1Start") is not None), None)
+        if tpl is None:
+            return {"segments": False}
+        last = None
+    keyed = rekey_if_changed(comp, tpl, last, item)
+    return {"segments": True, "keyed": keyed}
+
+
+def op_seg_sweep(a):
+    """Background check of several MultiText clips (src/main/seg-watch.js sweep: new clips and clips whose start / end
+    changed, e.g. head-trimmed while the panel was closed). Re-keys the ones whose RenderStart or Seg values differ from
+    what their letters were keyed for. -> {items: {id: {segments, keyed} | {error}}}"""
+    ids = [str(x) for x in (a.get("items") or [])]
+    if any(i not in _items for i in ids):
+        tl = timeline()      # one scan of the timeline instead of one per clip (find_item)
+        want = set(ids)
+        for t in range(1, tl.GetTrackCount("video") + 1):
+            for it in tl.GetItemListInTrack("video", t) or []:
+                try:
+                    uid = str(it.GetUniqueId())
+                except Exception:
+                    continue
+                if uid in want:
+                    _items[uid] = it
+    out = {}
+    for item in ids:
+        try:
+            out[item] = op_seg_watch({"item": item})
+        except Exception as e:
+            out[item] = {"error": str(e)}
+    return {"items": out}
+
+
+def seg_state(comp, tpl):
+    """What the letter keys depend on: the comp's RenderStart (it moves when the clip's head is trimmed or a copy is
+    pasted trimmed) and every Seg Start / End (frames from the clip's start). Trim moves the keys with the clip; the
+    slider values themselves are never changed or clamped to the new length."""
+    try:
+        rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
+    except Exception:
+        rs = 0.0
+    cur = [rs]
+    for n in range(1, 10):
+        st = get_in(tpl, "Seg%dStart" % n)
+        if st is None:
+            break
+        cur.append((num(st, 0), num(get_in(tpl, "Seg%dEnd" % n), 0)))
+    return tuple(cur)
+
+
+def rekey_if_changed(comp, tpl, last, item):
+    """Re-keys the followers when the timing or the clip's start changed since they were keyed. `last` is what this
+    bridge saw before (None on first look: then the state saved on the Template decides, so a clip already keyed for
+    its current start is not rewritten)."""
+    cur = seg_state(comp, tpl)
+    if last is None:
+        try:
+            last = tpl.GetData(SEG_KEYED_DATA)    # a JSON string (a list would come back as a Lua-style dict)
+        except Exception:
+            last = None
+    keyed = 0
+    if json.dumps(cur) != (last if isinstance(last, str) else json.dumps(last)):
+        keyed = key_followers(comp)     # saves the new state on the Template
+    if item is not None:
+        _seg_seen[item] = (comp, tpl, cur)
+    return keyed
 
 def segment_text_empty(mt, n):
     """True when MultiText layer n (segment n's text) holds no text, read through its follower when it has one.
@@ -1860,6 +2016,11 @@ def op_timing_get(a):
     if tool is None:
         return {"kind": None}
     if kind == "segments":
+        try:   # the clip under the playhead / selected: a head trim since it was keyed moves its letter keys along
+            ent = _seg_seen.get(str(a["item"]))
+            rekey_if_changed(comp, tool, ent[2] if ent else None, str(a["item"]))
+        except Exception:
+            pass
         mt = next((t for t in tool_list(comp) if attrs(t).get("TOOLS_RegID") == "MultiText"), None)
         ranges = [{"key": str(n), "label": segment_name(mt, n, label), "start": num(get_in(tool, "Seg%dStart" % n), 0),
                    "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True,
@@ -2006,7 +2167,7 @@ def op_row_times(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set}
 
 
 def handle(req):

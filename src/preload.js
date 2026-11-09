@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('sa', {
     liveFrame: (frame) => ipcRenderer.invoke('app:liveFrame', frame),
     clipTiming: (opts) => ipcRenderer.invoke('timing:get', opts || {}),
     setClipTiming: (itemId, ranges, wake) => ipcRenderer.invoke('timing:set', itemId, ranges, !!wake),
+    clipControls: () => ipcRenderer.invoke('controls:get'),
+    setClipControls: (itemId, values) => ipcRenderer.invoke('controls:set', itemId, values),
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
     subtitles: (force) => ipcRenderer.invoke('app:subtitles', force),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),

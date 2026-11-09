@@ -45,7 +45,7 @@ function stageRendering(S, a) {
 function useView(a) {
     const u = state.use;
     if (!a || !u || u.id !== a.id || !u.tempPreview) return a;
-    if (!normSub(currentSubText()) && !(u.designRev > 0) && !boxOverrides(u, a) && !textStylePreviewKey()) return a;   // nothing overridden: the preset as saved
+    if (!normSub(currentSubText())) return a;   // no (enabled) subtitle and nothing typed: the preset as saved
     const t = u.tempPreview;
     if (!u._viewCache || u._viewCache.t !== t || u._viewCache.a !== a) {
         u._viewCache = { t, a, v: Object.assign({}, a, { preview: t.preview, previewFiles: t.previewFiles, previewWhite: t.previewWhite || null }) };
@@ -209,7 +209,7 @@ function ensureUsePreview(a, manual) {
     const rev = u.designRev || 0;
     const bkey = boxRenderKey(u, a);
     const skey = textStylePreviewKey();      // Use tab Text Style: the forced font / colour is part of the render
-    if (!want && rev === 0 && !boxOverrides(u, a) && !skey) return;
+    if (!want) return;      // no enabled subtitle at the playhead and nothing typed: nothing to render (the saved preview shows)
     const reqKey = want + '\u0000' + rev + '\u0000' + bkey + '\u0000' + skey;
     if (u.renderReq === reqKey || u.rendering) return;
     if (u._timerKey === reqKey && u._timer) return;

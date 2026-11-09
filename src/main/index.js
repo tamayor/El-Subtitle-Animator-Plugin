@@ -16,6 +16,7 @@ const { loadLib } = require('./library');
 const { startupTemplates } = require('./placement');
 const { pruneSfxCache } = require('./sfx');
 const { prunePreviews } = require('./previews');
+const { startSegWatch } = require('./seg-watch');
 
 // A stray error anywhere must never take the panel down or leave Resolve with a dead plugin.
 process.on('uncaughtException', (err) => { try { console.error('[uncaughtException]', err && err.stack || err); dlog('[uncaughtException]', String(err && err.stack || err)); } catch (e) { /* ignore */ } });
@@ -45,6 +46,7 @@ app.whenReady().then(() => {
     setTimeout(() => { listSystemFonts(); }, 800);
     setTimeout(() => { startJxaHelper(); }, 800);      // compiled and warmed once, so the first click is quick too
     setTimeout(() => { bridgeCall('ping', {}, 30000).catch(() => { /* only a warm-up */ }); }, 1200);
+    setTimeout(() => { startSegWatch(); }, 3000);      // Inspector timing sliders of MultiText clips
     setTimeout(() => { prepareColorScript(); }, 1500);
     setTimeout(() => { syncAllPresetFonts(); }, 2000);
     // Title templates are renamed to their preset's name, and those of presets removed while the plugin was closed go.

@@ -1,0 +1,56 @@
+/* Use tab: Clip controls (js/timeline/clip-controls.js) - the selected clip's preset add-ons */
+.clip-ctl .cc-body { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.clip-ctl .cc-head {
+    margin: 8px 0 2px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+}
+.clip-ctl .cc-head:first-child { margin-top: 0; }
+.clip-ctl .cc-row {
+    display: grid;
+    grid-template-columns: minmax(84px, 38%) 1fr 64px;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    font-size: 12px;
+}
+.clip-ctl .cc-label { color: var(--text); cursor: default; user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-ctl .cc-range { width: 100%; min-width: 0; accent-color: var(--matcha); }
+.clip-ctl .cc-num {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--card-inner);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 5px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+}
+.clip-ctl .cc-row.cc-check { grid-template-columns: 18px 1fr; }
+.clip-ctl .cc-row.cc-check .cc-label { cursor: pointer; }
+.clip-ctl .cc-row.cc-check input { margin: 0; accent-color: var(--matcha); }
+.clip-ctl .cc-row.cc-combo, .clip-ctl .cc-row.cc-color { grid-template-columns: minmax(84px, 38%) 1fr; }
+.clip-ctl .cc-select {
+    min-width: 0;
+    background: var(--card-inner);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+.clip-ctl .cc-color {
+    width: 44px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+}
+.clip-ctl .cc-row.cc-missing { opacity: 0.4; }

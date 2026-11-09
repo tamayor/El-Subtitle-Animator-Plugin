@@ -122,17 +122,21 @@ async function getSubtitles(tl, force) {
     // Each subtitle needs five calls into Resolve. Made one after another that was thousands of round trips every couple
     // of seconds on a long timeline (the panel lagged), so each item's calls run together, CHUNK items at a time.
     const CHUNK = 40;
-    const readItem = async (it, t) => {
+    // enabled: false when the clip or its whole subtitle track is turned off (e.g. a subtitle already animated by Place).
+    const readItem = async (it, t, trackOn) => {
         const color = (typeof it.GetClipColor === 'function') ? Promise.resolve(it.GetClipColor()).catch(() => '') : '';
         const dur = (typeof it.GetDuration === 'function') ? it.GetDuration() : 0;
-        const [start, end, d, c, text] = await Promise.all([it.GetStart(), it.GetEnd(), dur, color, it.GetName()]);
+        const on = (typeof it.GetClipEnabled === 'function') ? Promise.resolve(it.GetClipEnabled()).catch(() => true) : true;
+        const [start, end, d, c, text, clipOn] = await Promise.all([it.GetStart(), it.GetEnd(), dur, color, it.GetName(), on]);
         const duration = (d && d > 0) ? d : Math.max(1, end - start);
-        return { text, start, end, duration, track: t, color: c || '' };
+        return { text, start, end, duration, track: t, color: c || '', enabled: trackOn && clipOn !== false };
     };
     for (let t = 1; t <= tracks; t++) {
         const items = (await tl.GetItemListInTrack('subtitle', t)) || [];
+        let trackOn = true;
+        try { trackOn = (await tl.GetIsTrackEnabled('subtitle', t)) !== false; } catch (e) { /* assume on */ }
         for (let i = 0; i < items.length; i += CHUNK) {
-            list.push(...await Promise.all(items.slice(i, i + CHUNK).map(it => readItem(it, t))));
+            list.push(...await Promise.all(items.slice(i, i + CHUNK).map(it => readItem(it, t, trackOn))));
         }
     }
     // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.

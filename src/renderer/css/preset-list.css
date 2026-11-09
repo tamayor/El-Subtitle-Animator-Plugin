@@ -676,3 +676,44 @@
 .grid.view-grid .card.drop-after::after,
 .grid.view-gallery .card.drop-after::after { top: 4px; bottom: 4px; right: -6px; width: 3px; }
 #orderModeToggle { margin-right: 4px; }
+
+/* Limitations note under the preset list (collapsed by default) */
+.preset-limits {
+    margin: 10px 0 4px;
+    border: 1px solid var(--strawberry-border);
+    background: var(--strawberry-tint);
+    border-radius: 8px;
+    font-size: 11.5px;
+    color: var(--text);
+}
+.preset-limits > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    color: var(--strawberry);
+    font-weight: 600;
+    user-select: none;
+}
+.preset-limits > summary::-webkit-details-marker { display: none; }
+.preset-limits > summary::after { content: '▸'; margin-left: auto; color: var(--dim); transition: transform 0.15s; }
+.preset-limits[open] > summary::after { transform: rotate(90deg); }
+.preset-limits .pl-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--strawberry);
+    color: var(--strawberry-ink);
+    font-size: 10px;
+    font-weight: 800;
+    flex: none;
+}
+.preset-limits .pl-body { padding: 0 12px 10px; line-height: 1.5; }
+.preset-limits .pl-body p { margin: 0 0 6px; color: var(--dim); }
+.preset-limits .pl-body ul { margin: 0 0 8px; padding-left: 16px; }
+.preset-limits .pl-body li { margin: 2px 0; }
+.preset-limits .pl-fix { color: var(--text) !important; }

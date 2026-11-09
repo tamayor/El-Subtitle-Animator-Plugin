@@ -52,6 +52,10 @@ async function poll(event, force) {
             for (let k = 0; k < sel.length; k++) {
                 const c = sel[k], tt = types[k];
                 if (tt && tt[0] === 'subtitle') {
+                    // A turned-off subtitle (clip or track) is not the current subtitle, even when selected.
+                    let on = true;
+                    try { on = (await c.GetClipEnabled()) !== false && (await tl.GetIsTrackEnabled('subtitle', tt[1])) !== false; } catch (e) { on = true; }
+                    if (!on) continue;
                     const sStart = await c.GetStart();
                     const sEnd = await c.GetEnd();
                     let sDur = (typeof c.GetDuration === 'function') ? await c.GetDuration() : 0;
@@ -73,8 +77,8 @@ async function poll(event, force) {
         } catch (e) { /* selection not available: fall back to playhead */ }
 
         if (!sub) {
-            // Find subtitle under playhead across all tracks; prefer higher subtitle tracks if overlapping
-            const matches = subs.filter(s => frame >= s.start && frame < s.end);
+            // Find the enabled subtitle under the playhead across all tracks; prefer higher subtitle tracks if overlapping
+            const matches = subs.filter(s => s.enabled !== false && frame >= s.start && frame < s.end);
             if (matches.length > 0) {
                 const picked = matches.reduce((best, cur) => ((cur.track || 1) >= (best.track || 1) ? cur : best), matches[0]);
                 const idx = subs.indexOf(picked);

@@ -30,6 +30,7 @@
     <link rel="stylesheet" href="./css/preset-card.css">
     <link rel="stylesheet" href="./css/scrub.css">
     <link rel="stylesheet" href="./css/anim-timing.css">
+    <link rel="stylesheet" href="./css/clip-controls.css">
     <!-- Classic (non-module) scripts sharing one global scope. ORDER MATTERS: each file may use what the files
          above it declare at load time; app/boot.js starts the panel and must stay last. -->
     <script src="./js/core/bootstrap.js" defer></script>
@@ -66,6 +67,7 @@
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
     <script src="./js/timeline/anim-timing.js" defer></script>
+    <script src="./js/timeline/clip-controls.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
     <script src="./js/app/init.js" defer></script>
     <script src="./js/ui/drag-numbers.js" defer></script>
@@ -174,6 +176,15 @@
                     <div id="timingHint" class="hint"></div>
                 </section>
 
+                <!-- the clip's preset add-ons, hidden in Resolve's Inspector (js/timeline/clip-controls.js) -->
+                <section id="clipCtlCard" class="clip-ctl hidden">
+                    <div class="row between">
+                        <span class="label">Clip controls</span>
+                        <span id="clipCtlMeta" class="meta"></span>
+                    </div>
+                    <div id="clipCtlBody" class="cc-body"></div>
+                </section>
+
                 <section>
                     <div class="row between preset-header-row">
                         <div class="preset-header-left">
@@ -223,6 +234,26 @@
                     </div>
                     <div id="useFilter" class="tag-filter"></div>
                     <div id="animGrid" class="grid view-list"></div>
+                    <details id="presetLimits" class="preset-limits">
+                        <summary><span class="pl-icon" aria-hidden="true">!</span>Limitations: highlight &amp; pill presets</summary>
+                        <div class="pl-body">
+                            <p>Glass Pill, Highlight Select, Pill Soft / Solid / Outline, Soft Marker and Underline Draw animate their letters
+                                with fixed keyframes (no lag). Keyframes do not move by themselves, so:</p>
+                            <ul>
+                                <li><b>Trimming the start</b> of a clip (or pasting a trimmed copy) leaves its letters out of step with the highlight box.</li>
+                                <li>A clip changed while the panel was closed stays out of step until the panel is opened again.</li>
+                                <li>Clips placed before this update keep their old animation until placed again.</li>
+                            </ul>
+                            <p>Timing and every preset add-on (box size / position, highlight colour, row gap / position, pill text
+                                colour, Kinetic settings) are edited in this panel: the timing bar and <b>Clip controls</b> on the Use tab
+                                show the selected clip's own controls. They are hidden in Resolve's Inspector, so with the panel closed
+                                they cannot be changed (clips placed before this update still show them there).</p>
+                            <p class="pl-fix"><b>How to avoid it:</b> keep this panel open while you edit (minimised is fine). It fixes
+                                these clips by itself: every few seconds it checks the timeline's highlight / pill clips and re-keys any
+                                that were trimmed or retimed, and when it opens it checks them all once. Before a render, open the panel
+                                and give it a few seconds.</p>
+                        </div>
+                    </details>
                 </section>
             </div>
 

@@ -22,6 +22,7 @@ const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
 const { upgradeRetiming } = require('./retime');
+const { hideAddons } = require('./addon-controls');
 const { frameToTC, tcToFrame } = require('./resolve');
 const { ensureStopped } = require('./playback');
 
@@ -575,7 +576,8 @@ function presetTitleFor(compPath, name) {
         // presets retimed before the Animation Start slider existed get it here (src/main/retime.js)
         const raw = asSetting(upgradeRetiming(fs.readFileSync(inspectorSafeComp(compPath), 'utf8')));
         if (!raw) return null;
-        const body = withOutput(raw);
+        // the preset's add-ons are edited from the panel's Clip controls, not Resolve's Inspector (addon-controls.js)
+        const body = hideAddons(withOutput(raw));
         const dir = titlesDir();
         fs.mkdirSync(dir, { recursive: true });
         const file = path.join(dir, name + '.setting');

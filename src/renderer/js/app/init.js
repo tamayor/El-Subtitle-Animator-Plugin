@@ -212,6 +212,7 @@ async function initApp() {
 
     tick();
     initAnimTiming();
+    initClipControls();
     } catch (err) {
         console.error('Fatal initialization error:', err);
         if (window.sa && window.sa.dlog) window.sa.dlog('FATAL INIT ERROR:', String(err && err.stack || err));

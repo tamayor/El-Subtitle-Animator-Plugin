@@ -29,7 +29,8 @@ const FIX_DEFAULTS = Object.freeze({
     settleBatch: 4,             // clips woken per step, so live frames and placements are not held up behind them
     fitFollowerDelay: true,     // clips shorter than the animation: shorten the Follower's per-letter Delay
     fitSegments: true,          // segment presets: scale their ranges down to fit a short clip
-    clipSliderMax: true         // the timing sliders run up to the clip's length
+    clipSliderMax: true,        // the timing sliders run up to the clip's length
+    inspectorTimingWatch: true  // MultiText Start / End sliders dragged in Resolve's Inspector re-key the letters (seg-watch.js)
 });
 
 const LIMITS = { settlePasses: [0, 6], settleDelayMs: [200, 20000], settleGapMs: [200, 20000], settleBatch: [1, 50] };

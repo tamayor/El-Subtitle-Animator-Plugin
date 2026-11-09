@@ -1,7 +1,12 @@
 """Give MultiText presets (Upper / Emphasis / Lower rows) Inspector controls for the rows' layout.
 Usage: python3 add-multitext-row-controls.py <preset.setting>...
 
-Template (the MultiText) gets, on the Text page after the Box controls:
+Template (the MultiText) gets, on the Text page after the Box controls, under two headers:
+  Row Spacing    Gap Mode (Lines / Pixels, input RowsDistOn), Gap (lines) = RowGap, Equal Gaps = RowsEqualize,
+                 Gap Above / Below Emphasis (px) = RowsSetUE / RowsSetEL.
+  Row Position   All / Upper / Emphasis / Lower Y, then X, then Justify.
+  Hidden         UE / EL Distance read-outs (the bridge's distancePx) and Link Rows (All X / Y already move every row).
+The notes below use the input ids' older labels (Row Gap, Set Distance, Set UE / Set EL, Equalize Gaps).
   Row Gap        space between the rows, in text lines (0 = the rows touch, negative = overlap). The same gap goes
                  above and below the emphasis, so the rows are always evenly spaced, whatever each row's Size,
                  number of lines, Line Spacing or Box Height.
@@ -113,31 +118,44 @@ def distance_px(gdef, ls, roles, fh=1920):
 
 
 def readout(idn, name, status):
+    """A gap read-out: an expression-driven input, kept for the bridge (distancePx) but hidden in the Inspector, where
+    Resolve would print its Lua under the slider and it would duplicate the editable pixel gaps."""
     return ('%s = { LINKS_Name = "%s", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = 0, '
-            'INP_MinScale = 0, INP_MaxScale = 200, ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "%s", }, '
+            'INP_MinScale = 0, INP_MaxScale = 200, ICS_ControlPage = "Text", INP_External = false, IC_Visible = false, INPS_StatusText = "%s", }, '
             % (idn, name, status))
 
 
+def header(idn, name):
+    """A section title in the Inspector (no value)."""
+    return ('%s = { LINKS_Name = "%s", LINKID_DataType = "Number", INPID_InputControl = "LabelControl", INP_External = false, '
+            'INP_Passive = true, ICS_ControlPage = "Text", }, ' % (idn, name))
+
+
 def controls(gap_default, bx, by, dpx=40):
-    """The Inspector order: Row Gap, Link Rows, the Y group, the X group, then Justify right under the X sliders
-    (it overrides them)."""
+    """The Inspector order. Row Spacing: Gap Mode picks which controls set the gaps (Lines: Gap (lines) + Equal Gaps;
+    Pixels: Gap Above / Below Emphasis). Row Position: the Y group, the X group, then Justify right under the X sliders
+    (it overrides them). Hidden: the two gap read-outs (bridge only) and Link Rows (All X / All Y already move every
+    row; the input stays so old clips and the bridge keep working)."""
     return (
-        slider("RowGap", "Row Gap", gap_default, -0.5, 2, "Space between the rows, in text lines (0 = touching; the same above and below the emphasis)", (-3, 6))
+        header("RowsHdrSpacing", "Row Spacing")
+        + 'RowsDistOn = { LINKS_Name = "Gap Mode", LINKID_DataType = "Number", INPID_InputControl = "ComboControl", INP_Integer = true, INP_Default = 0, '
+          '{ CCS_AddString = "Lines (grows with text size)", }, { CCS_AddString = "Pixels (fixed)", }, ICS_ControlPage = "Text", INP_External = false, '
+          'INPS_StatusText = "Lines: Gap (lines) and Equal Gaps set the space between the rows, and it scales with the text. Pixels: Gap Above / Below Emphasis set it in pixels, ink to ink", }, '
+        + slider("RowGap", "Gap (lines)", gap_default, -0.5, 2, "Lines mode: space between the rows, in text lines (0 = touching, the same above and below the emphasis). Ignored in Pixels mode", (-3, 6))
+        + 'RowsEqualize = { LINKS_Name = "Equal Gaps", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, '
+          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "Lines mode: the gap above and below the emphasis are equal, measured ink to ink (lowest descender to tallest letter); Emphasis Y then moves all three rows and Upper / Lower Y open or close both gaps. Off: each Y slider moves only its row", }, '
+        + slider("RowsSetUE", "Gap Above Emphasis (px)", dpx, 0, 200, "Pixels mode: pixels from the upper row's lowest glyph to the emphasis row's tallest glyph. Ignored in Lines mode", (-300, 1000))
+        + slider("RowsSetEL", "Gap Below Emphasis (px)", dpx, 0, 200, "Pixels mode: pixels from the emphasis row's lowest glyph to the lower row's tallest glyph. Ignored in Lines mode", (-300, 1000))
+        + readout("RowsGapUE", "UE Distance", "Upper to Emphasis gap in pixels, as rendered (read by the plugin)")
+        + readout("RowsGapEL", "EL Distance", "Emphasis to Lower gap in pixels, as rendered (read by the plugin)")
         + 'RowsLink = { LINKS_Name = "Link Rows", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 0, '
-          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the Upper / Emphasis / Lower sliders move every row as one", }, '
-        + 'RowsEqualize = { LINKS_Name = "Equalize Gaps", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, '
-          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the gap above and below the emphasis stay equal, measured ink to ink (lowest descender to tallest letter). Emphasis Y moves all three rows; Upper Y / Lower Y open or close both gaps together", }, '
-        + readout("RowsGapUE", "UE Distance", "Upper to Emphasis: pixels from the upper row's lowest glyph to the emphasis row's tallest glyph (read only; type the gap in Set UE)")
-        + readout("RowsGapEL", "EL Distance", "Emphasis to Lower: pixels from the emphasis row's lowest glyph to the lower row's tallest glyph (read only; type the gap in Set EL)")
-        + 'RowsDistOn = { LINKS_Name = "Set Distance", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 0, '
-          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: Set UE / Set EL give the two gaps in pixels (Row Gap and Upper / Lower Y stop changing them). Off: Set UE / Set EL are ignored", }, '
-        + slider("RowsSetUE", "Set UE", dpx, 0, 200, "Upper to Emphasis gap in pixels, upper row's lowest glyph to the emphasis row's tallest glyph (needs Set Distance on)", (-300, 1000))
-        + slider("RowsSetEL", "Set EL", dpx, 0, 200, "Emphasis to Lower gap in pixels, emphasis row's lowest glyph to the lower row's tallest glyph (needs Set Distance on)", (-300, 1000))
-        + slider("RowsY", "All Y", 0, -0.3, 0.3, "Move all rows up (+) / down (-)")
+          'ICS_ControlPage = "Text", INP_External = false, IC_Visible = false, INPS_StatusText = "On: the Upper / Emphasis / Lower sliders move every row as one", }, '
+        + header("RowsHdrPosition", "Row Position")
+        + slider("RowsY", "All Y", 0, -0.3, 0.3, "Move the whole caption up (+) / down (-)")
         + slider("UpperY", "Upper Y", 0, -0.3, 0.3, "Move the upper row up (+) / down (-)")
         + slider("EmphasisY", "Emphasis Y", 0, -0.3, 0.3, "Move the emphasis row up (+) / down (-)")
         + slider("LowerY", "Lower Y", 0, -0.3, 0.3, "Move the lower row up (+) / down (-)")
-        + slider("RowsX", "All X", 0, -0.3, 0.3, "Move all rows right (+) / left (-)")
+        + slider("RowsX", "All X", 0, -0.3, 0.3, "Move the whole caption right (+) / left (-)")
         + slider("UpperX", "Upper X", 0, -0.3, 0.3, "Move the upper row right (+) / left (-); overridden by Justify Center / Left / Right")
         + slider("EmphasisX", "Emphasis X", 0, -0.3, 0.3, "Move the emphasis row right (+) / left (-); overridden by Justify Center / Left / Right")
         + slider("LowerX", "Lower X", 0, -0.3, 0.3, "Move the lower row right (+) / left (-); overridden by Justify Center / Left / Right")
@@ -151,7 +169,8 @@ def controls(gap_default, bx, by, dpx=40):
     )
 
 
-CTRL_BLOCK = re.compile(r'RowGap = \{.*?RowsBaseY = \{[^{}]*\}, ', re.S)
+# From the first control (the Row Spacing header; RowGap in files patched before it) to the hidden Rows Base Y.
+CTRL_BLOCK = re.compile(r'(?:RowsHdrSpacing|RowGap) = \{.*?RowsBaseY = \{[^{}]*\}, ', re.S)
 
 
 def resync(tpl, box_row):

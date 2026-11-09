@@ -5,6 +5,11 @@ Template (the MultiText) gets, on the Text page after the Box controls:
   Row Gap        space between the rows, in text lines (0 = the rows touch, negative = overlap). The same gap goes
                  above and below the emphasis, so the rows are always evenly spaced, whatever each row's Size,
                  number of lines, Line Spacing or Box Height.
+  Equalize Gaps  (default on) the gap above and below the emphasis are equal, measured ink to ink: the upper row's
+                 lowest glyph to the emphasis row's tallest glyph, and so on (INK: Poppins glyph bounds per character;
+                 the box on pill / Highlight Select presets). Emphasis Y then moves all three rows, Upper Y / Lower Y
+                 open or close both gaps together. Off: each Y slider moves its own row.
+  UE / EL Distance  read-outs (expressions) of the two gaps in pixels of the frame height.
   Justify        Manual (default) = the X sliders below place each row. Center / Left / Right line the rows up on
                  that edge (each layer's H Anchor and justification follow) and override the per-row X sliders;
                  the block stays where it was (recentred from an estimate of the widest row). All X still moves it.
@@ -25,6 +30,44 @@ import sys
 CAP = 0.36          # ink height of one text line, x Size
 PITCH = 0.32        # distance between two lines of one row at Line Spacing 1, x Size
 ROLES = ("upper", "emphasis", "lower")
+EM = 0.315          # Poppins em in Size x frame height (from the measured advances: a = 680 units -> 0.205 x Size)
+BASE = 0.35         # baseline below the layer's Center, in em (the centre of Poppins' 1050 / -350 line box; H ink centre too)
+
+# Lua: the ink top / bottom of a row relative to its Center, x Size, from the glyphs actually in it: the tallest
+# glyph of its first line (i / j / f / quotes > ascenders, digits > capitals > t > x-height) and the deepest
+# descender of its last line (g j p q y; Q , ;). Heights are Poppins ExtraBold's glyph bounds in em.
+INK_FN = (
+    'local function INK(s, lsf)\n'
+    '  s = tostring(s or ""); local first, last, n = "", "", 0\n'
+    '  for line in (s .. "\\n"):gmatch("(.-)\\n") do n = n + 1; if n == 1 then first = line end; last = line end\n'
+    '  local a, d = 0, 0\n'
+    '  for ch in first:gmatch("[%z\\1-\\127\\194-\\244][\\128-\\191]*") do\n'
+    '    local h\n'
+    '    if ch == " " then h = 0\n'
+    '    elseif #ch > 1 then h = 0.78\n'
+    '    elseif ch:find("^[ij]$") then h = 0.815\n'
+    '    elseif ch:find("^[f$\'\\"%(%)%[%]{}|/\\\\]$") then h = 0.8\n'
+    '    elseif ch:find("^[bdhkl!?#&@%%%d]$") then h = 0.745\n'
+    '    elseif ch:find("^%u$") then h = 0.71\n'
+    '    elseif ch == "t" then h = 0.7\n'
+    '    elseif ch:find("^[.,_]$") then h = 0.2\n'
+    '    elseif ch == "-" then h = 0.4\n'
+    '    else h = 0.57 end\n'
+    '    if h > a then a = h end\n'
+    '  end\n'
+    '  for ch in last:gmatch("[%z\\1-\\127\\194-\\244][\\128-\\191]*") do\n'
+    '    local h = 0\n'
+    '    if ch:find("^[gjpqy]$") then h = -0.27\n'
+    '    elseif ch:find("^[%(%)%[%]{}|]$") then h = -0.2\n'
+    '    elseif ch:find("^[Q,;]$") then h = -0.12\n'
+    '    elseif ch == "$" then h = -0.09 end\n'
+    '    if h < d then d = h end\n'
+    '  end\n'
+    '  if a == 0 then a = 0.57 end\n'
+    '  local half = n > 1 and (n - 1) * @PITCH@ * lsf() / 2 or 0\n'
+    '  return half + (a - @BASE@) * @EM@, -half + (d - @BASE@) * @EM@\n'
+    'end'
+).replace("@PITCH@", str(PITCH)).replace("@BASE@", str(BASE)).replace("@EM@", str(EM))
 
 WIDTH_FN = (
     'local function W(s)\n'
@@ -59,6 +102,12 @@ def slider(idn, name, default, lo, hi, status, allowed=None):
     return s + 'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "%s", }, ' % status
 
 
+def readout(idn, name, status):
+    return ('%s = { LINKS_Name = "%s", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = 0, '
+            'INP_MinScale = 0, INP_MaxScale = 200, ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "%s", }, '
+            % (idn, name, status))
+
+
 def controls(gap_default, bx, by):
     """The Inspector order: Row Gap, Link Rows, the Y group, the X group, then Justify right under the X sliders
     (it overrides them)."""
@@ -66,6 +115,10 @@ def controls(gap_default, bx, by):
         slider("RowGap", "Row Gap", gap_default, -0.5, 2, "Space between the rows, in text lines (0 = touching; the same above and below the emphasis)", (-3, 6))
         + 'RowsLink = { LINKS_Name = "Link Rows", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 0, '
           'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the Upper / Emphasis / Lower sliders move every row as one", }, '
+        + 'RowsEqualize = { LINKS_Name = "Equalize Gaps", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, '
+          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the gap above and below the emphasis stay equal, measured ink to ink (lowest descender to tallest letter). Emphasis Y moves all three rows; Upper Y / Lower Y open or close both gaps together", }, '
+        + readout("RowsGapUE", "UE Distance", "Upper to Emphasis: pixels from the upper row's lowest glyph to the emphasis row's tallest glyph (read only)")
+        + readout("RowsGapEL", "EL Distance", "Emphasis to Lower: pixels from the emphasis row's lowest glyph to the lower row's tallest glyph (read only)")
         + slider("RowsY", "All Y", 0, -0.3, 0.3, "Move all rows up (+) / down (-)")
         + slider("UpperY", "Upper Y", 0, -0.3, 0.3, "Move the upper row up (+) / down (-)")
         + slider("EmphasisY", "Emphasis Y", 0, -0.3, 0.3, "Move the emphasis row up (+) / down (-)")
@@ -87,13 +140,13 @@ def controls(gap_default, bx, by):
 CTRL_BLOCK = re.compile(r'RowGap = \{.*?RowsBaseY = \{[^{}]*\}, ', re.S)
 
 
-def resync(tpl):
+def resync(tpl, box_row):
     """An already patched Template: the control block and the three Center expressions rewritten by the current tool
     (control values and the preset's geometry are kept)."""
     tpl = resync_controls(tpl)
     ls = layers_patched(tpl)
     roles = roles_of(ls)
-    has_box = "HighlightHeight = {" in tpl
+    has_box = box_row and "HighlightHeight = {" in tpl
     m = CTRL_BLOCK.search(tpl)
     num = lambda k: float(re.search(k + r' = \{[^{}]*INP_Default = ([-\d.]+)', m.group(0)).group(1))
     gdef, bx, by = num("RowGap"), num("RowsBaseX"), num("RowsBaseY")
@@ -103,7 +156,7 @@ def resync(tpl):
         tpl, k = pat.subn(lambda mm: mm.group(1) + '"%s"' % esc(center_expr(role, ls, roles, has_box, gdef, bx, by)) + mm.group(2), tpl, count=1)
         if k != 1:
             raise ValueError("Text%d.Center expression not found" % n)
-    return tpl
+    return set_readouts(tpl, ls, roles, gdef)
 
 
 def layers_patched(tpl):
@@ -213,6 +266,70 @@ def row_h(n, has_box_row):
     return s
 
 
+def row_ink(n, box_row):
+    """Lua: p<n> / q<n> = the top / bottom of row n relative to its Center (frame height units). A text row uses its
+    glyphs' ink (INK); the emphasis row of a box preset uses the box (old row height x Box Height) where it reaches
+    further than the glyphs, since the box is what the eye sees there."""
+    if box_row:
+        return (row_h(n, True)
+                + "\nlocal p%d, q%d = INK(t%d, function() return tonumber(T.Text%d.LineSpacing) or 1 end)" % (n, n, n, n)
+                + "\np%d, q%d = math.max(p%d * S%d, H%d / 2), math.min(q%d * S%d, -H%d / 2)" % (n, n, n, n, n, n, n, n))
+    return ("local p%d, q%d = INK(t%d, function() return tonumber(T.Text%d.LineSpacing) or 1 end)\n"
+            "p%d, q%d = p%d * S%d, q%d * S%d" % (n, n, n, n, n, n, n, n, n, n))
+
+
+def gap_lua(role, ls, roles, gdef):
+    """Lua: g = the gap between this row and the emphasis. Equalize on: the same for both pairs (Row Gap x PITCH x
+    the mean Size of the two pairs); off: this pair's mean Size, as before."""
+    u, e, l = roles["upper"], roles["emphasis"], roles["lower"]
+    me = roles[role]
+    other = l if role == "upper" else u
+    return ("local g\nif Q then local So = tonumber(T.Text%d.Size) or %s; g = (tonumber(T.RowGap) or %s) * %s * (S%d + 2 * S%d + So) / 4\n"
+            "else g = (tonumber(T.RowGap) or %s) * %s * (S%d + S%d) / 2 end"
+            % (other, ls[other]["size"], gdef, PITCH, me, e, gdef, PITCH, me, e))
+
+
+def readout_expr(which, ls, roles, gdef):
+    """Lua for the UE / EL Distance read-outs, in pixels of the frame height. With the rows placed as center_expr
+    places them, the ink gap reduces to the gap g plus the sliders' share, so no text is measured here."""
+    u, e, l = roles["upper"], roles["emphasis"], roles["lower"]
+    S = lambda n: "(tonumber(T.Text%d.Size) or %s)" % (n, ls[n]["size"])
+    L = [": local T = Template"]
+    L.append("local lk = (tonumber(T.RowsLink) or 0) >= 0.5")
+    L.append("local Q = (tonumber(T.RowsEqualize) or 0) >= 0.5")
+    L.append("local Su, Se, Sl = %s, %s, %s" % (S(u), S(e), S(l)))
+    L.append("local G = tonumber(T.RowGap) or %s" % gdef)
+    L.append("local uy, ey, ly = tonumber(T.UpperY) or 0, tonumber(T.EmphasisY) or 0, tonumber(T.LowerY) or 0")
+    L.append("local d")
+    L.append("if Q then d = G * %s * (Su + 2 * Se + Sl) / 4 + (lk and 0 or (uy - ly) / 2)" % PITCH)
+    if which == "UE":
+        L.append("else d = G * %s * (Su + Se) / 2 + (lk and 0 or uy - ey) end" % PITCH)
+    else:
+        L.append("else d = G * %s * (Se + Sl) / 2 + (lk and 0 or ey - ly) end" % PITCH)
+    L.append('local okh, fh = pcall(function() return comp:GetPrefs("Comp.FrameFormat.Height") end)')
+    L.append("fh = (okh and tonumber(fh)) or tonumber(T.Height) or 1920")
+    L.append("return math.floor(d * fh * 10 + 0.5) / 10")
+    return "\n".join(L)
+
+
+READOUTS = (("RowsGapUE", "UE"), ("RowsGapEL", "EL"))
+
+
+def set_readouts(tpl, ls, roles, gdef):
+    """The read-outs' Input lines (expressions) at the top of the Template's Inputs, replaced when present."""
+    for idn, which in READOUTS:
+        line = '\t\t\t\t%s = Input { Value = 0, Expression = "%s", },\n' % (idn, esc(readout_expr(which, ls, roles, gdef)))
+        pat = re.compile(r'\t\t\t\t%s = Input \{ Value = [-\d.]+, Expression = "(?:[^"\\]|\\.)*", \},\n' % idn)
+        if pat.search(tpl):
+            tpl = pat.sub(lambda m: line, tpl, count=1)
+        else:
+            m = re.search(r'\n\t\t\tInputs = (?:ordered\(\) )?\{\n', tpl)
+            if not m:
+                raise ValueError("Template Inputs not found")
+            tpl = tpl[:m.end()] + line + tpl[m.end():]
+    return tpl
+
+
 def center_expr(role, ls, roles, has_box, gdef, bx, by):
     """The Lua expression of one row's Center, written to read as few Template inputs as possible (each read is a
     proxy call, ~0.15 ms per frame): a row reads only its own offsets unless Link Rows is on; the emphasis row
@@ -262,11 +379,23 @@ def center_expr(role, ls, roles, has_box, gdef, bx, by):
         L.append("  local wm = math.max(W(t%d) * S%d, W(t%d) * S%d, W(t%d) * S%d) * fh / fw" % (u, u, e, e, l, l))
         L.append("  x = x + ((J == 2) and -1 or 1) * wm / 2")
         L.append("end")
-        L.append(row_h(me, False))
-        L.append(row_h(e, has_box))
-        L.append("local g = (tonumber(T.RowGap) or %s) * %s * (S%d + S%d) / 2" % (gdef, PITCH, me, e))
-        sign = "+" if role == "upper" else "-"
-        L.append("local y = (tonumber(T.RowsBaseY) or %s) + (tonumber(T.RowsY) or 0) + oy %s (H%d / 2 + g + H%d / 2)" % (by, sign, e, me))
+        L.append(INK_FN)
+        L.append(row_ink(me, False))
+        L.append(row_ink(e, has_box))
+        # Equalize: one gap above and below the emphasis, ink to ink; Emphasis Y carries the three rows and
+        # Upper Y / Lower Y open or close both gaps (sp). Off: each row moves on its own slider, as before.
+        L.append("local Q = (tonumber(T.RowsEqualize) or 0) >= 0.5")
+        L.append("local ey, sp = (tonumber(T.RowsBaseY) or %s) + (tonumber(T.RowsY) or 0), 0" % by)
+        L.append("if lk then ey = ey + oy; oy = 0")
+        if role == "upper":
+            L.append("elseif Q then ey = ey + (tonumber(T.EmphasisY) or 0); sp = (oy - (tonumber(T.LowerY) or 0)) / 2; oy = 0 end")
+        else:
+            L.append("elseif Q then ey = ey + (tonumber(T.EmphasisY) or 0); sp = ((tonumber(T.UpperY) or 0) - oy) / 2; oy = 0 end")
+        L.append(gap_lua(role, ls, roles, gdef))
+        if role == "upper":
+            L.append("local y = ey + oy + p%d + g + sp - q%d" % (e, me))
+        else:
+            L.append("local y = ey + oy + q%d - g - sp - p%d" % (e, me))
     L.append("return Point(x, y)")
     return "\n".join(L)
 
@@ -274,18 +403,26 @@ def center_expr(role, ls, roles, has_box, gdef, bx, by):
 ANCHOR_EXPR = ": local J = tonumber(Template.RowsJustify) or 0\nreturn (J == 2) and -1 or ((J == 3) and 1 or 0)"
 
 
-def patch(s):
+def box_preset(path):
+    """Presets whose highlight box wraps the emphasis (pills, Highlight Select): the gap is measured to the box there.
+    Soft Marker / Underline Draw draw inside or under the word, so their emphasis row is measured by its glyphs."""
+    import os
+    n = os.path.basename(path).lower()
+    return "pill" in n or "highlight select" in n
+
+
+def patch(s, box_row=False):
     t = block(s, "Template")
     if not t:
         return s
     tpl = s[t[0]:t[1]]
     if "RowGap = {" in tpl:
-        return s[:t[0]] + resync(tpl) + s[t[1]:]             # already patched: controls and expressions refreshed
+        return s[:t[0]] + resync(tpl, box_row) + s[t[1]:]             # already patched: controls and expressions refreshed
     ls = layers(tpl)
     roles = roles_of(ls)
     if not roles:
         raise ValueError("not an Upper / Emphasis / Lower MultiText (%d layers)" % len(ls))
-    has_box = "HighlightHeight = {" in tpl
+    has_box = box_row and "HighlightHeight = {" in tpl
     gdef = gap_default(ls, roles)
     bx, by = ls[roles["emphasis"]]["center"]
     # 1. the controls, after the Box controls when there are any
@@ -304,6 +441,7 @@ def patch(s):
                + '\n\t\t\t\t["Text%d.HorizontalLeftCenterRight"] = Input { Value = 0, Expression = "%s", },' % (n, esc(ANCHOR_EXPR))
                + '\n\t\t\t\t["Text%d.HorizontalJustificationCenter"] = Input { Value = 0, Expression = "%s", },' % (n, esc(ANCHOR_EXPR)))
         tpl = tpl[:mm.start()] + rep + tpl[mm.end():]
+    tpl = set_readouts(tpl, ls, roles, gdef)
     s = s[:t[0]] + tpl + s[t[1]:]
     # 3. mirrors of a layer's Center (the highlight box Text+) follow its anchor too
     pat = re.compile(r'(\t\t\t\tCenter = Input \{ Value = \{ [-\d.]+, [-\d.]+ \}, Expression = "Template\.Text(\d+)\.Center", \},)')
@@ -321,7 +459,7 @@ if __name__ == "__main__":
     for path in sys.argv[1:]:
         src = open(path, encoding="utf-8").read()
         try:
-            out = patch(src)
+            out = patch(src, box_preset(path))
         except ValueError as e:
             print("skipped", path, "-", e)
             continue

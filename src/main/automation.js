@@ -167,6 +167,7 @@ function rowsReq(rules, own) {
     if (o.gap !== null) out.gap = o.gap;
     if (o.justify) out.justify = o.justify;
     if (own.link !== undefined && own.link !== null) out.link = !!own.link;
+    if (own.equalize !== undefined && own.equalize !== null) out.equalize = !!own.equalize;
     for (const k of ['all', 'upper', 'emphasis', 'lower']) {
         const v = own[k];
         if (!v || typeof v !== 'object') continue;

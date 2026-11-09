@@ -1033,13 +1033,13 @@ def op_highlight_box(a):
 
 
 ROW_JUSTIFY = {"manual": 0, "center": 1, "centre": 1, "left": 2, "right": 3}
-ROW_CTRL = {"gap": "RowGap", "link": "RowsLink", "justify": "RowsJustify"}
+ROW_CTRL = {"gap": "RowGap", "link": "RowsLink", "equalize": "RowsEqualize", "justify": "RowsJustify"}
 ROW_XY = {"all": "Rows", "upper": "Upper", "emphasis": "Emphasis", "lower": "Lower"}
 
 
 def op_multitext_rows(a):
     """Set the Row controls of a MultiText clip (tools/add-multitext-row-controls.py): gap (text lines between the
-    rows), justify (manual / center / left / right), link (bool), all / upper / emphasis / lower {x, y} (Inspector
+    rows), equalize (bool: equal ink-to-ink gaps above and below the emphasis), justify (manual / center / left / right), link (bool), all / upper / emphasis / lower {x, y} (Inspector
     Center units). Only the given values change. Returns the controls' values, or hasControls false for a preset
     without them."""
     comp = get_comp(a["item"], a.get("comp"))
@@ -1056,6 +1056,8 @@ def op_multitext_rows(a):
             tpl.SetInput("RowGap", max(-3.0, min(6.0, float(a["gap"]))))
         if a.get("link") is not None:
             tpl.SetInput("RowsLink", 1 if a["link"] else 0)
+        if a.get("equalize") is not None and get_in(tpl, "RowsEqualize") is not None:
+            tpl.SetInput("RowsEqualize", 1 if a["equalize"] else 0)
         j = a.get("justify")
         if j is not None:
             jv = ROW_JUSTIFY.get(str(j).strip().lower()) if not isinstance(j, (int, float)) else int(j)
@@ -1073,6 +1075,9 @@ def op_multitext_rows(a):
     names = {v: k for k, v in ROW_JUSTIFY.items() if k != "centre"}
     out = {"hasControls": True, "tool": attrs(tpl).get("TOOLS_Name"), "gap": get_in(tpl, "RowGap"),
            "link": bool(num(get_in(tpl, "RowsLink"), 0) >= 0.5), "justify": names.get(jv, "manual")}
+    if get_in(tpl, "RowsEqualize") is not None:      # presets patched before the Equalize toggle lack these
+        out["equalize"] = bool(num(get_in(tpl, "RowsEqualize"), 1) >= 0.5)
+        out["distancePx"] = {"upperEmphasis": get_in(tpl, "RowsGapUE"), "emphasisLower": get_in(tpl, "RowsGapEL")}
     for key, pre in ROW_XY.items():
         out[key] = {"x": get_in(tpl, pre + "X"), "y": get_in(tpl, pre + "Y")}
     out["rows"] = [{"layer": n, "name": get_in(tpl, "TextName%d" % n), "center": as_pt(get_in(tpl, "Text%d.Center" % n))}

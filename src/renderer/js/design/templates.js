@@ -21,7 +21,7 @@ const ALIGN_HTML = (S) => `
     ${S === 'C' ? '' : `<button type="button" id="sndAdd${S}" class="ghost aln-btn" title="Add another sound (or drop a sound file on the timeline)">+ Sound</button>`}
 </div>
 <div id="scrubBox${S}" class="scrub-box hidden">
-    <div class="scrub-view"><canvas id="scrubCv${S}"></canvas><div id="scrubMsg${S}" class="scrub-msg"></div><button type="button" id="scrubLoop${S}" class="sm-btn scrub-loop" title="Play the real 3 seconds of the animation (rendered in Resolve with your settings) on repeat">Loop 3s</button></div>
+    <div class="scrub-view"><canvas id="scrubCv${S}"></canvas><div id="scrubMsg${S}" class="scrub-msg"></div><button type="button" id="scrubLoop${S}" class="sm-btn scrub-loop" title="Play the real 3 seconds of the animation (rendered in Resolve with your settings) on repeat">Loop 3s</button><button type="button" id="scrubAuto${S}" class="sm-btn scrub-auto hidden" title="Auto: every change of subtitle, text or design is rendered in Resolve right away (about 75 frames each time). Off: nothing is rendered until you press Render, which keeps Resolve free while you step through captions">Auto render</button><button type="button" id="scrubRender${S}" class="sm-btn scrub-render hidden" title="Render the selected preset with this subtitle in Resolve now">Render</button></div>
     <div id="scrubInfo${S}" class="scrub-info"></div>
 </div>
 <div id="tl${S}" class="tl"></div>

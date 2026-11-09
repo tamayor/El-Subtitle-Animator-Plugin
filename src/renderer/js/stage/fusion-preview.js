@@ -45,7 +45,7 @@ function stageRendering(S, a) {
 function useView(a) {
     const u = state.use;
     if (!a || !u || u.id !== a.id || !u.tempPreview) return a;
-    if (!normSub(currentSubText()) && !(u.designRev > 0) && !boxOverrides(u, a)) return a;   // nothing overridden: the preset as saved
+    if (!normSub(currentSubText()) && !(u.designRev > 0) && !boxOverrides(u, a) && !textStylePreviewKey()) return a;   // nothing overridden: the preset as saved
     const t = u.tempPreview;
     if (!u._viewCache || u._viewCache.t !== t || u._viewCache.a !== a) {
         u._viewCache = { t, a, v: Object.assign({}, a, { preview: t.preview, previewFiles: t.previewFiles, previewWhite: t.previewWhite || null }) };
@@ -61,20 +61,77 @@ function useView(a) {
 // the other cards get a render of the subtitle with their saved design, made one at a time in the background once
 // the subtitle and the playhead have settled. These never replace a preset's saved default preview.
 const subCards = new Map();      // preset id -> { text, temp }
+// Light cards: a card that is neither selected nor under the pointer plays only the first LIGHT_FRAMES frames of its
+// sample render (a short GIF-like loop that then holds), so the Use tab decodes and keys 10 frames per card instead of
+// about 80. Hovering a card plays its full sample frames and, with Auto render on, renders it with the current
+// subtitle in Resolve (see hover handling below). The selected preset's card keeps mirroring the viewer.
+const LIGHT_FRAMES = 10;
+const lightViews = new Map();    // preset id -> { stamp, n, view }
+const cardHover = { id: null, timer: 0 };
+function lightView(a) {
+    if (!a || !a.preview || !a.previewFiles || a.previewFiles.length <= LIGHT_FRAMES) return a;
+    const stamp = a.preview.stamp || 0, n = a.previewFiles.length;
+    const hit = lightViews.get(a.id);
+    if (hit && hit.stamp === stamp && hit.n === n && hit.src === a) return hit.view;
+    // Frames spread evenly over the capture (first, ..., last) rather than the first ten in a row: the first frames
+    // of many presets hold no text yet (the words fly in later), and the loop ends on the animation's final look.
+    const idx = Array.from({ length: LIGHT_FRAMES }, (_, i) => Math.round(i * (n - 1) / (LIGHT_FRAMES - 1)));
+    const pick = (arr) => (Array.isArray(arr) && arr.length === n) ? idx.map(i => arr[i]) : null;
+    const preview = Object.assign({}, a.preview, { count: LIGHT_FRAMES, map: undefined });       // each chosen frame loads its own file
+    const view = Object.assign({}, a, { preview, previewFiles: pick(a.previewFiles), previewWhite: pick(a.previewWhite) });
+    lightViews.set(a.id, { stamp, n, src: a, view });
+    return view;
+}
 function cardView(a) {
     if (!a) return a;
     const want = normSub(currentSubText());
     if (state.use && state.use.id === a.id) {
         const v = useView(a);
         if (v !== a) return v;
+        return a;
     }
+    const hovered = cardHover.id === a.id;
     const c = subCards.get(a.id);
-    if (want && c && c.text === want && c.temp) {
+    if (hovered && want && c && c.text === want && c.temp) {
         if (!c.view) c.view = Object.assign({}, a, { preview: c.temp.preview, previewFiles: c.temp.previewFiles, previewWhite: c.temp.previewWhite || null });
         if (!window.SAThumbs || !SAThumbs.ready || SAThumbs.ready(c.view)) return c.view;
     }
-    return a;
+    return hovered ? a : lightView(a);
 }
+// Pointer over a preset card: that card plays its full frames at once; after a short dwell (not a pass-over) the
+// preset is rendered with the current subtitle in Resolve, once per subtitle text, when Auto render is on.
+function setCardHover(id) {
+    if (cardHover.id === id) return;
+    cardHover.id = id;
+    clearTimeout(cardHover.timer); cardHover.timer = 0;
+    if (!id) return;
+    cardHover.timer = setTimeout(() => { cardHover.timer = 0; hoverRender(id).catch(() => { /* a convenience */ }); }, 350);
+}
+async function hoverRender(id) {
+    if (cardHover.id !== id || state.autoRender === false || state.idle || state.tab !== 'apply') return;
+    const want = normSub(currentSubText());
+    if (!want || !state.live || !state.live.ok || !window.sa || !window.sa.makePreview) return;
+    const a = libEntry(id);
+    if (!a || a.missing || (state.use && state.use.id === id)) return;
+    const c = subCards.get(id);
+    if (c && c.text === want && c.temp) return;
+    if (subPv.hoverRunning) return;
+    const u = state.use;
+    if (state.busy || state.drag || state.stageDrag || state.preview || (u && (u._timer || u.rendering)) || subPv.running) return;
+    if (window.SAThumbs && SAThumbs.isBusy && state.lib.animations.some(x => SAThumbs.isBusy(x.id))) return;
+    subPv.hoverRunning = true;
+    if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(id, true);
+    let res;
+    try { res = await window.sa.makePreview(id, want, null, '', 'sub', boxRenderList(a, a, want, true)); } catch (e) { res = { error: String(e && e.message || e) }; }
+    if (window.SAThumbs && SAThumbs.markBusy) SAThumbs.markBusy(id, false);
+    subPv.hoverRunning = false;
+    if (res && res.temp && !res.error) subCards.set(id, { text: want, temp: res.temp });
+}
+document.addEventListener('mouseover', (e) => {
+    const card = e.target && e.target.closest ? e.target.closest('#animGrid .card') : null;
+    setCardHover(card ? (card.dataset.id || null) : null);
+});
+document.addEventListener('mouseleave', () => setCardHover(null));
 (function () {
     let lastSub = '', subSince = 0, lastFrame = null, frameSince = 0, running = false;
     const failed = new Set();
@@ -141,15 +198,19 @@ if (window.sa && window.sa.onPreviewDraft) window.sa.onPreviewDraft((d) => {
 });
 
 // Use tab: one render per change of subtitle text, override design or text box, into a temporary preview only.
-function ensureUsePreview(a) {
+// manual: the Render button. With Auto render off nothing else starts a render (every change would otherwise cost
+// Resolve a render of about 75 frames); a render already asked for still finishes.
+function ensureUsePreview(a, manual) {
     if (state.idle || state.colorPicking) return;      // no Fusion render while the colour picker is open
+    if (state.autoRender === false && !manual) return;
     const u = state.use;
     if (!a || a.missing || !u || u.id !== a.id || !window.sa || !window.sa.makePreview) return;
     const want = normSub(currentSubText());
     const rev = u.designRev || 0;
     const bkey = boxRenderKey(u, a);
-    if (!want && rev === 0 && !boxOverrides(u, a)) return;
-    const reqKey = want + '\u0000' + rev + '\u0000' + bkey;
+    const skey = textStylePreviewKey();      // Use tab Text Style: the forced font / colour is part of the render
+    if (!want && rev === 0 && !boxOverrides(u, a) && !skey) return;
+    const reqKey = want + '\u0000' + rev + '\u0000' + bkey + '\u0000' + skey;
     if (u.renderReq === reqKey || u.rendering) return;
     if (u._timerKey === reqKey && u._timer) return;
     clearTimeout(u._timer);
@@ -159,9 +220,9 @@ function ensureUsePreview(a) {
         u._timer = 0; u._timerKey = null;
         const playheadMoved = !!(state.live && state.live.frame !== frame0) && !state.livePrev && !(state.scrub && state.scrub.U && state.scrub.U.on);
         if (state.use !== u || playheadMoved || state.busy || state.drag || state.stageDrag || state.preview
-            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || state.tab !== 'apply') {
+            || normSub(currentSubText()) !== want || (u.designRev || 0) !== rev || boxRenderKey(u, a) !== bkey || textStylePreviewKey() !== skey || state.tab !== 'apply') {
             // not now: try again shortly instead of waiting for the next redraw (which may never come)
-            setTimeout(() => { if (state.use === u && !u.rendering) ensureUsePreview(a); }, 600);
+            setTimeout(() => { if (state.use === u && !u.rendering) ensureUsePreview(a, manual); }, 600);
             return;
         }
         u.renderReq = reqKey;
@@ -170,7 +231,10 @@ function ensureUsePreview(a) {
         setStatus('Rendering the real animation in Resolve…');
         redrawStages();
         let res;
-        try { res = await window.sa.makePreview(a.id, want || null, cloneTextDesign(u.textDesign), '', true, boxRenderList(u, a, currentSubText(), true), { maxDim: stageDim('U'), draftKey: reqKey }); } catch (e) { res = { error: String(e && e.message || e) }; }
+        const look = textStyleLook(a, false);
+        const design = textStyleDesign(cloneTextDesign(u.textDesign), look);
+        const blist = textStyleBoxList(boxRenderList(u, a, currentSubText(), true), a, look, u.textDesign);
+        try { res = await window.sa.makePreview(a.id, want || null, design, '', true, blist, { maxDim: stageDim('U'), draftKey: reqKey }); } catch (e) { res = { error: String(e && e.message || e) }; }
         u.rendering = false;
         if (res && res.error) {
             if (/busy/i.test(res.error)) {

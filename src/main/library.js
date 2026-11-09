@@ -161,11 +161,24 @@ function migrateAndCleanLib(lib) {
     } catch (e) { /* ignore */ }
 }
 
+// The library file (hundreds of KB) is asked for by most actions. Its text is kept with the file's size and
+// modification time, so an unchanged file is not read from disk again; it is still parsed each time, so every
+// caller gets its own copy to change.
+const libRaw = { key: '', raw: null };
+function readLibRaw() {
+    let st = null;
+    try { st = fs.statSync(LIB_FILE); } catch (e) { libRaw.key = ''; libRaw.raw = null; return null; }
+    const key = st.size + ':' + st.mtimeMs;
+    if (libRaw.key === key && libRaw.raw !== null) return libRaw.raw;
+    let raw = null;
+    try { raw = fs.readFileSync(LIB_FILE, 'utf8'); } catch (e) { raw = null; }
+    libRaw.key = raw === null ? '' : key; libRaw.raw = raw;
+    return raw;
+}
 function loadLib() {
     ensureDirs();
     let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
-    let raw = null;
-    try { raw = fs.readFileSync(LIB_FILE, 'utf8'); } catch (e) { /* first run */ }
+    const raw = readLibRaw();
     if (raw !== null) {
         let parsed = null;
         try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
@@ -191,7 +204,7 @@ function loadLib() {
 // Stamps updatedAt on every preset that is new or changed since the last save (shown and sorted in the Library tab).
 function stampUpdated(lib) {
     let prev = null;
-    try { prev = JSON.parse(fs.readFileSync(LIB_FILE, 'utf8')); } catch (e) { prev = null; }
+    try { const raw = readLibRaw(); prev = raw === null ? null : JSON.parse(raw); } catch (e) { prev = null; }
     const key = (a) => { const c = Object.assign({}, a); delete c.updatedAt; return JSON.stringify(c); };
     const before = new Map(((prev && Array.isArray(prev.animations)) ? prev.animations : []).map(a => [a.id, a]));
     const now = Date.now();

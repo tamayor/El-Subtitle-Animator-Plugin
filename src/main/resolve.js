@@ -93,9 +93,30 @@ function frameToTC(frame, meta) {
 
 // ------------------------------------------------------------------ subtitles
 
+// The full read (five calls per subtitle) is made at most every SUB_FULL_MS. In between, from SUB_PROBE_MS on, only
+// the number of clips on each subtitle track is checked (one call per track): a subtitle added, deleted or split shows
+// up at once, while a long timeline is not re-read every couple of seconds while nothing changed. A text edit or a
+// moved subtitle is picked up by the next full read.
+const SUB_PROBE_MS = 2000, SUB_FULL_MS = 6000;
+async function subtitleCounts(tl, tracks) {
+    const out = [];
+    for (let t = 1; t <= tracks; t++) out.push(((await tl.GetItemListInTrack('subtitle', t)) || []).length);
+    return out.join(',');
+}
 async function getSubtitles(tl, force) {
     const key = await tl.GetName();
-    if (!force && state.subCache.key === key && Date.now() - state.subCache.at < 2000) return state.subCache.list;
+    const c = state.subCache, now = Date.now();
+    if (!force && c.key === key) {
+        const age = now - c.at;
+        if (age < SUB_PROBE_MS) return c.list;
+        if (age < SUB_FULL_MS) {
+            if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
+            const tracks = (await tl.GetTrackCount('subtitle')) || 0;
+            const counts = await subtitleCounts(tl, tracks);
+            c.probedAt = Date.now();
+            if (counts === c.counts) return c.list;
+        }
+    }
     const list = [];
     const tracks = (await tl.GetTrackCount('subtitle')) || 0;
     // Each subtitle needs five calls into Resolve. Made one after another that was thousands of round trips every couple
@@ -130,7 +151,7 @@ async function getSubtitles(tl, force) {
     }
     list.sort((a, b) => a.start - b.start);
     list.forEach((item, i) => { item.index = i + 1; });
-    state.subCache = { key, at: Date.now(), list };
+    state.subCache = { key, at: Date.now(), probedAt: Date.now(), list, counts: await subtitleCounts(tl, tracks) };
     return list;
 }
 

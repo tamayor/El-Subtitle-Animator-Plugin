@@ -629,24 +629,49 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
     // then return no item so the caller's fallback (plain Text+ / MultiText) runs instead of the whole apply failing.
     // A template Resolve has not picked up yet is tried again for a few seconds (every attempt about 1.5 s apart): a
     // clip that falls back to the plain title gets an EMPTY Inspector, so the fallback is the last resort.
-    let item = null;
+    // An In/Out mark makes Resolve insert at the In instead of the playhead. They are cleared for the insert and put
+    // back afterwards (a Preview in Resolve has already cleared and saved its own, see liveClearMarks).
+    let marks = null;
+    try {
+        const m = await tl.GetMarkInOut();
+        if (m && ((m.video && typeof m.video.in === 'number') || (m.audio && typeof m.audio.in === 'number'))) { marks = m; await tl.ClearMarkInOut('all'); }
+    } catch (e) { marks = null; }
+    const restoreMarks = async () => {
+        if (!marks) return;
+        for (const type of ['video', 'audio']) {
+            const v = marks[type];
+            try { if (v && typeof v.in === 'number' && typeof v.out === 'number' && v.out >= v.in) await tl.SetMarkInOut(v.in, v.out, type); } catch (e) { /* ignore */ }
+        }
+    };
+    // The playhead is parked again right before EVERY attempt: while a fresh template is retried (1.5 s apart) the
+    // preview's loop playback or a panel seek could move it, and the title then went in mid-timeline. A title that
+    // still lands before the end is ripple-deleted and inserted once more before giving up.
+    let item = null, misplaced = 0;
     const attempts = title ? 5 : 1;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-        try { item = await tl.InsertFusionTitleIntoTimeline(titleName); break; }
-        catch (e) {
-            dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
-            if (!title) throw e;
-            if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
-        }
-    }
-    if (item) {
-        let st = endFrame;
-        try { st = await item.GetStart(); } catch (e) { /* ignore */ }
-        if (st < endFrame - 1) {
+    try {
+        for (let attempt = 0; attempt < attempts; attempt++) {
+            if (attempt > 0 || misplaced) {
+                if (!(await ensureStopped(tl))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
+                if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
+            }
+            try { item = await tl.InsertFusionTitleIntoTimeline(titleName); }
+            catch (e) {
+                dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
+                if (!title) throw e;
+                if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
+                continue;
+            }
+            if (!item) break;
+            let st = endFrame;
+            try { st = await item.GetStart(); } catch (e) { /* ignore */ }
+            if (st >= endFrame - 1) break;
+            dlog('TITLE-INSERT-MISPLACED', titleName, { st, endFrame, attempt });
             try { await tl.DeleteClips([item], true); } catch (e) { /* ignore */ }       // ripple delete closes the gap it made
-            return { error: 'Resolve put the ' + titleName + ' at the playhead instead of the end, so it was taken out again. Check the timeline around the playhead and try again.' };
+            item = null;
+            if (++misplaced > 1) return { error: 'Resolve put the ' + titleName + ' at the playhead instead of the end, so it was taken out again. Check the timeline around the playhead and try again.' };
+            attempt--;      // a misplaced insert does not use up a template retry
         }
-    }
+    } finally { await restoreMarks(); }
     return { item };
 }
 

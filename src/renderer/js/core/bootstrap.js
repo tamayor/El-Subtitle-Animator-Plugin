@@ -18,7 +18,9 @@ const state = {
     use: null,             // working copy of the picked item's alignment (edits here are for one use only)
     adjustOpen: false,     // is the alignment panel in the Use tab expanded
     placeOpen: false,      // is the placement panel in the Use tab expanded
+    styleOpen: false,      // is the Text Style panel (manual font / colour override) in the Use tab expanded
     useViewMode: 'list',   // preset viewing mode: 'list', 'grid', or 'gallery'
+    autoRender: true,      // Use tab: render the selected preset with the subtitle in Resolve after every change (off = Render button)
     presetSearch: '',      // search query for filtering text presets
     tdOpen: false,         // is the text design panel in the Use tab expanded
     createAdjustOpen: true,// is the alignment panel in the Create tab expanded

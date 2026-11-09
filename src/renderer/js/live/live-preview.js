@@ -1,9 +1,10 @@
 // "Preview in Resolve": keeping the real Text+ on the timeline in step with the panel.
 
 // ---- Preview in Resolve: the real Text+ is on the timeline; the panel keeps it in step with Alignment / Text Design.
-function liveReq(m, a, text) {
+// consume: the clip is being placed for good (liveFinish), so it counts for the Text Style override share.
+function liveReq(m, a, text, consume) {
     const p = state.livePrev;
-    return {
+    return textStyleApplyReq({
         animationId: a.id, text, start: p.start, end: p.end,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
         textTrack: m.textTrack, sfxTrack: m.sfxTrack, useSfx: m.useSfx !== false, place: placeOptions(),
@@ -14,7 +15,7 @@ function liveReq(m, a, text) {
         textDesign: m.textDesign || a.textDesign || null,
         sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined,
         boxList: window.SABoxes ? SABoxes.payload(m, a, text) : []
-    };
+    }, a, !!consume);
 }
 function setLiveUI(on) {
     state.liveUI = !!on;
@@ -254,7 +255,7 @@ async function endLivePreview(keep) {
         state.busy = true; setStatus('Applying…');
         let sfxClip = null;
         try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }
-        res = await window.sa.liveFinish(Object.assign(liveReq(m, a, p.text), {
+        res = await window.sa.liveFinish(Object.assign(liveReq(m, a, p.text, true), {
             sfxPath: (sfxClip && sfxClip.sfxPath) || undefined, sfxCut: (sfxClip && sfxClip.sfxCut) || undefined
         }));
         state.busy = false;
@@ -338,6 +339,10 @@ async function endLivePreview(keep) {
 // speed on consecutive polls (a scrub or a jump does not look like that). While the timeline plays, Preview in
 // Resolve ends at once: inserting clips would interrupt playback.
 const playWatch = { f: null, t: 0, hits: 0, still: 0, playing: false, graceUntil: 0 };
+// How long an edit in the panel has to rest before the preview clip is updated. Every update makes Resolve re-render
+// the clip's whole comp, so pushing each keystroke (typing in the MultiText inputs changes the request every time)
+// made Resolve lag while typing.
+const LIVE_EDIT_REST_MS = 600;
 function watchPlayback(L) {
     const p = state.livePrev;
     if (!p || p.busy || state.busy || !L || !L.ok || typeof L.frame !== 'number') { playWatch.f = null; playWatch.hits = 0; playWatch.playing = false; return; }
@@ -429,7 +434,12 @@ function bindLivePreview() {
             }
             const req = liveReq(m, a, p.text);
             const key = JSON.stringify(req);
-            if (key === p.key) return;
+            if (key === p.key) { p.pendKey = null; return; }
+            // a change is pushed once it has stayed the same for LIVE_EDIT_REST_MS (not on every 250 ms tick while typing)
+            const tEdit = Date.now();
+            if (key !== p.pendKey) { p.pendKey = key; p.pendAt = tEdit; return; }
+            if (tEdit - p.pendAt < LIVE_EDIT_REST_MS) return;
+            p.pendKey = null;
             p.busy = true;
             const res = await window.sa.liveUpdate(req);
             p.busy = false;

@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="./css/preset-list.css">
     <link rel="stylesheet" href="./css/create-tab.css">
     <link rel="stylesheet" href="./css/prompt-tab.css">
+    <link rel="stylesheet" href="./css/text-style.css">
     <link rel="stylesheet" href="./css/tags.css">
     <link rel="stylesheet" href="./css/popovers.css">
     <link rel="stylesheet" href="./css/inspector-extras.css">
@@ -61,6 +62,7 @@
     <script src="./js/library/preset-list.js" defer></script>
     <script src="./js/library/create-tab.js" defer></script>
     <script src="./js/library/prompt-tab.js" defer></script>
+    <script src="./js/library/text-style.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
     <script src="./js/timeline/anim-timing.js" defer></script>
@@ -243,6 +245,14 @@
                                 </button>
                                 <div id="adjustBodyU" class="adjust-body"></div>
                                 <div id="saveBarWrapU"></div>
+                            </div>
+                            <div id="styleWrapU" class="adjust-wrap">
+                                <button type="button" id="styleToggleU" class="adjust" aria-expanded="false" title="Font and colour forced on the presets you add to the timeline yourself (Apply / Preview in Resolve). The preview below shows the result.">
+                                    <span class="chev">▸</span>
+                                    <span class="adj-title">Text Style</span>
+                                    <span id="styleSummaryU" class="adj-sum">Preset default</span>
+                                </button>
+                                <div id="styleBodyU" class="adjust-body hidden"></div>
                             </div>
                             <div id="placeWrapU" class="adjust-wrap">
                                 <button type="button" id="placeToggleU" class="adjust" aria-expanded="false">

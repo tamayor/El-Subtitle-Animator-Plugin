@@ -180,7 +180,7 @@ async function liveUpdate(event, req) {
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
         if (!tl) throw new Error('Open a timeline in Resolve');
-        const item = await findItemById(tl, state.liveSession.itemId);
+        const item = await liveItem(tl);
         if (!item) { state.liveSession = null; return { ok: false, gone: true, error: 'The preview clip is no longer on the timeline' }; }
         const tc0 = await tl.GetCurrentTimecode();      // the playhead stays where it is while the clip is moved
         const meta = await timelineMeta(tl);
@@ -211,9 +211,15 @@ async function liveUpdate(event, req) {
                 try { const t2 = await pickTrack(tl, 'video', 0, textStart, textStart + want, 2, [], req.place); if (t2 >= 2) track = t2; } catch (e) { /* keep the current layer */ }
             }
         }
-        if ((await item.GetDuration()) > want) await fitDuration(item, want);          // shorter first, so it cannot run into a neighbour
+        const dur0 = await item.GetDuration();
+        if (dur0 > want) await fitDuration(item, want);          // shorter first, so it cannot run into a neighbour
         if (track >= 2 && (moved || (ti && ti[1] !== track))) await item.SetPosition({ trackIndex: track, startFrame: textStart });
         if ((await item.GetDuration()) !== want) await fitDuration(item, want);
+        // A text or design edit on a clip that stayed where it is only needs the new text in the comp. The full pass
+        // (timing sliders, retime, segment fit, waking every effect, then a second wake in "refresh") is for a clip
+        // that was just inserted, moved or re-cut: doing it on every edit made Resolve re-render the whole comp several
+        // times per keystroke, which is what made it lag while editing MultiText.
+        const light = !moved && dur0 === want && !(ti && ti[1] !== track);
         let sfxMoved = false;
         if (moved) {
             try {
@@ -235,9 +241,9 @@ async function liveUpdate(event, req) {
         }
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want });
+                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want, light });
             } else {
-                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want });
+                await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want, light });
             }
         } catch (e) { warnings.push('Could not set the text: ' + e.message); }
         if (moved) {
@@ -252,13 +258,24 @@ async function liveUpdate(event, req) {
             } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
         }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
-        try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ }
+        if (!light) { try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ } }
         await liveSetMarks(tl, item);
         try { if ((await tl.GetCurrentTimecode()) !== tc0) await tl.SetCurrentTimecode(tc0); } catch (e) { /* ignore */ }
         return { ok: true, warnings, start: textStart, frames: want, track, moved, sfxMoved };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e) };
     } finally { state.applying = false; }
+}
+
+// The preview clip. The handle kept in the session is checked first (one call); the timeline is only scanned
+// (every clip on every video track) when that handle no longer answers, e.g. after the clip was cut or replaced.
+async function liveItem(tl) {
+    const s = state.liveSession;
+    if (!s) return null;
+    try { if (s.item && String(await s.item.GetUniqueId()) === String(s.itemId)) return s.item; } catch (e) { /* stale handle */ }
+    const found = await findItemById(tl, s.itemId);
+    if (found && state.liveSession === s) s.item = found;
+    return found;
 }
 
 // Is the preview clip still on the timeline? When it was deleted by hand, its sound and In/Out are cleaned up too.

@@ -1,0 +1,50 @@
+/* Use tab · Text Style drawer: the manual font / colour override (NORMAL / EMPHASIS / HIGHLIGHT_BOX rows). It reuses the
+   Prompt tab's editor styles (pb-style, pb-hl, chips), scoped there to #promptBuilder and here to #styleBodyU. */
+#styleBodyU {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#styleBodyU .ts-row {
+    margin: 0;
+}
+
+/* the Prompt tab's row grid (handle / key / separator / value / actions) does not fit here: key + editor side by side */
+#styleBodyU .pb-row-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+#styleBodyU .ts-key {
+    flex: 0 0 auto;
+    width: 92px;
+    padding: 5px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#styleBodyU .pb-style,
+#styleBodyU .pb-hl {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#styleBodyU .pb-style-line input[type=text],
+#styleBodyU .pb-style-line select {
+    width: auto;
+}
+
+#styleBodyU .ts-hint {
+    font-size: 11px;
+    color: var(--dim);
+}

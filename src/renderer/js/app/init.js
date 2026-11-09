@@ -23,6 +23,7 @@ async function initApp() {
     fitWindowToContent();
 
     $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
+    bindTextStyle();      // Use tab · Text Style: the manual font / colour override
     if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
     if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
     if ($('filesToggleC')) $('filesToggleC').addEventListener('click', () => { setCreateFilesOpen(!state.createFilesOpen); });

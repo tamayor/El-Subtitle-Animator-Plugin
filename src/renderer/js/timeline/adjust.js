@@ -74,6 +74,26 @@ function bindAdjust(ctx) {
     if (scrubLoopBtn) scrubLoopBtn.addEventListener('click', () => {
         if (state.scrubLoop && state.scrubLoop[S]) stopScrubLoop(ctx); else { stopPreview(); startScrubLoop(ctx); }
     });
+    // Use tab only: whether the subtitle render in Resolve happens after every change or on demand
+    const autoBtn = $('scrubAuto' + S), renderBtn = $('scrubRender' + S);
+    if (S === 'U' && autoBtn && renderBtn) {
+        try { if (localStorage.getItem('sa.autoRender') === '0') state.autoRender = false; } catch (e) { /* ignore */ }
+        const syncAuto = () => {
+            autoBtn.classList.remove('hidden');
+            autoBtn.classList.toggle('on', !!state.autoRender);
+            autoBtn.textContent = state.autoRender ? 'Auto render' : 'Auto render off';
+            renderBtn.classList.toggle('hidden', !!state.autoRender);
+        };
+        autoBtn.addEventListener('click', () => {
+            state.autoRender = !state.autoRender;
+            try { localStorage.setItem('sa.autoRender', state.autoRender ? '1' : '0'); } catch (e) { /* ignore */ }
+            syncAuto();
+            if (state.autoRender) { try { ensureUsePreview(selected()); } catch (e) { /* ignore */ } }
+            setStatus(state.autoRender ? 'Auto render on: changes are rendered in Resolve as you make them.' : 'Auto render off: press Render to see the subtitle in this preset.', 'ok');
+        });
+        renderBtn.addEventListener('click', () => { try { ensureUsePreview(selected(), true); } catch (e) { /* ignore */ } });
+        syncAuto();
+    }
     bindScrubKeys();
     syncPlayUI();
     const prevBtn = $('prev' + S);

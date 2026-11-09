@@ -23,7 +23,7 @@ const FIX_DEFAULTS = Object.freeze({
     wakeOnInsert: true,         // wake while the text is set (set_text / set_boxes)
     refreshAfterPlace: true,    // re-write the text and wake once the clip and its sounds are placed
     retouchText: true,          // the refresh re-writes each text input with its own value
-    settlePasses: 3,            // extra wakes once the panel is idle (0 = none)
+    settlePasses: 2,            // extra wakes once the panel is idle (0 = none). Was 3: each pass re-renders every placed clip
     settleDelayMs: 1500,        // idle time before the first extra wake
     settleGapMs: 2500,          // between extra wakes
     settleBatch: 4,             // clips woken per step, so live frames and placements are not held up behind them

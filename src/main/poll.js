@@ -103,6 +103,9 @@ async function liveFrame(event, frame) {
 }
 
 async function seek(event, frame) {
+    // A clip is being placed: it parks the playhead at the end of the timeline to insert, so a seek now (the jump to the
+    // next caption, the preview's loop) would make Resolve insert the title in the middle of the timeline.
+    if (state.applying) return false;
     const project = await getProject();
     const tl = project && await project.GetCurrentTimeline();
     if (!tl) return false;

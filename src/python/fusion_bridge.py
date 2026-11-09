@@ -481,6 +481,8 @@ def op_set_text(a):
                 apply_text_design(tool, a["textDesign"])
             found = True
             break
+    if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake pass (see liveUpdate)
+        return found
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))
@@ -1091,6 +1093,8 @@ def op_set_boxes(a):
                 r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
                 unscaled += r["skipped"]
                 capped = capped or r["capped"]
+    if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake / scan pass (see liveUpdate)
+        return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": []}
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))

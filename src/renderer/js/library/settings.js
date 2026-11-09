@@ -13,6 +13,7 @@ function renderSettings() {
     setAdjustOpen(state.adjustOpen);
     setTdOpen(state.tdOpen);
     renderUseSummary();
+    renderTextStyleU(false);
 }
 
 function setAdjustOpen(wanted) {

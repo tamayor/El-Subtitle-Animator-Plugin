@@ -61,7 +61,7 @@ async function create() {
     setStatus('Creating…');
     let sfxClip = null;
     try { sfxClip = await buildFadedSfx(m); } catch (e) { sfxClip = null; }      // falls back to the original sound
-    const res = await window.sa.apply({
+    const res = await window.sa.apply(textStyleApplyReq({
         animationId: a.id, text, start, end,
         sfxPath: (sfxClip && sfxClip.sfxPath) || undefined, sfxCut: (sfxClip && sfxClip.sfxCut) || undefined,
         textOffset: m.textOffset, sfxOffset: m.sfxOffset, sfxVolume: m.sfxVolume, tail: m.tail,
@@ -73,7 +73,7 @@ async function create() {
         sfxLayers: Array.isArray(m.sfxLayers) ? m.sfxLayers : undefined,
         boxList: window.SABoxes ? SABoxes.payload(m, a, text) : [],
         disableSubtitle: s ? { start: s.start, end: s.end, track: s.track } : null      // the subtitle clip is turned off once placed
-    });
+    }, a, true));      // Use tab Text Style: the forced font / colour / highlight box (this clip counts for the share)
     state.busy = false;
     if (res && res.ok) {
         const parts = ['Placed on V' + res.videoTrack, res.frames + ' frames'];

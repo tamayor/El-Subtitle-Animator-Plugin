@@ -28,7 +28,7 @@ function scrubSource(ctx) {
     try { view = (typeof cardView === 'function' ? cardView(a) : a) || a; } catch (e) { view = a; }
     const u = state.use;
     let wants = false;
-    try { wants = !!(u && u.id === a.id && (normSub(currentSubText()) || (u.designRev || 0) > 0 || boxOverrides(u, a))); } catch (e) { wants = false; }
+    try { wants = !!(u && u.id === a.id && (normSub(currentSubText()) || (u.designRev || 0) > 0 || boxOverrides(u, a) || textStylePreviewKey())); } catch (e) { wants = false; }
     const failed = view === a && wants && !!u._renderFailed && !u.rendering;
     const pending = view === a && wants && !failed && !!(u.rendering || u._timer);
     return { a, view, pending, failed };

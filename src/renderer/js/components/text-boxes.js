@@ -968,5 +968,6 @@
     setInterval(() => { try { const h = q('mtHostU'); if (h && !h.classList.contains('hidden')) mtRefresh(h, modelFor('U').a); } catch (e) { /* ignore */ } }, 300);
 
     window.SABoxes = { renderMT, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
-        designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides };
+        designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides,
+        mtRoles: (a) => autoRoles(mtNodes(a)) };   // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
 })();

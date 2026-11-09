@@ -25,6 +25,11 @@ setInterval(() => {
 }, 5000);
 
 // ---------------------------------------------------------------- live subtitle
+// Every poll is a handful of calls into Resolve (project, timeline, timecode, selection). While this window is the
+// active one it polls 5 times a second; while the user works in Resolve itself (this window unfocused) it polls at
+// POLL_BG_MS, so the panel following the playhead costs Resolve less while they edit. A running Resolve preview keeps
+// the quick rate, since it follows the playhead from caption to caption.
+const POLL_FG_MS = 200, POLL_BG_MS = 400;
 async function tick() {
     if (state.idle) { setTimeout(tick, 500); return; }          // minimized: no real-time polling of Resolve
     if (!state.busy && !state.drag) {
@@ -32,5 +37,7 @@ async function tick() {
         watchPlayback(state.live);
         renderLive();
     }
-    setTimeout(tick, 200);
+    let focused = true;
+    try { focused = document.hasFocus(); } catch (e) { focused = true; }
+    setTimeout(tick, (focused || state.livePrev) ? POLL_FG_MS : POLL_BG_MS);
 }

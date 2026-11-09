@@ -365,7 +365,10 @@ async function makePreviewInner(event, animId, customText, design, designKey, te
                     cx: (multi && g && typeof g.cx === 'number') ? g.cx : null,
                     cy: (multi && g && typeof g.cy === 'number') ? g.cy : null,
                     size: (multi && g && typeof g.size === 'number') ? g.size : null,
-                    design: (g && g.design && typeof g.design === 'object') ? g.design : null
+                    design: (g && g.design && typeof g.design === 'object') ? g.design : null,
+                    // a forced font / colour per MultiText layer (Use tab Text Style), one-time renders only
+                    font: (temp && g && g.font) ? g.font : null, style: (temp && g && g.font) ? (g.style || null) : null,
+                    color: (temp && g && g.color) ? g.color : null, bgColor: (temp && g && g.bgColor) ? g.bgColor : null
                 };
             });
             await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, boxes), textDesign });

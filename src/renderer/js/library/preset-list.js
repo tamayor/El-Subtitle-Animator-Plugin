@@ -104,51 +104,7 @@ function renderTags() {
         handle.className = 'tag-handle';
         handle.textContent = '⋮⋮';
         handle.title = 'Drag to reorder tag sequence';
-        handle.draggable = true;
-
-        handle.addEventListener('dragstart', (e) => {
-            row.classList.add('dragging');
-            e.dataTransfer.setData('text/plain', t.id);
-            e.dataTransfer.effectAllowed = 'move';
-        });
-        handle.addEventListener('dragend', () => {
-            row.classList.remove('dragging');
-            document.querySelectorAll('#tagList .tag-row').forEach(r => r.classList.remove('drag-over-top', 'drag-over-bottom'));
-        });
-
-        row.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            const rect = row.getBoundingClientRect();
-            const relY = e.clientY - rect.top;
-            if (relY < rect.height / 2) {
-                row.classList.add('drag-over-top');
-                row.classList.remove('drag-over-bottom');
-            } else {
-                row.classList.add('drag-over-bottom');
-                row.classList.remove('drag-over-top');
-            }
-        });
-        row.addEventListener('dragleave', () => {
-            row.classList.remove('drag-over-top', 'drag-over-bottom');
-        });
-        row.addEventListener('drop', (e) => {
-            e.preventDefault();
-            row.classList.remove('drag-over-top', 'drag-over-bottom');
-            const draggedId = e.dataTransfer.getData('text/plain');
-            if (!draggedId || draggedId === t.id) return;
-            const current = allTags().slice();
-            const fromIdx = current.findIndex(x => x.id === draggedId);
-            const toIdx = current.findIndex(x => x.id === t.id);
-            if (fromIdx < 0 || toIdx < 0) return;
-            const rect = row.getBoundingClientRect();
-            const relY = e.clientY - rect.top;
-            const [item] = current.splice(fromIdx, 1);
-            let targetIdx = current.findIndex(x => x.id === t.id);
-            if (relY >= rect.height / 2) targetIdx++;
-            current.splice(targetIdx, 0, item);
-            saveTagList(current);
-        });
+        handle.addEventListener('mousedown', (e) => startTagDrag(e, row, list));
 
         // Quick up / down arrows for accessible reordering
         const orderWrap = document.createElement('span');
@@ -156,7 +112,7 @@ function renderTags() {
         const upBtn = document.createElement('button');
         upBtn.className = 'ghost tag-arrow';
         upBtn.textContent = '▲';
-        upBtn.title = 'Move up';
+        upBtn.title = 'Move earlier';
         upBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const current = allTags().slice();
@@ -171,7 +127,7 @@ function renderTags() {
         const dnBtn = document.createElement('button');
         dnBtn.className = 'ghost tag-arrow';
         dnBtn.textContent = '▼';
-        dnBtn.title = 'Move down';
+        dnBtn.title = 'Move later';
         dnBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const current = allTags().slice();
@@ -231,6 +187,72 @@ function renderTags() {
         plus.addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop(plus, a.id); });
         pick.appendChild(plus);
     }
+}
+
+// Tags grid: drag a tag by its handle. The tile follows the pointer and the other tiles reflow live
+// around its slot (animated); the new order is saved on release.
+function startTagDrag(e, rowEl, list) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const tiles = () => Array.from(list.querySelectorAll(':scope > .tag-row'));
+    const startX = e.clientX, startY = e.clientY;
+    let px = startX, py = startY;
+    const start = rowEl.getBoundingClientRect();
+    rowEl.classList.add('dragging');
+    document.body.classList.add('tag-dragging');
+    // FLIP: move the dragged tile in the DOM, then slide every other tile from its old spot to its new one
+    const reflow = (mutate) => {
+        const before = new Map(tiles().filter(r => r !== rowEl).map(r => [r, r.getBoundingClientRect()]));
+        mutate();
+        for (const [r, b] of before) {
+            const n = r.getBoundingClientRect();
+            const dx = b.left - n.left, dy = b.top - n.top;
+            if (!dx && !dy) continue;
+            r.style.transition = 'none';
+            r.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+            r.getBoundingClientRect();
+            r.style.transition = 'transform 0.16s ease';
+            r.style.transform = '';
+        }
+    };
+    const origin = { x: start.left, y: start.top };   // where the tile sat when the pointer went down
+    const place = () => {
+        const r = rowEl.getBoundingClientRect();
+        const base = { x: r.left - parseFloat(rowEl.dataset.dx || 0), y: r.top - parseFloat(rowEl.dataset.dy || 0) };
+        const dx = (origin.x + px - startX) - base.x, dy = (origin.y + py - startY) - base.y;
+        rowEl.dataset.dx = dx; rowEl.dataset.dy = dy;
+        rowEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    };
+    const move = (ev) => {
+        px = ev.clientX; py = ev.clientY;
+        // the tile under the pointer (by its resting box) takes the dragged tile before or after it
+        for (const r of tiles()) {
+            if (r === rowEl) continue;
+            const b = r.getBoundingClientRect();
+            if (px < b.left || px > b.right || py < b.top || py > b.bottom) continue;
+            const after = px > b.left + b.width / 2;
+            if (after ? r.nextElementSibling !== rowEl : r.previousElementSibling !== rowEl) {
+                reflow(() => (after ? r.after(rowEl) : r.before(rowEl)));
+            }
+            break;
+        }
+        place();
+    };
+    const up = () => {
+        document.removeEventListener('mousemove', move, true);
+        document.removeEventListener('mouseup', up, true);
+        rowEl.classList.remove('dragging');
+        rowEl.style.transform = '';
+        delete rowEl.dataset.dx; delete rowEl.dataset.dy;
+        document.body.classList.remove('tag-dragging');
+        const ids = tiles().map(r => r.dataset.tagId);
+        const current = allTags().slice();
+        if (ids.join('|') === current.map(x => x.id).join('|')) return;
+        const byId = new Map(current.map(x => [x.id, x]));
+        saveTagList(ids.map(id => byId.get(id)).filter(Boolean));
+    };
+    document.addEventListener('mousemove', move, true);
+    document.addEventListener('mouseup', up, true);
 }
 
 // Library: drag a preset by its handle to a new place in the list; the order is saved and used everywhere.

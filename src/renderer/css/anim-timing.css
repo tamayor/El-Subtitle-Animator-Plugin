@@ -183,7 +183,7 @@
 /* several texts: the lanes get the full width, the readout and tools go under them */
 .timing-card.compact .tm-bar.labelled { flex-basis: 100%; }
 .timing-card.compact .tm-lane { height: 18px; gap: 6px; }
-.timing-card.compact .tm-lane-label { width: auto; max-width: 52px; font-size: 9.5px; }
+.timing-card.compact .tm-lane-label { width: 52px; font-size: 9.5px; }
 .timing-card.compact .tm-track { height: 4px; margin-top: -2px; }
 .timing-card.compact .tm-range,
 .timing-card.compact .tm-range.movable { height: 6px; margin-top: -3px; }

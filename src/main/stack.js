@@ -63,6 +63,20 @@ function changedRows(before, after, n, x0, x1) {
         runs[k] = { top: runs[k].top, bottom: runs[k + 1].bottom };
         runs.splice(k + 1, 1);
     }
+    // tight Line Spacing (e.g. 0.7): one line's descenders (g, p, y) touch the next line's capitals, so two lines read as
+    // one run. Split the tallest run at its thinnest row, where only those few descender / ascender pixels are.
+    while (runs.length < n) {
+        let k = -1, tall = 0;
+        runs.forEach((r, i) => { if (r.bottom - r.top > tall) { tall = r.bottom - r.top; k = i; } });
+        if (k < 0) break;
+        const r = runs[k];
+        const from = r.top + Math.floor((r.bottom - r.top) * 0.25), to = r.bottom - Math.floor((r.bottom - r.top) * 0.25);
+        let peak = 0, cut = -1, low = Infinity;
+        for (let y = r.top; y <= r.bottom; y++) peak = Math.max(peak, hits[y]);
+        for (let y = from; y <= to; y++) if (hits[y] < low) { low = hits[y]; cut = y; }
+        if (cut < 0 || low > peak * 0.4) break;  // no clear waist: really fewer lines
+        runs.splice(k, 1, { top: r.top, bottom: cut - 1 }, { top: cut + 1, bottom: r.bottom });
+    }
     if (runs.length < n) throw new Error('Only ' + runs.length + ' of ' + n + ' text lines are visible in the frame (is every word in, and is the text inside the frame?)');
     return runs;
 }
@@ -157,24 +171,35 @@ async function placeStack(TOOLS, args) {
 
     // 2. place, measure, correct (at most twice: posY is whole timeline pixels, so the second pass settles it)
     const before = await grabBitmap(frame);
-    let recs = [];
-    for (let i = 0; i < n; i++) recs.push(await placeOne(i, ys[i]));
+    const recs = [];
     let rows = null, passes = 0;
-    for (let pass = 0; pass < 3; pass++) {
-        await sleep(300);
-        const after = await grabBitmap(frame);
-        rows = changedRows(before, after, n, 0.02, 0.98);
-        const deltas = rows.map((r, i) => (ref.lines[i].top * H - r.top) / H);
-        const worst = Math.max(...deltas.map(d => Math.abs(d) * H));
-        passes = pass + 1;
-        if (worst <= 1) break;
-        notes.push('pass ' + (pass + 1) + ': lines off by up to ' + worst.toFixed(1) + ' px, corrected');
-        for (let i = 0; i < n; i++) {
-            if (Math.abs(deltas[i]) * H <= 1) continue;
-            try { await TOOLS.remove_placed({ itemId: recs[i].itemId }); } catch (e) { /* ignore */ }
-            ys[i] += deltas[i];
-            recs[i] = await placeOne(i, ys[i]);
+    try {
+        for (let i = 0; i < n; i++) recs.push(await placeOne(i, ys[i]));
+        for (let pass = 0; pass < 3; pass++) {
+            await sleep(300);
+            const after = await grabBitmap(frame);
+            rows = changedRows(before, after, n, 0.02, 0.98);
+            const deltas = rows.map((r, i) => (ref.lines[i].top * H - r.top) / H);
+            const worst = Math.max(...deltas.map(d => Math.abs(d) * H));
+            passes = pass + 1;
+            if (worst <= 1) break;
+            notes.push('pass ' + (pass + 1) + ': lines off by up to ' + worst.toFixed(1) + ' px, corrected');
+            for (let i = 0; i < n; i++) {
+                if (Math.abs(deltas[i]) * H <= 1) continue;
+                const old = recs[i];
+                recs[i] = null;
+                try { await TOOLS.remove_placed({ itemId: old.itemId }); } catch (e) { /* ignore */ }
+                ys[i] += deltas[i];
+                recs[i] = await placeOne(i, ys[i]);
+            }
         }
+    } catch (err) {
+        // a failed stack must not leave its lines (and their sound effects) behind on the timeline
+        for (const r of recs) {
+            if (!r || !r.itemId) continue;
+            try { await TOOLS.remove_placed({ itemId: r.itemId }); } catch (e) { dlog('[stack] line not removed after failure', e && e.message); }
+        }
+        throw err;
     }
     return {
         placed: recs.map((r, i) => ({

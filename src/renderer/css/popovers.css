@@ -313,10 +313,26 @@
     background: var(--matcha-tint);
 }
 
+/* tags wrap in a grid: drop before = left edge, after = right edge */
 .tag-row.drag-over-top {
-    border-top: 2px solid var(--matcha) !important;
+    border-left: 2px solid var(--matcha) !important;
 }
 
 .tag-row.drag-over-bottom {
-    border-bottom: 2px solid var(--matcha) !important;
+    border-right: 2px solid var(--matcha) !important;
+}
+
+/* live tag drag: the held tile floats above the reflowing grid */
+.tag-row.dragging {
+    position: relative;
+    z-index: 5;
+    opacity: 0.9;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+
+body.tag-dragging,
+body.tag-dragging * {
+    cursor: grabbing !important;
+    user-select: none !important;
 }

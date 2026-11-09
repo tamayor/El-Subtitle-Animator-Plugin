@@ -22,6 +22,7 @@ const {
     revertAnimationAudio
 } = require('./library-overwrite');
 const { cleanup } = require('./lifecycle');
+const { adjustHighlights } = require('./automation');
 const { liveAlive, liveFinish, liveRemove, liveUpdate, loopOn, loopRestore, waitIdle } = require('./live-preview');
 const { dlog } = require('./log');
 const { liveFrame, parkUntilFocus, poll, seek } = require('./poll');
@@ -89,6 +90,10 @@ const SAFE_HANDLERS = {
     'win:setOnTop': setOnTop,
     'win:setLayoutMode': setLayoutMode,
     'win:fitWidth': fitWidth,
+    // Prompt tab HIGHLIGHT_BOX "Apply to placed": the highlight box values on every highlight clip of the timeline.
+    'highlight:adjust': async (e, args) => {
+        try { return { ok: true, result: await adjustHighlights(args || {}) }; } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+    },
     // The Prompt tab text, mirrored to a file so Claude Code (/elsa-prompt) can read it.
     'prompt:saveFile': (e, text) => {
         if (typeof text !== 'string' || !text.trim()) return false;
@@ -97,6 +102,18 @@ const SAFE_HANDLERS = {
         fs.writeFileSync(tmp, text, 'utf8');
         fs.renameSync(tmp, file);
         return true;
+    },
+    // Prompts dropped into <library>/prompt-inbox.json (by Claude Code, or by hand) for the Prompt tab to save under
+    // their titles: [{ title, text, load }] or one such object. The file is taken (deleted) once read.
+    'prompt:takeInbox': () => {
+        const file = path.join(DATA_DIR, 'prompt-inbox.json');
+        if (!fs.existsSync(file)) return [];
+        let data;
+        try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return []; }
+        try { fs.unlinkSync(file); } catch (e) { /* ignore */ }
+        const list = Array.isArray(data) ? data : [data];
+        return list.filter(p => p && typeof p.title === 'string' && p.title.trim() && typeof p.text === 'string' && p.text.trim())
+            .map(p => ({ title: p.title.trim(), text: p.text, load: p.load !== false }));
     },
 };
 

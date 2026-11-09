@@ -4,7 +4,8 @@
 // The address and a random token are written to ~/.el-subtitle-animator/mcp-endpoint.json (readable by this user only).
 
 module.exports = {
-    startAutomation, stopAutomation
+    startAutomation, stopAutomation,
+    adjustHighlights: (args) => TOOLS.adjust_highlights(args)     // the panel's Prompt tab (ipc 'highlight:adjust')
 };
 
 const fs = require('fs');
@@ -65,6 +66,10 @@ function defaultRules() {
         // Inspector values: maxSize caps the text Size (MultiText: its biggest layer, the group shrinks together);
         // lineSpacing sets Line Spacing (MultiText: each layer's, and the gaps between layers scale with it). null = the preset's
         text: { maxSize: null, lineSpacing: null },
+        // the box / pill behind a highlighted word (Highlight Select, Glass Pill, Pill Soft / Outline / Solid, Soft
+        // Marker, Underline Draw): width / height multiply the preset's box, x / y are added to its Offset (Inspector
+        // units, + = right / up), auto evens out the padding around the word (fusion_bridge.op_highlight_box)
+        highlight: { auto: false, width: 1, height: 1, x: 0, y: 0 },
         sound: true,               // place the presets' sound effects
         notes: '',                  // free-text editing rules Claude reads before editing
         // Safe-zone layout read from a reference image (see layout.js): safe bands, named guides, zones to keep clear.
@@ -122,10 +127,23 @@ function cleanRules(r) {
             uppercaseEmphasis: !!mt.uppercaseEmphasis
         },
         text: { maxSize: opt(tx.maxSize, 0.01, 1), lineSpacing: opt(tx.lineSpacing, 0.3, 3) },
+        highlight: cleanHighlight(r.highlight),
         sound: r.sound !== false,
         notes: String(r.notes || '').slice(0, 4000),
         layout: r.layout === undefined ? d.layout : cleanLayout(r.layout)
     };
+}
+
+function cleanHighlight(h) {
+    h = (h && typeof h === 'object') ? h : {};
+    const num = (v, lo, hi, def) => { const n = Number(v); return (v !== null && v !== '' && Number.isFinite(n)) ? Math.max(lo, Math.min(hi, n)) : def; };
+    return { auto: !!h.auto, width: num(h.width, 0.2, 4, 1), height: num(h.height, 0.2, 4, 1), x: num(h.x, -2, 2, 0), y: num(h.y, -2, 2, 0) };
+}
+
+// The bridge's highlight_box args, or null when nothing would change (no auto, every slider at its default).
+function highlightReq(h) {
+    h = cleanHighlight(h);
+    return (h.auto || h.width !== 1 || h.height !== 1 || h.x !== 0 || h.y !== 0) ? h : null;
 }
 
 // Whether this clip gets the override, so that `pct` % of the clips do, spread evenly over the session's clips.
@@ -343,8 +361,11 @@ function boxListFor(a, nodes, text, parts, look, sizing) {
             const em = (L.emphasis && n.layer === emLayer) ? L.emphasis : null;
             const f = (em && em.font) ? { font: em.font, style: em.style } : ((em && em.keepFont) ? null : font);
             if (f) { out.font = f.font; out.style = f.style; }
-            const c = (em && em.color) || ((em && em.keepColor) ? null : L.color) || null;
+            // the emphasis colour is the highlight's background (box / pill behind the word) and the word keeps the
+            // normal text colour; presets without a box get it on the word itself (fusion_bridge.set_highlight_bg)
+            const c = ((em && em.keepColor) ? null : L.color) || null;
             if (c) out.color = c;
+            if (em && em.color) out.bgColor = em.color;
         }
         return out;
     });
@@ -428,7 +449,7 @@ const TOOLS = {
     async set_rules(args) {
         const cur = loadRules();
         const next = Object.assign({}, cur, args || {});
-        for (const k of ['track', 'position', 'multitext', 'text']) if (args && args[k]) next[k] = Object.assign({}, cur[k], args[k]);
+        for (const k of ['track', 'position', 'multitext', 'text', 'highlight']) if (args && args[k]) next[k] = Object.assign({}, cur[k], args[k]);
         if (args && args.font === null) next.font = null;
         if (args && args.emphasis && cur.emphasis) next.emphasis = Object.assign({}, cur.emphasis, args.emphasis);
         if (args && args.styleShare) next.styleShare = Object.assign({}, cur.styleShare, args.styleShare);
@@ -779,14 +800,35 @@ const TOOLS = {
             notes.push('text held until the end of subtitle ' + later.index + ' (frame ' + later.end + '); sound keeps subtitle ' + sub.index + '\'s length');
         }
 
+        // the preset's outro tail (e.g. 12 frames on "Highlight Select" / "Glass Pill") runs past the words; it must not
+        // run into the next words on screen (the next subtitle, or the rest of a subtitle this phrase ends inside)
+        let tail = Number(a.tail) || 0;
+        if (tail > 0) {
+            try {
+                const all = await getSubtitles(tl, true);
+                let next = Infinity;
+                for (const s of all) {
+                    if (s.start < holdEnd && s.end > holdEnd) { next = holdEnd; break; }
+                    if (s.start >= holdEnd && s.start < next) next = s.start;
+                }
+                if (next - holdEnd < tail) {
+                    const was = tail;
+                    tail = Math.max(0, next - holdEnd);
+                    notes.push('outro tail ' + was + ' → ' + tail + ' frames (the next words start at frame ' + next + ')');
+                }
+            } catch (e) { /* subtitles unreadable: keep the preset's tail */ }
+        }
+
         const req = {
             animationId: a.id, text, start: clipStart, end: holdEnd, sfxEnd: held ? sub.end : undefined,
-            textOffset: a.textOffset || 0, sfxOffset: a.sfxOffset || 0, sfxVolume: a.sfxVolume, tail: a.tail || 0,
+            textOffset: a.textOffset || 0, sfxOffset: a.sfxOffset || 0, sfxVolume: a.sfxVolume, tail,
             textTrack, sfxTrack: a.sfxTrack || 0, place,
             useSfx: rules.sound && args.sound !== false && a.useSfx !== false,
             linked: a.linked !== false,
             posX, posY, scale: Number(args.scale) || Number(a.scale) || 1, rotation: Number(a.rotation) || 0,
             textDesign,
+            // this call's highlight values over the rules' (only fields given change)
+            highlight: isMT ? highlightReq(Object.assign({}, rules.highlight, (args.highlight && typeof args.highlight === 'object') ? args.highlight : {})) : null,
             boxList: boxListFor(a, nodes, text, parts, look, sizing),
             // the bridge sizes every MultiText layer together (sizes, boxes and the gaps between layers)
             multitext: (isMT && (textSize !== 1 || sizing.maxSize || sizing.lineSpacing)) ? sizing : null,
@@ -830,6 +872,43 @@ const TOOLS = {
     },
 
     async list_placed() { return placed.slice(); },
+
+    // Re-applies the highlight box values to every highlight clip already on the current timeline (or the given
+    // itemIds / frame range): the panel's "Apply to placed" button and the adjust_highlights MCP tool.
+    async adjust_highlights(args) {
+        args = args || {};
+        await waitFree(10000);
+        const rules = loadRules();
+        const h = cleanHighlight(Object.assign({}, rules.highlight, (args.highlight && typeof args.highlight === 'object') ? args.highlight : {}));
+        if (args.save) saveRules(Object.assign({}, rules, { highlight: h }));
+        const { tl } = await currentTimeline();
+        const ids = Array.isArray(args.itemIds) && args.itemIds.length ? new Set(args.itemIds.map(String)) : null;
+        const from = Number.isFinite(Number(args.fromFrame)) ? Number(args.fromFrame) : -Infinity;
+        const to = Number.isFinite(Number(args.toFrame)) ? Number(args.toFrame) : Infinity;
+        const out = [];
+        state.applying = true;
+        try {
+            const nTracks = await tl.GetTrackCount('video');
+            for (let t = 1; t <= nTracks; t++) {
+                for (const it of (await tl.GetItemListInTrack('video', t)) || []) {
+                    const id = String(await it.GetUniqueId());
+                    if (ids && !ids.has(id)) continue;
+                    const st = await it.GetStart();
+                    if (st < from || st > to) continue;
+                    if (!ids && !/multitext|highlight|pill|marker|underline/i.test(String(await it.GetName()))) continue;
+                    let n = 0;
+                    try { n = await it.GetFusionCompCount(); } catch (e) { n = 0; }
+                    if (!n) continue;
+                    try {
+                        const r = await bridgeCall('highlight_box', Object.assign({ item: id }, h), 30000);
+                        const hs = (r && r.highlights) || [];
+                        if (hs.length) out.push({ itemId: id, track: 'V' + t, start: st, name: await it.GetName(), highlights: hs });
+                    } catch (e) { out.push({ itemId: id, track: 'V' + t, start: st, error: e.message }); }
+                }
+            }
+        } finally { state.applying = false; }
+        return { values: h, saved: !!args.save, clips: out.length, results: out };
+    },
 
     // Clips with an empty Inspector (a preset imported onto a plain "Text+" / "MultiText") are rebuilt as title-template
     // clips with everything copied over (src/main/repair.js).

@@ -297,6 +297,15 @@ async function apply(event, req) {
         // static in the viewer), so the clip is woken again once the panel has been idle for a moment.
         if (!live) settleLater(itemId, compName);
 
+        // 5b. Highlight box (pill / box behind the emphasised word): the panel's width / height / x / y and auto
+        //     balance (fusion_bridge.op_highlight_box). After the refresh, so the box renders when it is measured.
+        if (req.highlight) {
+            try {
+                const r = await bridgeCall('highlight_box', Object.assign({ item: itemId, comp: compName }, req.highlight), 30000);
+                for (const h of (r && r.highlights) || []) if (h.error || h.note) warnings.push('Highlight box: ' + (h.error || h.note));
+            } catch (e) { warnings.push('Highlight box not adjusted: ' + e.message); }
+        }
+
         if (live) {
             let liveSfxId = null;
             try {

@@ -87,6 +87,9 @@ contextBridge.exposeInMainWorld('sa', {
     dlog: (...parts) => ipcRenderer.invoke('dbg:log', ...parts),
     fitWidth: (width, mode) => ipcRenderer.invoke('win:fitWidth', width, mode),
     saveJobPromptFile: (text) => ipcRenderer.invoke('prompt:saveFile', text),
+    // Prompt tab HIGHLIGHT_BOX "Apply to placed": { highlight: { auto, width, height, x, y }, save } (automation.adjust_highlights)
+    adjustHighlights: (args) => ipcRenderer.invoke('highlight:adjust', args || {}),
+    takePromptInbox: () => ipcRenderer.invoke('prompt:takeInbox'),
 
     // Files: the real disk path of a file dropped onto the panel.
     pathForFile: (file) => {

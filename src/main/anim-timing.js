@@ -100,7 +100,10 @@ async function clipTiming(event, opts) {
 function rangesFor(info, length, fps) {
     const clamp = (v, lo) => Math.max(lo, Math.min(length, Math.round(Number(v) || 0)));
     if (info.kind === 'segments') {
-        return (info.ranges || []).map(r => {
+        // texts left empty (e.g. "Highlight Select" with only the emphasis filled) get no lane
+        const all = info.ranges || [];
+        const filled = all.filter(r => !r.empty);
+        return (filled.length ? filled : all).map(r => {
             const start = clamp(r.start, 0);
             return {
                 key: String(r.key), label: r.label || null, hasStart: true,

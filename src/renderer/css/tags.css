@@ -203,9 +203,13 @@
 }
 
 .tag-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 4px;
+}
+
+.tag-list .empty-tags {
+    grid-column: 1 / -1;
 }
 
 .tag-list .empty-tags {
@@ -216,7 +220,8 @@
 .tag-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    min-width: 0;
+    gap: 6px;
     padding: 3px 4px 3px 8px;
     border: 1px solid transparent;
     border-radius: 7px;

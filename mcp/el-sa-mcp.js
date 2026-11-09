@@ -19,7 +19,7 @@ const SERVER_INFO = { name: 'el-subtitle-animator', version: '1.0.0' };
 const INSTRUCTIONS = `El Subtitle Animator turns a DaVinci Resolve timeline's subtitles into animated Text+/MultiText clips (with sound effects) from the user's preset library.
 
 Workflow for editing a video:
-1. Call get_rules first and follow them. The user's "notes" are their own editing rules. If the user states rules for this video (allowed emoji tags, font, text colour, emphasis font/colour, layer, placement, max text size, line spacing), save them with set_rules before placing anything. When the font/colour override should only apply to some presets, pass keepPresetStyle: true on place for the others.
+1. Call get_rules first and follow them. The user's "notes" are their own editing rules. If the user states rules for this video (allowed emoji tags, font, text colour, emphasis font/colour, layer, placement, max text size, line spacing, highlight box auto-balance / width / height / x / y), save them with set_rules before placing anything. When the font/colour override should only apply to some presets, pass keepPresetStyle: true on place for the others.
 2. list_presets returns only presets allowed by the rules' tags. Never use a preset outside that list.
 3. list_subtitles, then plan. Read the subtitles as sentences, not as Resolve's cuts: a cut often falls mid-thought ("If this is the bar then it's" / "fine, but the bar is this."). Group the words by thought ("If this is the bar then" / "it's fine, but the bar is this."; "So yeah, watch this" / "shit man. Come on." -> "So yeah," / "watch this shit man." / "Come on."): never leave a word stranded from the phrase it belongs to. For such a run call regroup with the subtitle numbers and your phrases, then place each phrase with its text, subtitle, startFrame and endFrame. Plan which subtitles get an animation (not necessarily all of them; vary presets and avoid repeating the same one back to back), which preset fits each line (one-word / one-line / multi-line / money / emphasis presets by name and tag), and for MultiText presets which word(s) to emphasize (pass parts {upper, emphasis, lower} that together spell the subtitle).
 4. Layout: if the user gives a safe-zone reference image, call set_layout with its path (look at the image yourself and pass the labels you read as guideNames top to bottom / zoneNames). A layout only applies to timelines of the same shape as its image (a 9:16 social safe zone is ignored on a 16:9 timeline; get_layout says appliesToThisTimeline). When it applies, place keeps every clip inside its safe area and off its zones (shrinking textSize if needed), and the user can say e.g. "centre the subtitle on the captions line" (guide: "captions") or "in the captions area" (guide: "captions", align: "below").
@@ -161,6 +161,7 @@ const TOOLS = [
                 },
                 description: 'Text size and spacing for every placed clip. Use when the user says e.g. "max text size 0.08", "line spacing 1.2"'
             },
+            highlight: { type: 'object', properties: { auto: { type: 'boolean' }, width: { type: 'number', minimum: 0.2, maximum: 4 }, height: { type: 'number', minimum: 0.2, maximum: 4 }, x: { type: 'number', minimum: -2, maximum: 2 }, y: { type: 'number', minimum: -2, maximum: 2 } }, description: 'The box / pill behind the highlighted word (Highlight Select, Glass Pill, Pill Soft/Outline/Solid, Soft Marker, Underline Draw). auto = even padding on every side of the word (the box is measured and centred on the word; pills get extra side room for their round ends). width / height = multipliers on the preset\'s box (1 = as is; with auto, on top of the balanced box). x / y = added to the box Offset, Inspector units (+ = right / up, 0.01 is a small nudge). From the prompt\'s HIGHLIGHT_BOX row.' },
             sound: { type: 'boolean', description: 'Place the presets\' sound effects' },
             notes: { type: 'string', description: 'Free-text editing rules to remember (style, pacing, what to emphasize...)' }
         })
@@ -230,6 +231,7 @@ const TOOLS = [
             endFrame: { type: 'integer', minimum: 1, description: 'A phrase regrouped by thought (from regroup): the clip and its sound end here instead of at the subtitle\'s end' },
             holdUntil: { type: 'integer', minimum: 1, description: 'Keep this clip on screen until the END of that later subtitle (stacked consecutive captions). Only the text clip is extended; the sound effect keeps this subtitle\'s own length' },
             sound: { type: 'boolean', description: 'false = no sound effect for this clip' },
+            highlight: { type: 'object', properties: { auto: { type: 'boolean' }, width: { type: 'number', minimum: 0.2, maximum: 4 }, height: { type: 'number', minimum: 0.2, maximum: 4 }, x: { type: 'number', minimum: -2, maximum: 2 }, y: { type: 'number', minimum: -2, maximum: 2 } }, description: 'The box / pill behind the highlighted word (Highlight Select, Glass Pill, Pill Soft/Outline/Solid, Soft Marker, Underline Draw). auto = even padding on every side of the word (the box is measured and centred on the word; pills get extra side room for their round ends). width / height = multipliers on the preset\'s box (1 = as is; with auto, on top of the balanced box). x / y = added to the box Offset, Inspector units (+ = right / up, 0.01 is a small nudge). Only for this call; fields not given come from the rules.' },
             keepPresetStyle: { type: 'boolean', description: 'true = ignore the rules\' font, color and emphasis overrides for this call and keep the preset\'s own font and colours (e.g. when the prompt forces the font on default presets only)' },
             keepSubtitle: { type: 'boolean', description: 'true = leave the subtitle clip enabled. By default the subtitle clip(s) under the placed words are disabled once the animation is on the timeline (remove_placed turns them back on).' },
             dryRun: { type: 'boolean', description: 'Only show what would be placed' }
@@ -276,6 +278,17 @@ const TOOLS = [
             subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Consecutive subtitle numbers' },
             phrases: { type: 'array', items: { type: 'string' }, description: 'The text as it should read, one phrase per clip, in order' }
         }, ['subtitles', 'phrases'])
+    },
+    {
+        name: 'adjust_highlights',
+        description: 'Re-apply the highlight box values (rules.highlight, or the given highlight) to highlight clips already on the current timeline: every MultiText highlight clip, or only itemIds / clips starting between fromFrame and toFrame. save: true also stores the values in the rules. Use when the user changes the highlight box size / position after placing.',
+        inputSchema: S({
+            highlight: { type: 'object', properties: { auto: { type: 'boolean' }, width: { type: 'number', minimum: 0.2, maximum: 4 }, height: { type: 'number', minimum: 0.2, maximum: 4 }, x: { type: 'number', minimum: -2, maximum: 2 }, y: { type: 'number', minimum: -2, maximum: 2 } }, description: 'The box / pill behind the highlighted word (Highlight Select, Glass Pill, Pill Soft/Outline/Solid, Soft Marker, Underline Draw). auto = even padding on every side of the word (the box is measured and centred on the word; pills get extra side room for their round ends). width / height = multipliers on the preset\'s box (1 = as is; with auto, on top of the balanced box). x / y = added to the box Offset, Inspector units (+ = right / up, 0.01 is a small nudge). Fields not given come from the rules.' },
+            itemIds: { type: 'array', items: { type: 'string' } },
+            fromFrame: { type: 'integer' },
+            toFrame: { type: 'integer' },
+            save: { type: 'boolean' }
+        })
     },
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },
     { name: 'remove_placed', description: 'Remove a clip placed through this tool (and its sound) from the timeline.', inputSchema: S({ itemId: { type: 'string' } }, ['itemId']) },

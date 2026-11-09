@@ -367,11 +367,80 @@ def init_retime(comp, clip_frames):
                 continue
             nat = get_in(tool, "AnimNatural")
             n = int(round(float(nat))) if nat is not None else 0
-            tool.SetInput("AnimFrames", max(1, min(top, n)) if n > 0 else 0)
+            if n > top and fit_follower_delay(comp, float(nat), top):
+                # the letters now land inside the clip at normal speed: no remap needed
+                tool.SetInput("AnimFrames", 0)
+            else:
+                restore_follower_delay(comp)
+                tool.SetInput("AnimFrames", max(1, min(top, n)) if n > 0 else 0)
             if CLIP_SLIDER_MAX:
                 set_slider_max(tool, "AnimFrames", top)
         except Exception:
             pass
+
+
+def fit_follower_delay(comp, natural, top):
+    """A clip shorter than the preset's natural animation cannot be fitted by the AnimTime remap: it would have to read
+    the text node past comp.RenderEnd, so the remap clamps there and the animation freezes part-way (e.g. the last word
+    of "Kinetic Statements" stuck mid-overshoot, glued to the word before it). When one Follower's per-letter Delay
+    sets the natural length (natural = per-letter animation + Delay x (letters - 1)), shorten that Delay so the last
+    letter lands on the clip's last frame instead. Returns True when it did."""
+    fol = []
+    for t in tool_list(comp):
+        try:
+            if attrs(t).get("TOOLS_RegID") in FOLLOWERS and float(base_delay(t) or 0) > 0:
+                fol.append(t)
+        except Exception:
+            pass
+    if len(fol) != 1:
+        return False
+    f = fol[0]
+    try:
+        d = float(base_delay(f))  # the preset's own Delay: AnimNatural was worked out from it
+        txt = get_in(f, "Text")
+        letters = len(str(txt if txt is not None else "").replace("\r", "").replace("\n", ""))
+        if letters < 2:
+            return False
+        per_letter = natural - d * (letters - 1)
+        if per_letter <= 0 or per_letter >= top - 1:
+            return False
+        nd = (top - 1 - per_letter) / (letters - 1)
+        if nd >= d:
+            return False
+        try:
+            if f.GetData(BASE_DELAY_KEY) is None:
+                f.SetData(BASE_DELAY_KEY, d)
+        except Exception:
+            pass
+        f.SetInput("Delay", round(nd, 4))
+        return True
+    except Exception:
+        return False
+
+
+BASE_DELAY_KEY = "ElSA.BaseDelay"
+
+
+def restore_follower_delay(comp):
+    """Undo fit_follower_delay (the clip got long enough again, e.g. after a text change)."""
+    for t in tool_list(comp):
+        try:
+            v = t.GetData(BASE_DELAY_KEY)
+            if v is not None and attrs(t).get("TOOLS_RegID") in FOLLOWERS:
+                t.SetInput("Delay", float(v))
+        except Exception:
+            pass
+
+
+def base_delay(f):
+    """The follower's Delay before fit_follower_delay shortened it (re-timing after a text change starts from it)."""
+    try:
+        v = f.GetData(BASE_DELAY_KEY)
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return get_in(f, "Delay")
 
 
 CLIP_SLIDER_MAX = True
@@ -601,6 +670,294 @@ def size_multitext(tool, f=1.0, max_size=None, line_spacing=None):
     return res
 
 
+def set_highlight_bg(comp, tpl, prefix, hex_color):
+    """Colour the background box behind a MultiText layer (Highlight Select's box, Glass Pill's pill, Soft Marker,
+    Underline Draw): a mirror Text+ drawing an element-1 background (ElementShape1 = 2) whose colour comes from the
+    template, either from its own "Highlight Color" control (Template.HighlightRed ...) or linked to the layer's text
+    colour (Template.Text2.Red1 ...). A linked box is unlinked so the word and its box can differ. Returns True when a
+    box was coloured, False when the preset has none."""
+    r, g, bl = hex_to_rgb(hex_color)
+    tname = attrs(tpl).get("TOOLS_Name") or "Template"
+    done = False
+    for t in tool_list(comp):
+        try:
+            if t is tpl or attrs(t).get("TOOLS_RegID") != "TextPlus" or not is_mirror(t):
+                continue
+            if int(get_in(t, "ElementShape1") or 0) != 2:
+                continue
+            ex = ""
+            try:
+                ex = t.Red1.GetExpression() or ""
+            except Exception:
+                pass
+            if tname + ".Highlight" in ex and get_in(tpl, "HighlightRed") is not None:
+                for ch, v in (("HighlightRed", r), ("HighlightGreen", g), ("HighlightBlue", bl)):
+                    tpl.SetInput(ch, v)
+                done = True
+            elif prefix and (tname + "." + prefix + ".") in ex:
+                for ch, v in (("Red1", r), ("Green1", g), ("Blue1", bl)):
+                    try:
+                        getattr(t, ch).SetExpression(None)
+                    except Exception:
+                        pass
+                    t.SetInput(ch, v)
+                done = True
+        except Exception:
+            pass
+    return done
+
+
+# ---------------------------------------------------------------- highlight box size / position
+# The box of a highlight preset (Highlight Select, Glass Pill, Pill Soft/Outline/Solid, Soft Marker, Underline Draw) is
+# a mirror Text+ whose shading element 1 is a background shape (ElementShape1 = 2), with extra pill layers (outline,
+# white fill) as more background elements. Width / height multiply each element's SizeX / SizeY on top of the
+# preset's own pop / wipe expression; x / y move its Offset. The preset's own values are kept in the tool's data
+# (HL_KEY) so applying again never stacks. auto evens out the padding: it renders the box and the word's ink and
+# sizes / centres the box so the visible space around the word is the same on every side (a pill's rounded ends get
+# the extra width they need to look as wide as the top and bottom).
+HL_KEY = "ElsaHighlightBox"
+
+
+def hl_tools(comp):
+    out = []
+    for t in tool_list(comp):
+        try:
+            if attrs(t).get("TOOLS_RegID") == "TextPlus" and is_mirror(t) and int(get_in(t, "ElementShape1") or 0) == 2:
+                out.append(t)
+        except Exception:
+            pass
+    return out
+
+
+def hl_expr(tool, inp):
+    try:
+        return getattr(tool, inp).GetExpression() or None
+    except Exception:
+        return None
+
+
+def hl_elements(tool):
+    """Shading elements drawn as a background (2) or border (3) shape."""
+    out = [1]
+    for n in range(2, 9):
+        try:
+            if float(get_in(tool, "Enabled%d" % n) or 0) >= 0.5 and int(get_in(tool, "ElementShape%d" % n) or 0) in (2, 3):
+                out.append(n)
+        except Exception:
+            pass
+    return out
+
+
+def hl_original(tool):
+    try:
+        raw = tool.GetData(HL_KEY)
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    orig = {}
+    for n in hl_elements(tool):
+        e = {}
+        for k in ("SizeX", "SizeY"):
+            inp = "%s%d" % (k, n)
+            e[k] = {"e": hl_expr(tool, inp), "v": num(get_in(tool, inp), 1.0), "d": is_driven(tool, inp) is not None}
+        inp = "Offset%d" % n
+        e["Offset"] = {"e": hl_expr(tool, inp), "v": as_pt(get_in(tool, inp)) or [0.0, 0.0], "d": is_driven(tool, inp) is not None}
+        orig[str(n)] = e
+    try:
+        tool.SetData(HL_KEY, json.dumps(orig))
+    except Exception:
+        pass
+    return orig
+
+
+def hl_set(tool, orig, w, h, dx, dy):
+    """The preset's own box times w / h, moved by dx / dy (Offset units). 1, 1, 0, 0 restores the preset's box."""
+    import re
+    tname = attrs(tool).get("TOOLS_Name") or ""
+    for n, e in orig.items():
+        for k, m in (("SizeX", w), ("SizeY", h)):
+            o, inp = e[k], k + n
+            ex = o.get("e")
+            if o.get("d"):
+                continue                                    # animated by a spline: leave it
+            if ex and re.fullmatch(r"\s*%s\.%s\d+\s*" % (re.escape(tname), k), ex):
+                continue                                    # linked to element 1: follows it
+            try:
+                if abs(m - 1.0) < 1e-6:
+                    if ex:
+                        getattr(tool, inp).SetExpression(ex)
+                    else:
+                        getattr(tool, inp).SetExpression(None)
+                        tool.SetInput(inp, float(o["v"]))
+                elif ex:
+                    body = ex.lstrip()[1:] if ex.lstrip().startswith(":") else "return (" + ex + ")"
+                    getattr(tool, inp).SetExpression(": local function __o()\n%s\nend\nreturn __o() * %.5f" % (body, m))
+                else:
+                    getattr(tool, inp).SetExpression(None)
+                    tool.SetInput(inp, float(o["v"]) * m)
+            except Exception:
+                pass
+        o, inp = e["Offset"], "Offset" + n
+        if o.get("d") or o.get("e"):
+            continue
+        try:
+            v = o.get("v") or [0.0, 0.0]
+            tool.SetInput(inp, {1: float(v[0]) + dx, 2: float(v[1]) + dy, 3: 0.0})
+        except Exception:
+            pass
+
+
+def hl_window(tool, t):
+    """The rendered pixels' bounding box [x0, y0, x1, y1] (y up), or None."""
+    try:
+        img = tool.Output.GetValue(t)
+        d = img.DataWindow if img is not None else None
+        if not d:
+            return None
+        x0, y0, x1, y1 = float(d[1]), float(d[2]), float(d[3]), float(d[4])
+        W, H = num(img.Width, 0), num(img.Height, 0)
+        if x1 - x0 < 2 or y1 - y0 < 2 or (W and H and x1 - x0 >= W * 0.995 and y1 - y0 >= H * 0.995):
+            return None
+        return [x0, y0, x1, y1]
+    except Exception:
+        return None
+
+
+def hl_full_time(comp, tool):
+    """The frame where the box is widest (a wipe has finished, a pop has settled, the outro has not started)."""
+    a = attrs(comp)
+    s, e = num(a.get("COMPN_RenderStart"), 0), num(a.get("COMPN_RenderEnd"), 0)
+    best, best_t = -1, None
+    for i in range(9):
+        t = int(round(s + (e - s) * (0.3 + 0.075 * i)))
+        b = hl_window(tool, t)
+        if b and b[2] - b[0] > best + 0.5:
+            best, best_t = b[2] - b[0], t
+    return best_t
+
+
+def hl_ink(tool, orig, t):
+    """The word's own pixels: element 1 drawn as text, unscaled, the other box layers off."""
+    others = [int(n) for n in orig.keys() if n != "1"]
+    saved = {}
+    try:
+        for n in others:
+            if not hl_expr(tool, "Enabled%d" % n):
+                saved[n] = get_in(tool, "Enabled%d" % n)
+                tool.SetInput("Enabled%d" % n, 0)
+        for inp in ("SizeX1", "SizeY1"):
+            if not orig["1"][inp[:-1]].get("d"):
+                getattr(tool, inp).SetExpression(None)
+                tool.SetInput(inp, 1.0)
+        if not orig["1"]["Offset"].get("d") and not orig["1"]["Offset"].get("e"):
+            tool.SetInput("Offset1", {1: 0.0, 2: 0.0, 3: 0.0})
+        tool.SetInput("ElementShape1", 0)
+        return hl_window(tool, t)
+    finally:
+        tool.SetInput("ElementShape1", 2)
+        for n, v in saved.items():
+            tool.SetInput("Enabled%d" % n, v if v is not None else 1)
+        hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0)
+
+
+def hl_center(b):
+    return ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)
+
+
+def hl_adjust(comp, tool, W, H, X, Y, auto):
+    import math
+    orig = hl_original(tool)
+    hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0)
+    name = attrs(tool).get("TOOLS_Name")
+    if not auto and abs(W - 1) < 1e-6 and abs(H - 1) < 1e-6 and abs(X) < 1e-6 and abs(Y) < 1e-6:
+        return {"tool": name, "reset": True}
+    if not auto:
+        hl_set(tool, orig, W, H, X, Y)
+        return {"tool": name, "width": W, "height": H, "offset": [X, Y]}
+    # Rendering a Text+ whose text comes through a Follower (Highlight Select, Soft Marker, Underline Draw) from a
+    # script crashed Resolve (2026-11-09): those boxes are never measured, they only get the sliders.
+    if is_driven(tool, "StyledText") is not None:
+        hl_set(tool, orig, W, H, X, Y)
+        return {"tool": name, "width": W, "height": H, "offset": [X, Y], "note": "Follower-driven box: not measured, sliders only"}
+    t = hl_full_time(comp, tool)
+    box = hl_window(tool, t) if t is not None else None
+    if box is None:
+        hl_set(tool, orig, W, H, X, Y)
+        return {"tool": name, "note": "the box did not render, so only the sliders were applied"}
+    bw, bh = box[2] - box[0], box[3] - box[1]
+    tw, th = bw * W, bh * H
+    tcx, tcy = hl_center(box)
+    out = {"tool": name, "frame": t}
+    if auto:
+        ink = hl_ink(tool, orig, t)
+        # only a box that covers the word (not an underline / a marker stripe) is balanced
+        if ink and box[1] <= ink[1] + 2 and box[3] >= ink[3] - 2:
+            iw, ih = ink[2] - ink[0], ink[3] - ink[1]
+            pv0 = ((box[3] - ink[3]) + (ink[1] - box[1])) / 2.0
+            th = max(ih * 1.02, (ih + 2 * pv0) * H)
+            pv = (th - ih) / 2.0
+            hh = th / 2.0
+            r = min(hh, max(0.0, num(get_in(tool, "Round1"), 0)) * 2 * hh)
+            dyc = ih / 2.0 - (hh - r)
+            inset = (r - math.sqrt(max(0.0, r * r - dyc * dyc))) if dyc > 0 else 0.0
+            tw = (iw + 2 * (pv + inset)) * W
+            tcx, tcy = hl_center(ink)
+            out["balanced"] = {"pad": round(pv, 1), "sidePad": round(pv + inset, 1)}
+        else:
+            out["note"] = "not a full box (underline / marker): only the sliders were applied"
+    wm, hm = tw / bw, th / bh
+    hl_set(tool, orig, wm, hm, 0.0, 0.0)
+    b0 = hl_window(tool, t)
+    if b0:                                                  # SizeX / SizeY may not scale exactly linearly: one fix-up
+        wm *= tw / max(1.0, b0[2] - b0[0])
+        hm *= th / max(1.0, b0[3] - b0[1])
+        hl_set(tool, orig, wm, hm, 0.0, 0.0)
+        b0 = hl_window(tool, t)
+    dx = dy = 0.0
+    if b0:
+        probe = 0.05                                        # Offset units -> pixels, measured
+        hl_set(tool, orig, wm, hm, probe, probe)
+        b1 = hl_window(tool, t)
+        c0, c1 = hl_center(b0), (hl_center(b1) if b1 else None)
+        if c1:
+            kx, ky = (c1[0] - c0[0]) / probe, (c1[1] - c0[1]) / probe
+            dx = (tcx - c0[0]) / kx if abs(kx) > 1 else 0.0
+            dy = (tcy - c0[1]) / ky if abs(ky) > 1 else 0.0
+    dx, dy = dx + X, dy + Y                                 # the user's nudge, in Offset units on top
+    hl_set(tool, orig, wm, hm, dx, dy)
+    fin = hl_window(tool, t)
+    out.update({"width": round(wm, 4), "height": round(hm, 4), "offset": [round(dx, 4), round(dy, 4)]})
+    if fin:
+        out["box"] = [round(v) for v in fin]
+    return out
+
+
+def op_highlight_box(a):
+    """Size / move the highlight box of every highlight layer in a clip: width, height (multipliers on the preset's
+    box), x, y (added to the box's Offset, as the Inspector shows it; + = right / up), auto (even padding around the
+    word; only boxes whose text is not Follower-driven are measured)."""
+    comp = get_comp(a["item"], a.get("comp"))
+    clamp = lambda v, lo, hi, d: max(lo, min(hi, num(v, d)))
+    W = clamp(a.get("width"), 0.2, 4.0, 1.0)
+    H = clamp(a.get("height"), 0.2, 4.0, 1.0)
+    X = clamp(a.get("x"), -2.0, 2.0, 0.0)
+    Y = clamp(a.get("y"), -2.0, 2.0, 0.0)
+    auto = bool(a.get("auto"))
+    tools = hl_tools(comp)
+    res = []
+    comp.Lock()
+    try:
+        for tool in tools:
+            try:
+                res.append(hl_adjust(comp, tool, W, H, X, Y, auto))
+            except Exception as e:
+                res.append({"tool": attrs(tool).get("TOOLS_Name"), "error": str(e)})
+    finally:
+        comp.Unlock()
+    return {"highlights": res}
+
+
 def op_set_boxes(a):
     """Put text / position / size into each detected Text+ or template, one by one."""
     comp = get_comp(a["item"], a.get("comp"))
@@ -629,10 +986,20 @@ def op_set_boxes(a):
                                 tool.SetInput(prefix + ".Style", str(b["style"]))
                         except Exception:
                             missing.append((b.get("label") or name) + " (font)")
-                    if b.get("color"):                                # automation's forced colour: Text<n>.Red1 / Green1 / Blue1
+                    text_color = b.get("color")
+                    if b.get("bgColor"):                              # the emphasis colour: the highlight box behind the word
                         prefix = str(b.get("input") or "").rsplit(".", 1)[0]
                         try:
-                            r, g, bl = hex_to_rgb(b["color"])
+                            if not set_highlight_bg(comp, tool, prefix, b["bgColor"]):
+                                text_color = b["bgColor"]             # no box in this preset: colour the word itself
+                            elif float(get_in(tool, "PillTextColor") or 0) >= 0.5:
+                                text_color = b["bgColor"]             # soft / outline pills: the word in the pill's colour too
+                        except Exception:
+                            missing.append((b.get("label") or name) + " (background colour)")
+                    if text_color:                                    # automation's forced colour: Text<n>.Red1 / Green1 / Blue1
+                        prefix = str(b.get("input") or "").rsplit(".", 1)[0]
+                        try:
+                            r, g, bl = hex_to_rgb(text_color)
                             if int(get_in(tool, prefix + ".Type1") or 0) == 2:
                                 tool.SetInput(prefix + ".Type1", 0)   # a gradient fill would keep its second stop
                             for ch, v in (("Red1", r), ("Green1", g), ("Blue1", bl)):
@@ -1173,6 +1540,32 @@ def fit_segments(comp, clip_frames):
             pass
 
 
+def segment_text_empty(mt, n):
+    """True when MultiText layer n (segment n's text) holds no text, read through its follower when it has one.
+    Unknown (no MultiText / no such layer) counts as not empty, so its lane still shows."""
+    if mt is None:
+        return False
+    try:
+        txt = None
+        drv = is_driven(mt, "Text%d.StyledText" % n)
+        if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+            txt = get_in(drv, "Text")
+        if not isinstance(txt, str):
+            txt = get_in(mt, "Text%d.StyledText" % n)
+        return isinstance(txt, str) and not txt.strip()
+    except Exception:
+        return False
+
+
+def segment_name(mt, n, label):
+    """Segment n's lane name: the MultiText layer's own name (Upper / Emphasis / Lower, as in its Text List) when the
+    preset only gave the generic "Text n"."""
+    if mt is None or label != "Text %d" % n:
+        return label
+    nm = get_in(mt, "TextName%d" % n)
+    return nm.strip() if isinstance(nm, str) and nm.strip() else label
+
+
 def op_timing_get(a):
     """The clip's timing as ranges: [{key, label, start, end, defStart, defEnd, hasStart}]. Anim / typing ends of 0
     (= the preset's own timing) are sent as 0 with the natural length, and resolved in src/main/anim-timing.js."""
@@ -1181,8 +1574,10 @@ def op_timing_get(a):
     if tool is None:
         return {"kind": None}
     if kind == "segments":
-        ranges = [{"key": str(n), "label": label, "start": num(get_in(tool, "Seg%dStart" % n), 0),
-                   "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True}
+        mt = next((t for t in tool_list(comp) if attrs(t).get("TOOLS_RegID") == "MultiText"), None)
+        ranges = [{"key": str(n), "label": segment_name(mt, n, label), "start": num(get_in(tool, "Seg%dStart" % n), 0),
+                   "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True,
+                   "empty": segment_text_empty(mt, n)}
                   for n, label, ds, de in segment_list(tool)]
         return {"kind": kind, "ranges": ranges}
     out = {"kind": kind, "input": inp, "value": get_in(tool, inp)}
@@ -1318,7 +1713,7 @@ def op_row_times(a):
     return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
 
 
-OPS = {"row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+OPS = {"highlight_box": op_highlight_box, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs}
 
 

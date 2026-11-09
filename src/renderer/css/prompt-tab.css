@@ -855,3 +855,65 @@ body.tab-prompt {
 .pb-row.pb-drop-after {
     box-shadow: inset 0 -2px 0 var(--matcha);
 }
+
+/* HIGHLIGHT_BOX rows: [x] Auto-balance spacing [Apply to placed] / Width · Height · X · Y sliders with a number box */
+.pb-hl {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pb-hl-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pb-hl-auto {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pb-hl-line {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 72px;
+    align-items: center;
+    gap: 8px;
+}
+
+.pb-hl-lab {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--dim);
+}
+
+#promptBuilder input[type=range].pb-hl-slider {
+    accent-color: var(--matcha);
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+}
+
+#promptBuilder input[type=number].pb-hl-num {
+    width: 72px;
+    padding: 4px 6px;
+    color: #f0c36b;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font: inherit;
+    font-size: 12px;
+}
+
+#promptBuilder input[type=number].pb-hl-num:focus {
+    outline: none;
+    border-color: var(--matcha);
+    box-shadow: 0 0 0 2px var(--matcha-tint);
+}

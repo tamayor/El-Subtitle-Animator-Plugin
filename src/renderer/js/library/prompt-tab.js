@@ -9,6 +9,9 @@
 const JOB_PROMPT_KEY = 'sa.jobPrompt';
 const JOB_PROMPT_DEFAULT_KEY = 'sa.jobPromptDefault';
 
+// The note under HIGHLIGHT_BOX: what Claude does with the row.
+const HIGHLIGHT_NOTE = 'the box / pill behind the key word → set_rules highlight { auto, width, height, x, y }';
+
 const DEFAULT_JOB_PROMPT = `# El Subtitle Animator — job prompt
 
 ## SETTINGS  (edit here; the rules below refer to these names)
@@ -61,6 +64,8 @@ TEXT STYLE
              forced on DEFAULT presets only; DANGER / MONEY keep their own font
   EMPHASIS:  Larken Black, #ff8a00
              on MultiText, the single key word goes in the emphasis part
+  HIGHLIGHT_BOX: auto · width 1.00 · height 1.00 · x 0.000 · y 0.000
+             ${HIGHLIGHT_NOTE}
   SOUND:     on; every effect keeps its own subtitle's length
 
 ## BEFORE PLACING
@@ -247,6 +252,7 @@ const PB_MCP_PARAMS = [
         { label: 'position.safeTop / Bottom / Left / Right', section: 'POSITION (vertical 9:16)', key: 'SAFE_MARGINS', value: 'top 0.1 · bottom 0.1 · left 0.05 · right 0.05', hint: 'Safe-area margins, 0..1 of the frame.' },
         { label: 'multitext.emphasis: which word', section: 'TEXT STYLE', key: 'EMPHASIS_PICK', kind: 'enum', options: ['auto', 'last', 'first', 'center'], value: 'auto', hint: 'Which word goes in the MultiText emphasis part when Claude does not choose.' },
         { label: 'multitext.uppercaseEmphasis', section: 'TEXT STYLE', key: 'UPPERCASE_EMPHASIS', kind: 'enum', options: ['yes', 'no'], value: 'no', hint: 'Upper-case the emphasised word(s).' },
+        { label: 'highlight: box / pill size, position, auto-balance', section: 'TEXT STYLE', key: 'HIGHLIGHT_BOX', kind: 'highlight', value: 'auto · width 1.00 · height 1.00 · x 0.000 · y 0.000', hint: 'The box / pill behind the highlighted word. auto = even padding on every side; width / height multiply the box; x / y nudge it (Inspector Offset units). Claude passes it as set_rules highlight.' },
         { label: 'sound: place sound effects', section: 'TEXT STYLE', key: 'SOUND', kind: 'enum', options: ['on', 'off'], value: 'on', hint: 'Place the presets\' sound effects.' },
         { label: 'notes: free-text rule to remember', section: 'NOTES', key: 'NOTE', value: '', hint: 'Saved with the rules; Claude reads it on every job.' }
     ] },
@@ -477,6 +483,7 @@ function pbRowKind(row, section) {
     // A range row whose text can't be read as a range (e.g. "4–5 or so") stays a text box rather than losing words.
     if (c && c.kind === 'range' && String(row.value).trim() && !pbParseRange(row.value, c.min)) return 'text';
     if (c && c.kind === 'audio' && String(row.value).trim() && !pbParseAudio(row.value)) return 'text';
+    if (c && c.kind === 'highlight' && String(row.value).trim() && !pbParseHighlight(row.value)) return 'text';
     if (c && c.kind) return c.kind;
     if (/^PRESETS\b/i.test(section.title) && row.sep === ':') return 'preset';
     return 'text';
@@ -618,6 +625,93 @@ function pbAudioEditor(row) {
 }
 
 // Two number boxes in one row: [prefix][from] to [prefix][to]; an empty To means no limit (∞).
+// HIGHLIGHT_BOX: "auto · width 1.00 · height 1.00 · x 0.000 · y 0.000" ("manual" instead of auto) <-> object.
+// null when the text is not in that shape (the row then stays a plain text box).
+const PB_HL_DEFAULT = { auto: false, width: 1, height: 1, x: 0, y: 0 };
+function pbParseHighlight(v) {
+    const t = String(v || '').trim().toLowerCase();
+    if (!t) return Object.assign({}, PB_HL_DEFAULT);
+    const out = Object.assign({}, PB_HL_DEFAULT);
+    let known = 0;
+    for (const part of t.split('·').map(x => x.trim()).filter(Boolean)) {
+        if (part === 'auto' || part === 'auto-balance' || part === 'balanced') { out.auto = true; known++; continue; }
+        if (part === 'manual' || part === 'off') { out.auto = false; known++; continue; }
+        const m = part.match(/^(width|height|x|y)\s+(-?\d*\.?\d+)$/);
+        if (!m) return null;
+        out[m[1]] = Number(m[2]);
+        known++;
+    }
+    return known ? out : null;
+}
+function pbJoinHighlight(h) {
+    return (h.auto ? 'auto' : 'manual') + ' · width ' + Number(h.width).toFixed(2) + ' · height ' + Number(h.height).toFixed(2) +
+        ' · x ' + Number(h.x).toFixed(3) + ' · y ' + Number(h.y).toFixed(3);
+}
+
+// Auto-balance switch, Width / Height / X / Y sliders (double-click resets one) and "Apply to placed", which
+// re-applies the values to every highlight clip on the current timeline and saves them in the rules.
+const PB_HL_SLIDERS = [
+    { k: 'width', label: 'Width', min: 0.5, max: 2, step: 0.01, dp: 2, def: 1, title: 'Box width, × the preset\'s (with auto: × the balanced box)' },
+    { k: 'height', label: 'Height', min: 0.5, max: 2, step: 0.01, dp: 2, def: 1, title: 'Box height, × the preset\'s (with auto: the padding grows / shrinks and the width follows)' },
+    { k: 'x', label: 'X', min: -0.3, max: 0.3, step: 0.002, dp: 3, def: 0, title: 'Move the box right (+) / left (−), Inspector Offset units' },
+    { k: 'y', label: 'Y', min: -0.3, max: 0.3, step: 0.002, dp: 3, def: 0, title: 'Move the box up (+) / down (−), Inspector Offset units' }
+];
+function pbHighlightEditor(row) {
+    const h = pbParseHighlight(row.value) || Object.assign({}, PB_HL_DEFAULT);
+    const wrap = pbEl('div', 'pb-hl');
+    const write = () => { row.value = pbJoinHighlight(h); pbChanged(); };
+    const top = pbEl('div', 'pb-hl-top');
+    const lab = pbEl('label', 'pb-hl-auto');
+    const cb = pbEl('input');
+    cb.type = 'checkbox'; cb.checked = !!h.auto;
+    cb.addEventListener('change', () => { h.auto = cb.checked; write(); });
+    lab.title = 'Measure each placed box and the word, then even out the space around the word (pills get extra side room for their round ends). Pills and Glass Pill are measured; Highlight Select / Soft Marker / Underline Draw only take the sliders.';
+    lab.append(cb, pbEl('span', '', 'Auto-balance spacing'));
+    const apply = pbEl('button', 'pb-mini pb-hl-apply', 'Apply to placed');
+    apply.title = 'Re-apply these values to every highlight clip on the current timeline (and save them in the rules)';
+    apply.addEventListener('click', async () => {
+        if (!window.sa || !window.sa.adjustHighlights) { setPromptStatus('Restart the panel to use Apply to placed.', 'bad'); return; }
+        apply.disabled = true;
+        setPromptStatus('Adjusting highlight boxes…', '');
+        try {
+            const r = await window.sa.adjustHighlights({ highlight: Object.assign({}, h), save: true });
+            if (!r || r.ok === false) throw new Error((r && r.error) || 'failed');
+            const res = r.result || r;
+            const notes = [];
+            for (const c of res.results || []) for (const x of (c.highlights || [])) if (x.error || x.note) notes.push(x.error || x.note);
+            if (res.results) for (const c of res.results) if (c.error) notes.push(c.error);
+            setPromptStatus(res.clips ? 'Adjusted ' + res.clips + ' highlight clip' + (res.clips === 1 ? '' : 's') + '.' + (notes.length ? ' ' + [...new Set(notes)].join(' · ') : '') : 'No highlight clips on this timeline.', notes.length ? 'bad' : 'ok');
+        } catch (e) {
+            setPromptStatus('Highlight boxes not adjusted: ' + (e.message || e), 'bad');
+        } finally { apply.disabled = false; }
+    });
+    top.append(lab, apply);
+    wrap.appendChild(top);
+    for (const sp of PB_HL_SLIDERS) {
+        const line = pbEl('div', 'pb-hl-line');
+        line.title = sp.title;
+        const r = pbEl('input', 'pb-hl-slider');
+        r.type = 'range'; r.min = String(sp.min); r.max = String(sp.max); r.step = String(sp.step);
+        r.value = String(h[sp.k]);
+        const n = pbEl('input', 'pb-hl-num');
+        n.type = 'number'; n.step = String(sp.step); n.value = Number(h[sp.k]).toFixed(sp.dp);
+        const set = (v, from) => {
+            v = Number(v);
+            if (!Number.isFinite(v)) return;
+            h[sp.k] = v;
+            if (from !== r) r.value = String(v);
+            if (from !== n) n.value = v.toFixed(sp.dp);
+            write();
+        };
+        r.addEventListener('input', () => set(r.value, r));
+        r.addEventListener('dblclick', () => set(sp.def, null));
+        n.addEventListener('change', () => set(n.value, n));
+        line.append(pbEl('span', 'pb-hl-lab', sp.label), r, n);
+        wrap.appendChild(line);
+    }
+    return wrap;
+}
+
 function pbRangeEditor(row) {
     const spec = pbKeySpec(row.key) || {};
     const min = spec.min == null ? 0 : spec.min;
@@ -901,6 +995,7 @@ function pbValueEditor(row, kind) {
     if (kind === 'preset' || kind === 'tags') return pbChipsEditor(row, kind);
     if (kind === 'range') return pbRangeEditor(row);
     if (kind === 'audio') return pbAudioEditor(row);
+    if (kind === 'highlight') return pbHighlightEditor(row);
     if (kind === 'font') return pbFontEditor(row);
     if (kind === 'color') return pbColorEditor(row);
     if (kind === 'style') return pbStyleEditor(row);
@@ -1520,6 +1615,38 @@ function initSavedPrompts() {
         setPromptStatus('Deleted "' + t + '". The current prompt is unchanged.', 'ok');
         showPromptToast(t, 'Deleted');
     });
+    takePromptInbox();
+    window.addEventListener('focus', () => takePromptInbox());
+}
+
+// Prompts handed over through <library>/prompt-inbox.json (e.g. Claude Code updating the "Tommy" prompt): each is
+// saved under its title (replacing a saved prompt of that title), and the one marked load becomes the current prompt.
+let inboxBusy = false;
+async function takePromptInbox() {
+    if (inboxBusy || !window.sa || !window.sa.takePromptInbox) return;
+    inboxBusy = true;
+    try {
+        const got = await window.sa.takePromptInbox();
+        if (!Array.isArray(got) || !got.length) return;
+        const list = loadSavedPrompts();
+        let loaded = null;
+        for (const p of got) {
+            if (p.title.toLowerCase() === 'default') continue;
+            const i = list.findIndex(x => x.title === p.title);
+            if (i >= 0) list[i].text = p.text; else list.push({ title: p.title, text: p.text });
+            if (p.load) loaded = p;
+        }
+        if (!storeSavedPrompts(list)) { setPromptStatus('Could not save the prompt from the inbox.', 'bad'); return; }
+        if (loaded) {
+            clearTimeout(pbSaveTimer);
+            rememberSavedPrompt(loaded.title);
+            setJobPromptText(loaded.text);
+        }
+        renderSavedPrompts(loaded ? loaded.title : lastSavedPrompt());
+        const names = got.map(p => p.title).join(', ');
+        setPromptStatus('Updated "' + names + '" from the prompt inbox.', 'ok');
+        showPromptToast(names, 'Updated');
+    } catch (e) { /* ignore */ } finally { inboxBusy = false; }
 }
 
 // Hovering a one-line input whose text is cut off shows the whole value in a tooltip, wrapped to the input's width.
@@ -1588,10 +1715,42 @@ function migrateTrimmingSection() {
     } catch (e) { /* ignore */ }
 }
 
+// Once per panel: prompts saved before HIGHLIGHT_BOX existed get the row under EMPHASIS in TEXT STYLE, with
+// auto-balance on (the user asked for balanced spacing around highlights in their prompts by default).
+const HIGHLIGHT_MIGRATED_KEY = 'sa.migrated.highlightBox';
+function withHighlightRow(text) {
+    const lines = String(text || '').split('\n');
+    const si = lines.findIndex(l => /^##\s+SETTINGS\b/i.test(l));
+    if (si < 0 || /^\s+HIGHLIGHT_BOX\s*:/m.test(text)) return text;
+    let ei = lines.findIndex((l, i) => i > si && /^##\s/.test(l));
+    if (ei < 0) ei = lines.length;
+    const ts = lines.findIndex((l, i) => i > si && i < ei && /^TEXT STYLE\b/.test(l));
+    if (ts < 0) return text;
+    let at = ts + 1, em = -1;
+    for (; at < ei && /^\s/.test(lines[at]); at++) if (/^\s{1,3}EMPHASIS\s*:/.test(lines[at])) em = at;
+    if (em >= 0) { at = em + 1; while (at < ei && /^\s{4,}\S/.test(lines[at])) at++; }
+    else { while (at > ts + 1 && !lines[at - 1].trim()) at--; }
+    lines.splice(at, 0, '  HIGHLIGHT_BOX: auto · width 1.00 · height 1.00 · x 0.000 · y 0.000', '            ' + HIGHLIGHT_NOTE);
+    return lines.join('\n');
+}
+function migrateHighlightRow() {
+    try {
+        if (localStorage.getItem(HIGHLIGHT_MIGRATED_KEY)) return;
+        for (const key of [JOB_PROMPT_KEY, JOB_PROMPT_DEFAULT_KEY]) {
+            const t = localStorage.getItem(key);
+            if (t && t.trim()) localStorage.setItem(key, withHighlightRow(t));
+        }
+        const saved = loadSavedPrompts();
+        if (saved.length) storeSavedPrompts(saved.map(p => Object.assign({}, p, { text: withHighlightRow(p.text) })));
+        localStorage.setItem(HIGHLIGHT_MIGRATED_KEY, '1');
+    } catch (e) { /* ignore */ }
+}
+
 function initPromptTab() {
     const ta = $('promptText');
     if (!ta) return;
     migrateTrimmingSection();
+    migrateHighlightRow();
     initPromptInputTips($('tabPrompt'));
     initPromptBuilderDrag();
     initSavedPrompts();

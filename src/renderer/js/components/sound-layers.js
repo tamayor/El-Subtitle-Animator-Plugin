@@ -524,11 +524,16 @@
             add('seg-mark-l', mk2).textContent = sg.label.charAt(0).toUpperCase();
         });
         let extraN = 1;
+        // Use tab: rows with no text for this subtitle get no sound when placed (and lose theirs when cleared)
+        const a0 = ctx.s === 'U' ? libEntry(m.id) : null;
+        const emptyRows = (a0 && window.SABoxes && SABoxes.mtEmptyRows) ? SABoxes.mtEmptyRows(a0) : [];
         laneRows(ctx).forEach(({ seg, l, k, last }, i) => {
-            const lane = add('lane sfx' + (seg ? ' seg-slot' + (k > 0 ? ' seg-more' : '') + (last ? ' seg-last' : '') : ''));
+            const isEmpty = !!(seg && emptyRows.includes(seg.n));
+            const lane = add('lane sfx' + (seg ? ' seg-slot' + (k > 0 ? ' seg-more' : '') + (last ? ' seg-last' : '') + (isEmpty ? ' seg-empty' : '') : ''));
+            if (isEmpty) lane.title = seg.label + ' has no text for this subtitle: its sounds are not placed. Type in ' + seg.label + ' and they come back.';
             lane.style.top = (top0 + i * LANE_H) + 'px'; lane.style.height = LANE_H + 'px';
             if (seg) lane.style.setProperty('--mt', segColor(seg));
-            add('tag', lane).textContent = seg ? seg.label + ' SFX' + (k > 0 ? ' ' + (k + 1) : '') : 'Sound ' + (++extraN) + (l.align === 'rows' ? ' \u21bb per row' : '');
+            add('tag', lane).textContent = seg ? seg.label + ' SFX' + (k > 0 ? ' ' + (k + 1) : '') + (isEmpty && k === 0 ? ' \u00b7 no text, off' : '') : 'Sound ' + (++extraN) + (l.align === 'rows' ? ' \u21bb per row' : '');
             if (seg) {
                 const guide = add('seg-guide', lane);
                 guide.style.left = X(g.textS + seg.start) + 'px';

@@ -111,3 +111,7 @@
 .tl .seg-plus { position: absolute; right: 6px; top: 3px; width: 18px; height: 18px; line-height: 16px; text-align: center; border-radius: 5px; font-size: 13px; font-weight: 700; cursor: pointer; z-index: 4;
     color: var(--mt); border: 1px solid color-mix(in srgb, var(--mt) 60%, transparent); background: color-mix(in srgb, var(--mt) 10%, var(--card)); }
 .tl .seg-plus:hover { background: color-mix(in srgb, var(--mt) 24%, var(--card)); }
+/* a row with no text for this subtitle: its sounds are not placed, so its lanes are greyed out */
+.tl .lane.seg-empty { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,.025) 6px 12px); }
+.tl .lane.seg-empty .bar, .tl .lane.seg-empty .sfx-ghost, .tl .lane.seg-empty .seg-add { opacity: .32; filter: grayscale(1); }
+.tl .lane.seg-empty .tag { opacity: .6; }

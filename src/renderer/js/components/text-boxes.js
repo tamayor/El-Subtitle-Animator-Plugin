@@ -932,6 +932,8 @@
         mt.lastSub = sig;
         if (mt.over && mt.over.sub !== sub) mt.over = null;
         mtPreviewSoon();                  // the subtitle (or the split) changed: refresh the preview
+        // the Alignment timeline greys out the sound lanes of rows left without text (they get no sound)
+        setTimeout(() => { try { if (typeof CTX !== 'undefined' && CTX.U) renderTimeline(CTX.U); } catch (e) { /* ignore */ } }, 0);
         const roles = mtRoles(a);
         const { split } = mtParts(sub);
         const parts = mtFold(roles, mtParts(sub).parts);
@@ -969,5 +971,7 @@
 
     window.SABoxes = { renderMT, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
         designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides,
-        mtRoles: (a) => autoRoles(mtNodes(a)) };   // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
+        mtRoles: (a) => autoRoles(mtNodes(a)),      // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
+        // Use tab: the MultiText layers (= row numbers) that will get no text for the current subtitle
+        mtEmptyRows: (a) => isMT(a) ? mtNodes(a).filter(n => mtText(a, n, subtitleText()) === '').map(n => Number(n.layer)) : [] };
 })();

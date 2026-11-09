@@ -10,7 +10,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming };
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
-const { typingFramesFor, segSfxFor, segSfxForget, findAudioItemById, findItemById } = require('./placement');
+const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx } = require('./placement');
 
 // itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
 const cache = new Map();
@@ -27,6 +27,7 @@ async function readInfo(itemId, force) {
         info = r && r.kind ? r : null;
     } catch (e) { info = c ? c.info : null; }
     cache.set(itemId, { at: Date.now(), info });
+    if (info && info.kind === 'segments') rowTextChanged(itemId, info);
     if (cache.size > 200) cache.delete(cache.keys().next().value);
     return info;
 }
@@ -73,6 +74,53 @@ async function currentFusionClip() {
     const frame = tcToFrame(await tl.GetCurrentTimecode(), meta.meta);
     const list = await candidates(tl, frame, tlName);
     return list[0] || null;
+}
+
+// ------------------------------------------------------------------ row sounds follow the row's text (placed clips)
+// Each fresh read of a MultiText clip (the clip under the playhead / selected, while the Use tab is open) says which
+// rows have no text. A row that got text since the sounds were placed gets its row sounds; a row that was cleared
+// loses them. Only changes count (the recorded 'empty' state), so a sound deleted by hand is not put back. The clip
+// of a running Resolve preview is handled by the preview itself (live-preview.js syncRowSounds).
+let rowSync = Promise.resolve();
+function rowTextChanged(itemId, info) {
+    rowSync = rowSync.then(() => syncPlacedRowSounds(itemId, info)).catch(() => { /* tried again on the next read */ });
+}
+async function syncPlacedRowSounds(itemId, info) {
+    if (state.liveSession && String(state.liveSession.itemId) === String(itemId)) return;
+    if (state.applying) return;
+    const rec = segSfxRecord(itemId);
+    if (!rec.layers.length) return;
+    const now = {}, segs = {};
+    for (const r of info.ranges || []) {
+        segs[Number(r.key)] = Math.max(0, Math.round(Number(r.start) || 0));
+        if (r.empty) now[Number(r.key)] = true;
+    }
+    const rows = [...new Set(rec.layers.map(l => Math.max(1, Math.round(Number(l.seg) || 1))))];
+    const flip = rows.filter(n => !!now[n] !== !!(rec.empty || {})[n]);
+    if (!flip.length || state.applying) return;
+    state.applying = true;          // claimed before the first await, so a placement cannot start in between
+    try {
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (!tl) return;
+        const text = await findItemById(tl, itemId);
+        if (!text) return;
+        // cleared rows: their sounds go
+        const drop = rec.sounds.filter(x => flip.includes(Number(x.seg)) && now[Number(x.seg)]).map(x => x.id);
+        if (drop.length) {
+            const left = await deleteExtraSfx(tl, drop);
+            segSfxForget(itemId, drop.filter(id => !left.includes(id)));
+        }
+        // rows that got text: their sounds come in, at the row's start on this clip
+        const add = rec.layers.filter(l => { const n = Math.max(1, Math.round(Number(l.seg) || 1)); return flip.includes(n) && !now[n]; });
+        if (add.length) {
+            const [start, end] = [Number(await text.GetStart()), Number(await text.GetEnd())];
+            const tlName = await tl.GetName();
+            if (meta.key !== tlName || !meta.meta) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
+            await placeExtraSfx(tl, project, meta.meta, add, start, end, [], text, itemId, [], null, true, { rows: null, segs, empty: now });
+        }
+        segSfxSetEmpty(itemId, now);
+    } finally { state.applying = false; }
 }
 
 async function clipTiming(event, opts) {

@@ -324,7 +324,7 @@ async function apply(event, req) {
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
             // unlinked while previewing, so a click on the Text+ selects only it and the Inspector shows its settings
-            let extraIds = [], extraLinkIds = [];
+            let extraIds = [], extraLinkIds = [], extraSeg = {};
             try {
                 if (req.useSfx !== false) {
                     // per-row sounds (Kinetic Cloud) repeat in the preview too, so a looped play sounds like the final clip
@@ -333,9 +333,10 @@ async function apply(event, req) {
                     const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, trackNotes, null, itemId, warnings, req.place, false, rowFrames);
                     extraIds = extra.map(x => x.id);
                     extraLinkIds = extra.filter(x => x.link).map(x => x.id);
+                    for (const x of extra) if (x.seg) extraSeg[x.id] = x.seg;      // row sounds (Upper / Emphasis / Lower)
                 }
             } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
-            state.liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item, extraIds, extraLinkIds };
+            state.liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item, extraIds, extraLinkIds, extraSeg };
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }

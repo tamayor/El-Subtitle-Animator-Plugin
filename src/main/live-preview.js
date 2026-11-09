@@ -18,7 +18,7 @@ const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
-    placeExtraSfx, relinkToProjectCopy, rowFramesFor, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
+    placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
 const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 
@@ -254,8 +254,14 @@ async function liveUpdate(event, req) {
                     const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rowFrames);
                     state.liveSession.extraIds = extra.map(x => x.id);
                     state.liveSession.extraLinkIds = extra.filter(x => x.link).map(x => x.id);
+                    state.liveSession.extraSeg = {};
+                    for (const x of extra) if (x.seg) state.liveSession.extraSeg[x.id] = x.seg;
                 }
             } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
+        } else if (req.useSfx !== false) {
+            // Same caption, new text: a row that just got text gets its sounds, a row that was cleared loses them.
+            try { await syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings); }
+            catch (e) { warnings.push('Could not update the row sounds: ' + e.message); }
         }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
         if (!light) { try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ } }
@@ -265,6 +271,40 @@ async function liveUpdate(event, req) {
     } catch (e) {
         return { ok: false, error: String(e && e.message || e) };
     } finally { state.applying = false; }
+}
+
+// Row sounds (layers aligned to Upper / Emphasis / Lower) of the running preview follow which rows have text: the
+// rows are read from the clip (timing_get 'empty'), compared with the sounds placed (session.extraSeg = { id: row }),
+// and only the rows that changed are added or removed. Nothing happens for presets without row sounds.
+async function syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings) {
+    const s = state.liveSession;
+    const segLayers = layerList(req, anim).filter(l => l.align === 'seg');
+    if (!s || !segLayers.length) return;
+    const rf = await rowFramesFor(itemId, compName, segLayers, warnings);
+    if (!rf || !rf.segs) return;
+    const wanted = new Set(segLayers.map(l => Math.max(1, Math.round(Number(l.seg) || 1))).filter(n => !(rf.empty && rf.empty[n])));
+    const seg = s.extraSeg || (s.extraSeg = {});
+    const have = new Set(Object.values(seg).map(Number));
+    // cleared rows: their sounds go
+    const drop = Object.keys(seg).filter(id => !wanted.has(Number(seg[id])));
+    if (drop.length) {
+        const left = await deleteExtraSfx(tl, drop);
+        for (const id of drop) if (!left.includes(id)) delete seg[id];
+        segSfxForget(itemId, drop.filter(id => !left.includes(id)));
+        s.extraIds = (s.extraIds || []).filter(id => !drop.includes(id) || left.includes(id));
+        s.extraLinkIds = (s.extraLinkIds || []).filter(id => s.extraIds.includes(id));
+    }
+    // rows that just got text: their sounds come in
+    const add = segLayers.filter(l => { const n = Math.max(1, Math.round(Number(l.seg) || 1)); return wanted.has(n) && !have.has(n); });
+    if (add.length) {
+        const extra = await placeExtraSfx(tl, project, meta, add, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rf);
+        for (const x of extra) {
+            s.extraIds = (s.extraIds || []).concat(x.id);
+            if (x.link) s.extraLinkIds = (s.extraLinkIds || []).concat(x.id);
+            if (x.seg) seg[x.id] = x.seg;
+        }
+    }
+    segSfxSetEmpty(itemId, rf.empty || {});
 }
 
 // The preview clip. The handle kept in the session is checked first (one call); the timeline is only scanned

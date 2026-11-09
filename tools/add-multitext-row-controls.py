@@ -9,7 +9,11 @@ Template (the MultiText) gets, on the Text page after the Box controls:
                  lowest glyph to the emphasis row's tallest glyph, and so on (INK: Poppins glyph bounds per character;
                  the box on pill / Highlight Select presets). Emphasis Y then moves all three rows, Upper Y / Lower Y
                  open or close both gaps together. Off: each Y slider moves its own row.
-  UE / EL Distance  read-outs (expressions) of the two gaps in pixels of the frame height.
+  UE / EL Distance  read-outs (expressions) of the two gaps in pixels of the frame height; they always show the real
+                 gap (they follow Row Gap / Upper / Lower Y, or Set UE / Set EL when Set Distance is on).
+  Set Distance   (default off) on: Set UE / Set EL give the two gaps, ink to ink, in pixels of the frame height (Row
+                 Gap, Equalize and Upper / Lower Y no longer change the gaps; Emphasis Y / All Y still move the block).
+                 Off: Set UE / Set EL are ignored. Their default is the preset's own gap.
   Justify        Manual (default) = the X sliders below place each row. Center / Left / Right line the rows up on
                  that edge (each layer's H Anchor and justification follow) and override the per-row X sliders;
                  the block stays where it was (recentred from an estimate of the widest row). All X still moves it.
@@ -102,13 +106,19 @@ def slider(idn, name, default, lo, hi, status, allowed=None):
     return s + 'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "%s", }, ' % status
 
 
+def distance_px(gdef, ls, roles, fh=1920):
+    """The ink gap in pixels that Row Gap gdef gives with Equalize on (the same above and below the emphasis)."""
+    su, se, sl = (ls[roles[r]]["size"] for r in ROLES)
+    return round(float(gdef) * PITCH * (su + 2 * se + sl) / 4 * fh, 1)
+
+
 def readout(idn, name, status):
     return ('%s = { LINKS_Name = "%s", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = 0, '
             'INP_MinScale = 0, INP_MaxScale = 200, ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "%s", }, '
             % (idn, name, status))
 
 
-def controls(gap_default, bx, by):
+def controls(gap_default, bx, by, dpx=40):
     """The Inspector order: Row Gap, Link Rows, the Y group, the X group, then Justify right under the X sliders
     (it overrides them)."""
     return (
@@ -117,8 +127,12 @@ def controls(gap_default, bx, by):
           'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the Upper / Emphasis / Lower sliders move every row as one", }, '
         + 'RowsEqualize = { LINKS_Name = "Equalize Gaps", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, '
           'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: the gap above and below the emphasis stay equal, measured ink to ink (lowest descender to tallest letter). Emphasis Y moves all three rows; Upper Y / Lower Y open or close both gaps together", }, '
-        + readout("RowsGapUE", "UE Distance", "Upper to Emphasis: pixels from the upper row's lowest glyph to the emphasis row's tallest glyph (read only)")
-        + readout("RowsGapEL", "EL Distance", "Emphasis to Lower: pixels from the emphasis row's lowest glyph to the lower row's tallest glyph (read only)")
+        + readout("RowsGapUE", "UE Distance", "Upper to Emphasis: pixels from the upper row's lowest glyph to the emphasis row's tallest glyph (read only; type the gap in Set UE)")
+        + readout("RowsGapEL", "EL Distance", "Emphasis to Lower: pixels from the emphasis row's lowest glyph to the lower row's tallest glyph (read only; type the gap in Set EL)")
+        + 'RowsDistOn = { LINKS_Name = "Set Distance", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 0, '
+          'ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "On: Set UE / Set EL give the two gaps in pixels (Row Gap and Upper / Lower Y stop changing them). Off: Set UE / Set EL are ignored", }, '
+        + slider("RowsSetUE", "Set UE", dpx, 0, 200, "Upper to Emphasis gap in pixels, upper row's lowest glyph to the emphasis row's tallest glyph (needs Set Distance on)", (-300, 1000))
+        + slider("RowsSetEL", "Set EL", dpx, 0, 200, "Emphasis to Lower gap in pixels, emphasis row's lowest glyph to the lower row's tallest glyph (needs Set Distance on)", (-300, 1000))
         + slider("RowsY", "All Y", 0, -0.3, 0.3, "Move all rows up (+) / down (-)")
         + slider("UpperY", "Upper Y", 0, -0.3, 0.3, "Move the upper row up (+) / down (-)")
         + slider("EmphasisY", "Emphasis Y", 0, -0.3, 0.3, "Move the emphasis row up (+) / down (-)")
@@ -143,9 +157,9 @@ CTRL_BLOCK = re.compile(r'RowGap = \{.*?RowsBaseY = \{[^{}]*\}, ', re.S)
 def resync(tpl, box_row):
     """An already patched Template: the control block and the three Center expressions rewritten by the current tool
     (control values and the preset's geometry are kept)."""
-    tpl = resync_controls(tpl)
     ls = layers_patched(tpl)
     roles = roles_of(ls)
+    tpl = resync_controls(tpl, ls, roles)
     has_box = box_row and "HighlightHeight = {" in tpl
     m = CTRL_BLOCK.search(tpl)
     num = lambda k: float(re.search(k + r' = \{[^{}]*INP_Default = ([-\d.]+)', m.group(0)).group(1))
@@ -177,14 +191,15 @@ def layers_patched(tpl):
     return out
 
 
-def resync_controls(tpl):
+def resync_controls(tpl, ls, roles):
     """An already patched Template: its control block rewritten in the current order / wording (values kept)."""
     m = CTRL_BLOCK.search(tpl)
     if not m:
         return tpl
     old = m.group(0)
     num = lambda k: re.search(k + r' = \{[^{}]*INP_Default = ([-\d.]+)', old).group(1)
-    return tpl[:m.start()] + controls(num("RowGap"), num("RowsBaseX"), num("RowsBaseY")) + tpl[m.end():]
+    dpx = distance_px(num("RowGap"), ls, roles)
+    return tpl[:m.start()] + controls(num("RowGap"), num("RowsBaseX"), num("RowsBaseY"), dpx) + tpl[m.end():]
 
 
 def block(s, name):
@@ -291,10 +306,13 @@ def gap_lua(role, ls, roles, gdef):
 
 def readout_expr(which, ls, roles, gdef):
     """Lua for the UE / EL Distance read-outs, in pixels of the frame height. With the rows placed as center_expr
-    places them, the ink gap reduces to the gap g plus the sliders' share, so no text is measured here."""
+    places them, the ink gap reduces to the gap g plus the sliders' share, so no text is measured here. Set Distance
+    on: the gap is Set UE / Set EL itself."""
     u, e, l = roles["upper"], roles["emphasis"], roles["lower"]
     S = lambda n: "(tonumber(T.Text%d.Size) or %s)" % (n, ls[n]["size"])
+    dpx = distance_px(gdef, ls, roles)
     L = [": local T = Template"]
+    L.append("if (tonumber(T.RowsDistOn) or 0) >= 0.5 then return tonumber(T.%s) or %s end" % ("RowsSetUE" if which == "UE" else "RowsSetEL", dpx))
     L.append("local lk = (tonumber(T.RowsLink) or 0) >= 0.5")
     L.append("local Q = (tonumber(T.RowsEqualize) or 0) >= 0.5")
     L.append("local Su, Se, Sl = %s, %s, %s" % (S(u), S(e), S(l)))
@@ -385,13 +403,21 @@ def center_expr(role, ls, roles, has_box, gdef, bx, by):
         # Equalize: one gap above and below the emphasis, ink to ink; Emphasis Y carries the three rows and
         # Upper Y / Lower Y open or close both gaps (sp). Off: each row moves on its own slider, as before.
         L.append("local Q = (tonumber(T.RowsEqualize) or 0) >= 0.5")
+        L.append("local D = (tonumber(T.RowsDistOn) or 0) >= 0.5")
         L.append("local ey, sp = (tonumber(T.RowsBaseY) or %s) + (tonumber(T.RowsY) or 0), 0" % by)
         L.append("if lk then ey = ey + oy; oy = 0")
+        L.append("elseif D then ey = ey + (tonumber(T.EmphasisY) or 0); oy = 0")
         if role == "upper":
             L.append("elseif Q then ey = ey + (tonumber(T.EmphasisY) or 0); sp = (oy - (tonumber(T.LowerY) or 0)) / 2; oy = 0 end")
         else:
             L.append("elseif Q then ey = ey + (tonumber(T.EmphasisY) or 0); sp = ((tonumber(T.UpperY) or 0) - oy) / 2; oy = 0 end")
         L.append(gap_lua(role, ls, roles, gdef))
+        # Set Distance: the gap is the UE / EL slider in pixels of the frame height, nothing added
+        L.append("if D then")
+        L.append('  local okh, fh = pcall(function() return comp:GetPrefs("Comp.FrameFormat.Height") end)')
+        L.append("  fh = (okh and tonumber(fh)) or tonumber(T.Height) or 1920")
+        L.append("  g = (tonumber(T.%s) or %s) / fh; sp = 0" % ("RowsSetUE" if role == "upper" else "RowsSetEL", distance_px(gdef, ls, roles)))
+        L.append("end")
         if role == "upper":
             L.append("local y = ey + oy + p%d + g + sp - q%d" % (e, me))
         else:
@@ -429,7 +455,8 @@ def patch(s, box_row=False):
     u = tpl.index("UserControls = ordered() { ") + len("UserControls = ordered() { ")
     m = re.search(r'HighlightY = \{[^{}]*\}, ', tpl)
     at = m.end() if m else u
-    tpl = tpl[:at] + controls(gdef, bx, by) + tpl[at:]
+    tpl = tpl[:at] + controls(gdef, bx, by, distance_px(gdef, ls, roles)) + tpl[at:]
+    tpl = set_readouts(tpl, ls, roles, gdef)
     # 2. each layer's Center / anchor / justification
     for role in ROLES:
         n = roles[role]
@@ -441,7 +468,6 @@ def patch(s, box_row=False):
                + '\n\t\t\t\t["Text%d.HorizontalLeftCenterRight"] = Input { Value = 0, Expression = "%s", },' % (n, esc(ANCHOR_EXPR))
                + '\n\t\t\t\t["Text%d.HorizontalJustificationCenter"] = Input { Value = 0, Expression = "%s", },' % (n, esc(ANCHOR_EXPR)))
         tpl = tpl[:mm.start()] + rep + tpl[mm.end():]
-    tpl = set_readouts(tpl, ls, roles, gdef)
     s = s[:t[0]] + tpl + s[t[1]:]
     # 3. mirrors of a layer's Center (the highlight box Text+) follow its anchor too
     pat = re.compile(r'(\t\t\t\tCenter = Input \{ Value = \{ [-\d.]+, [-\d.]+ \}, Expression = "Template\.Text(\d+)\.Center", \},)')

@@ -1059,6 +1059,13 @@ def op_multitext_rows(a):
             tpl.SetInput("RowsLink", 1 if a["link"] else 0)
         if a.get("equalize") is not None and get_in(tpl, "RowsEqualize") is not None:
             tpl.SetInput("RowsEqualize", 1 if a["equalize"] else 0)
+        dist = a.get("distance")
+        if isinstance(dist, dict) and get_in(tpl, "RowsDistOn") is not None:
+            if dist.get("on") is not None:
+                tpl.SetInput("RowsDistOn", 1 if dist["on"] else 0)
+            for k, idn in (("upperEmphasis", "RowsSetUE"), ("emphasisLower", "RowsSetEL")):
+                if dist.get(k) is not None:
+                    tpl.SetInput(idn, max(-300.0, min(1000.0, float(dist[k]))))
         j = a.get("justify")
         if j is not None:
             jv = ROW_JUSTIFY.get(str(j).strip().lower()) if not isinstance(j, (int, float)) else int(j)
@@ -1079,6 +1086,9 @@ def op_multitext_rows(a):
     if get_in(tpl, "RowsEqualize") is not None:      # presets patched before the Equalize toggle lack these
         out["equalize"] = bool(num(get_in(tpl, "RowsEqualize"), 1) >= 0.5)
         out["distancePx"] = {"upperEmphasis": get_in(tpl, "RowsGapUE"), "emphasisLower": get_in(tpl, "RowsGapEL")}
+    if get_in(tpl, "RowsDistOn") is not None:        # Set Distance: the two sliders above set the gaps (else ignored)
+        out["distanceOn"] = bool(num(get_in(tpl, "RowsDistOn"), 0) >= 0.5)
+        out["distanceSet"] = {"upperEmphasis": get_in(tpl, "RowsSetUE"), "emphasisLower": get_in(tpl, "RowsSetEL")}
     for key, pre in ROW_XY.items():
         out[key] = {"x": get_in(tpl, pre + "X"), "y": get_in(tpl, pre + "Y")}
     out["rows"] = [{"layer": n, "name": get_in(tpl, "TextName%d" % n), "center": as_pt(get_in(tpl, "Text%d.Center" % n))}

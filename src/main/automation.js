@@ -168,6 +168,12 @@ function rowsReq(rules, own) {
     if (o.justify) out.justify = o.justify;
     if (own.link !== undefined && own.link !== null) out.link = !!own.link;
     if (own.equalize !== undefined && own.equalize !== null) out.equalize = !!own.equalize;
+    if (own.distance && typeof own.distance === 'object') {
+        const d = {};
+        if (own.distance.on !== undefined && own.distance.on !== null) d.on = !!own.distance.on;
+        for (const k of ['upperEmphasis', 'emphasisLower']) { const n = Number(own.distance[k]); if (own.distance[k] !== null && own.distance[k] !== undefined && Number.isFinite(n)) d[k] = Math.max(-300, Math.min(1000, n)); }
+        if (Object.keys(d).length) out.distance = d;
+    }
     for (const k of ['all', 'upper', 'emphasis', 'lower']) {
         const v = own[k];
         if (!v || typeof v !== 'object') continue;

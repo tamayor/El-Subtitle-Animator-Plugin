@@ -199,8 +199,24 @@ function loadLib() {
         libMigratedOnce = true;
         migrateAndCleanLib(lib);
     }
-    if (seedRowSounds(lib)) { try { saveLib(lib); } catch (e) { /* seeded again next time */ } }
+    const seeded = seedRowSounds(lib);
+    const linked = linkLayersOnce(lib);
+    if (seeded || linked) { try { saveLib(lib); } catch (e) { /* seeded again next time */ } }
     return lib;
+}
+
+// Every sound layer (layered, row-slot and per-row repeat sounds) is linked to its text clip by default. Layers saved
+// before that default were stored with link: false, so they are switched on once per preset (sfxLinkedDefault); a
+// layer the user unticks afterwards stays unlinked.
+function linkLayersOnce(lib) {
+    let changed = false;
+    for (const a of lib.animations) {
+        if (!a || a.sfxLinkedDefault) continue;
+        for (const l of (Array.isArray(a.sfxLayers) ? a.sfxLayers : [])) if (l && l.link === false) l.link = true;
+        a.sfxLinkedDefault = true;
+        changed = true;
+    }
+    return changed;
 }
 
 // Every MultiText row preset (Upper / Emphasis / Lower timing) starts with a default sound in each row's slot, aligned
@@ -224,7 +240,7 @@ function seedRowSounds(lib) {
             if (a.sfxLayers.some(l => l && l.align === 'seg' && Number(l.seg) === sg.n)) continue;
             a.sfxLayers.push({
                 id: 'lseg' + sg.n + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: d.file, orig: d.file, enabled: true,
-                volume: d.volume, offset: 0, align: 'seg', seg: sg.n, trimIn: 0, len: 0, lenMode: 'clip', link: false, track: 0
+                volume: d.volume, offset: 0, align: 'seg', seg: sg.n, trimIn: 0, len: 0, lenMode: 'clip', link: true, track: 0
             });
         }
         a.segSfxSeeded = true;

@@ -18,6 +18,8 @@ so nothing is ever asked for a frame past the clip's end). Glyph widths were mea
 ExtraBold (units of Size x frame height per character)."""
 import sys
 
+from kinetic_cache import cached, lookup, COMMENTS, ROW_TABLES
+
 N = 12
 OUT = sys.argv[1]
 
@@ -79,7 +81,7 @@ local cnt = #c
 # the plugin's Animation Start / Frames retiming, as maths on the comp time (see src/main/retime.js remapExpr)
 REMAP = r'''local AF = math.floor(tonumber(Template.AnimFrames) or 0)
 local AS = math.max(0, math.floor(tonumber(Template.AnimStart) or 0))
-local NAT = tonumber(Template.AnimNatural) or 1
+local NAT = R.nat
 local rel = time - comp.RenderStart - AS
 local tt = 0
 if rel > 0 then
@@ -90,13 +92,12 @@ if rel > 0 then
 end
 '''
 
-# Speed: the word-wrap above (ROWS) and the row sizes / stack positions don't depend on time, and every row's Text,
-# colour, Size, Center and AngleZ need them. They are worked out ONCE, in one expression on Template's Comments input
-# (a built-in Text input; a Text user control loads into Resolve as a Number), and handed on as text: a first line
-# with the row count, then one line per row "accent<TAB>size<TAB>x<TAB>y<TAB>text". The per-row expressions only
-# parse that (PARSE) and add the per-frame camera (GEOM). Before this, the same word-wrap ran in 85 expressions on
-# every frame and every Inspector change.
-LAYOUT = ROWS + r'''local asp = (tonumber(T.Width) or 1080) / (tonumber(T.Height) or 1920)
+# Speed: the word-wrap (ROWS), the row sizes and the stack positions don't depend on time. CORE works them out and
+# kinetic_cache.cached() keeps the result in a Lua global keyed by the Template inputs it reads, so it runs once per
+# input set instead of on every read (Fusion caches no expression results; followers evaluate once per letter).
+# Template.Comments still shows the layout as text (row count, then "accent<TAB>size<TAB>x<TAB>y<TAB>text" per row) and
+# Template.AnimNatural the natural length, for the plugin; no expression reads them any more.
+SIZING = r'''local asp = (tonumber(T.Width) or 1080) / (tonumber(T.Height) or 1920)
 local s = (tonumber(T.Size) or 0.09) / 0.09
 local TW = (tonumber(T.StackWidth) or 0.8) * asp * s
 local LH = tonumber(T.RowGap) or 0.4
@@ -116,29 +117,19 @@ local yy = tot / 2
 local pat = { -1, 0.6, -0.4, 1, -0.8, 0.3, -1, 0.7, -0.5, 0.9, -0.6, 0.4 }
 local stag = (tonumber(T.Stagger) or 0) * asp * s
 for k = 1, cnt do cy[k] = yy - h[k] / 2; yy = yy - h[k]; cx[k] = stag * pat[k] end
-local o = { tostring(cnt) }
-for k = 1, cnt do
-  local r = c[k]
-  local acc = r:find("%*") and 1 or 0
-  r = r:gsub("%*", ""):gsub("[\t\r\n]", " ")
-  o[#o + 1] = string.format("%d\t%.17g\t%.17g\t%.17g\t%s", acc, sz[k], cx[k], cy[k], r)
-end
-return table.concat(o, "\n")'''
-
-PARSE = r'''local T = Template
-local c, acc, sz, cx, cy = {}, {}, {}, {}, {}
-local first = true
-for ln in tostring(T.Comments.Value or ""):gmatch("[^\n]+") do
-  if first then first = false else
-    local a, s1, x1, y1, t = ln:match("^(%d)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
-    if a then
-      local k = #c + 1
-      c[k] = t; acc[k] = a == "1"; sz[k] = tonumber(s1) or 0.01; cx[k] = tonumber(x1) or 0; cy[k] = tonumber(y1) or 0
-    end
-  end
-end
-local cnt = #c
 '''
+NATCALC = r'''local STEP = tonumber(T.StepFrames) or 7
+local PULL = tonumber(T.PullFrames) or 12
+if (tonumber(T.Zoom) or 1.4) <= 1.001 then PULL = 0 end
+local nat = math.max(1, math.ceil((math.max(1, cnt) - 1) * STEP + math.max(11, 4.8 + PULL + 1)))
+'''
+CORE = ROWS[len('local T = Template\n'):] + SIZING + ROW_TABLES + NATCALC + r'''return { cnt = cnt, c = rc, acc = ra, sz = sz, cx = cx, cy = cy, nat = nat }'''
+CACHE = cached(CORE, 'ELSA_KC')
+LAYOUT = CACHE + COMMENTS
+LOOKUP = lookup(CORE, 'ELSA_KC', '(function() ' + NATCALC.replace('\n', ' ') + ' return nat end)()')
+
+
+PARSE = LOOKUP
 
 GEOM = PARSE + REMAP + r'''local asp = (tonumber(T.Width) or 1080) / (tonumber(T.Height) or 1920)
 local pat = { -1, 0.6, -0.4, 1, -0.8, 0.3, -1, 0.7, -0.5, 0.9, -0.6, 0.4 }
@@ -194,17 +185,14 @@ if acc[K] then return T.{ch}2 end
 return T.{ch}1'''
 
 def pop_prelude(k):
-    return REMAP + f'''local STEP = tonumber(Template.StepFrames) or 7
+    return LOOKUP + REMAP + f'''local STEP = tonumber(Template.StepFrames) or 7
 local p = (tt - ({k} - 1) * STEP) / 8
 if p < 0 then p = 0 elseif p > 1 then p = 1 end
 local q = p - 1
 local e = 1 + 2.70158 * q * q * q + 1.70158 * q * q
 '''
 
-natural = PARSE + r'''local STEP = tonumber(T.StepFrames) or 7
-local PULL = tonumber(T.PullFrames) or 12
-if (tonumber(T.Zoom) or 1.4) <= 1.001 then PULL = 0 end
-return math.max(1, math.ceil((math.max(1, cnt) - 1) * STEP + math.max(11, 4.8 + PULL + 1)))'''
+natural = PARSE + 'return R.nat'
 
 def slider(id_, name, default, lo, hi, scale_hi, status, integer=False):
     return (f'{id_} = {{ LINKS_Name = "{name}", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", '

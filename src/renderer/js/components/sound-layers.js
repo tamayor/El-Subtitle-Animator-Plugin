@@ -155,7 +155,7 @@
                     case 'length': return geo().len;
                     case 'fade': return geo().fade;
                     case 'track': return Number(l.track) || 0;
-                    case 'link': return !!l.link;
+                    case 'link': return l.link !== false;
                     case 'anchor': return l.align === 'seg' ? 'seg:' + (Number(l.seg) || 1) : (ANCHORS.some(x => x[0] === l.align) ? l.align : 'start');
                 }
             },
@@ -222,7 +222,7 @@
         if (res.lib) state.lib = res.lib;
         const cur = holderOf(ctx) || a;
         if (!Array.isArray(cur.sfxLayers)) cur.sfxLayers = [];
-        const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, lenMode: 'clip', link: false, track: 0 };
+        const l = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e3), file: res.file, orig: res.file, enabled: true, volume: 0, offset: 0, align: 'start', trimIn: 0, len: 0, lenMode: 'clip', link: true, track: 0 };
         if (seg) { l.align = 'seg'; l.seg = Number(seg); }
         cur.sfxLayers.push(l);
         sel[ctx.s] = l.id;
@@ -591,7 +591,7 @@
             resets['lyrIn:' + l.id] = () => { apply(l, q.start - q.tin, q.auto ? 0 : q.len + q.tin, 0, snap(), true); };
             resets['lyrOut:' + l.id] = () => { l.len = 0; l.lenMode = 'clip'; persist(ctx); };
             resets['lyrVol:' + l.id] = () => { l.volume = 0; persist(ctx); };
-            if (l.link && on) {
+            if (l.link !== false && on) {
                 const lk = add('link', box);
                 lk.style.left = X(g.textS) + 'px'; lk.style.top = (top0 + i * LANE_H - 4) + 'px'; lk.style.height = '8px';
             }

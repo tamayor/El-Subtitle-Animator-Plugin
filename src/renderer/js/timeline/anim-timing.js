@@ -248,6 +248,7 @@ async function tmSend(wake) {
             // the Upper / Emphasis / Lower sounds of this clip followed their row's start
             const q = res.sounds;
             if (q.error || q.failed) setStatus('Could not move ' + (q.failed || 'the') + ' row sound' + (q.failed === 1 ? '' : 's') + ' with the timing' + (q.error ? ': ' + q.error : ' (another clip may be in the way on that audio track).'), 'bad');
+            else if (q.rows) setStatus('Re-spaced ' + q.rows + ' per-row sound' + (q.rows === 1 ? '' : 's') + ' to the new animation timing.', 'ok');
             else if (q.moved) setStatus('Moved ' + q.moved + ' row sound' + (q.moved === 1 ? '' : 's') + ' with the animation start.', 'ok');
         }
     } catch (e) { setStatus('Could not set the timing: ' + e.message, 'bad'); }

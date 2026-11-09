@@ -1,4 +1,5 @@
-// Inspector timing sliders of the segment MultiText presets (Upper / Emphasis / Lower Start and End).
+// Inspector timing sliders of the segment MultiText presets (Upper / Emphasis / Lower Start and End), and the
+// Kinetic Cloud / Lines timing (their row pop-ins are keyframes too, see fusion_bridge.key_kinetic).
 //
 // Their letters are animated by keyframes written from those values (fusion_bridge.key_followers), not by expressions
 // (per-letter expressions made Resolve lag). A drag of the sliders in Resolve's own Inspector does not re-key by
@@ -17,6 +18,9 @@ const { getFixes } = require('./fusion-fixes');
 const { getProject } = require('./resolve');
 
 const EVERY_MS = 700;
+// clips whose letters / rows are keyed by the bridge: the segment MultiText presets and Kinetic Cloud / Lines (their
+// rows' pop-in keys follow Animation Start / Frames, Frames Per Row, the text's row count and the clip's start)
+const KEYED_CLIP = /^(MultiText|Text\+ Kinetic (Cloud|Lines))/;
 const MAX_SEL = 4;
 const notSegment = new Set();      // clip ids that hold no segment preset (never asked again this session)
 let busy = false;
@@ -34,7 +38,7 @@ async function tick() {
         for (const c of sel) {
             if (state.applying) return;
             const name = String((await c.GetName()) || '');
-            if (!/^MultiText/.test(name)) continue;
+            if (!KEYED_CLIP.test(name)) continue;
             const id = String(await c.GetUniqueId());
             if (notSegment.has(id)) continue;
             const r = await bridgeCall('seg_watch', { item: id }, 4000);
@@ -75,7 +79,7 @@ async function sweep() {
             const items = (await tl.GetItemListInTrack('video', t)) || [];
             const list = Array.isArray(items) ? items : Object.values(items);
             const names = await Promise.all(list.map(it => Promise.resolve(it.GetName()).catch(() => '')));
-            const mt = list.filter((it, k) => /^MultiText/.test(String(names[k] || '')));
+            const mt = list.filter((it, k) => KEYED_CLIP.test(String(names[k] || '')));
             const facts = await Promise.all(mt.map(it => Promise.all([it.GetUniqueId(), it.GetStart(), it.GetEnd()]).catch(() => null)));
             for (const f of facts) {
                 if (!f) continue;

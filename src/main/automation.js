@@ -5,7 +5,8 @@
 
 module.exports = {
     startAutomation, stopAutomation,
-    adjustHighlights: (args) => TOOLS.adjust_highlights(args)     // the panel's Prompt tab (ipc 'highlight:adjust')
+    adjustHighlights: (args) => TOOLS.adjust_highlights(args),    // the panel's Prompt tab (ipc 'highlight:adjust')
+    swapAudioIds        // per-row sounds placed again after a timing change (anim-timing.js): remove_placed still finds them
 };
 
 const fs = require('fs');
@@ -37,6 +38,13 @@ const LAYOUT_DIR = path.join(DATA_DIR, 'layouts');
 let server = null;
 let token = null;
 const placed = [];      // clips placed through automation this session: { itemId, audioId, extraAudioIds, subtitle, presetId, preset, track }
+function swapAudioIds(from, to) {
+    for (const rec of placed) {
+        const ids = rec.extraAudioIds || [];
+        if (!ids.some(id => from.includes(id))) continue;
+        rec.extraAudioIds = ids.filter(id => !from.includes(id)).concat(to);
+    }
+}
 
 // ------------------------------------------------------------------ editing rules
 

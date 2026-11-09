@@ -10,7 +10,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming };
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
-const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx } = require('./placement');
+const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx, refitRowSfx } = require('./placement');
 
 // itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
 const cache = new Map();
@@ -195,7 +195,41 @@ async function setClipTiming(event, itemId, ranges, wake) {
     // A change made outright (release, keys, buttons): the Upper / Emphasis / Lower sounds follow their row's start.
     let sounds = null;
     if (wake) { try { sounds = await moveSegSounds(String(itemId), list); } catch (e) { sounds = { error: e.message }; } }
+    // ... and the per-row copies of a 'Repeat per row' sound (Kinetic Cloud) re-space with the animation's speed
+    if (wake && list.some(r => r.key === 'anim')) {
+        let rs = null;
+        try { rs = await refitRowSounds(String(itemId)); } catch (e) { rs = { error: e.message }; }
+        if (rs) sounds = sounds ? { moved: (sounds.moved || 0) + (rs.moved || 0), failed: (sounds.failed || 0) + (rs.failed || 0), error: sounds.error || rs.error, rows: rs.moved || 0 }
+            : Object.assign({ rows: rs.moved || 0 }, rs);
+    }
     return { ok: true, sounds };
+}
+
+// Places the clip's per-row sound copies again at its new row times (placement.js refitRowSfx). The clip of a
+// running Resolve preview keeps its sounds unlinked and temporary; the preview's and automation's id lists follow.
+async function refitRowSounds(itemId) {
+    if (state.applying) return null;
+    state.applying = true;
+    try {
+        const project = await getProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (!tl) return null;
+        const text = await findItemById(tl, itemId);
+        if (!text) return null;
+        const tlName = await tl.GetName();
+        if (meta.key !== tlName || !meta.meta) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
+        const live = state.liveSession && String(state.liveSession.itemId) === String(itemId) ? state.liveSession : null;
+        const r = await refitRowSfx(tl, project, meta.meta, text, itemId, !live);
+        if (!r) return null;
+        for (const sw of r.swaps) {
+            if (live) {
+                live.extraIds = (live.extraIds || []).filter(id => !sw.from.includes(id)).concat(sw.to);
+                live.extraLinkIds = (live.extraLinkIds || []).filter(id => !sw.from.includes(id)).concat(sw.link);
+            }
+            try { require('./automation').swapAudioIds(sw.from, sw.to); } catch (e) { /* only automation-placed clips are listed there */ }
+        }
+        return { moved: r.moved, failed: r.failed };
+    } finally { state.applying = false; }
 }
 
 // Puts every sound placed for one row of this clip (placement.js segSfx*) at that row's start + its own offset.

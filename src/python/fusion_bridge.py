@@ -494,6 +494,12 @@ def op_set_text(a):
             found = True
             break
     if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake pass (see liveUpdate)
+        try:                # ...but Kinetic rows follow a changed row count (their keys depend on the natural length)
+            k_tpl = kinetic_template(comp)[0]
+            if k_tpl is not None:
+                rekey_if_changed(comp, k_tpl, None, None)
+        except Exception:
+            pass
         return found
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
@@ -1805,14 +1811,17 @@ def anim_spline(fol, inp_id, kind):
 
 def key_followers(comp):
     """Converts the per-letter segment expressions of every follower to keyframes (first call) and re-keys them from
-    the Template's current Seg values. Returns the number of inputs keyed."""
+    the Template's current Seg values. Returns the number of inputs keyed. Kinetic Cloud / Lines rows: key_kinetic."""
     tpl = None
     for tool in tool_list(comp):
         if get_in(tool, "Seg1Start") is not None:
             tpl = tool
             break
     if tpl is None:
-        return 0
+        try:
+            return key_kinetic(comp)
+        except Exception:
+            return 0
     try:
         rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
     except Exception:
@@ -1908,7 +1917,7 @@ def op_seg_watch(a):
     if ent is not None:
         try:
             comp, tpl, last = ent
-            if get_in(tpl, "Seg1Start") is None:
+            if get_in(tpl, "Seg1Start") is None and get_in(tpl, "StepFrames") is None:
                 raise RuntimeError("stale")
         except Exception:
             _seg_seen.pop(item, None)
@@ -1916,6 +1925,8 @@ def op_seg_watch(a):
     if ent is None:
         comp = get_comp(item, a.get("comp"))
         tpl = next((t for t in tool_list(comp) if get_in(t, "Seg1Start") is not None), None)
+        if tpl is None:
+            tpl = kinetic_template(comp)[0]     # Kinetic Cloud / Lines: row keys (key_kinetic)
         if tpl is None:
             return {"segments": False}
         last = None
@@ -1951,7 +1962,11 @@ def op_seg_sweep(a):
 def seg_state(comp, tpl):
     """What the letter keys depend on: the comp's RenderStart (it moves when the clip's head is trimmed or a copy is
     pasted trimmed) and every Seg Start / End (frames from the clip's start). Trim moves the keys with the clip; the
-    slider values themselves are never changed or clamped to the new length."""
+    slider values themselves are never changed or clamped to the new length. Kinetic Cloud / Lines: kinetic_state."""
+    if get_in(tpl, "Seg1Start") is None:
+        k_tpl, kind = kinetic_template(comp)
+        if k_tpl is not None:
+            return kinetic_state(comp, tpl, kind)
     try:
         rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
     except Exception:
@@ -1981,6 +1996,177 @@ def rekey_if_changed(comp, tpl, last, item):
     if item is not None:
         _seg_seen[item] = (comp, tpl, cur)
     return keyed
+
+# ---------------------------------------------------------------- Kinetic Cloud / Lines: row pop-ins as keyframes
+# Their Pop<k> followers animate each row's letters with Lua expressions (tools/gen-kinetic-cloud.py / -lines.py). A
+# Follower evaluates its inputs once per LETTER, every frame, and Fusion caches no expression results: even a trivial
+# expression costs ~0.15 ms there, so a 90-letter statement spent well over 100 ms a frame in them (choppy timeline
+# playback). key_kinetic replaces them with linear keyframes sampled from the same curves, placed at the comp frames
+# where each row pops in (Animation Start / Frames retiming, Frames Per Row, the clip's RenderStart), and re-keys when
+# any of those change (kinetic_state; placement, timing bar, seg-watch / sweep, text edits). The preset files keep
+# the expressions: they are the fallback when keying fails, like the segment presets' light letters.
+KINETIC_DATA = "ElsaRowPop"       # follower CustomData: which curves its keys carry ("cloud" / "lines")
+KINETIC_INPUTS = {
+    "cloud": ("WordSizeX", "WordSizeY", "WordAngleZ", "WordOffset", "Opacity1"),
+    "lines": ("Opacity1",),
+}
+# the last line of each generated expression: only followers whose expressions are exactly these get converted
+KINETIC_TAILS = {
+    "WordSizeX": "return 0.25 + 0.75 * e", "WordSizeY": "return 0.25 + 0.75 * e",
+    "WordAngleZ": "* (1 - e)", "WordOffset": "return Point(0, -0.02 * (1 - e))",
+}
+KINETIC_OPACITY_TAIL = {"cloud": "return math.min(1, p * 3)", "lines": "return f * f * (3 - 2 * f)"}
+
+
+def kinetic_template(comp):
+    """(Template, "cloud" | "lines") for a Kinetic Cloud / Lines comp, else (None, None)."""
+    try:
+        tpl = comp.FindTool("Template")
+        if tpl is None or get_in(tpl, "StepFrames") is None or comp.FindTool("Pop1") is None:
+            return None, None
+        if get_in(tpl, "SlideFrames") is not None:
+            return tpl, "lines"
+        if get_in(tpl, "Zoom") is not None and get_in(tpl, "PullFrames") is not None:
+            return tpl, "cloud"
+    except Exception:
+        pass
+    return None, None
+
+
+def kinetic_state(comp, tpl, kind):
+    """Everything the row keys depend on: RenderStart, Animation Start / Frames, the natural length (row count, Frames
+    Per Row, Pull Back / Slide Frames, Zoom), Frames Per Row and the pop length."""
+    try:
+        rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
+    except Exception:
+        rs = 0.0
+    width = max(1.0, num(get_in(tpl, "SlideFrames"), 12)) if kind == "lines" else 8.0
+    return (kind, rs, max(0, int(num(get_in(tpl, "AnimStart"), 0) // 1)), int(num(get_in(tpl, "AnimFrames"), 0) // 1),
+            num(get_in(tpl, "AnimNatural"), 1), num(get_in(tpl, "StepFrames"), 7 if kind == "cloud" else 5), width)
+
+
+def kinetic_value(kind, inp, k, p):
+    """The generated expression's value for row k at pop progress p (0..1)."""
+    if kind == "lines":
+        f = min(1.0, p / 0.6)
+        return f * f * (3 - 2 * f)
+    if inp == "Opacity1":
+        return min(1.0, p * 3)
+    q = p - 1
+    e = 1 + 2.70158 * q * q * q + 1.70158 * q * q
+    if inp in ("WordSizeX", "WordSizeY"):
+        return 0.25 + 0.75 * e
+    if inp == "WordAngleZ":
+        return (9 if k % 2 else -9) * (1 - e)
+    return -0.02 * (1 - e)          # WordOffset (Y of its XYPath)
+
+
+def kinetic_expr_ok(kind, inp, expr):
+    if not expr or "time" not in expr or "local p = (tt - (" not in expr:
+        return False
+    # the last line: Lines' opacity ("local f = ... return f * f * (3 - 2 * f)") and the AngleZ sign share it with
+    # other statements, so match its end
+    tail = expr.strip().split("\n")[-1].strip()
+    want = KINETIC_OPACITY_TAIL[kind] if inp == "Opacity1" else KINETIC_TAILS.get(inp)
+    return bool(want) and tail.endswith(want)
+
+
+def key_kinetic(comp):
+    """Converts the Pop<k> followers' per-letter expressions to keyframes (first call) and re-keys them for the current
+    timing. Returns the number of inputs keyed (0 = not a Kinetic comp, or nothing to key)."""
+    tpl, kind = kinetic_template(comp)
+    if tpl is None:
+        return 0
+    st = kinetic_state(comp, tpl, kind)
+    _, rs, AS, AF, NAT, STEP, W = st
+    NAT = max(1.0, NAT)
+    D = max(1.0, AF - AS)
+
+    def frame(tt):        # comp frame where the remapped time reaches tt (inverse of REMAP in the generators)
+        if AF <= 0:
+            rel = tt
+        elif tt < NAT:
+            rel = tt * D / NAT
+        else:
+            rel = tt - NAT + D
+        return rs + AS + rel
+
+    keyed = 0
+    for k in range(1, 65):
+        fol = comp.FindTool("Pop%d" % k)
+        if fol is None:
+            break
+        if attrs(fol).get("TOOLS_RegID") not in FOLLOWERS:
+            continue
+        try:
+            marked = fol.GetData(KINETIC_DATA)
+        except Exception:
+            marked = None
+        if marked not in (None, kind):
+            continue
+        t0 = (k - 1) * STEP
+        # pop progress samples: every half frame of the remapped time, plus the kinks (opacity full at p 1/3 or 0.6,
+        # the retime's end at NAT)
+        ps = set(j / (2.0 * W) for j in range(int(2 * W) + 1)) | {1.0, 1 / 3.0, 0.6}
+        if t0 < NAT < t0 + W:
+            ps.add((NAT - t0) / W)
+        ps = sorted(p for p in ps if 0 <= p <= 1)
+        did = False
+        for inp in KINETIC_INPUTS[kind]:
+            try:
+                expr = getattr(fol, inp).GetExpression()
+            except Exception:
+                expr = None
+            if expr and not kinetic_expr_ok(kind, inp, expr):
+                continue                     # not the generated curve (edited by hand): leave it alone
+            if not expr and marked is None:
+                continue                     # never keyed by us and no expression: nothing to do
+            try:
+                if expr:
+                    getattr(fol, inp).SetExpression(None)
+                sp = anim_spline(fol, inp, "rise" if inp == "WordOffset" else "value")
+                if sp is None:
+                    if expr:
+                        getattr(fol, inp).SetExpression(expr)
+                    continue
+                keys = {}
+                for p in ps:
+                    keys[round(frame(t0 + p * W), 4)] = {1: kinetic_value(kind, inp, k, p), "Flags": {"Linear": True}}
+                lo, hi = min(keys), max(keys)
+                try:
+                    old = [float(x) for x in (sp.GetKeyFrames() or {}).keys()]
+                except Exception:
+                    old = []
+                for x in old:        # see key_followers: overwrite stray keys with the held value, then delete them
+                    if x < lo - 1e-3:
+                        keys[x] = {1: kinetic_value(kind, inp, k, 0.0), "Flags": {"Linear": True}}
+                    elif x > hi + 1e-3:
+                        keys[x] = {1: kinetic_value(kind, inp, k, 1.0), "Flags": {"Linear": True}}
+                    elif x not in keys:
+                        keys[x] = {1: kinetic_value(kind, inp, k, max(0.0, min(1.0, (x - lo) / max(1e-6, hi - lo)))),
+                                   "Flags": {"Linear": True}}
+                sp.SetKeyFrames(keys, True)
+                try:
+                    sp.DeleteKeyFrames(-1e6, lo - 1e-3)
+                    sp.DeleteKeyFrames(hi + 1e-3, 1e6)
+                except Exception:
+                    pass
+                keyed += 1
+                did = True
+            except Exception:
+                continue
+        if did and marked is None:
+            try:
+                fol.SetData(KINETIC_DATA, kind)
+            except Exception:
+                pass
+    if keyed:
+        try:
+            tpl.SetData(SEG_KEYED_DATA, json.dumps(st))
+        except Exception:
+            pass
+    return keyed
+
 
 def segment_text_empty(mt, n):
     """True when MultiText layer n (segment n's text) holds no text, read through its follower when it has one.
@@ -2027,6 +2213,12 @@ def op_timing_get(a):
                    "empty": segment_text_empty(mt, n)}
                   for n, label, ds, de in segment_list(tool)]
         return {"kind": kind, "ranges": ranges}
+    if kind == "anim" and kinetic_template(comp)[0] is not None:
+        try:   # Kinetic rows: a head trim / Inspector change since they were keyed moves their keys along
+            ent = _seg_seen.get(str(a["item"]))
+            rekey_if_changed(comp, tool, ent[2] if ent else None, str(a["item"]))
+        except Exception:
+            pass
     out = {"kind": kind, "input": inp, "value": get_in(tool, inp)}
     if kind == "anim":
         out["natural"] = get_in(tool, "AnimNatural")
@@ -2056,8 +2248,7 @@ def op_timing_set(a):
             if get_in(tool, START_INPUT.get(kind)) is not None:
                 tool.SetInput(START_INPUT[kind], start)
             tool.SetInput(inp, end)
-    if kind == "segments":
-        key_followers(comp)
+    key_followers(comp)       # segment letters, Kinetic rows (no-op for other presets)
     if a.get("wake"):
         wake_effects(comp)
     return {"ok": True}

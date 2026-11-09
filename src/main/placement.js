@@ -8,7 +8,7 @@ module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
+    placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -894,7 +894,13 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             if (l.align === 'rows') {
                 const rows = (Array.isArray(rowFrames) && rowFrames.length) ? rowFrames : [0];
                 if (rows.length === 1 && !(Array.isArray(rowFrames) && rowFrames.length)) notes.push('sound "' + path.basename(l.file) + '": the preset has no rows, placed once');
-                out.push(...await placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy));
+                const copies = await placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy);
+                // remembered per text clip, so a later change of the animation's speed re-spaces the copies (refitRowSfx)
+                if (videoId && copies.length && Array.isArray(rowFrames) && rowFrames.length) {
+                    rowSfxSet(String(videoId), { layer: JSON.parse(JSON.stringify(l)), end: textEnd - textStart, track: copies[0].track,
+                        frames: rows.slice(), ids: copies.map(x => x.id) });
+                }
+                out.push(...copies);
                 continue;
             }
             const p = sfxFilePath(l.file);
@@ -924,10 +930,10 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
             const id = String(await it.GetUniqueId());
             if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not (the sweep would delete it)
-            if (l.link && videoItem) {
+            if (l.link !== false && videoItem) {
                 try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, it], true); } catch (e) { /* linking is optional */ }
             }
-            out.push({ id, track, start, frames: len, link: !!l.link });
+            out.push({ id, track, start, frames: len, link: l.link !== false });
         } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
     }
     if (segSpecs.length && videoId && rf.segs) segSfxAdd(String(videoId), segLinks, segSpecs, rf.empty || {});
@@ -950,8 +956,18 @@ function segSfxWrite(o) {
         fs.writeFileSync(SEG_SFX_FILE, JSON.stringify(o));
     } catch (e) { dlog('SEG-SFX-WRITE', e.message); }
 }
-const segRec = (v) => Array.isArray(v) ? { sounds: v, layers: [], empty: {} }
-    : Object.assign({ sounds: [], layers: [], empty: {} }, v || {});
+// rows: the per-row copies of 'rows' sounds (Kinetic Cloud): [{ layer, end (frames after the text start the copies stop
+// at), track, frames (the row frames they were placed for), ids }], one entry per sound layer.
+const segRec = (v) => Array.isArray(v) ? { sounds: v, layers: [], empty: {}, rows: [] }
+    : Object.assign({ sounds: [], layers: [], empty: {}, rows: [] }, v || {});
+function rowSfxSet(videoId, entry) {
+    const o = segSfxRead();
+    const r = segRec(o[videoId]);
+    const lid = entry.layer && entry.layer.id;
+    r.rows = r.rows.filter(x => !(lid && x.layer && x.layer.id === lid)).concat([entry]);
+    o[videoId] = r;
+    segSfxWrite(o);
+}
 function segSfxAdd(videoId, links, specs, empty) {
     const o = segSfxRead();
     const r = segRec(o[videoId]);
@@ -979,7 +995,7 @@ function segSfxForget(videoId, ids) {
     if (!o[k]) return;
     const r = segRec(o[k]);
     r.sounds = ids ? r.sounds.filter(x => !ids.includes(x.id)) : [];
-    if (!r.sounds.length && !r.layers.length) delete o[k]; else o[k] = r;
+    if (!r.sounds.length && !r.layers.length && !(r.rows || []).length) delete o[k]; else o[k] = r;
     segSfxWrite(o);
 }
 // The clip-relative row start frames for the 'rows' layers (null when no layer repeats per row or the comp has no
@@ -1053,13 +1069,49 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
         const id = String(await it.GetUniqueId());
         if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not
         items.push(it);
-        out.push({ id, track, start: c.start, frames: c.len, link: !!l.link });
+        out.push({ id, track, start: c.start, frames: c.len, link: l.link !== false });
     }
-    if (l.link && videoItem && items.length) {
+    if (l.link !== false && videoItem && items.length) {
         try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, ...items], true); } catch (e) { /* linking is optional */ }
     }
     notes.push('sound "' + path.basename(l.file) + '" repeated for ' + items.length + ' row' + (items.length === 1 ? '' : 's'));
     return out;
+}
+// The animation of a placed row-by-row clip was sped up / slowed down (Animation Start / Frames): its per-row sound
+// copies are placed again at the new row times (same sound, cut, volume and track), so their spacing follows the
+// text. A set whose copies were all deleted by hand is forgotten, not put back; one Resolve would not delete is left.
+// -> null (no per-row sounds) or { moved, failed, swaps: [{ from: [ids], to: [ids] }] }
+async function refitRowSfx(tl, project, meta, textItem, itemId, projectCopy) {
+    const rec = segSfxRecord(itemId);
+    if (!rec.rows.length) return null;
+    const { bridgeCall } = require('./fusion-bridge');
+    const r = await bridgeCall('row_times', { item: String(itemId) }, 6000);
+    const frames = (r && Array.isArray(r.frames)) ? r.frames.map(f => Math.round(Number(f) || 0)) : [];
+    if (!frames.length) return null;
+    const textStart = Number(await textItem.GetStart()), clipEnd = Number(await textItem.GetEnd());
+    const tlStart = await tl.GetStartFrame();
+    let moved = 0, failed = 0;
+    const swaps = [], keep = [];
+    for (const set of rec.rows) {
+        if (JSON.stringify(set.frames || []) === JSON.stringify(frames)) { keep.push(set); continue; }
+        const there = [];
+        for (const id of set.ids || []) { try { if (await findAudioItemById(tl, id)) there.push(id); } catch (e) { /* gone */ } }
+        if (!there.length) continue;                       // removed by hand: stays removed
+        const left = await deleteExtraSfx(tl, there);
+        if (left.length) { failed++; keep.push(set); continue; }
+        const end = textStart + Math.max(1, Math.min(Math.round(Number(set.end) || 0) || (clipEnd - textStart), clipEnd - textStart));
+        const l = Object.assign({}, set.layer, { track: set.track });
+        const warnings = [];
+        const copies = await placeRowSfx(tl, project, meta, l, frames, textStart, end, tlStart, [], projectCopy ? textItem : null, warnings, null, projectCopy);
+        if (!copies.length) { failed++; continue; }
+        moved += copies.length;
+        swaps.push({ from: there, to: copies.map(x => x.id), link: copies.filter(x => x.link).map(x => x.id) });
+        keep.push(Object.assign({}, set, { track: copies[0].track, frames: frames.slice(), ids: copies.map(x => x.id) }));
+    }
+    const o = segSfxRead();
+    o[String(itemId)] = Object.assign(segRec(o[String(itemId)]), { rows: keep });
+    segSfxWrite(o);
+    return { moved, failed, swaps };
 }
 // Deletes the given sound clips and forgets only the ones that are really gone. One that Resolve refused to delete
 // stays in the registry, so the next sweep removes it (before, all ids were forgotten and a refused one stayed for good).

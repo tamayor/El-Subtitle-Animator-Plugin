@@ -498,6 +498,7 @@ def op_set_text(a):
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))
+    key_followers(comp)
     if FIX.get("wakeOnInsert", True):
         wake_effects(comp)
     return found
@@ -1182,6 +1183,7 @@ def op_set_boxes(a):
     set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
     init_retime(comp, a.get("clipFrames"))
     fit_segments(comp, a.get("clipFrames"))
+    key_followers(comp)
     if FIX.get("wakeOnInsert", True):
         wake_effects(comp)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
@@ -1670,6 +1672,129 @@ def fit_segments(comp, clip_frames):
             pass
 
 
+# ---------------------------------------------------------------- per-letter animation as keyframes
+# Segment presets (Highlight Select, the Pills, Underline Draw, Soft Marker, Glass Pill) animate each follower's letters
+# with Lua expressions of time and the Template's Seg<n>Start / Seg<n>End. A Follower evaluates those inputs once per
+# letter at that letter's delayed time, every frame, and Resolve does not cache them: ~200 Lua runs (60-80 ms) per frame
+# for one clip, which made dragging any Inspector control lag. key_followers swaps those expressions for plain
+# keyframes (native, ~free) written from the Seg values, and re-keys them whenever the plugin changes the timing.
+# Seg sliders dragged in the Inspector itself do not re-key, so they are hidden in the presets (the panel's timing bar
+# sets the ranges).
+FOLLOWER_ANIM = {"Opacity1": "smooth", "WordSizeX": "size", "WordSizeY": "size", "WordOffset": "rise"}
+FOLLOWER_ANIM_TAIL = {"smooth": "p * p * (3 - 2 * p)", "size": "0.82 + 0.18 * e", "rise": "-0.035 * (1 - e)"}
+ANIM_DATA = "ElsaSegAnim"
+
+
+def anim_value(kind, p):
+    e = 1 - (1 - p) ** 3
+    if kind == "smooth":
+        return p * p * (3 - 2 * p)
+    if kind == "size":
+        return 0.82 + 0.18 * e
+    return -0.035 * (1 - e)
+
+
+def anim_spec(inp_id, expr):
+    """{seg, k, kind} parsed from one of the generated per-letter expressions, or None (anything else stays)."""
+    import re
+    kind = FOLLOWER_ANIM.get(inp_id)
+    if not kind or not expr or "time" not in expr or FOLLOWER_ANIM_TAIL[kind] not in expr.strip().split("\n")[-1]:
+        return None
+    m = re.search(r"Template\.Seg(\d+)Start.*?Template\.Seg\1End.*?\(E - S\) \* ([\d.]+)\)", expr, re.S)
+    if not m:
+        return None
+    return {"seg": int(m.group(1)), "k": float(m.group(2)), "kind": kind}
+
+
+def anim_spline(fol, inp_id, kind):
+    """The BezierSpline carrying the input's animation (WordOffset: the Y of an XYPath), created when missing."""
+    drv = is_driven(fol, inp_id)
+    if drv is None:
+        if not fol.AddModifier(inp_id, "XYPath" if kind == "rise" else "BezierSpline"):
+            return None
+        drv = is_driven(fol, inp_id)
+        if drv is None:
+            return None
+    if kind != "rise":
+        return drv if attrs(drv).get("TOOLS_RegID") == "BezierSpline" else None
+    if attrs(drv).get("TOOLS_RegID") != "XYPath":
+        return None
+    ys = is_driven(drv, "Y")
+    if ys is None:
+        drv.SetInput("X", 0.0)
+        if not drv.AddModifier("Y", "BezierSpline"):
+            return None
+        ys = is_driven(drv, "Y")
+    return ys
+
+
+def key_followers(comp):
+    """Converts the per-letter segment expressions of every follower to keyframes (first call) and re-keys them from
+    the Template's current Seg values. Returns the number of inputs keyed."""
+    tpl = None
+    for tool in tool_list(comp):
+        if get_in(tool, "Seg1Start") is not None:
+            tpl = tool
+            break
+    if tpl is None:
+        return 0
+    try:
+        rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
+    except Exception:
+        rs = 0.0
+    keyed = 0
+    for fol in tool_list(comp):
+        if attrs(fol).get("TOOLS_RegID") not in FOLLOWERS:
+            continue
+        try:
+            specs = dict(fol.GetData(ANIM_DATA) or {})
+        except Exception:
+            specs = {}
+        changed = False
+        for inp_id in FOLLOWER_ANIM:
+            try:
+                expr = getattr(fol, inp_id).GetExpression()
+            except Exception:
+                expr = None
+            spec = anim_spec(inp_id, expr) if expr else None
+            if spec:
+                specs[inp_id] = spec
+                changed = True
+            spec = specs.get(inp_id)
+            if not spec:
+                continue
+            try:
+                s = num(get_in(tpl, "Seg%dStart" % int(spec["seg"])), 0)
+                e = num(get_in(tpl, "Seg%dEnd" % int(spec["seg"])), s)
+                d = max(1.0, (e - s) * float(spec["k"]))
+                r = max(2.0, min(9.0, d * 0.5))
+                kind = spec["kind"]
+                if expr:
+                    getattr(fol, inp_id).SetExpression(None)
+                sp = anim_spline(fol, inp_id, kind)
+                if sp is None:
+                    if expr:
+                        getattr(fol, inp_id).SetExpression(expr)     # never leave the letters without their animation
+                    continue
+                ts = sorted(set([float(j) for j in range(int(r) + 1)] + [r]))
+                sp.SetKeyFrames({rs + s + t: {1: anim_value(kind, min(1.0, t / r)), "Flags": {"Linear": True}}
+                                 for t in ts}, True)
+                keyed += 1
+            except Exception:
+                continue
+        if changed:
+            try:
+                fol.SetData(ANIM_DATA, specs)
+            except Exception:
+                pass
+    return keyed
+
+
+def op_key_followers(a):
+    """key_followers on one clip (also converts clips placed before the keyframe change)."""
+    return {"keyed": key_followers(get_comp(a["item"], a.get("comp")))}
+
+
 def segment_text_empty(mt, n):
     """True when MultiText layer n (segment n's text) holds no text, read through its follower when it has one.
     Unknown (no MultiText / no such layer) counts as not empty, so its lane still shows."""
@@ -1739,6 +1864,8 @@ def op_timing_set(a):
             if get_in(tool, START_INPUT.get(kind)) is not None:
                 tool.SetInput(START_INPUT[kind], start)
             tool.SetInput(inp, end)
+    if kind == "segments":
+        key_followers(comp)
     if a.get("wake"):
         wake_effects(comp)
     return {"ok": True}
@@ -1806,6 +1933,10 @@ def op_copy_inputs(a):
                     failed.append("%s.%s" % (name, iid))
     finally:
         dst.Unlock()
+    try:
+        key_followers(dst)      # the copied Seg ranges: the new clip's letter keyframes follow them
+    except Exception:
+        pass
     return {"ok": True, "copied": copied, "failed": failed, "skippedTools": skipped_tools}
 
 
@@ -1844,7 +1975,7 @@ def op_row_times(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers}
 
 
 def handle(req):

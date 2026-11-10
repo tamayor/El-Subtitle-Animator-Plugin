@@ -17,7 +17,7 @@ const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
-    FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, pickTrack,
+    FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, linkToText, pickTrack,
     placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
 const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
@@ -484,10 +484,13 @@ async function liveFinish(event, req) {
                     const it = await findAudioItemById(tl, id);
                     if (it) await relinkToProjectCopy(project, it);
                 }
+                // all in one call, on top of the main sound's link: one call per sound would keep only the last one linked
+                const linkIts = [];
                 for (const id of (s.extraLinkIds || [])) {
                     const it = await findAudioItemById(tl, id);
-                    try { if (it && typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([item, it], true); } catch (e) { /* linking is optional */ }
+                    if (it) linkIts.push(it);
                 }
+                try { await linkToText(tl, item, linkIts); } catch (e) { /* linking is optional */ }
             }
             else if (req.useSfx !== false) {
                 const extra = layerList(req, anim);

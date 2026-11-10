@@ -8,7 +8,7 @@ module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
+    linkToText, placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -1009,6 +1009,17 @@ function layerList(req, anim) {
 // clip-relative frames where the rows start (bridge row_times); null / empty = those layers fall back to the text start.
 // rowFrames may also be { rows, segs } (rowFramesFor): segs = { <n>: clip-relative start of segment n's in-animation }
 // for layers aligned to one row of a MultiText preset (align 'seg', seg: n = Upper / Emphasis / Lower).
+// Links sound clips to the text clip WITHOUT dropping the sounds already linked to it. Resolve's SetClipsLinked makes
+// one new link group out of the clips it is given: linking [text, sound B] after [text, sound A] leaves only B linked
+// (checked in Resolve 21.2). So the text's current link group is read and linked again together with the new sounds.
+async function linkToText(tl, videoItem, items) {
+    items = (items || []).filter(Boolean);
+    if (!videoItem || !items.length || typeof tl.SetClipsLinked !== 'function') return false;
+    let have = [];
+    try { if (typeof videoItem.GetLinkedItems === 'function') have = (await videoItem.GetLinkedItems()) || []; } catch (e) { have = []; }
+    if (!Array.isArray(have)) have = Object.values(have);
+    return !!(await tl.SetClipsLinked([videoItem, ...have, ...items], true));
+}
 async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames, snap) {
     const out = [];
     if (!layers || !layers.length) return out;
@@ -1080,7 +1091,7 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
             const id = String(await it.GetUniqueId());
             if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not (the sweep would delete it)
             if (l.link !== false && videoItem) {
-                try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, it], true); } catch (e) { /* linking is optional */ }
+                try { await linkToText(tl, videoItem, [it]); } catch (e) { /* linking is optional */ }
             }
             out.push({ id, track, start, frames: len, link: l.link !== false });
         } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
@@ -1237,7 +1248,7 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
         out.push({ id, track, start: c.start, frames: c.len, link: l.link !== false });
     }
     if (l.link !== false && videoItem && items.length) {
-        try { if (typeof tl.SetClipsLinked === 'function') await tl.SetClipsLinked([videoItem, ...items], true); } catch (e) { /* linking is optional */ }
+        try { await linkToText(tl, videoItem, items); } catch (e) { /* linking is optional */ }
     }
     notes.push('sound "' + path.basename(l.file) + '" repeated for ' + items.length + ' row' + (items.length === 1 ? '' : 's'));
     return out;

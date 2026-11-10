@@ -36,7 +36,7 @@ const { fitWidth, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
 const { clipTiming, setClipTiming } = require('./anim-timing');
-const { clipControls, setClipControls } = require('./clip-controls');
+const { clipControls, setClipControls, clipRows, setClipRows } = require('./clip-controls');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
 function wrap(fn) {
@@ -52,6 +52,8 @@ const SAFE_HANDLERS = {
     'timing:set': setClipTiming,
     'controls:get': clipControls,
     'controls:set': setClipControls,
+    'controls:rows': clipRows,
+    'controls:setRows': setClipRows,
     'app:getVersion': getAppVersion,
     // Header "Fusion" button: which Fusion fixes are applied to placed titles (fusion-fixes.js)
     'fusion:getFixes': () => ({ fixes: getFixes(), defaults: FIX_DEFAULTS }),

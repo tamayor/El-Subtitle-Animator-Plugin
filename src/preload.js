@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('sa', {
     setClipTiming: (itemId, ranges, wake) => ipcRenderer.invoke('timing:set', itemId, ranges, !!wake),
     clipControls: () => ipcRenderer.invoke('controls:get'),
     setClipControls: (itemId, values) => ipcRenderer.invoke('controls:set', itemId, values),
+    clipRows: (itemId) => ipcRenderer.invoke('controls:rows', itemId),
+    setClipRows: (itemId, texts, frames) => ipcRenderer.invoke('controls:setRows', itemId, texts, frames),
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
     subtitles: (force) => ipcRenderer.invoke('app:subtitles', force),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),

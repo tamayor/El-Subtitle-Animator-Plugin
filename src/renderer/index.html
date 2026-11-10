@@ -33,6 +33,7 @@
     <link rel="stylesheet" href="./css/clip-controls.css">
     <link rel="stylesheet" href="./css/bottom-dock.css">
     <link rel="stylesheet" href="./css/sliders.css">
+    <link rel="stylesheet" href="./css/use-dock.css">
     <!-- Classic (non-module) scripts sharing one global scope. ORDER MATTERS: each file may use what the files
          above it declare at load time; app/boot.js starts the panel and must stay last. -->
     <script src="./js/core/bootstrap.js" defer></script>
@@ -73,6 +74,7 @@
     <script src="./js/timeline/clip-controls.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
     <script src="./js/app/init.js" defer></script>
+    <script src="./js/app/use-dock.js" defer></script>
     <script src="./js/ui/drag-numbers.js" defer></script>
     <script src="./js/ui/slider-fill.js" defer></script>
     <script src="./js/dev/diagnostics.js" defer></script>
@@ -207,6 +209,8 @@
                             </button>
                         </span>
                     </div>
+                    <!-- MultiText split: Upper / Emphasize / Lower (js/components/text-boxes.js mtBuild) -->
+                    <div id="mtHostU" class="mt-panel cc-mt hidden"></div>
                     <div id="clipCtlBody" class="cc-body"></div>
                 </section>
 
@@ -292,56 +296,72 @@
                     </div>
                     <div id="inspectorGridU" class="inspector-grid single-col">
                         <div class="inspector-pane drawers-pane">
-                            <div id="boxesU" class="bx-panel"></div>
-                            <div id="adjustWrapU" class="adjust-wrap open">
-                                <button id="adjustToggle" class="adjust" aria-expanded="true">
-                                    <span class="chev">▾</span>
-                                    <span class="adj-title">Preset Set Up</span>
-                                    <span id="adjustSummary" class="adj-sum"></span>
-                                </button>
-                                <div id="adjustBodyU" class="adjust-body"></div>
-                                <div id="saveBarWrapU"></div>
-                            </div>
-                            <div id="styleWrapU" class="adjust-wrap">
-                                <button type="button" id="styleToggleU" class="adjust" aria-expanded="false" title="Font and colour forced on the presets you add to the timeline yourself (Apply / Preview in Resolve). The preview below shows the result.">
-                                    <span class="chev">▸</span>
-                                    <span class="adj-title">Text Style</span>
-                                    <span id="styleSummaryU" class="adj-sum">Preset default</span>
-                                </button>
-                                <div id="styleBodyU" class="adjust-body hidden"></div>
-                            </div>
-                            <div id="placeWrapU" class="adjust-wrap">
-                                <button type="button" id="placeToggleU" class="adjust" aria-expanded="false">
-                                    <span class="chev">▸</span>
-                                    <span class="adj-title">Placement</span>
-                                    <span id="placeSummaryU" class="adj-sum">Default (top layer)</span>
-                                </button>
-                                <div id="placeBodyU" class="adjust-body hidden">
-                                    <div class="place-options-list">
-                                        <div class="place-range" title="Clip track: keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
-                                            <span>Clip track</span>
-                                            <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
+                            <!-- Upper dock: Settings toggle (Preset Set Up / Text Style / Placement) + timeline preview Start -->
+                            <div id="useDockU" class="use-dock">
+                                <div id="stageLiveU" class="use-dock-bar stage-live">
+                                    <button type="button" id="useDockToggleU" class="use-dock-toggle" aria-expanded="false" title="Show or hide Preset Set Up, Text Style and Placement">
+                                        <span class="chev">▸</span>
+                                        <span class="use-dock-lbl">Settings</span>
+                                    </button>
+                                    <div class="stage-live-btns">
+                                        <button type="button" id="liveRemoveU" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove</button>
+                                        <button type="button" id="liveApplyU" class="live-apply" title="Start timeline preview for the selected text preset">Start</button>
+                                    </div>
+                                    <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
+                                </div>
+                                <div id="useDockBodyU" class="use-dock-body hidden">
+                                <div id="adjustWrapU" class="adjust-wrap open">
+                                    <button id="adjustToggle" class="adjust" aria-expanded="true">
+                                        <span class="chev">▾</span>
+                                        <span class="adj-title">Preset Set Up</span>
+                                        <span id="adjustSummary" class="adj-sum"></span>
+                                    </button>
+                                    <div id="adjustBodyU" class="adjust-body"></div>
+                                    <div id="saveBarWrapU"></div>
+                                </div>
+                                <div id="styleWrapU" class="adjust-wrap">
+                                    <button type="button" id="styleToggleU" class="adjust" aria-expanded="false" title="Font and colour forced on the presets you add to the timeline yourself (Apply / Preview in Resolve). The preview below shows the result.">
+                                        <span class="chev">▸</span>
+                                        <span class="adj-title">Text Style</span>
+                                        <span id="styleSummaryU" class="adj-sum">Preset default</span>
+                                    </button>
+                                    <div id="styleBodyU" class="adjust-body hidden"></div>
+                                </div>
+                                <div id="placeWrapU" class="adjust-wrap">
+                                    <button type="button" id="placeToggleU" class="adjust" aria-expanded="false">
+                                        <span class="chev">▸</span>
+                                        <span class="adj-title">Placement</span>
+                                        <span id="placeSummaryU" class="adj-sum">Default (top layer)</span>
+                                    </button>
+                                    <div id="placeBodyU" class="adjust-body hidden">
+                                        <div class="place-options-list">
+                                            <div class="place-range" title="Clip track: keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
+                                                <span>Clip track</span>
+                                                <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
+                                            </div>
+                                            <div class="place-range place-audio" title="Audio track: which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as clip track: the same numbers as Clip track (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
+                                                <span>Audio track</span>
+                                                <select id="placeAudioMode">
+                                                    <option value="any">Any free track</option>
+                                                    <option value="same">Same as clip track</option>
+                                                    <option value="own">Own range</option>
+                                                </select>
+                                            </div>
+                                            <div id="placeAudioOwn" class="place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
+                                                <span>Audio range</span>
+                                                <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
+                                            </div>
+                                            <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
+                                            <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
+                                            <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>
+                                            <label title="Tick this if Resolve's Loop is already switched on. Preview in Resolve toggles Loop (Playback > Loop/Unloop) once when it starts and once when it ends, and a toggle cannot read its own state."><input type="checkbox" id="placeLoopOn"> <span>Resolve's Loop is already on</span></label>
+                                            <label title="Instead of the top layer, put the Text+ on the lowest layer that is empty during the subtitle (filling gaps). Locked and disabled tracks are still never used."><input type="checkbox" id="placeFirstEmpty"> <span>Place on the first empty layer</span></label>
                                         </div>
-                                        <div class="place-range place-audio" title="Audio track: which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as clip track: the same numbers as Clip track (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
-                                            <span>Audio track</span>
-                                            <select id="placeAudioMode">
-                                                <option value="any">Any free track</option>
-                                                <option value="same">Same as clip track</option>
-                                                <option value="own">Own range</option>
-                                            </select>
-                                        </div>
-                                        <div id="placeAudioOwn" class="place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
-                                            <span>Audio range</span>
-                                            <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
-                                        </div>
-                                        <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
-                                        <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
-                                        <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>
-                                        <label title="Tick this if Resolve's Loop is already switched on. Preview in Resolve toggles Loop (Playback > Loop/Unloop) once when it starts and once when it ends, and a toggle cannot read its own state."><input type="checkbox" id="placeLoopOn"> <span>Resolve's Loop is already on</span></label>
-                                        <label title="Instead of the top layer, put the Text+ on the lowest layer that is empty during the subtitle (filling gaps). Locked and disabled tracks are still never used."><input type="checkbox" id="placeFirstEmpty"> <span>Place on the first empty layer</span></label>
                                     </div>
                                 </div>
+                                </div>
                             </div>
+                            <div id="boxesU" class="bx-panel"></div>
                             <div id="previewU"></div>
                         </div>
                     </div>

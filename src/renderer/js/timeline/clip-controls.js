@@ -274,19 +274,33 @@ function ccFill(info) {
     }
 }
 
+// The card shows when the clip has add-ons or the MultiText split (Upper / Emphasize / Lower, from text-boxes.js) is up.
+function ccSyncCard() {
+    const card = $('clipCtlCard');
+    if (!card) return;
+    const mt = $('mtHostU');
+    const mtOn = !!mt && !mt.classList.contains('hidden');
+    const ctl = !!ccState.itemId;
+    card.classList.toggle('hidden', !mtOn && !ctl);
+    card.classList.toggle('cc-no-ctl', !ctl);
+}
+
 function ccRender(info) {
     const card = $('clipCtlCard');
     if (!card) return;
     if (!info || info.none || !info.controls || !info.controls.length) {
-        card.classList.add('hidden');
         ccState.itemId = null;
         ccState.sig = '';
+        $('clipCtlBody').textContent = '';
+        $('clipCtlMeta').textContent = (info && !info.none && info.name) ? info.name.replace(/^(MultiText|Text\+)\s+/, '') + (info.selected ? '' : ' (playhead)') : '';
+        ccSyncCard();
         return;
     }
-    card.classList.remove('hidden');
+    ccState.itemId = info.itemId;
+    ccSyncCard();
     const sig = info.itemId + '|' + info.controls.map(d => d.id).join(',');
     if (sig !== ccState.sig) {
-        if (ccState.itemId !== info.itemId) { ccState.touched = {}; ccState.pending = {}; }
+        if (ccState.sig.split('|')[0] !== String(info.itemId)) { ccState.touched = {}; ccState.pending = {}; }
         ccState.sig = sig;
         ccState.itemId = info.itemId;
         ccBuild(info);
@@ -308,7 +322,10 @@ async function ccTick() {
             const r = await window.sa.clipControls();
             if (r && r.ok) {
                 // keep the card while the user is in it, even if the selection blinks
-                if (!(active && (r.none || (r.itemId && r.itemId !== ccState.itemId)) && Date.now() - ccState.sentAt < 3000)) ccRender(r);
+                if (!(active && (r.none || (r.itemId && r.itemId !== ccState.itemId)) && Date.now() - ccState.sentAt < 3000)) {
+                    try { if (window.SABoxes && SABoxes.setClip) SABoxes.setClip(r); } catch (e) { /* the splitter is a convenience */ }
+                    ccRender(r);
+                }
                 const sig = r.none ? 'none' : (r.itemId + '|' + JSON.stringify(r.values || null));
                 if (sig !== ccPace.sig) { ccPace.sig = sig; ccPace.changedAt = Date.now(); }
                 if (!active && Date.now() - ccPace.changedAt > 3000) delay = 1500;

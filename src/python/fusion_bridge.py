@@ -2706,6 +2706,66 @@ def segment_name(mt, n, label):
     return nm.strip() if isinstance(nm, str) and nm.strip() else label
 
 
+def row_text(mt, n):
+    """MultiText layer n's text, read through its follower when it has one (as segment_text_empty). None = no layer."""
+    drv = is_driven(mt, "Text%d.StyledText" % n)
+    if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+        txt = get_in(drv, "Text")
+        if isinstance(txt, str):
+            return txt
+    txt = get_in(mt, "Text%d.StyledText" % n)
+    return txt if isinstance(txt, str) else None
+
+
+def op_mt_rows_get(a):
+    """The panel's Upper / Emphasize / Lower splitter on a placed clip: {item} -> {rows: [{n, name, text}]}."""
+    comp = get_comp(a["item"], a.get("comp"))
+    mt = multitext_tool(comp)
+    if mt is None:
+        return {"rows": []}
+    rows = []
+    for n in range(1, 21):
+        txt = row_text(mt, n)
+        if txt is None:
+            break
+        nm = get_in(mt, "TextName%d" % n)
+        rows.append({"n": n, "name": nm.strip() if isinstance(nm, str) else "", "text": txt})
+    return {"rows": rows}
+
+
+def op_mt_rows_set(a):
+    """Sets row texts of a placed MultiText clip: {item, texts: {n: text}, clipFrames}. Like set_boxes' light pass:
+    the new text only, plus the lone-row start (and its letter keys) when a row is now alone or no longer alone."""
+    comp = get_comp(a["item"], a.get("comp"))
+    mt = multitext_tool(comp)
+    if mt is None:
+        raise RuntimeError("This clip has no MultiText")
+    done = []
+    with LOCKED(comp):
+        for k, v in (a.get("texts") or {}).items():
+            n = int(k)
+            inp = "Text%d.StyledText" % n
+            if get_in(mt, inp) is None:
+                continue
+            drv = is_driven(mt, inp)
+            if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+                drv.SetInput("Text", str(v))
+            else:
+                mt.SetInput(inp, str(v))
+            done.append(n)
+    lead = False
+    try:
+        with LOCKED(comp):
+            lead = lead_single_segment(comp)
+            if lead:
+                fit_segments(comp, a.get("clipFrames"))
+        if lead:
+            key_followers(comp)
+    except Exception:
+        pass
+    return {"set": done, "segLead": lead}
+
+
 def op_timing_get(a):
     """The clip's timing as ranges: [{key, label, start, end, defStart, defEnd, hasStart}]. Anim / typing ends of 0
     (= the preset's own timing) are sent as 0 with the natural length, and resolved in src/main/anim-timing.js."""
@@ -2912,7 +2972,7 @@ def op_row_times(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "probe_render": op_probe_render, "read_style": op_read_style}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the

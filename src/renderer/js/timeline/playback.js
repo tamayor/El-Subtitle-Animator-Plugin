@@ -4,6 +4,7 @@ function stopPreview() {
     if (!state.preview) return;
     cancelAnimationFrame(state.preview.raf);
     if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }
+    pauseVoices(state.preview.voices);
     const { ctx, anim } = state.preview;
     state.preview = null;
     syncPlayUI();
@@ -17,6 +18,31 @@ function stopPreview() {
         loopBtn.textContent = '🔁 Live Loop';
     }
     drawStage(ctx.s, anim || ctx.model(), null);
+}
+
+function pauseVoices(vs) {
+    for (const v of vs || []) { try { v.el.pause(); } catch (e) { /* ignore */ } }
+}
+
+// Every sound of the clip as a ready-to-play Audio element: the main sound plus every extra sound layer / row sound
+// that is on (SASounds.voices, the same list scrubbing uses). start / end / tin / fade are timeline frames.
+function previewVoices(ctx, m, g) {
+    const out = [];
+    const add = (path, start, end, tin, db, fade, main) => {
+        if (!path || !(end > start)) return;
+        try {
+            const el = new Audio(fileUrl(path));
+            el.preload = 'auto';
+            el.load();
+            const vol = clamp(Math.pow(10, (Number(db) || 0) / 20), 0, 1);
+            out.push({ el, start, end, tin: Number(tin) || 0, fade: Number(fade) || 0, vol, main: !!main, fired: false, done: false });
+        } catch (e) { /* ignore */ }
+    };
+    if (m.useSfx !== false) add(origSfxPath(m) || currentSfxPath(m), g.sfxS, g.sfxE, g.sfxTrimIn, m.sfxVolume, g.fadeFrames, true);
+    if (window.SASounds && SASounds.voices) {
+        try { for (const v of SASounds.voices(ctx, m, g)) add(v.path, v.start, v.end, v.tin, v.volume, v.fade, false); } catch (e) { /* ignore */ }
+    }
+    return out;
 }
 
 // Plays the animation frames and the sound against the Text+ alignment, so you hear and see where they land.
@@ -34,7 +60,6 @@ function runPreview(ctx, loop = false) {
     const from = Math.min(g.textS, g.sfxS) - 4;
     const to = g.textE + 6;
     let t0 = performance.now();
-    let fired = false;
     state.preview = { ctx, anim: a || m, raf: 0, loop: !!loop, paused: false };
     let heldMs = 0;
     state.preview.pause = () => {
@@ -43,13 +68,16 @@ function runPreview(ctx, loop = false) {
         heldMs = performance.now() - t0;
         cancelAnimationFrame(state.preview.raf);
         if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }
+        pauseVoices(voices);
         syncPlayUI();
     };
     state.preview.resume = () => {
         if (!state.preview || !state.preview.paused) return;
         state.preview.paused = false;
         t0 = performance.now() - heldMs;
-        if (fired && state.audio && !state.audio.ended) { try { state.audio.play(); } catch (e) { /* ignore */ } }
+        for (const v of voices) {
+            if (v.fired && !v.done && v.el.paused && !v.el.ended) { try { v.el.play(); } catch (e) { /* ignore */ } }
+        }
         syncPlayUI();
         frame();
     };
@@ -63,18 +91,11 @@ function runPreview(ctx, loop = false) {
     }
     if (prevBtn) prevBtn.textContent = '⏹ Stop';
 
-    // The sound is loaded before the clock starts, so it begins exactly at its offset instead of a moment late.
-    const sfx0 = origSfxPath(m) || currentSfxPath(m);
-    let sfxEl = null;
-    if (sfx0) {
-        try {
-            sfxEl = new Audio(fileUrl(sfx0));
-            sfxEl.preload = 'auto';
-            if (m.sfxVolume !== undefined && m.sfxVolume !== null) sfxEl.volume = clamp(Math.pow(10, Number(m.sfxVolume) / 20), 0, 1);
-            sfxEl.load();
-        } catch (e) { sfxEl = null; }
-    }
-    const baseVol = sfxEl ? sfxEl.volume : 1;
+    // Every sound is loaded before the clock starts (the main one, extra sound layers and row sounds), so each begins
+    // exactly at its offset instead of a moment late, and they all play together like on the timeline.
+    const voices = previewVoices(ctx, m, g);
+    state.preview.voices = voices;
+    if (state.audio) { try { state.audio.pause(); } catch (e) { /* ignore */ } }   // any other sound preview stops
     const startedAt = performance.now();
 
     const frame = () => {
@@ -91,7 +112,7 @@ function runPreview(ctx, loop = false) {
             if (state.preview.loop) {
                 t0 = performance.now();
                 tf = from;
-                fired = false;
+                for (const v of voices) { v.fired = false; v.done = false; try { v.el.pause(); } catch (e) { /* ignore */ } }
             } else {
                 stopPreview();
                 return;
@@ -105,24 +126,24 @@ function runPreview(ctx, loop = false) {
             if (ph && ctx.scale) ph.style.left = ((tf - ctx.scale.lo) * ctx.scale.ppf) + 'px';
             scrubDraw(ctx, tf);
         }
-        if (!fired && tf >= g.sfxS) {
-            fired = true;
-            if (sfxEl) {
+        for (const v of voices) {
+            if (!v.fired && tf >= v.start) {
+                v.fired = true;
+                v.done = false;
+                if (tf >= v.end) { v.done = true; continue; }
                 try {
-                    if (state.audio && state.audio !== sfxEl) state.audio.pause();
-                    state.audio = sfxEl;
-                    sfxEl.volume = baseVol;
-                    sfxEl.currentTime = g.sfxTrimIn / g.fps;
-                    const pr = sfxEl.play();
-                    if (pr && pr.catch) pr.catch(() => setStatus('Could not play that sound', 'bad'));
+                    v.el.volume = v.vol;
+                    v.el.currentTime = Math.max(0, (v.tin + (tf - v.start)) / g.fps);
+                    const pr = v.el.play();
+                    if (pr && pr.catch) pr.catch(() => { if (v.main) setStatus('Could not play that sound', 'bad'); });
                 } catch (e) { /* ignore */ }
             }
-        }
-        // Same as on the timeline: the sound stops where the subtitle ends, fading out over its last second.
-        if (sfxEl && fired) {
-            const left = g.sfxE - tf;
-            if (left <= 0) { if (!sfxEl.paused) sfxEl.pause(); }
-            else if (left < g.fadeFrames) sfxEl.volume = clamp(baseVol * left / g.fadeFrames, 0, 1);
+            // Same as on the timeline: each sound stops where its clip ends, fading out over its last frames.
+            if (v.fired && !v.done) {
+                const left = v.end - tf;
+                if (left <= 0) { v.done = true; if (!v.el.paused) v.el.pause(); }
+                else if (v.fade > 0 && left < v.fade) v.el.volume = clamp(v.vol * left / v.fade, 0, 1);
+            }
         }
         const relFrame = (tf < g.textS) ? -1 : Math.max(0, Math.floor(tf - g.textS));
         // The preset entry (not the editing copy) carries the rendered Fusion frames, so the play button shows the real preview.

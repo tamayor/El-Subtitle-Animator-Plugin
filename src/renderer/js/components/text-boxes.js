@@ -714,13 +714,86 @@
     const MT_KEY = 'sa.mt.v3';
     const MT_ROLES = [['upper', 'Upper subtitle', '#7fb8ff'], ['emphasis', 'Emphasize', '#f0c36b'], ['lower', 'Lower subtitle', '#8ccf8e']];
     const mtDefault = () => ({ anchor: 'center', count: 1, start: 0, upper: false, caps: { upper: false, emphasis: false, lower: false } });
-    const mt = { cfg: mtDefault(), over: null, active: 'emphasis', lastSub: null, lastKey: '' };
+    const mt = { cfg: mtDefault(), over: null, active: 'emphasis', lastSub: null, lastKey: '', clip: null };
     try { const raw = localStorage.getItem(MT_KEY); if (raw) mt.cfg = Object.assign(mtDefault(), JSON.parse(raw)); } catch (e) { /* ignore */ }
     if (!mt.cfg.caps || typeof mt.cfg.caps !== 'object') mt.cfg.caps = { upper: false, emphasis: !!mt.cfg.upper, lower: false };
     function mtSave() { try { localStorage.setItem(MT_KEY, JSON.stringify(mt.cfg)); } catch (e) { /* ignore */ } }
 
     const mtNodes = (a) => nodesOf(a).filter(n => n.kind === 'multitext');
     const isMT = (a) => !!a && (a.isMultiText === true || mtNodes(a).length > 0);      // isMultiText is flagged by the backend with the preset list
+
+    // Clip mode: the clip in Clip controls (selected, else under the playhead) is a MultiText preset. The splitter then
+    // shows THAT clip's words (read from its rows) and writes the new split back to its rows; otherwise it splits the
+    // subtitle for the preset selected in the library, as before. A running Resolve preview keeps the preset mode
+    // (its clip follows the panel by itself).
+    const mtA = () => mt.clip ? mt.clip.a : modelFor('U').a;
+    const mtSub = () => mt.clip ? (mt.clip.text || '') : subtitleText();
+    let mtClipTimer = 0;
+    function mtPushClip() {
+        const c = mt.clip;
+        if (!c || c.text === null || c.error) return;
+        clearTimeout(mtClipTimer);
+        mtClipTimer = setTimeout(async () => {
+            if (mt.clip !== c) return;
+            const roles = mtRoles(c.a);
+            const parts = mtFold(roles, mtParts(c.text).parts);
+            const texts = {};
+            for (const [k] of MT_ROLES) if (roles[k] !== null) texts[roles[k]] = parts[k];
+            try {
+                const r = await window.sa.setClipRows(c.itemId, texts, c.frames);
+                if (r && r.error && typeof setStatus === 'function') setStatus('Could not set the text: ' + r.error, 'bad');
+                else if (r && r.busy) mtPushClip();
+            } catch (e) { if (typeof setStatus === 'function') setStatus('Could not set the text: ' + e.message, 'bad'); }
+        }, 250);
+    }
+    async function mtLoadClip(c) {
+        let r = null, err = '';
+        try { r = await window.sa.clipRows(c.itemId); } catch (e) { r = null; err = e.message; }
+        if (mt.clip !== c) return;
+        // busy (a placement is running): try again shortly. Any other failure stays shown until another clip is picked,
+        // so the card never blinks (a blinking splitter moved the controls under the pointer and swallowed clicks).
+        if (r && r.busy) { setTimeout(() => { if (mt.clip === c) mtLoadClip(c); }, 1000); return; }
+        if (!r || !Array.isArray(r.rows)) {
+            c.text = ''; c.error = (r && r.error) || err || 'no answer';
+            try { window.sa.dlog('[mt-clip] read failed: ' + c.error); } catch (e) { /* ignore */ }
+            mt.lastSub = null; renderMT('U');
+            return;
+        }
+        const roles = mtRoles(c.a);
+        const byRow = {};
+        for (const x of r.rows) byRow[x.n] = String(x.text || '');
+        const part = (k) => roles[k] !== null ? mtWords(byRow[roles[k]]) : [];
+        const u = part('upper'), e = part('emphasis'), l = part('lower');
+        c.text = u.concat(e, l).join(' ');
+        const N = u.length + e.length + l.length;
+        mt.over = null;
+        if (N && e.length) mtSetRange(N, u.length, u.length + e.length);
+        // ALL CAPS follows the clip: a part written all in capitals keeps its AA on
+        for (const [k, w] of [['upper', u], ['emphasis', e], ['lower', l]]) {
+            const t = w.join(' ');
+            if (/\p{L}/u.test(t)) mt.cfg.caps[k] = t === t.toUpperCase();
+        }
+        mt.lastSub = null; mt.lastKey = '';
+        renderMT('U');
+    }
+    // Called by Clip controls (js/timeline/clip-controls.js) with each read of the clip.
+    function mtSetClip(info) {
+        let a = null;
+        const live = typeof state !== 'undefined' && state.livePrev;
+        if (!live && info && !info.none && info.itemId && info.presetId && typeof libEntry === 'function') a = libEntry(info.presetId);
+        if (!a || !isMT(a)) {
+            if (mt.clip) { mt.clip = null; mt.over = null; mt.lastKey = ''; mt.lastSub = null; renderMT('U'); }
+            return;
+        }
+        if (mt.clip && mt.clip.itemId === String(info.itemId) && mt.clip.a.id === a.id) {
+            if (info.frames > 0) mt.clip.frames = info.frames;
+            return;
+        }
+        const c = { itemId: String(info.itemId), presetId: info.presetId, frames: info.frames || null, a, text: null };
+        mt.clip = c; mt.over = null; mt.lastKey = ''; mt.lastSub = null;
+        renderMT('U');
+        mtLoadClip(c);
+    }
 
     // Which layer plays which role: guessed from layer names / default texts, then size (emphasis) and height (upper / lower).
     function autoRoles(list) {
@@ -852,16 +925,24 @@
             } catch (e) { /* the preview is a convenience */ }
         }, 300);
     }
-    function mtChanged() { mtSave(); mt.lastSub = null; const h = q('mtHostU'); const { a } = modelFor('U'); if (h && a) mtRefresh(h, a); changed('U'); mtPreviewSoon(); }
+    function mtChanged() {
+        mtSave(); mt.lastSub = null;
+        const h = q('mtHostU'); const a = mtA();
+        if (h && a) mtRefresh(h, a);
+        if (mt.clip) { mtPushClip(); return; }
+        changed('U'); mtPreviewSoon();
+    }
 
     function renderMT(S) {
         if (S !== 'U') return;
         const host = mtHost();
         if (!host) return;
-        const { a } = modelFor('U');
-        if (!a || !isMT(a)) { host.classList.add('hidden'); host.textContent = ''; mt.lastKey = ''; return; }
+        const a = mtA();
+        const sync = () => { try { if (typeof ccSyncCard === 'function') ccSyncCard(); } catch (e) { /* ignore */ } };
+        if (!a || !isMT(a)) { host.classList.add('hidden'); host.textContent = ''; mt.lastKey = ''; sync(); return; }
         host.classList.remove('hidden');
-        const key = [a.id, mtNodes(a).map(n => n.layer).join(','), mt.active].join('|');
+        sync();
+        const key = [a.id, mt.clip ? mt.clip.itemId : '', mtNodes(a).map(n => n.layer).join(','), mt.active].join('|');
         if (key !== mt.lastKey) { mt.lastKey = key; mt.lastSub = null; mtBuild(host, a); }
         mtRefresh(host, a);
     }
@@ -882,12 +963,13 @@
             ta.title = label + (n ? ' · ' + n.layerName : ' · no layer');
             ta.addEventListener('input', () => {
                 if (mt.cfg.caps[role]) { const p = ta.selectionStart; ta.value = ta.value.toUpperCase(); try { ta.setSelectionRange(p, p); } catch (e) { /* ignore */ } }
-                const sub = subtitleText();
+                const sub = mtSub();
                 if (!mt.over || mt.over.sub !== sub) mt.over = { sub };
                 mt.over[role] = ta.value;
                 // the hidden part's words are folded into this input: typing here replaces them too
                 for (const [k] of MT_ROLES) if (!mtShown(roles, k)) mt.over[k] = '';
-                mtSave(); changed('U'); mtPreviewSoon();
+                mtSave();
+                if (mt.clip) mtPushClip(); else { changed('U'); mtPreviewSoon(); }
             });
             const wrap = mk('div', 'mt-inwrap');
             wrap.style.setProperty('--mt', col);
@@ -926,12 +1008,12 @@
     }
 
     function mtRefresh(host, a) {
-        const sub = subtitleText();
+        const sub = mtSub();
         const sig = sub + '\u0001' + JSON.stringify(mt.over) + '\u0001' + JSON.stringify(mt.cfg);
         if (sig === mt.lastSub) return;
         mt.lastSub = sig;
         if (mt.over && mt.over.sub !== sub) mt.over = null;
-        mtPreviewSoon();                  // the subtitle (or the split) changed: refresh the preview
+        if (!mt.clip) mtPreviewSoon();    // the subtitle (or the split) changed: refresh the preview
         // the Alignment timeline greys out the sound lanes of rows left without text (they get no sound)
         setTimeout(() => { try { if (typeof CTX !== 'undefined' && CTX.U) renderTimeline(CTX.U); } catch (e) { /* ignore */ } }, 0);
         const roles = mtRoles(a);
@@ -944,7 +1026,7 @@
         const chips = host.querySelector('#mtChips');
         if (chips) {
             chips.textContent = '';
-            if (!split.words.length) chips.appendChild(mk('span', 'mt-empty', 'Select a subtitle to split it'));
+            if (!split.words.length) chips.appendChild(mk('span', 'mt-empty', mt.clip ? (mt.clip.text === null ? 'Reading the clip…' : (mt.clip.error ? 'Could not read this clip’s text. Close and reopen the plugin window.' : 'This clip has no text')) : 'Select a subtitle to split it'));
             const N = split.words.length;
             split.words.forEach((w, i) => {
                 const ch = mk('button', 'mt-chip' + (split.roles[i] ? ' r-' + split.roles[i] : ''), w);
@@ -967,9 +1049,9 @@
         document.querySelectorAll('#mtHostU .mt-rbtn').forEach(x => x.classList.toggle('on', x === b));
     });
     // Follow the subtitle as the playhead moves between captions.
-    setInterval(() => { try { const h = q('mtHostU'); if (h && !h.classList.contains('hidden')) mtRefresh(h, modelFor('U').a); } catch (e) { /* ignore */ } }, 300);
+    setInterval(() => { try { const h = q('mtHostU'); if (h && !h.classList.contains('hidden')) mtRefresh(h, mtA()); } catch (e) { /* ignore */ } }, 300);
 
-    window.SABoxes = { renderMT, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
+    window.SABoxes = { renderMT, setClip: mtSetClip, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
         designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides,
         mtRoles: (a) => autoRoles(mtNodes(a)),      // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
         // Use tab: the MultiText layers (= row numbers) that will get no text for the current subtitle

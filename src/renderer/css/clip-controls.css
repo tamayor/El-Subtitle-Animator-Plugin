@@ -90,3 +90,22 @@
 .clip-ctl.compact .cc-select { padding: 1px 4px; font-size: 11px; }
 .clip-ctl.compact input.cc-color { height: 18px; }
 .clip-ctl.hidden { display: none !important; }
+
+/* ---------------------------------------------------------------- MultiText split inside Clip controls (compact)
+   Upper / Emphasize / Lower inputs side by side when there is room, word chips, small role toggles */
+.clip-ctl .cc-mt { display: grid; gap: 5px; margin: 6px 0 0; padding: 0; border: 0; background: none; border-radius: 0; }
+.clip-ctl .cc-mt.hidden { display: none; }
+.clip-ctl.cc-no-ctl .cc-body { display: none; }
+.clip-ctl .cc-mt .mt-ins { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 4px; }
+.clip-ctl .cc-mt .mt-in { min-height: 0; height: 26px; padding: 4px 30px 4px 7px; font-size: 11.5px; line-height: 16px; border-left-width: 3px; border-radius: 6px; overflow: hidden; white-space: nowrap; }
+.clip-ctl .cc-mt .mt-cap { right: 4px; padding: 1px 4px; font-size: 9.5px; border-radius: 4px; }
+.clip-ctl .cc-mt .mt-chips { gap: 3px; min-height: 0; }
+.clip-ctl .cc-mt .mt-chip { padding: 1px 7px; font-size: 11px; }
+.clip-ctl .cc-mt .mt-empty { font-size: 11px; }
+.clip-ctl .cc-mt .mt-roles { gap: 4px; }
+.clip-ctl .cc-mt .mt-rbtn { padding: 2px 6px; font-size: 11px; border-radius: 6px; }
+.clip-ctl .cc-mt + .cc-body:not(:empty) { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.clip-ctl.compact .cc-mt { margin-top: 3px; gap: 3px; }
+.clip-ctl.compact .cc-mt .mt-in { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; }
+.clip-ctl.compact .cc-mt .mt-chip { padding: 0 6px; font-size: 10.5px; }
+.clip-ctl.compact .cc-mt .mt-rbtn { padding: 1px 6px; font-size: 10.5px; }

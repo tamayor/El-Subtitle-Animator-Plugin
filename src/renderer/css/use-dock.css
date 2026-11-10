@@ -1,0 +1,61 @@
+/* Use tab: the upper dock (js/app/use-dock.js). Settings toggle on the left opens Preset Set Up / Text Style /
+   Placement under the bar; the timeline preview Start (and Remove) sit in the bar's right corner. */
+
+.use-dock {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: 0 0 8px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+
+.use-dock-bar.stage-live {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "toggle btns" "txt txt";
+    align-items: center;
+    gap: 6px 10px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .03);
+}
+
+.use-dock-toggle {
+    grid-area: toggle;
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .07);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.use-dock-toggle:hover { background: rgba(255, 255, 255, .12); }
+.use-dock-toggle[aria-expanded="true"] { border-color: var(--strawberry-border, rgba(240, 123, 142, .4)); background: rgba(240, 123, 142, .12); }
+.use-dock-toggle .chev { color: var(--matcha, #7bc98a); font-size: 11px; }
+
+.use-dock-bar .stage-live-btns { grid-area: btns; justify-self: end; gap: 6px; }
+.use-dock-bar .stage-live-btns button { flex: none; min-width: 74px; padding: 7px 16px; }
+
+.use-dock-bar .stage-live-txt { grid-area: txt; display: block; font-size: 11px; line-height: 1.35; }
+.use-dock-bar .stage-live-txt b { font-weight: 600; }
+.use-dock-bar .stage-live-txt b::after { content: " · "; opacity: .5; font-weight: 400; }
+
+.use-dock-body {
+    display: grid;
+    gap: 8px;
+    padding: 8px 10px 10px;
+    border-top: 1px solid rgba(240, 123, 142, .2);
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.use-dock-body.hidden { display: none; }

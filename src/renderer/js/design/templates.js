@@ -533,12 +533,5 @@ const SAVE_BAR_HTML = (S) => `
 const ADJUST_HTML = ALIGN_HTML;
 
 const PREVIEW_HTML = (S) => `
-${S === 'U' ? `<div id="stageLive${S}" class="stage-live">
-    <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
-    <div class="stage-live-btns">
-        <button type="button" id="liveApply${S}" class="live-apply" title="Start timeline preview for the selected text preset">Start</button>
-        <button type="button" id="liveRemove${S}" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove</button>
-    </div>
-</div>` : ''}
 <div id="stageMsg${S}" class="stagemsg"></div>
 ${S === 'C' ? `<div class="row actions"><button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button></div>` : ''}`;

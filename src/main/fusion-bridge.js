@@ -25,7 +25,7 @@ const PERF = require('./perf');
 
 const LANES = 3;
 const LANE_OF = {
-    live_frame: 0, controls_get: 0, controls_set: 0, timing_get: 0, timing_set: 0, seg_watch: 0, ping: 0, config: 0, fonts: 0, probe_render: 0,
+    live_frame: 0, controls_get: 0, controls_set: 0, mt_rows_get: 0, mt_rows_set: 0, timing_get: 0, timing_set: 0, seg_watch: 0, ping: 0, config: 0, fonts: 0, probe_render: 0,
     capture: 2, seg_sweep: 2
 };
 const COALESCE = new Set(['seg_watch', 'controls_get', 'timing_get', 'row_times', 'ping', 'fonts', 'tools']);

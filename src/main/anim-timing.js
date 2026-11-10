@@ -42,11 +42,13 @@ async function clipFacts(item) {
 // The clip list is read every TRACKS_MS (40 clips at a time, in parallel; one call at a time it was every clip of
 // the timeline, serially, every 2 s); the answer for one (frame, selection) is shared by the timing bar and the Clip
 // controls, which poll 300 ms and 700 ms apart, for CAND_MS.
-// Every TRACKS_MS the tracks are listed (one call per track) and only a track whose clip count changed has its
-// clips' start / end read again (a placement changes its track's count); all of them are read every TRACKS_FULL_MS.
-// A clip trimmed by hand is seen by its start / end a little later, or at once when it is selected (the selection is
-// read every time). Nothing is re-read while a placement runs (the old list serves).
-const TRACKS_MS = 5000, TRACKS_FULL_MS = 20000, CAND_MS = 600;
+// Every TRACKS_MS the track lists are looked at (listed again when older than LISTS_MS, or after a change this
+// plugin made) and only a track whose clip count changed has its clips' start / end read again (a placement changes
+// its track's count). Besides that ONE track per look, the one read longest ago, is read again once it is
+// TRACKS_FULL_MS old: all tracks at once every 20 s was a 1-2 s burst of calls that held up Resolve and every other
+// reader. A clip trimmed by hand is seen by its start / end a little later, or at once when it is selected (the
+// selection is read every time). Nothing is re-read while a placement runs (the old list serves).
+const TRACKS_MS = 5000, TRACKS_FULL_MS = 20000, LISTS_MS = 10000, CAND_MS = 600;
 let candMemo = { key: '', at: 0, list: null };
 // -> [{ item, start, end, comps }] for one track's items, 40 at a time
 async function trackFacts(arr) {
@@ -81,21 +83,27 @@ async function candidates(tl, frame, tlName) {
     } catch (e) { /* no selection API: playhead only */ }
     if (tracks.key !== tlName || (Date.now() - tracks.at > TRACKS_MS && !state.applying)) {
         const now = Date.now();
-        const full = tracks.key !== tlName || now - (tracks.fullAt || 0) > TRACKS_FULL_MS;
+        const fresh = tracks.key !== tlName;
         const byTrack = new Map(), reread = [];
-        const lists = await videoTrackLists(tl, tlName, 3000);      // shared with seg-watch's sweep
+        const lists = await videoTrackLists(tl, tlName, LISTS_MS);      // shared with seg-watch's sweep
         const n = lists.length;
+        // the one track (with clips) read longest ago gets its turn when that was TRACKS_FULL_MS or more back
+        let due = 0, dueAt = now - TRACKS_FULL_MS;
+        if (!fresh) for (let t = 1; t <= n; t++) {
+            const old = tracks.byTrack && tracks.byTrack.get(t);
+            if (old && old.list.length && old.list.length === lists[t - 1].length && old.at <= dueAt) { due = t; dueAt = old.at; }
+        }
         for (let t = n; t >= 1; t--) {
             const arr = lists[t - 1];
-            const old = tracks.byTrack && tracks.byTrack.get(t);
-            if (!full && old && old.length === arr.length) { byTrack.set(t, old); continue; }
-            byTrack.set(t, await trackFacts(arr));
+            const old = !fresh && tracks.byTrack && tracks.byTrack.get(t);
+            if (old && old.list.length === arr.length && t !== due) { byTrack.set(t, old); continue; }
+            byTrack.set(t, { at: Date.now(), list: await trackFacts(arr) });
             reread.push(t);
         }
         const list = [];
-        for (let t = n; t >= 1; t--) list.push(...(byTrack.get(t) || []));
-        tracks = { key: tlName, at: now, fullAt: full ? now : (tracks.fullAt || now), byTrack, list };
-        PERF.record('timing.tracks', Date.now() - now, { full, reread: reread.length, tracks: n });
+        for (let t = n; t >= 1; t--) list.push(...byTrack.get(t).list);
+        tracks = { key: tlName, at: now, byTrack, list };
+        PERF.record('timing.tracks', Date.now() - now, { full: fresh, reread: reread.length, tracks: n });
     }
     const under = tracks.list.filter(x => frame >= x.start && frame < x.end);
     // the comp count of a clip is read once per list (it does not change while the clip sits there)

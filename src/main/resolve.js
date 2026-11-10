@@ -246,24 +246,40 @@ async function getSubtitles(tl, force, tlName) {
         if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
             if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
             if (subReading) return subReading;
-            const sp = PERF.span('sub.probe');
-            const tracks = (await tl.GetTrackCount('subtitle')) || 0;
-            const counts = await subtitleCounts(tl, tracks);
-            c.probedAt = Date.now();
-            let same = counts === c.counts;
-            // the texts, one call per clip, once the list is SUB_NAMES_MS old (a probe alone cannot see an edit)
-            if (same && now - (c.namedAt || c.at) >= (panelAway() ? SUB_NAMES_AWAY_MS : SUB_NAMES_MS)) {
-                const names = await subtitleNames(tl, tracks);
-                c.namedAt = Date.now();
-                same = names === c.names;
-            }
-            sp.end({ same });
-            if (same) return c.list;
+            // The check runs behind the caller's back: the poll gets the list it has at once (the check is a call per
+            // track and, every SUB_NAMES_MS, one per subtitle; when Resolve was busy it held the poll for seconds).
+            // A difference starts the full read, whose new version the next poll sends.
+            if (!subProbing) subProbing = probeSubtitles(tl, key, c).catch(() => { /* next probe */ }).finally(() => { subProbing = null; });
+            return c.list;
         }
     }
     if (subReading) return subReading;
     subReading = readSubtitles(tl, key).finally(() => { subReading = null; });
     return subReading;
+}
+let subProbing = null;
+async function probeSubtitles(tl, key, c) {
+    const sp = PERF.span('sub.probe');
+    let same = false;
+    try {
+        const now = Date.now();
+        c.probedAt = now;      // a probe that fails (Resolve busy, another page) is not tried again on the very next poll
+        const tracks = (await tl.GetTrackCount('subtitle')) || 0;
+        const counts = await subtitleCounts(tl, tracks);
+        c.probedAt = Date.now();
+        same = counts === c.counts;
+        // the texts, one call per clip, once the list is SUB_NAMES_MS old (a probe alone cannot see an edit)
+        if (same && now - (c.namedAt || c.at) >= (panelAway() ? SUB_NAMES_AWAY_MS : SUB_NAMES_MS)) {
+            const names = await subtitleNames(tl, tracks);
+            c.namedAt = Date.now();
+            same = names === c.names;
+        }
+    } finally { sp.end({ same }); }
+    // still the list that was checked (not re-read or replaced meanwhile) and it differs: read it in full
+    if (!same && state.subCache === c && !subReading) {
+        subReading = readSubtitles(tl, key).finally(() => { subReading = null; });
+        await subReading;
+    }
 }
 async function subtitleNames(tl, tracks) {
     const out = [];

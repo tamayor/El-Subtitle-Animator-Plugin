@@ -89,12 +89,16 @@ const seen = new Map();     // clip id -> "start|end" at the last check
 // count, or NAMES_FULL_MS since the last full look reads the whole track's names again.
 const NAMES_FULL_MS = 60000;
 let trackKeyed = new Map();
-async function keyedFacts(t, list) {
+// budget.full: how many tracks may have their names read again this sweep only because they are NAMES_FULL_MS old
+// (one: all tracks at once was a second of calls every minute).
+async function keyedFacts(t, list, budget) {
     const mem = trackKeyed.get(t);
-    if (mem && mem.count === list.length && Date.now() - mem.at < NAMES_FULL_MS) {
+    const old = mem && Date.now() - mem.at >= NAMES_FULL_MS && list.length > 0;
+    if (mem && mem.count === list.length && !(old && budget.full > 0)) {
         const facts = await Promise.all(mem.keyed.map(k => Promise.all([list[k.pos].GetUniqueId(), list[k.pos].GetStart(), list[k.pos].GetEnd()]).catch(() => null)));
         if (facts.every((f, i) => f && String(f[0]) === mem.keyed[i].id)) return facts;
     }
+    if (old && mem.count === list.length) budget.full--;
     const keyed = [], out = [];
     for (let i = 0; i < list.length; i += 40) {
         const part = list.slice(i, i + 40);
@@ -124,13 +128,13 @@ async function sweep() {
         const { tl, tlName } = await currentTimeline(2000);
         if (!tl) return;
         if (tlName !== sweepTl) { seen.clear(); trackKeyed = new Map(); sweepTl = tlName; }
-        const lists = await videoTrackLists(tl, tlName, 3000);
+        const lists = await videoTrackLists(tl, tlName, 10000);
         if (state.applying) return;
         lastSweepAt = Date.now();
-        const todo = [];
+        const todo = [], budget = { full: 1 };
         for (let t = 0; t < lists.length; t++) {
             if (state.applying) return;
-            const facts = await keyedFacts(t, lists[t]);
+            const facts = await keyedFacts(t, lists[t], budget);
             checked += facts.length;
             for (const f of facts) {
                 if (!f) continue;

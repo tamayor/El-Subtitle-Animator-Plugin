@@ -632,10 +632,8 @@ def op_set_text(a):
             found = True
             break
     if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake pass (see liveUpdate)
-        try:                # ...but Kinetic rows follow a changed row count (their keys depend on the natural length)
-            k_tpl = kinetic_template(comp)[0]
-            if k_tpl is not None:
-                rekey_if_changed(comp, k_tpl, None, None)
+        try:                # ...but Kinetic rows follow a changed row count, a box sweep its letter count
+            rekey_comp(comp, a.get("item"))
         except Exception:
             pass
         return found
@@ -1221,6 +1219,10 @@ def op_highlight_box(a):
                 res.append({"tool": attrs(tool).get("TOOLS_Name"), "error": str(e)})
     finally:
         comp.Unlock()
+    try:
+        rekey_comp(comp, a.get("item"))         # the box sweep's keys carry Box Width
+    except Exception:
+        pass
     return {"highlights": res}
 
 
@@ -1279,6 +1281,11 @@ def op_controls_set(a):
                 continue
     finally:
         comp.Unlock()
+    if any(i.startswith("Highlight") or i.startswith("Seg") for i in ids):
+        try:
+            rekey_comp(comp, a.get("item"))     # the box sweep's keys carry Box Width
+        except Exception:
+            pass
     return {"values": {i: get_in(tool, i) for i in ids}}
 
 
@@ -1463,8 +1470,7 @@ def op_set_boxes(a):
                 lead = lead_single_segment(comp)
                 if lead:
                     fit_segments(comp, a.get("clipFrames"))
-            if lead:
-                key_followers(comp)
+            rekey_comp(comp, a.get("item"))     # moved rows, and the box sweep's letter count
         except Exception:
             pass
         return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": [],
@@ -2253,6 +2259,10 @@ def key_followers_inner(comp):
         keyed += key_seg_paths(comp, tpl, rs)
     except Exception:
         pass
+    try:
+        keyed += key_box_sweep(comp, tpl, rs)
+    except Exception:
+        pass
     if keyed:
         try:
             tpl.SetData(SEG_KEYED_DATA, json.dumps(seg_state(comp, tpl)))
@@ -2386,6 +2396,135 @@ def key_seg_paths(comp, tpl, rs):
     return keyed
 
 
+# Highlight Select / Soft Marker / Underline Draw: the box grows letter by letter through HighlightFollower.SizeX1, a
+# Lua expression of time, Seg2 Start / End, the emphasis letter count and Template.HighlightWidth. Like the letter
+# expressions it ran once per emphasis LETTER every frame (also during export). key_box_sweep writes the same linear
+# ramp as two keys (width baked in) and seg_state carries the width and letter count, so any change to them re-keys
+# (seg_watch / sweep, text and Clip-control edits, op_highlight_box). The preset file keeps the expression as fallback.
+BOX_FOLLOWER = "HighlightFollower"
+BOX_SWEEP_RE = None
+
+
+def box_sweep_spec(expr):
+    """{kind: sweep, seg, k, src, scale} from the generated box-sweep expression, or None (anything else stays)."""
+    import re
+    global BOX_SWEEP_RE
+    if BOX_SWEEP_RE is None:
+        n = r"([\d.]+)"
+        BOX_SWEEP_RE = re.compile(
+            r": local S(\d+) = tonumber\(Template\.Seg\1Start\) or 0\n"
+            r"local E\1 = tonumber\(Template\.Seg\1End\) or S\1\n"
+            r"local D\1 = math\.max\(1, \(E\1 - S\1\) \* " + n + r"\)\n"
+            r"local r\1 = math\.max\(2, math\.min\(9, D\1 \* 0\.5\)\)\n"
+            r"local Sh = S\1 \+ r\1\n"
+            r"local Dh = math\.max\(1, E\1 - Sh\)\n"
+            r"local function n\(s\) [^\n]*\n"
+            r"local c = math\.max\(1, n\((\w+)\.Text\.Value\)\)\n"
+            r"local rh = math\.max\(1, Dh \* 1\.5 / \(c \+ 1\.5\)\)\n"
+            r"local p = math\.min\(1, math\.max\(0, \(time - comp\.RenderStart - Sh\) / rh\)\)\n"
+            r"return \(" + n + r" \* p\) \* \(tonumber\(Template\.HighlightWidth\) or 1\)\s*$")
+    m = BOX_SWEEP_RE.match(expr or "")
+    if not m:
+        return None
+    return {"kind": "sweep", "seg": int(m.group(1)), "k": float(m.group(2)), "src": m.group(3), "scale": float(m.group(4))}
+
+
+def box_chars(comp, src):
+    """The expression's c: letters in the source follower's text (newlines not counted), at least 1."""
+    try:
+        t = get_in(comp.FindTool(src), "Text")
+    except Exception:
+        t = None
+    t = t if isinstance(t, str) else ""
+    return max(1, len(t.replace("\r", "").replace("\n", "")))
+
+
+def box_state(comp, tpl):
+    """What the box keys depend on besides RenderStart / Seg: [width, letters], or None when there is no box sweep."""
+    hf = comp.FindTool(BOX_FOLLOWER)
+    if hf is None or get_in(tpl, "HighlightWidth") is None:
+        return None
+    src = "EmphasisFollower"
+    try:
+        src = ((hf.GetData(ANIM_DATA) or {}).get("SizeX1") or {}).get("src") or src
+    except Exception:
+        pass
+    return ["box", num(get_in(tpl, "HighlightWidth"), 1), box_chars(comp, src)]
+
+
+def key_box_sweep(comp, tpl, rs):
+    hf = comp.FindTool(BOX_FOLLOWER)
+    if hf is None or attrs(hf).get("TOOLS_RegID") not in FOLLOWERS:
+        return 0
+    try:
+        expr = hf.SizeX1.GetExpression()
+    except Exception:
+        expr = None
+    try:
+        specs = dict(hf.GetData(ANIM_DATA) or {})
+    except Exception:
+        specs = {}
+    spec = box_sweep_spec(expr) if expr else None
+    if spec is None:
+        if expr:
+            return 0                     # some other expression: it stays
+        spec = specs.get("SizeX1")
+        if not spec or spec.get("kind") != "sweep":
+            return 0
+    s = num(get_in(tpl, "Seg%dStart" % int(spec["seg"])), 0)
+    e = num(get_in(tpl, "Seg%dEnd" % int(spec["seg"])), s)
+    d = max(1.0, (e - s) * float(spec["k"]))
+    sh = s + max(2.0, min(9.0, d * 0.5))
+    dh = max(1.0, e - sh)
+    c = box_chars(comp, spec.get("src") or "EmphasisFollower")
+    rh = max(1.0, dh * 1.5 / (c + 1.5))
+    full = float(spec["scale"]) * num(get_in(tpl, "HighlightWidth"), 1)
+    lo, hi = rs + sh, rs + sh + rh
+
+    def val(k):
+        return full * min(1.0, max(0.0, (k - lo) / rh))
+    if expr:
+        hf.SizeX1.SetExpression(None)
+    sp = anim_spline(hf, "SizeX1", "value")
+    if sp is None:
+        if expr:
+            hf.SizeX1.SetExpression(expr)        # never leave the box without its sweep
+        return 0
+    keys = {lo: {1: 0.0, "Flags": {"Linear": True}}, hi: {1: full, "Flags": {"Linear": True}}}
+    try:
+        old = [float(k) for k in (sp.GetKeyFrames() or {}).keys()]
+    except Exception:
+        old = []
+    for k in old:          # as in key_followers: stray keys are first given the held value, then deleted
+        if k not in keys:
+            keys[k] = {1: val(k), "Flags": {"Linear": True}}
+    sp.SetKeyFrames(keys, True)
+    try:
+        sp.DeleteKeyFrames(-1e6, lo - 1e-3)
+        sp.DeleteKeyFrames(hi + 1e-3, 1e6)
+    except Exception:
+        pass
+    if specs.get("SizeX1") != spec:
+        specs["SizeX1"] = spec
+        try:
+            hf.SetData(ANIM_DATA, specs)
+        except Exception:
+            pass
+    return 1
+
+
+def rekey_comp(comp, item=None):
+    """Re-keys a segment / Kinetic clip when what its keys depend on changed since they were written (compared with the
+    state saved on its Template, so an unchanged clip costs a few reads). For edits made outside the timing ops: text,
+    Clip controls, box sliders."""
+    tpl = comp.FindTool("Template")
+    if tpl is None or get_in(tpl, "Seg1Start") is None:
+        tpl = next((t for t in tool_list(comp) if get_in(t, "Seg1Start") is not None), None) or kinetic_template(comp)[0]
+    if tpl is None:
+        return 0
+    return rekey_if_changed(comp, tpl, None, str(item) if item is not None else None)
+
+
 def op_key_followers(a):
     """key_followers on one clip (also converts clips placed before the keyframe change)."""
     return {"keyed": key_followers(get_comp(a["item"], a.get("comp")))}
@@ -2471,6 +2610,9 @@ def seg_state(comp, tpl):
         if st is None:
             break
         cur.append((num(st, 0), num(get_in(tpl, "Seg%dEnd" % n), 0)))
+    box = box_state(comp, tpl)
+    if box is not None:
+        cur.append(box)
     return tuple(cur)
 
 
@@ -2759,8 +2901,7 @@ def op_mt_rows_set(a):
             lead = lead_single_segment(comp)
             if lead:
                 fit_segments(comp, a.get("clipFrames"))
-        if lead:
-            key_followers(comp)
+        rekey_comp(comp, a.get("item"))         # moved rows, and the box sweep's letter count
     except Exception:
         pass
     return {"set": done, "segLead": lead}

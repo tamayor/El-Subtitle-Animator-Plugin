@@ -48,6 +48,29 @@ def count(k, n=1):
 STEPS = {}
 
 
+class LOCKED(object):
+    """comp.Lock() for a batch of changes: Fusion re-evaluates the comp once at Unlock instead of after every
+    SetKeyFrames / SetExpression / SetInput (keying one clip's letters took 4 s unlocked). Nests safely."""
+    def __init__(self, comp):
+        self.comp = comp
+        self.ok = False
+
+    def __enter__(self):
+        try:
+            self.comp.Lock()
+            self.ok = True
+        except Exception:
+            self.ok = False
+
+    def __exit__(self, *a):
+        if self.ok:
+            try:
+                self.comp.Unlock()
+            except Exception:
+                pass
+        return False
+
+
 class STEP(object):
     def __init__(self, name):
         self.name = name
@@ -580,14 +603,15 @@ def op_set_text(a):
         except Exception:
             pass
         return found
-    with STEP("typing"):
-        set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
-    with STEP("retime"):
-        init_retime(comp, a.get("clipFrames"))
-    with STEP("segments"):
-        fit_segments(comp, a.get("clipFrames"))
-    with STEP("keys"):
-        key_followers(comp)
+    with LOCKED(comp):
+        with STEP("typing"):
+            set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+        with STEP("retime"):
+            init_retime(comp, a.get("clipFrames"))
+        with STEP("segments"):
+            fit_segments(comp, a.get("clipFrames"))
+        with STEP("keys"):
+            key_followers(comp)
     if FIX.get("wakeOnInsert", True):
         with STEP("wake"):
             wake_effects(comp)
@@ -1365,14 +1389,15 @@ def op_set_boxes(a):
         STEPS["size"] = STEPS.get("size", 0.0) + (time.perf_counter() - t_size) * 1000.0
     if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake / scan pass (see liveUpdate)
         return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": []}
-    with STEP("typing"):
-        set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
-    with STEP("retime"):
-        init_retime(comp, a.get("clipFrames"))
-    with STEP("segments"):
-        fit_segments(comp, a.get("clipFrames"))
-    with STEP("keys"):
-        key_followers(comp)
+    with LOCKED(comp):
+        with STEP("typing"):
+            set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+        with STEP("retime"):
+            init_retime(comp, a.get("clipFrames"))
+        with STEP("segments"):
+            fit_segments(comp, a.get("clipFrames"))
+        with STEP("keys"):
+            key_followers(comp)
     if FIX.get("wakeOnInsert", True):
         with STEP("wake"):
             wake_effects(comp)
@@ -1999,6 +2024,11 @@ def anim_spline(fol, inp_id, kind):
 def key_followers(comp):
     """Converts the per-letter segment expressions of every follower to keyframes (first call) and re-keys them from
     the Template's current Seg values. Returns the number of inputs keyed. Kinetic Cloud / Lines rows: key_kinetic."""
+    with LOCKED(comp):
+        return key_followers_inner(comp)
+
+
+def key_followers_inner(comp):
     tpl = None
     for tool in tool_list(comp):
         if get_in(tool, "Seg1Start") is not None:
@@ -2261,6 +2291,11 @@ def kinetic_expr_ok(kind, inp, expr):
 def key_kinetic(comp):
     """Converts the Pop<k> followers' per-letter expressions to keyframes (first call) and re-keys them for the current
     timing. Returns the number of inputs keyed (0 = not a Kinetic comp, or nothing to key)."""
+    with LOCKED(comp):
+        return key_kinetic_inner(comp)
+
+
+def key_kinetic_inner(comp):
     tpl, kind = kinetic_template(comp)
     if tpl is None:
         return 0

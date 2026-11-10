@@ -78,8 +78,21 @@
 .fx-card .fx-color input[type="color"] { width: 22px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
 .fx-card .fx-note { flex: 1 0 100%; margin-top: 4px; font-size: 10.5px; color: var(--dim); }
 
-.fx-card .fx-select { flex: 1; min-width: 0; font-size: 11px; background: var(--card-inner); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
 .fx-card .fx-num { width: 44px; margin: 0 4px; font-size: 11px; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; }
 .fx-card .fx-opts .fx-strength-cap { flex: none; min-width: 70px; }
 .fx-card .fx-opts .fx-strength-val { width: 38px; }
 .fx-card .fx-opts .fx-opt-row { margin-top: 6px; }
+
+/* Transform easing picker */
+.fx-card .fx-ease-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 4px; font-size: 11px;
+    color: var(--text); background: var(--card-inner); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; text-align: left; }
+.fx-card .fx-ease-btn:hover { border-color: var(--accent); }
+.fx-ease-svg { flex: none; display: block; overflow: visible; }
+.fx-ease-guide { stroke: var(--line); stroke-width: 1; }
+.fx-ease-curve { fill: none; stroke: var(--text); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pop.fx-ease-pop { display: grid; grid-template-columns: repeat(3, 96px); gap: 6px; padding: 8px; max-width: calc(100vw - 16px); }
+.fx-ease-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 2px; font-size: 10.5px;
+    color: var(--dim); background: var(--card-inner); border: 1px solid var(--line-soft); border-radius: 6px; cursor: pointer; }
+.fx-ease-tile:hover { border-color: var(--line); color: var(--text); }
+.fx-ease-tile.on { border-color: var(--accent); color: var(--text); }
+.fx-ease-tile.on .fx-ease-curve { stroke: var(--accent); }

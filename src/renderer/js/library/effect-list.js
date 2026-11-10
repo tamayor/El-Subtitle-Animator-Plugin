@@ -116,6 +116,48 @@ function fxGlitchOptions(e, st) {
     return d;
 }
 
+// The easing curves of the Transform effect, in the order of its Ease list (same formulas as effect-presets.js easeExpr)
+const FX_EASE_FNS = (() => {
+    const c1 = 1.70158, c2 = c1 * 1.525, c3 = c1 + 1;
+    return [
+        u => u,
+        u => u * u,
+        u => 1 - (1 - u) ** 2,
+        u => u < 0.5 ? 2 * u * u : 1 - (2 - 2 * u) ** 2 / 2,
+        u => u ** 4,
+        u => 1 - (1 - u) ** 4,
+        u => u < 0.5 ? 8 * u ** 4 : 1 - (2 - 2 * u) ** 4 / 2,
+        u => u <= 0 ? 0 : 2 ** (10 * u - 10),
+        u => u >= 1 ? 1 : 1 - 2 ** (-10 * u),
+        u => u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 2 ** (20 * u - 10) / 2 : (2 - 2 ** (10 - 20 * u)) / 2,
+        u => c3 * u ** 3 - c1 * u * u,
+        u => 1 + c3 * (u - 1) ** 3 + c1 * (u - 1) ** 2,
+        u => u < 0.5 ? (2 * u) ** 2 * ((c2 + 1) * 2 * u - c2) / 2 : ((2 * u - 2) ** 2 * ((c2 + 1) * (2 * u - 2) + c2) + 2) / 2
+    ];
+})();
+// a small chart of one curve: faint start / end lines, the curve (Back curves go past them)
+function fxEaseSvg(i, w, h) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const f = FX_EASE_FNS[i] || FX_EASE_FNS[0];
+    const pad = 3, top = h * 0.22, bot = h * 0.78;      // room above / below for the Back overshoot
+    const y = v => bot - v * (bot - top);
+    const pts = [];
+    for (let k = 0; k <= 40; k++) { const u = k / 40; pts.push((pad + u * (w - 2 * pad)).toFixed(1) + ',' + y(f(u)).toFixed(1)); }
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h); svg.setAttribute('width', w); svg.setAttribute('height', h);
+    svg.setAttribute('class', 'fx-ease-svg'); svg.setAttribute('aria-hidden', 'true');
+    for (const v of [0, 1]) {
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', pad); ln.setAttribute('x2', w - pad); ln.setAttribute('y1', y(v)); ln.setAttribute('y2', y(v));
+        ln.setAttribute('class', 'fx-ease-guide');
+        svg.appendChild(ln);
+    }
+    const pl = document.createElementNS(NS, 'polyline');
+    pl.setAttribute('points', pts.join(' ')); pl.setAttribute('class', 'fx-ease-curve');
+    svg.appendChild(pl);
+    return svg;
+}
+
 // ---- Transform: Zoom % / Left-Right % / Up-Down % (where it ends), easing curve, Reverse, Length
 function fxTransformOptions(e, st) {
     const p = fxParamsShown(e);
@@ -152,15 +194,32 @@ function fxTransformOptions(e, st) {
     const zoom = slider('ZoomPct', 'Zoom', 50, 200, v => Math.round(v) + '%', 'Zoom at the end of the move (100% = no zoom, 120% = push in, 80% = pull out)');
     const mx = slider('MoveX', 'Left / Right', -50, 50, signed, 'Moves the picture sideways, in percent of the frame (+ = right, - = left)');
     const my = slider('MoveY', 'Up / Down', -50, 50, signed, 'Moves the picture up or down, in percent of the frame (+ = up, - = down)');
-    // easing curve
-    const er = document.createElement('label'); er.className = 'fx-opt-row'; er.title = 'How the move speeds up and slows down';
+    // easing curve: a button with the current curve; click = a grid of every curve (drawn like easings.net)
+    const er = document.createElement('div'); er.className = 'fx-opt-row'; er.title = 'How the move speeds up and slows down';
     const ec = document.createElement('span'); ec.className = 'fx-strength-cap'; ec.textContent = 'Ease';
-    const sel = document.createElement('select'); sel.className = 'fx-select';
-    e.transform.eases.forEach((n, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = n; sel.appendChild(o); });
-    sel.value = String(Math.round(Number(p.Ease)) || 0);
-    hold(sel);
-    sel.addEventListener('change', () => { fxUI.sliding = false; fxSendParams(e, st, { Ease: Number(sel.value) }, true); });
-    er.append(ec, sel);
+    let cur = Math.round(Number(p.Ease)) || 0;
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'fx-ease-btn';
+    const paint = () => { btn.textContent = ''; btn.append(fxEaseSvg(cur, 34, 22), document.createTextNode(e.transform.eases[cur] || 'Linear')); };
+    paint();
+    hold(btn);
+    btn.addEventListener('click', () => {
+        openPop(btn, 'fx-ease-pop', (el) => {
+            e.transform.eases.forEach((n, i) => {
+                const it = document.createElement('button');
+                it.type = 'button';
+                it.className = 'fx-ease-tile' + (i === cur ? ' on' : '');
+                it.title = n;
+                const lab = document.createElement('span'); lab.textContent = n.replace(/^Ease /, '');
+                it.append(lab, fxEaseSvg(i, 84, 54));
+                it.addEventListener('click', () => {
+                    cur = i; paint(); closePop();
+                    fxSendParams(e, st, { Ease: i }, true);
+                });
+                el.appendChild(it);
+            });
+        });
+    });
+    er.append(ec, btn);
     // Start / End: clip frames the move runs between (Start 0 = the first frame, End = the last frame by default; the
     // effect stores End 0 for "the last frame", so it follows a trimmed clip)
     const clip = fxUI.clips.find(c => c.effects && c.effects[e.id] && Number(c.frames) > 0);

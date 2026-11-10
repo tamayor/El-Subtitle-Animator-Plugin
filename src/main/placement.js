@@ -8,7 +8,7 @@ module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
     presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
-    linkToText, placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
+    linkToText, loneRow, placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, tailFor, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
 const path = require('path');
@@ -520,6 +520,13 @@ function writeSafeComp(compPath, out) {
     } catch (e) { return compPath; }
 }
 
+// The frames a clip runs past its caption ("Ends" in the Alignment timeline). A MultiText clip never runs past the
+// caption: its tail is cut to 0 (a negative one, ending early, is kept).
+function tailFor(req, anim) {
+    const t = Number(req && req.tail) || 0;
+    if (t > 0 && anim && anim.file && titleKindFor(path.join(ANIM_DIR, anim.file)) === 'multitext') return 0;
+    return t;
+}
 function titleKindFor(compPath) {
     try { return detectNodes(compPath).some(n => n.kind === 'multitext') ? 'multitext' : 'text'; } catch (e) { return 'text'; }
 }
@@ -1079,6 +1086,9 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
                 out.push(...placed);
                 continue;
             }
+            // A MultiText clip with text in one row only (e.g. just the Emphasis) gets that row's sound and nothing else:
+            // no main sound (apply.js / live-preview.js loneRow) and none of the other layered sounds.
+            if (rf.only) continue;
             if (l.align === 'rows') {
                 const rows = (Array.isArray(rowFrames) && rowFrames.length) ? rowFrames : [0];
                 if (rows.length === 1 && !(Array.isArray(rowFrames) && rowFrames.length)) notes.push('sound "' + path.basename(l.file) + '": the preset has no rows, placed once');
@@ -1106,6 +1116,10 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
             else if (cap > 0) len = Math.min(len, cap);
             len = Math.max(1, len);
             let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);
+            if (l.align !== 'end' && l.align !== 'after' && off > 0 && start >= textEnd) {      // would start after the text ends
+                notes.push('sound "' + path.basename(l.file) + '": starts after the clip ends, not placed');
+                continue;
+            }
             start = Math.max(tlStart, start);
             const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes, place, snap);
             const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: start, startFrame: trimIn, endFrame: trimIn + len }]);
@@ -1202,9 +1216,10 @@ function segSfxForget(videoId, ids) {
     if (!r.sounds.length && !r.layers.length && !(r.rows || []).length) delete o[k]; else o[k] = r;
     segSfxWrite(o);
 }
+const loneRow = (rowFrames) => !!(rowFrames && !Array.isArray(rowFrames) && rowFrames.only);
 // The clip-relative row start frames for the 'rows' layers (null when no layer repeats per row or the comp has no
 // rows). Call it AFTER the text is written to the comp: the rows are counted from the Pop<k> texts.
-// With layers aligned to a MultiText row ('seg'), it returns { rows, segs, empty } instead (empty = { <n>: true } for
+// With layers aligned to a MultiText row ('seg'), it returns { rows, segs, empty, only } instead (only = the one row with text when the others are empty: then only that row's sound is placed, see loneRow) (empty = { <n>: true } for
 // rows whose text is empty: their sounds are not placed): segs = { <n>: Seg<n>Start }, read
 // from the placed clip (after any fit to a short clip), so the sound lands where that row's in-animation starts.
 async function rowFramesFor(itemId, compName, layers, warnings) {
@@ -1212,7 +1227,7 @@ async function rowFramesFor(itemId, compName, layers, warnings) {
     const wantSegs = !!(layers && layers.some(l => l.align === 'seg'));
     if (!wantRows && !wantSegs) return null;
     const { bridgeCall } = require('./fusion-bridge');              // required here: fusion-bridge loads before this module
-    let rows = null, segs = null, empty = null;
+    let rows = null, segs = null, empty = null, only = null;
     if (wantRows) {
         try {
             const r = await bridgeCall('row_times', { item: itemId, comp: compName });
@@ -1224,13 +1239,14 @@ async function rowFramesFor(itemId, compName, layers, warnings) {
         const r = await bridgeCall('timing_get', { item: itemId, comp: compName }, 6000);
         if (r && r.kind === 'segments' && Array.isArray(r.ranges)) {
             segs = {}; empty = {};
+            only = r.only ? Number(r.only) : null;
             for (const x of r.ranges) {
                 segs[Number(x.key)] = Math.max(0, Math.round(Number(x.start) || 0));
                 if (x.empty) empty[Number(x.key)] = true;      // rows left without text get no sound
             }
         }
     } catch (e) { if (warnings) warnings.push('Could not read the Upper / Emphasis / Lower timing for their sounds: ' + e.message); }
-    return { rows, segs, empty };
+    return { rows, segs, empty, only };
 }
 // One copy of the sound per row: each starts at its row's frame (+ the layer's offset); a 'clip' length runs until the
 // next row starts (and never past the text end), a fixed length is kept. All copies share one audio track.

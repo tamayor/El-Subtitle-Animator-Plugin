@@ -645,6 +645,7 @@ def op_set_text(a):
         with STEP("retime"):
             init_retime(comp, a.get("clipFrames"))
         with STEP("segments"):
+            lead_single_segment(comp)
             fit_segments(comp, a.get("clipFrames"))
         with STEP("keys"):
             key_followers(comp)
@@ -1435,13 +1436,25 @@ def op_set_boxes(a):
                 capped = capped or r["capped"]
         STEPS["size"] = STEPS.get("size", 0.0) + (time.perf_counter() - t_size) * 1000.0
     if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake / scan pass (see liveUpdate)
-        return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": []}
+        lead = False        # ...but a row left alone (or no longer alone) moves its start, and its letters follow
+        try:
+            with LOCKED(comp):
+                lead = lead_single_segment(comp)
+                if lead:
+                    fit_segments(comp, a.get("clipFrames"))
+            if lead:
+                key_followers(comp)
+        except Exception:
+            pass
+        return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": [],
+                "segLead": lead}
     with LOCKED(comp):
         with STEP("typing"):
             set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
         with STEP("retime"):
             init_retime(comp, a.get("clipFrames"))
         with STEP("segments"):
+            lead_single_segment(comp)
             fit_segments(comp, a.get("clipFrames"))
         with STEP("keys"):
             key_followers(comp)
@@ -1992,7 +2005,10 @@ def fit_segments(comp, clip_frames):
             segs = segment_list(tool)
             if not segs:
                 continue
-            last = max(num(get_in(tool, "Seg%dEnd" % n), 0) for n, _, _, _ in segs)
+            # rows without text do not count: an emphasis-only clip keeps its timing when that row alone fits
+            mt = multitext_tool(comp)
+            used = [n for n, _, _, _ in segs if not segment_text_empty(mt, n)] or [n for n, _, _, _ in segs]
+            last = max(num(get_in(tool, "Seg%dEnd" % n), 0) for n in used)
             if last <= top:
                 continue
             k = top / last
@@ -2001,6 +2017,61 @@ def fit_segments(comp, clip_frames):
                     tool.SetInput(key, int(round(num(get_in(tool, key), 0) * k)))
         except Exception:
             pass
+
+
+def multitext_tool(comp):
+    return next((t for t in tool_list(comp) if attrs(t).get("TOOLS_RegID") == "MultiText"), None)
+
+
+SEG_LEAD_DATA = "ElsaSegLead"     # Template CustomData: '{"n": row, "by": frames}' while a lone row is pulled to frame 0
+
+
+def lead_single_segment(comp):
+    """A MultiText row preset with text in ONE row only (e.g. just the Emphasis): that row's in-animation starts at
+    the clip's first frame instead of waiting for the empty rows before it (Seg<n>Start -> 0, same length). The
+    shift is remembered on the Template and taken back when another row gets text again. True when a Seg value
+    changed (the caller re-keys the letters). Call it before fit_segments."""
+    if not FIX.get("leadSingleRow", True):
+        return False
+    tpl = next((t for t in tool_list(comp) if get_in(t, "Seg1Start") is not None), None)
+    mt = multitext_tool(comp)
+    if tpl is None or mt is None:
+        return False
+    rows = [n for n, _, _, _ in segment_list(tpl)]
+    if len(rows) < 2:
+        return False
+    try:
+        rec = json.loads(tpl.GetData(SEG_LEAD_DATA) or "null")
+    except Exception:
+        rec = None
+    if not (isinstance(rec, dict) and rec.get("n") in rows):
+        rec = None
+    filled = [n for n in rows if not segment_text_empty(mt, n)]
+    only = filled[0] if len(filled) == 1 else None
+    changed = False
+
+    def shift(n, by):
+        s0 = num(get_in(tpl, "Seg%dStart" % n), 0)
+        e0 = num(get_in(tpl, "Seg%dEnd" % n), s0 + 1)
+        s1 = max(0, int(round(s0 + by)))
+        tpl.SetInput("Seg%dStart" % n, s1)
+        tpl.SetInput("Seg%dEnd" % n, max(s1 + 1, int(round(e0 + by))))
+
+    if rec and rec["n"] != only:            # the lone row got company (or changed): back to where it was
+        shift(rec["n"], num(rec.get("by"), 0))
+        rec, changed = None, True
+    if only is not None:
+        s = num(get_in(tpl, "Seg%dStart" % only), 0)
+        if s > 0:
+            shift(only, -s)
+            rec = {"n": only, "by": s + (num(rec.get("by"), 0) if rec else 0)}
+            changed = True
+    if changed:
+        try:
+            tpl.SetData(SEG_LEAD_DATA, json.dumps(rec) if rec else "")
+        except Exception:
+            pass
+    return changed
 
 
 # ---------------------------------------------------------------- per-letter animation as keyframes
@@ -2477,12 +2548,15 @@ def op_timing_get(a):
             rekey_if_changed(comp, tool, ent[2] if ent else None, str(a["item"]))
         except Exception:
             pass
-        mt = next((t for t in tool_list(comp) if attrs(t).get("TOOLS_RegID") == "MultiText"), None)
+        mt = multitext_tool(comp)
         ranges = [{"key": str(n), "label": segment_name(mt, n, label), "start": num(get_in(tool, "Seg%dStart" % n), 0),
                    "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True,
                    "empty": segment_text_empty(mt, n)}
                   for n, label, ds, de in segment_list(tool)]
-        return {"kind": kind, "ranges": ranges}
+        # only: the one row with text when every other row is empty (then only that row's sound is placed)
+        filled = [r["key"] for r in ranges if not r["empty"]]
+        only = int(filled[0]) if (mt is not None and len(ranges) > 1 and len(filled) == 1) else None
+        return {"kind": kind, "ranges": ranges, "only": only}
     if kind == "anim" and kinetic_template(comp)[0] is not None:
         try:   # Kinetic rows: a head trim / Inspector change since they were keyed moves their keys along
             ent = _seg_seen.get(str(a["item"]))

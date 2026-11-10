@@ -18,7 +18,7 @@ const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, linkToText, pickTrack,
-    placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
+    loneRow, placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, tailFor, trackUsable, typingFramesFor
 } = require('./placement');
 const { findItemsByIds, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 const { snapAdd } = require('./timeline-snapshot');
@@ -218,6 +218,7 @@ async function liveUpdate(event, req) {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === state.liveSession.animId);
         if (!anim) throw new Error('Preset not found');
+        req.tail = tailFor(req, anim);          // a MultiText clip ends with its caption
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
         if (!tl) throw new Error('Open a timeline in Resolve');
@@ -268,14 +269,9 @@ async function liveUpdate(event, req) {
         // times per keystroke, which is what made it lag while editing MultiText.
         const light = !moved && dur0 === want && !(ti && ti[1] !== track);
         let sfxMoved = false;
-        if (moved) {
-            try {
-                if (req.sfxPath) state.liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
-                const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId, warnings);
-                if (r) { state.liveSession.sfxId = r.id; state.liveSession.sfxItem = r.item; state.liveSession.sfxWhere = { track: r.track, start: r.start }; sfxMoved = true; }
-            } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
-            // the layered sounds are placed below, once the new text is in the comp (per-row copies follow its rows)
-        }
+        // the main and layered sounds are placed below, once the new text is in the comp (per-row copies follow its
+        // rows, and a clip with text in one row only gets that row's sound alone)
+        if (moved && req.sfxPath) state.liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
         const compPath = state.liveSession.compPath, compName = state.liveSession.compName, itemId = state.liveSession.itemId;
         const textDesign = designForFusion(compPath, req.textDesign || anim.textDesign || null, undefined, true);
         const text = String(req.text || '').trim() || (anim && anim.sample) || SAMPLE_TEXTS[0];
@@ -286,25 +282,51 @@ async function liveUpdate(event, req) {
                 }
             }
         }
+        let segLead = false;      // a row left alone moved to the clip start (or back): its sounds are placed again
         try {
             if (Array.isArray(req.boxList) && req.boxList.length) {
-                await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want, light });
+                const br = await bridgeCall('set_boxes', { item: itemId, comp: compName, boxes: fusionBoxes(compPath, req.boxList, true), textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want, light });
+                segLead = !!(br && br.segLead);
             } else {
                 await bridgeCall('set_text', { item: itemId, comp: compName, text, textDesign, typingFrames: typingFramesFor(want, meta.fps), clipFrames: want, light });
             }
         } catch (e) { warnings.push('Could not set the text: ' + e.message); }
-        if (moved) {
+        // lone: text in one MultiText row only (e.g. just the Emphasis) = that row's sound alone, no main / other sounds
+        const S = state.liveSession;
+        const layers0 = req.useSfx !== false ? layerList(req, anim) : [];
+        const rowFrames0 = layers0.length ? await rowFramesFor(itemId, compName, layers0, warnings) : null;
+        const lone = loneRow(rowFrames0);
+        const loneFlip = !moved && (segLead || lone !== !!S.lone);
+        S.lone = lone;
+        if (loneFlip && S.sfxId) {      // the old main sound goes (and comes back below when the clip is no longer lone)
             try {
+                const old = await findAudioItemById(tl, S.sfxId);
+                if (old && await tl.DeleteClips([old], false)) regDel(S.sfxId);
+                S.sfxId = null; S.sfxItem = null; S.sfxWhere = null;
+            } catch (e) { /* the sweep removes it later */ }
+        }
+        if ((moved || loneFlip) && !lone && !S.sfxId) {
+            try {
+                const r = await placeLiveSfx(tl, project, meta, S.sfxPath, req, anim, textStart, [], item, itemId, warnings);
+                if (r) { S.sfxId = r.id; S.sfxItem = r.item; S.sfxWhere = { track: r.track, start: r.start }; sfxMoved = true; }
+            } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
+        }
+        if (moved || loneFlip) {
+            try {
+                if (!moved) {      // a row is now alone (or no longer): every layered sound is placed again
+                    await deleteExtraSfx(tl, S.extraIds, S.extraItems, S.extraWhere);
+                    segSfxForget(itemId);
+                    sessionSounds(S, [], true);
+                }
                 if (req.useSfx !== false) {
-                    const layers = layerList(req, anim);
-                    const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
+                    const layers = layers0, rowFrames = rowFrames0;
                     const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rowFrames);
                     sessionSounds(state.liveSession, extra, true);
                 }
             } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
         } else if (req.useSfx !== false) {
             // Same caption, new text: a row that just got text gets its sounds, a row that was cleared loses them.
-            try { await syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings); }
+            try { await syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings, segLead); }
             catch (e) { warnings.push('Could not update the row sounds: ' + e.message); }
         }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
@@ -320,7 +342,7 @@ async function liveUpdate(event, req) {
 // Row sounds (layers aligned to Upper / Emphasis / Lower) of the running preview follow which rows have text: the
 // rows are read from the clip (timing_get 'empty'), compared with the sounds placed (session.extraSeg = { id: row }),
 // and only the rows that changed are added or removed. Nothing happens for presets without row sounds.
-async function syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings) {
+async function syncRowSounds(tl, project, meta, req, anim, textStart, want, itemId, compName, warnings, replace) {
     const s = state.liveSession;
     const segLayers = layerList(req, anim).filter(l => l.align === 'seg');
     if (!s || !segLayers.length) return;
@@ -328,9 +350,10 @@ async function syncRowSounds(tl, project, meta, req, anim, textStart, want, item
     if (!rf || !rf.segs) return;
     const wanted = new Set(segLayers.map(l => Math.max(1, Math.round(Number(l.seg) || 1))).filter(n => !(rf.empty && rf.empty[n])));
     const seg = s.extraSeg || (s.extraSeg = {});
-    const have = new Set(Object.values(seg).map(Number));
+    // replace: the rows' starts moved (fusion_bridge.lead_single_segment), so every row sound is placed again
+    const have = replace ? new Set() : new Set(Object.values(seg).map(Number));
     // cleared rows: their sounds go
-    const drop = Object.keys(seg).filter(id => !wanted.has(Number(seg[id])));
+    const drop = Object.keys(seg).filter(id => replace || !wanted.has(Number(seg[id])));
     if (drop.length) {
         const left = await deleteExtraSfx(tl, drop, s.extraItems, s.extraWhere);
         const gone = drop.filter(id => !left.includes(id));
@@ -443,6 +466,7 @@ async function liveFinish(event, req) {
     try {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === s.animId) || {};
+        if (req) req.tail = tailFor(req, anim);          // a MultiText clip ends with its caption
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
         if (!tl) throw new Error('Open a timeline in Resolve');
@@ -481,7 +505,7 @@ async function liveFinish(event, req) {
                     clipsLinked = !!(wantLink && ok);
                 } catch (e) { warnings.push('Could not link text and sound clips: ' + e.message); }
             }
-        } else if (req.useSfx !== false && sfxPath) {
+        } else if (req.useSfx !== false && sfxPath && !s.lone) {
             if (!fs.existsSync(sfxPath)) warnings.push('The sound effect file is missing.');
             else {
                 const { mp, item: mpi } = await importSfx(project, sfxPath, true);      // kept = applied: the timeline keeps its own copy

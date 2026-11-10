@@ -214,8 +214,25 @@ function loadLib() {
     }
     const seeded = seedRowSounds(lib);
     const linked = linkLayersOnce(lib);
-    if (seeded || linked) { try { saveLib(lib); } catch (e) { /* seeded again next time */ } }
+    const capped = capRowTailsOnce(lib);
+    if (seeded || linked || capped) { try { saveLib(lib); } catch (e) { /* seeded again next time */ } }
     return lib;
+}
+
+// MultiText row presets were saved with a 12-frame tail ("Ends" after the caption). A MultiText clip now always ends
+// with its caption (placement.js tailFor), so the saved tail goes to 0 once per preset (tailCapped) and the Alignment
+// timeline shows what is placed.
+function capRowTailsOnce(lib) {
+    let changed = false;
+    for (const a of lib.animations) {
+        if (!a || a.tailCapped || !a.file) continue;
+        if (!segmentsOf(path.join(ANIM_DIR, a.file)).length) continue;
+        if (Number(a.tail) > 0) a.tail = 0;
+        if (a.orig && Number(a.orig.tail) > 0) a.orig.tail = 0;
+        a.tailCapped = true;
+        changed = true;
+    }
+    return changed;
 }
 
 // Every sound layer (layered, row-slot and per-row repeat sounds) is linked to its text clip by default. Layers saved

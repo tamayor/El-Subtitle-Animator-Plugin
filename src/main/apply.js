@@ -22,7 +22,7 @@ const {
 const { ensureStopped, noteFrame } = require('./playback');
 const {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, moveTitleSafe, pickTrack, placeExtraSfx, rowFramesFor, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
+    layerList, loneRow, moveTitleSafe, pickTrack, placeExtraSfx, rowFramesFor, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, tailFor, titleKindFor, typingFramesFor
 } = require('./placement');
 const { frameToTC, getProject, setSubtitlesEnabled, tcToFrame, timelineMeta } = require('./resolve');
 const { snapAdd, takeSnapshot } = require('./timeline-snapshot');
@@ -49,6 +49,7 @@ async function applyInner(req, warnings, sp) {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === req.animationId);
         if (!anim) throw new Error('Pick an animation first');
+        req.tail = tailFor(req, anim);          // a MultiText clip ends with its caption
         let text = String(req.text || '').trim();
         if (!text) {
             text = (anim && anim.sample) || SAMPLE_TEXTS[0];
@@ -288,9 +289,13 @@ async function applyInner(req, warnings, sp) {
         sp.mark('transform');
 
         // 4. Sound effect (aligned to Text+ start + sfxOffset) and clip linking on timeline.
+        //    A MultiText clip with text in one row only (e.g. just the Emphasis) gets that row's sound alone: no main sound.
         let sfxTrack = null;
         let clipsLinked = false;
-        if (sfxInfo) {
+        const layers0 = req.useSfx !== false ? layerList(req, anim) : [];
+        const rowFrames0 = layers0.length ? await rowFramesFor(itemId, compName, layers0, warnings) : null;
+        const lone = loneRow(rowFrames0);
+        if (sfxInfo && !lone) {
             sfxTrack = sfxInfo.sfxTrack;
             const sfxItem = await appendSfxCut(sfxInfo.mp, sfxInfo.mpi, sfxInfo.sfxTrack, sfxInfo.sfxStart, sfxInfo.cut);
             if (!sfxItem) {
@@ -329,8 +334,7 @@ async function applyInner(req, warnings, sp) {
         //     Every copy's id is kept (extraSfxIds) so remove_placed can delete them even after they were moved by hand.
         let extraSfxIds = [];
         if (!live && req.useSfx !== false) {
-            const extra = layerList(req, anim);
-            const rowFrames = await rowFramesFor(itemId, compName, extra, warnings);
+            const extra = layers0, rowFrames = rowFrames0;
             if (extra.length) extraSfxIds = (await placeExtraSfx(tl, project, meta, extra, textStart, textStart + want, trackNotes, item, itemId, warnings, req.place, true, rowFrames, snap)).map(x => x.id);
         }
         sp.mark('sfx');
@@ -383,20 +387,20 @@ async function applyInner(req, warnings, sp) {
         if (live) {
             let liveSfxId = null, liveSfxItem = null, liveSfxWhere = null;
             try {
-                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings, snap);
+                const r = lone ? null : await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings, snap);
                 if (r) { liveSfxId = r.id; liveSfxItem = r.item; liveSfxWhere = { track: r.track, start: r.start }; sfxTrack = r.track; }
-                else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
+                else if (!lone && req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
             // unlinked while previewing, so a click on the Text+ selects only it and the Inspector shows its settings
             // the session also keeps each clip's handle and place, so ending the preview deletes by handle (live-preview.js sessionSounds)
             const sess = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxItem: liveSfxItem, sfxWhere: liveSfxWhere, sfxPath, item,
                 itemWhere: { track: vTrack, start: textStart } };
             sessionSounds(sess, [], true);
+            sess.lone = lone;
             try {
                 if (req.useSfx !== false) {
                     // per-row sounds (Kinetic Cloud) repeat in the preview too, so a looped play sounds like the final clip
-                    const layers = layerList(req, anim);
-                    const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
+                    const layers = layers0, rowFrames = rowFrames0;
                     const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, trackNotes, null, itemId, warnings, req.place, false, rowFrames, snap);
                     sessionSounds(sess, extra, true);      // ids, linked ones, row sounds (Upper / Emphasis / Lower), handles
                 }

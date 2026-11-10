@@ -336,7 +336,7 @@ async function relinkToProjectCopy(project, sfxItem) {
 // The "Subtitle Animator" bin's clips by file path, read once per project and kept while the bin's clip count is
 // unchanged (one GetClipList per import instead of a name + path read of every clip, in a bin that only grows).
 // Within one placement the bin is listed once (SFX_BIN_FRESH_MS): a Kinetic preset imports three or four sounds in a row.
-const SFX_BIN_FRESH_MS = 2000;
+const SFX_BIN_FRESH_MS = 5000;
 const sfxBin = { key: '', folder: null, count: -1, byPath: new Map(), listedAt: 0, verified: new Map() };
 async function importSfx(project, sfxPath, projectCopy) {
     const sp = PERF.span('place.importSfx');
@@ -409,8 +409,12 @@ async function importSfxInner(project, sfxPath, projectCopy) {
     let switched = false;
     if (target && !(await sameFolder(keep, target))) { try { switched = !!(await mp.SetCurrentFolder(target)); } catch (e) { switched = false; } }
     let items = await mp.ImportMedia([sfxPath]);
-    sfxBin.count = -1; sfxBin.listedAt = 0;      // the bin changed: read again next time
+    if (items && items.length && sfxBin.count >= 0 && sfxBin.byPath.size) {
+        // the new clip is known: it joins the map (one more in the bin) instead of a re-listing on the next sound
+        sfxBin.byPath.set(wantPath, items[0]); sfxBin.count += 1; sfxBin.verified.set(wantPath, Date.now());
+    } else { sfxBin.count = -1; sfxBin.listedAt = 0; }      // the bin changed: read again next time
     if ((!items || !items.length) && target) {
+        sfxBin.count = -1; sfxBin.listedAt = 0;
         const again = await findSame();
         if (again) items = [again];
     }

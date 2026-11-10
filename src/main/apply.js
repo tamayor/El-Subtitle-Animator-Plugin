@@ -172,11 +172,11 @@ async function applyInner(req, warnings, sp) {
                 throw new Error(mv.error);
             }
             // If Resolve hands out a Media Pool item for this title, keep it as a template for direct placement next time.
-            // Asked at most 3 times per template: a Fusion title has never been seen to return one.
+            // Asked at most 3 times while the plugin runs (about 17 ms each): a Fusion title has never returned one.
             const T = presetTitle ? presetTplState(presetTitle) : state.tplState[titleKind];
-            if (!T.auto && !T.broken && (T.mpiTries || 0) < 3) {
-                T.mpiTries = (T.mpiTries || 0) + 1;
-                try { const mpi = await item.GetMediaPoolItem(); if (mpi) T.auto = mpi; PERF.record('place.mediaPoolItem', 0, { got: !!mpi }); } catch (e) { /* not available */ }
+            if (!T.auto && !T.broken && (state.titleMpiTries || 0) < 3) {
+                state.titleMpiTries = (state.titleMpiTries || 0) + 1;
+                try { const mpi = await item.GetMediaPoolItem(); if (mpi) { T.auto = mpi; state.titleMpiTries = 0; } PERF.record('place.mediaPoolItem', 0, { got: !!mpi }); } catch (e) { /* not available */ }
             }
         }
         snapAdd(snap, 'video', vTrack, { it: item, name: presetTitle || (titleKind === 'multitext' ? 'MultiText' : 'Text+'), start: textStart, end: textStart + (finalLen || want), id: insertedId });

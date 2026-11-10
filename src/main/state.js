@@ -15,6 +15,7 @@ module.exports = {
     ofxLeft: new Map(),
     tplState: { text: { auto: null, broken: false, good: 0 }, multitext: { auto: null, broken: false, good: 0 } },
     presetTpl: new Map(),      // preset title template name -> { auto, broken, good } (see presetTplState)
+    titleMpiTries: 0,          // how often GetMediaPoolItem was asked of an inserted title (apply.js; never answers)
     liveSession: null,
     placePrefs: null,          // the panel's Placement settings (locked / disabled / first-empty / track range), for MCP placements
     bridge: null,

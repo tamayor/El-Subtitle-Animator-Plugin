@@ -718,13 +718,18 @@ def expr_inputs(tool):
     return out
 
 
-def describe(tool):
+def describe(tool, light=False):
+    """light: only what each node is (id / kind / tool / label), no text, position or size reads. The scan at the
+    end of set_boxes only counts the nodes for the panel's status line, and read 3 inputs per node (16 layers
+    of a MultiText) while Fusion was busy with the fresh clip."""
     at = attrs(tool)
     rid = at.get("TOOLS_RegID")
     name = at.get("TOOLS_Name")
     if rid == "TextPlus":
         if is_mirror(tool):
             return []
+        if light:
+            return [{"id": name, "kind": "textplus", "tool": name, "input": "StyledText", "centerInput": "Center", "label": "Text+ · %s" % name}]
         txt = get_in(tool, "StyledText")
         return [{"id": name, "kind": "textplus", "tool": name, "input": "StyledText", "centerInput": "Center",
                  "label": "Text+ · %s" % name, "text": txt if isinstance(txt, str) else "",
@@ -742,6 +747,10 @@ def describe(tool):
         if not layers:
             layers = [n for n in range(1, 17) if isinstance(get_in(tool, "Text%d.StyledText" % n), str)]
         for n in layers:
+            if light:
+                out.append({"id": "%s/Text%d" % (name, n), "kind": "multitext", "tool": name, "input": "Text%d.StyledText" % n,
+                            "centerInput": "Text%d.Center" % n, "label": "MultiText · Text %d" % n, "layer": n})
+                continue
             txt = get_in(tool, "Text%d.StyledText" % n)
             nm = get_in(tool, "TextName%d" % n)
             nm = nm if isinstance(nm, str) and nm else "Text %d" % n
@@ -757,6 +766,10 @@ def describe(tool):
                 ia = attrs(inp)
                 if ia.get("INPS_DataType") == "Text" and ia.get("INPS_ID"):
                     iid = ia.get("INPS_ID")
+                    if light:
+                        out.append({"id": "%s/%s" % (name, iid), "kind": "template", "tool": name, "input": iid,
+                                    "label": "Template · %s" % (ia.get("INPS_Name") or name)})
+                        continue
                     txt = get_in(tool, iid)
                     out.append({"id": "%s/%s" % (name, iid), "kind": "template", "tool": name, "input": iid,
                                 "label": "Template · %s" % (ia.get("INPS_Name") or name),
@@ -767,11 +780,13 @@ def describe(tool):
 
 
 def op_scan(a):
-    """What Fusion really has in this clip's composition: every Text+ and every template with a text input."""
+    """What Fusion really has in this clip's composition: every Text+ and every template with a text input.
+    a.light: kinds only (see describe)."""
     comp = get_comp(a["item"], a.get("comp"))
     nodes = []
+    light = bool(a.get("light"))
     for tool in tool_list(comp):
-        nodes.extend(describe(tool))
+        nodes.extend(describe(tool, light))
     return {"nodes": nodes}
 
 
@@ -1462,7 +1477,7 @@ def op_set_boxes(a):
         with STEP("wake"):
             wake_effects(comp)
     with STEP("scan"):
-        nodes = op_scan(a)["nodes"]
+        nodes = op_scan(dict(a, light=True))["nodes"]      # the panel only counts them (status line)
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": nodes}
 
 

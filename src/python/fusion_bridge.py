@@ -3124,13 +3124,49 @@ def op_row_times(a):
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
 FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
-FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "Stop Motion"}
-# Stop Motion is Resolve's own OFX effect (a Fusion time-remap loses the clip's Zoom / Pan / Tilt on held frames); it is
-# processed after the Fusion effects, so it holds the glitch / wiggle too. Its settings cannot be scripted.
+FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+# Stop Motion is a Fusion effect (a TimeStretcher, the LAST effect before the clip's output), so the frames it holds
+# already carry the glitch / wiggle: the look holds as one. Resolve's own OFX Stop Motion sits outside Fusion and ran
+# before our effects (the glitch / wiggle kept moving over a held picture). The OFX is only the fallback for clips with
+# Edit sizing (Zoom / Pan / Tilt / Rotation): in a Fusion effect, held frames come back without that sizing, so a
+# punched-in clip jumped. The OFX's settings cannot be scripted.
 FX_OFX = {"StopMotion": "Resolve FX/Resolve FX Temporal/Stop Motion"}
+FX_OFX_NAMES = {"StopMotion": "Stop Motion"}
 FX_ORDER = ["Glitch", "Wiggle", "StopMotion"]
 # the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
 FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace"}
+# the tool holding each effect's Hold (frames its clock steps by; Stop Motion's Frame Repeat)
+FX_HOLD_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
+
+
+def fx_is_ofx(effect):
+    try:
+        return effect.GetFusionComp() is None
+    except Exception:
+        return True
+
+
+def fx_hold_tool(effect, key):
+    try:
+        comp = effect.GetFusionComp() if key in FX_HOLD_TOOL else None
+        return comp.FindTool(FX_HOLD_TOOL[key]) if comp is not None else None
+    except Exception:
+        return None
+
+
+def fx_clip_is_sized(it):
+    """True when the clip has Edit sizing a Fusion time-remap would drop on held frames."""
+    try:
+        p = it.GetProperty() or {}
+    except Exception:
+        return False
+    def num(k, d):
+        try:
+            return float(p.get(k, d))
+        except Exception:
+            return d
+    return (abs(num("ZoomX", 1.0) - 1) > 1e-4 or abs(num("ZoomY", 1.0) - 1) > 1e-4 or abs(num("Pan", 0.0)) > 1e-4 or
+            abs(num("Tilt", 0.0)) > 1e-4 or abs(num("RotationAngle", 0.0)) > 1e-4)
 
 
 def fx_strength_tool(effect, key):
@@ -3162,11 +3198,10 @@ def fx_get_strength(effect, key):
     return round(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-# Stop Motion (Resolve's OFX) holds the clip's picture, but Resolve runs it BEFORE the clip's Fusion effects, so the
-# glitch / wiggle kept moving on every frame over a held picture ("not mixing"). Glitch and Wiggle have a Hold input
-# (frames their own clock steps by): while Stop Motion is on the clip it is set to Stop Motion's Frame Repeat, so the
-# whole look moves on the same beat; without Stop Motion it is 1 (every frame). The OFX's own Frame Repeat cannot be
-# scripted: the panel's Stop Motion "Frame Repeat" slider sets our Hold and tells the user to match it in the Inspector.
+# Glitch and Wiggle have a Hold input (frames their own clock steps by): while Stop Motion is on the clip it is set to
+# Stop Motion's Frame Repeat, so with the OFX fallback (which runs before our effects) the look still moves on one beat;
+# without Stop Motion it is 1 (every frame). The Fusion Stop Motion's own Hold is its Frame Repeat. The OFX's Frame
+# Repeat cannot be scripted: the panel tells the user to match it in the Inspector.
 FX_HOLD_DEFAULT = 2
 
 
@@ -3179,9 +3214,9 @@ def fx_clamp_hold(v):
 
 def fx_get_hold(have):
     """The Hold set on this clip's glitch / wiggle (None when neither has one)."""
-    for k in ("Glitch", "Wiggle"):
+    for k in ("StopMotion", "Glitch", "Wiggle"):
         if k in have:
-            t = fx_strength_tool(have[k], k)
+            t = fx_hold_tool(have[k], k)
             v = get_in(t, "Hold") if t is not None else None
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 return int(round(float(v)))
@@ -3196,9 +3231,9 @@ def fx_sync_hold(have, hold):
     except Exception:
         on = sm is not None
     n = fx_clamp_hold(hold) if on else 1
-    for k in ("Glitch", "Wiggle"):
+    for k in ("StopMotion", "Glitch", "Wiggle"):
         if k in have:
-            t = fx_strength_tool(have[k], k)
+            t = fx_hold_tool(have[k], k)
             if t is None:
                 continue
             try:
@@ -3250,10 +3285,11 @@ def fx_on_item(it):
     """{effect id: Effect} of our effects on a clip."""
     have = {}
     for cat in ("fusion", "ofx"):
+        names = FX_OFX_NAMES if cat == "ofx" else FX_NAMES
         for e in it.GetEffects(cat) or []:
             info = e.GetInfo() or {}
-            for k, n in FX_NAMES.items():
-                if info.get("name") == n and (cat == "ofx") == (k in FX_OFX):
+            for k, n in names.items():
+                if info.get("name") == n:
                     have[k] = e
     return have
 
@@ -3266,7 +3302,8 @@ def fx_state(items):
                     "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
                     "strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
                                      ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
-                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS}})
+                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
+                    "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
     return out
 
 
@@ -3352,7 +3389,10 @@ def op_fx_set(a):
         if on:
             e = have.get(key)
             if e is None:
-                e = it.AddEffect("ofx", FX_OFX[key]) if key in FX_OFX else it.AddEffect("fusion", FX_PREFIX + FX_NAMES[key])
+                if key in FX_OFX and fx_clip_is_sized(it):
+                    e = it.AddEffect("ofx", FX_OFX[key])
+                else:
+                    e = it.AddEffect("fusion", FX_PREFIX + FX_NAMES[key])
                 if e is None:
                     failed.append(it.GetName())
                     continue
@@ -3377,7 +3417,7 @@ def op_fx_set(a):
                 e.SetIsEnabled(True)
             # stacking order: ours go last, glitch -> wiggle -> stop motion (stop motion holds the finished look)
             total = len(it.GetEffects("fusion") or [])
-            mine = [k for k in FX_ORDER if k in have and k not in FX_OFX]
+            mine = [k for k in FX_ORDER if k in have and not fx_is_ofx(have[k])]
             for n, k in enumerate(mine):
                 try:
                     have[k].SetIndex(total - len(mine) + n + 1)

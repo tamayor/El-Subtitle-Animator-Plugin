@@ -13,10 +13,10 @@ const CATEGORY = 'Subtitle Animator';
 const EFFECTS = [
     { id: 'Glitch', name: 'Glitch', tags: ['glitch', 'rgb', 'jitter'], tip: 'The picture jumps sideways in bursts with a red / cyan split' },
     { id: 'Wiggle', name: 'Wiggle', tags: ['wiggle', 'boil', 'hand-drawn'], tip: 'Letters and edges boil and wobble (pairs well with Stop Motion)' },
-    // Resolve's own ResolveFX Stop Motion (OFX on the clip, not a Fusion template): a Fusion TimeStretcher in an effect gets
-    // held frames WITHOUT the clip's Edit sizing (Zoom / Pan / Tilt), so punched-in clips jumped between zoomed and raw.
-    // Scripts cannot set OFX parameters, so its Frame Repeat is set in Resolve's Inspector (no Strength slider here).
-    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look. Glitch and Wiggle on the same clip hold for the same Frame Repeat (set the same number in Resolve\'s Inspector > Effects > Stop Motion)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true }
+    // A Fusion effect (ELSA Stop Motion, a TimeStretcher last before the output), so it holds the glitch / wiggle with the
+    // picture. Clips with Edit sizing (Zoom / Pan / Tilt) get Resolve's own OFX Stop Motion instead (`ofx`): in a Fusion
+    // effect their held frames come back without that sizing. Scripts cannot set the OFX's Frame Repeat.
+    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look, glitch / wiggle included. Zoomed or panned clips get DaVinci\'s own Stop Motion (set the same Frame Repeat in Resolve\'s Inspector > Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true }
 ];
 const ORDER = EFFECTS.map(e => e.id);
 const DEFAULT_STRENGTH = 25;
@@ -41,11 +41,12 @@ function tool(name, type, inputs, x, y, extra) {
         inputs.map(i => '\t\t\t\t\t\t' + i + ',\n').join('') +
         '\t\t\t\t\t},\n\t\t\t\t\tViewInfo = OperatorInfo { Pos = { ' + x + ', ' + y + ' } },\n\t\t\t\t}';
 }
-// a published control: [inputName, innerTool, innerInput, label, default]
+// a published control (shown in Resolve's Inspector): [innerTool, innerInput, label, default, controlGroup?] (one
+// controlGroup number per colour, so its Red / Green / Blue show as one colour control)
 function group(name, mainIn, mainOut, published, tools) {
     const pub = published.map((p, i) =>
-        '\t\t\t\tInput' + (i + 1) + ' = InstanceInput {\n\t\t\t\t\tSourceOp = "' + p[1] + '",\n\t\t\t\t\tSource = "' + p[2] + '",\n' +
-        '\t\t\t\t\tName = "' + p[3] + '",\n\t\t\t\t\tDefault = ' + p[4] + ',\n\t\t\t\t},\n').join('');
+        '\t\t\t\tInput' + (i + 1) + ' = InstanceInput {\n\t\t\t\t\tSourceOp = "' + p[0] + '",\n\t\t\t\t\tSource = "' + p[1] + '",\n' +
+        '\t\t\t\t\tName = "' + p[2] + '",\n' + (p[4] ? '\t\t\t\t\tControlGroup = ' + p[4] + ',\n' : '') + '\t\t\t\t\tDefault = ' + p[3] + ',\n\t\t\t\t},\n').join('');
     return '{\n\tTools = ordered() {\n\t\t' + name + ' = GroupOperator {\n\t\t\tInputs = ordered() {\n' + pub +
         '\t\t\t\tMainInput1 = InstanceInput {\n\t\t\t\t\tSourceOp = "' + mainIn[0] + '",\n\t\t\t\t\tSource = "' + mainIn[1] + '",\n\t\t\t\t},\n' +
         '\t\t\t},\n\t\t\tOutputs = {\n\t\t\t\tMainOutput1 = InstanceOutput {\n\t\t\t\t\tSourceOp = "' + mainOut + '",\n\t\t\t\t\tSource = "Output",\n\t\t\t\t}\n\t\t\t},\n' +
@@ -67,20 +68,23 @@ function hash(k) { const v = 'sin(floor((time-comp.RenderStart)/GlitchOut.Blk)*1
 const holdCtl = () => 'Hold = { LINKS_Name = "Hold", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, ' +
     'INP_Default = 1, INP_MinAllowed = 1, INP_MaxAllowed = 10, IC_Visible = false, ICS_ControlPage = "Controls", }';
 
-// Every effect has one Strength slider, 0..100: 0 = no effect, DEFAULT_STRENGTH = a light, clearly visible look.
+// Glitch / Wiggle have one Strength slider, 0..100: 0 = no effect, DEFAULT_STRENGTH = a light, clearly visible look.
 // It is a user control on the effect's main tool (STRENGTH_TOOL) and is published in Resolve's Inspector; the panel
 // sets it through the bridge (fx_strength).
-const strengthCtl = () => '\t\t\t\t\tUserControls = ordered() { ' + numCtl('Strength', 'Strength', DEFAULT_STRENGTH, 0, 100, true) + ', },\n';
 
-// Stop Motion: Strength 0 = every frame (off), 25 = each picture held 2 frames, 100 = held 6 frames.
+// Stop Motion: a TimeStretcher, the clip's LAST Fusion effect (right before its output), so the held frames carry the
+// glitch / wiggle with them. Hold = Frame Repeat (1..10, default HOLD_DEFAULT): each picture is held that many frames,
+// counted from the clip's start (the same clock as Glitch / Wiggle's Hold).
 function stopMotion() {
-    const N = '(1+floor(StopMotionTime.Strength/20+0.5))';
-    return group('ELSAStopMotion', ['StopMotionTime', 'Input'], 'StopMotionTime', [['StopMotionTime', 'Strength', 'Strength', DEFAULT_STRENGTH]], [
+    const H = 'StopMotionTime.Hold';
+    const ctl = '\t\t\t\t\tUserControls = ordered() { Hold = { LINKS_Name = "Frame Repeat", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
+        'INP_Integer = true, INP_Default = ' + HOLD_DEFAULT + ', INP_MinAllowed = 1, INP_MaxAllowed = 10, INP_MinScale = 1, INP_MaxScale = 10, ICS_ControlPage = "Controls", }, },\n';
+    return group('ELSAStopMotion', ['StopMotionTime', 'Input'], 'StopMotionTime', [['StopMotionTime', 'Hold', 'Frame Repeat', HOLD_DEFAULT]], [
         tool('StopMotionTime', 'TimeStretcher', [
-            'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }',
-            expr('SourceTime', 0, 'floor(time/' + N + ')*' + N),
+            'Hold = Input { Value = ' + HOLD_DEFAULT + ', }',
+            expr('SourceTime', 0, 'comp.RenderStart+floor((time-comp.RenderStart)/' + H + ')*' + H),
             'InterpolateBetweenFrames = Input { Value = 0, }'
-        ], 0, 0, strengthCtl())
+        ], 0, 0, ctl)
     ]);
 }
 
@@ -143,8 +147,8 @@ function glitch() {
     return group('ELSAGlitch', ['GlitchJitter', 'Input'], 'GlitchOut', [
         ['GlitchOut', 'Strength', 'Strength', DEFAULT_STRENGTH],
         ['GlitchOut', 'BlinkIn', 'Blink at Start', 1],
-        ['GlitchOut', 'ColorARed', 'Colour A', D.colorA[0]], ['GlitchOut', 'ColorAGreen', 'Colour A Green', D.colorA[1]], ['GlitchOut', 'ColorABlue', 'Colour A Blue', D.colorA[2]],
-        ['GlitchOut', 'ColorBRed', 'Colour B', D.colorB[0]], ['GlitchOut', 'ColorBGreen', 'Colour B Green', D.colorB[1]], ['GlitchOut', 'ColorBBlue', 'Colour B Blue', D.colorB[2]],
+        ['GlitchOut', 'ColorARed', 'Colour A', D.colorA[0], 1], ['GlitchOut', 'ColorAGreen', 'Colour A Green', D.colorA[1], 1], ['GlitchOut', 'ColorABlue', 'Colour A Blue', D.colorA[2], 1],
+        ['GlitchOut', 'ColorBRed', 'Colour B', D.colorB[0], 2], ['GlitchOut', 'ColorBGreen', 'Colour B Green', D.colorB[1], 2], ['GlitchOut', 'ColorBBlue', 'Colour B Blue', D.colorB[2], 2],
         ['GlitchOut', 'Opacity', 'Opacity', D.opacity]
     ], [
         tool('GlitchJitter', 'Transform', [expr('Center', '{ 0.5, 0.5 }', jitter), expr('Size', 1, 'GlitchOut.Show')], 0, 0),
@@ -169,10 +173,8 @@ function installEffects() {
     const dir = effectsDir();
     fs.mkdirSync(dir, { recursive: true });
     const out = [];
-    // the old Fusion Stop Motion template (zoom jump on punched-in clips) is no longer offered
-    try { fs.rmSync(path.join(dir, 'ELSA Stop Motion.setting'), { force: true }); } catch (err) { /* ignore */ }
     for (const e of EFFECTS) {
-        if (e.ofx) continue;      // a built-in Resolve effect: nothing to install
+        if (!MAKERS[e.id]) continue;      // a built-in Resolve effect: nothing to install
         const file = path.join(dir, fileName(e.id));
         const body = MAKERS[e.id]();
         let cur = null;

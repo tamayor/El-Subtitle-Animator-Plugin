@@ -175,8 +175,11 @@ function renderEffects() {
         if (e.noStrength || e.repeat) {
             const note = document.createElement('div');
             note.className = 'fx-note';
+            // zoomed / panned clips get DaVinci's OFX Stop Motion, whose Frame Repeat only Resolve's Inspector can set
+            const ofx = fxUI.clips.some(x => x.stopMotionKind === 'ofx');
             note.textContent = e.repeat
-                ? 'Glitch / Wiggle hold for this many frames too. Set the same Frame Repeat in Resolve\'s Inspector → Effects → Stop Motion'
+                ? (ofx ? 'A zoomed / panned clip uses DaVinci\'s Stop Motion: set the same Frame Repeat in Resolve\'s Inspector → Effects'
+                    : 'Holds the finished look, glitch / wiggle included')
                 : 'DaVinci\'s Stop Motion: set Frame Repeat in Resolve\'s Inspector → Effects';
             c.appendChild(note);
         }

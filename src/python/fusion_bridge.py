@@ -1252,7 +1252,13 @@ def op_controls_get(a):
     for i in ids:
         v = get_in(tool, i)
         out[i] = v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-    return {"values": out}
+    fh = None
+    try:
+        fh = float(comp.GetPrefs("Comp.FrameFormat.Height"))
+    except Exception:
+        pass
+    # the frame height turns Row Y offsets into the pixel gaps (Upper Y <-> Gap Above Emphasis in the panel)
+    return {"values": out, "frameHeight": fh}
 
 
 def op_controls_set(a):

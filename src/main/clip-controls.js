@@ -68,8 +68,14 @@ async function clipControls() {
         if (!c) return { ok: true, none: true };
         const controls = defsFor(c.name);
         if (!controls.length) return { ok: true, itemId: c.itemId, name: c.name, controls: [], values: {} };
-        const r = await bridgeCall('controls_get', { item: c.itemId, ids: idsOf(controls) }, 5000);
-        return { ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, controls, values: (r && r.values) || {} };
+        const ids = idsOf(controls);
+        // MultiText rows: the hidden UE / EL read-outs are the gaps as rendered (the panel links them to Upper / Lower Y)
+        if (ids.includes('RowsSetUE')) ids.push('RowsGapUE', 'RowsGapEL');
+        const r = await bridgeCall('controls_get', { item: c.itemId, ids }, 5000);
+        return {
+            ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, controls, values: (r && r.values) || {},
+            frameHeight: (r && Number(r.frameHeight)) || null
+        };
     } catch (e) {
         return { ok: false, reason: String(e && e.message || e) };
     }

@@ -397,16 +397,33 @@ async function importSfxInner(project, sfxPath, projectCopy) {
     };
     const hit = await findSame();
     if (hit) return { mp, item: hit };
+    // the import lands in the current folder: switched to the bin and back only when it is not the bin already
+    // (two calls of about 30 ms each; a preset with several sounds imports them in a row)
     const keep = await mp.GetCurrentFolder();
-    if (target) { try { await mp.SetCurrentFolder(target); } catch (e) { /* ignore */ } }
+    let switched = false;
+    if (target && !(await sameFolder(keep, target))) { try { switched = !!(await mp.SetCurrentFolder(target)); } catch (e) { switched = false; } }
     let items = await mp.ImportMedia([sfxPath]);
     sfxBin.count = -1; sfxBin.listedAt = 0;      // the bin changed: read again next time
     if ((!items || !items.length) && target) {
         const again = await findSame();
         if (again) items = [again];
     }
-    try { if (keep) await mp.SetCurrentFolder(keep); } catch (e) { /* ignore */ }
+    if (switched) { try { if (keep) await mp.SetCurrentFolder(keep); } catch (e) { /* ignore */ } }
     return { mp, item: items && items[0] };
+}
+
+// Are these two Media Pool folders the same one? By unique id where the API has it, else by name (false when in doubt).
+async function sameFolder(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    try {
+        if (typeof a.GetUniqueId === 'function' && typeof b.GetUniqueId === 'function') {
+            const [ia, ib] = await Promise.all([a.GetUniqueId(), b.GetUniqueId()]);
+            if (ia && ib) return String(ia) === String(ib);
+        }
+        const [na, nb] = await Promise.all([a.GetName(), b.GetName()]);
+        return !!na && String(na) === String(nb);
+    } catch (e) { return false; }
 }
 
 // InsertFusionTitleIntoTimeline drops the title at the PLAYHEAD as a ripple insert. If the playhead is dragged while
@@ -845,10 +862,12 @@ async function cutSnapshot(tl, snap) {
         for (const [kind, t] of tracks) {
             const its = (await tl.GetItemListInTrack(kind, t)) || [];
             const arr = Array.isArray(its) ? its : Object.values(its);
+            // only a video clip can be one of this plugin's titles (left out of the keys): no names read on audio
+            const named = kind === 'video';
             for (let i = 0; i < arr.length; i += 40) {
-                const facts = await Promise.all(arr.slice(i, i + 40).map(it => Promise.all([it.GetName(), it.GetStart(), it.GetEnd()]).catch(() => null)));
+                const facts = await Promise.all(arr.slice(i, i + 40).map(it => Promise.all([named ? it.GetName() : '', it.GetStart(), it.GetEnd()]).catch(() => null)));
                 for (const f of facts) {
-                    if (!f || /^Text\+/.test(String(f[0]))) continue;
+                    if (!f || (named && /^Text\+/.test(String(f[0])))) continue;
                     out.push(kind[0] + t + ':' + f[1] + '-' + f[2]);
                 }
             }

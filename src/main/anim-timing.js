@@ -42,8 +42,22 @@ async function clipFacts(item) {
 // The clip list is read every TRACKS_MS (40 clips at a time, in parallel; one call at a time it was every clip of
 // the timeline, serially, every 2 s); the answer for one (frame, selection) is shared by the timing bar and the Clip
 // controls, which poll 300 ms and 700 ms apart, for CAND_MS.
-const TRACKS_MS = 5000, CAND_MS = 600;
+// Every TRACKS_MS the tracks are listed (one call per track) and only a track whose clip count changed has its
+// clips' start / end read again; all of them are read every TRACKS_FULL_MS (TRACKS_MS while this plugin changed
+// something in the last 90 s, state.segSweepHot: a freshly placed or re-timed clip). A clip trimmed by hand is seen
+// by its start / end a little later, or at once when it is selected (the selection is read every time).
+const TRACKS_MS = 5000, TRACKS_FULL_MS = 20000, HOT_FOR_MS = 90000, CAND_MS = 600;
 let candMemo = { key: '', at: 0, list: null };
+// -> [{ item, start, end, comps }] for one track's items, 40 at a time
+async function trackFacts(arr) {
+    const list = [];
+    for (let i = 0; i < arr.length; i += 40) {
+        const part = arr.slice(i, i + 40);
+        const se = await Promise.all(part.map(it => Promise.all([it.GetStart(), it.GetEnd()]).catch(() => null)));
+        for (let k = 0; k < part.length; k++) if (se[k]) list.push({ item: part[k], start: Number(se[k][0]), end: Number(se[k][1]), comps: null });
+    }
+    return list;
+}
 async function candidates(tl, frame, tlName) {
     const ls = state.lastSelection;
     const selKey = (ls && Date.now() - ls.at < 1500) ? ls.items.length + ':' + ls.at : 'q';
@@ -66,21 +80,27 @@ async function candidates(tl, frame, tlName) {
         for (const f of facts) if (f) out.push(Object.assign(f, { selected: true }));
     } catch (e) { /* no selection API: playhead only */ }
     if (tracks.key !== tlName || Date.now() - tracks.at > TRACKS_MS) {
-        const list = [];
+        const now = Date.now();
+        const hot = now - (state.segSweepHot || 0) < HOT_FOR_MS;
+        const full = tracks.key !== tlName || now - (tracks.fullAt || 0) > (hot ? TRACKS_MS : TRACKS_FULL_MS);
+        const byTrack = new Map(), reread = [];
         const n = (await tl.GetTrackCount('video')) || 0;
         for (let t = n; t >= 1; t--) {
             const its = (await tl.GetItemListInTrack('video', t)) || [];
             const arr = Array.isArray(its) ? its : Object.values(its);
-            for (let i = 0; i < arr.length; i += 40) {
-                const part = arr.slice(i, i + 40);
-                const se = await Promise.all(part.map(it => Promise.all([it.GetStart(), it.GetEnd()]).catch(() => null)));
-                for (let k = 0; k < part.length; k++) if (se[k]) list.push({ item: part[k], start: Number(se[k][0]), end: Number(se[k][1]) });
-            }
+            const old = tracks.byTrack && tracks.byTrack.get(t);
+            if (!full && old && old.length === arr.length) { byTrack.set(t, old); continue; }
+            byTrack.set(t, await trackFacts(arr));
+            reread.push(t);
         }
-        tracks = { key: tlName, at: Date.now(), list };
+        const list = [];
+        for (let t = n; t >= 1; t--) list.push(...(byTrack.get(t) || []));
+        tracks = { key: tlName, at: now, fullAt: full ? now : (tracks.fullAt || now), byTrack, list };
+        PERF.record('timing.tracks', Date.now() - now, { full, reread: reread.length, tracks: n });
     }
     const under = tracks.list.filter(x => frame >= x.start && frame < x.end);
-    const counts = await Promise.all(under.map(x => Promise.resolve(x.item.GetFusionCompCount()).catch(() => 0)));
+    // the comp count of a clip is read once per list (it does not change while the clip sits there)
+    const counts = await Promise.all(under.map(x => x.comps !== null ? x.comps : Promise.resolve(x.item.GetFusionCompCount()).then(v => { x.comps = Number(v) || 0; return x.comps; }).catch(() => 0)));
     for (let k = 0; k < under.length; k++) {
         if (counts[k] > 0) { try { out.push(await clipFacts(under[k].item)); } catch (e) { /* gone */ } }
     }

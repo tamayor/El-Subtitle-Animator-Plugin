@@ -3124,7 +3124,7 @@ def op_row_times(a):
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
 FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
-FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+FX_NAMES = {"Transform": "ELSA Transform", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
 # Stop Motion is a Fusion effect (a TimeStretcher, the LAST effect before the clip's output), so the frames it holds
 # already carry the glitch / wiggle: the look holds as one. Resolve's own OFX Stop Motion sits outside Fusion and ran
 # before our effects (the glitch / wiggle kept moving over a held picture). The OFX is only the fallback for clips with
@@ -3132,11 +3132,11 @@ FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELS
 # punched-in clip jumped. The OFX's settings cannot be scripted.
 FX_OFX = {"StopMotion": "Resolve FX/Resolve FX Temporal/Stop Motion"}
 FX_OFX_NAMES = {"StopMotion": "Stop Motion"}
-FX_ORDER = ["Glitch", "Wiggle", "StopMotion"]
+FX_ORDER = ["Transform", "Glitch", "Wiggle", "StopMotion"]
 # the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
 FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace"}
 # the tool holding each effect's Hold (frames its clock steps by; Stop Motion's Frame Repeat)
-FX_HOLD_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
+FX_HOLD_TOOL = {"Transform": "XfMove", "Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
 
 
 def fx_is_ofx(effect):
@@ -3180,11 +3180,24 @@ def fx_strength_tool(effect, key):
 
 
 # extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours and opacity
-FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity"]}
+FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity"],
+             "Transform": ["ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF"]}
+# the tool inside an effect holding its FX_PARAMS (Glitch: its Strength tool)
+FX_PARAM_TOOL = {"Glitch": "GlitchOut", "Transform": "XfMove"}
+
+
+def fx_param_tool(effect, key):
+    if key not in FX_PARAM_TOOL:
+        return None
+    try:
+        comp = effect.GetFusionComp()
+        return comp.FindTool(FX_PARAM_TOOL[key]) if comp is not None else None
+    except Exception:
+        return None
 
 
 def fx_get_params(effect, key):
-    t = fx_strength_tool(effect, key)
+    t = fx_param_tool(effect, key)
     out = {}
     for pid in FX_PARAMS.get(key, []):
         v = get_in(t, pid) if t is not None else None
@@ -3214,7 +3227,7 @@ def fx_clamp_hold(v):
 
 def fx_get_hold(have):
     """The Hold set on this clip's glitch / wiggle (None when neither has one)."""
-    for k in ("StopMotion", "Glitch", "Wiggle"):
+    for k in ("StopMotion", "Transform", "Glitch", "Wiggle"):
         if k in have:
             t = fx_hold_tool(have[k], k)
             v = get_in(t, "Hold") if t is not None else None
@@ -3231,7 +3244,7 @@ def fx_sync_hold(have, hold):
     except Exception:
         on = sm is not None
     n = fx_clamp_hold(hold) if on else 1
-    for k in ("StopMotion", "Glitch", "Wiggle"):
+    for k in ("StopMotion", "Transform", "Glitch", "Wiggle"):
         if k in have:
             t = fx_hold_tool(have[k], k)
             if t is None:
@@ -3294,6 +3307,14 @@ def fx_on_item(it):
     return have
 
 
+def fx_clip_frames(it):
+    """The clip's length in frames (the panel's Transform End frame shows its last index)."""
+    try:
+        return int(it.GetDuration())
+    except Exception:
+        return None
+
+
 def fx_state(items):
     out = []
     for it in items:
@@ -3303,6 +3324,7 @@ def fx_state(items):
                     "strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
                                      ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
                     "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
+                    "frames": fx_clip_frames(it) if "Transform" in have else None,
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
     return out
 
@@ -3352,12 +3374,16 @@ def op_fx_param(a):
     done = 0
     for it in items:
         e = fx_on_item(it).get(key)
-        t = fx_strength_tool(e, key) if e is not None else None
-        if t is None:
+        if e is None:
+            continue
+        ts, tp = fx_strength_tool(e, key), fx_param_tool(e, key)
+        if ts is None and tp is None:
             continue
         for k, v in vals.items():
+            t = ts if k == "Strength" else tp
             try:
-                t.SetInput(k, v)
+                if t is not None:
+                    t.SetInput(k, v)
             except Exception:
                 pass
         done += 1
@@ -3399,7 +3425,7 @@ def op_fx_set(a):
                 have[key] = e
                 init = dict((a.get("params") or {}))
                 if init:
-                    t = fx_strength_tool(e, key)
+                    t = fx_param_tool(e, key)
                     for pk, pv in init.items():
                         if t is not None and pk in FX_PARAMS.get(key, []):
                             try:

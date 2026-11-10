@@ -11,6 +11,7 @@ const os = require('os');
 const CATEGORY = 'Subtitle Animator';
 // id -> what the panel shows; order = the stacking order on a clip (first is applied first)
 const EFFECTS = [
+    { id: 'Transform', name: 'Transform', tags: ['transform', 'zoom', 'move', 'push in', 'pan'], tip: 'Zooms and moves the picture over the clip, with an easing curve (on top of the clip\'s own Edit transform). Inside Fusion, so Stop Motion holds it too', transform: true },
     { id: 'Glitch', name: 'Glitch', tags: ['glitch', 'rgb', 'jitter'], tip: 'The picture jumps sideways in bursts with a red / cyan split' },
     { id: 'Wiggle', name: 'Wiggle', tags: ['wiggle', 'boil', 'hand-drawn'], tip: 'Letters and edges boil and wobble (pairs well with Stop Motion)' },
     // A Fusion effect (ELSA Stop Motion, a TimeStretcher last before the output), so it holds the glitch / wiggle with the
@@ -23,6 +24,7 @@ const DEFAULT_STRENGTH = 25;
 const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
 const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace' };
+// the tool holding each effect's other settings (fx_param; FX_PARAM_TOOL in fusion_bridge.py)
 
 function effectsDir() {
     const tail = ['Fusion', 'Templates', 'Edit', 'Effects', CATEGORY];
@@ -166,7 +168,72 @@ function glitch() {
     ]);
 }
 
-const MAKERS = { StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch };
+// Transform: zoom / move between the Start and End frames (clip frames, 0 = its first; End 0 = its last), from neutral to
+// the values (Reverse: from the values back to neutral), shaped by an easing curve. Before Start it rests at the
+// beginning, after End it holds the end. Values in percent: Zoom 100 = no zoom; Left / Right and Up / Down are
+// percent of the frame (+ = right / up). The first effect in the stack, so glitch / wiggle / stop motion act on it.
+// Simple expressions only: Prog = 0..1 progress (on the Hold clock, so Stop Motion's beat applies), E = eased.
+const EASES = ['Linear', 'Ease In Quad', 'Ease Out Quad', 'Ease In Out Quad', 'Ease In Quart', 'Ease Out Quart', 'Ease In Out Quart',
+    'Ease In Expo', 'Ease Out Expo', 'Ease In Out Expo', 'Ease In Back', 'Ease Out Back', 'Ease In Out Back'];
+const TRANSFORM_DEFAULTS = { ZoomPct: 115, MoveX: 0, MoveY: 0, Ease: 3, Reverse: 0, InF: 0, OutF: 0 };
+function easeExpr(u) {
+    const c1 = 1.70158, c2 = c1 * 1.525, c3 = c1 + 1;
+    const f = [
+        u,
+        u + '^2',
+        '1-(1-' + u + ')^2',
+        'iif(' + u + '<0.5, 2*' + u + '^2, 1-(2-2*' + u + ')^2/2)',
+        u + '^4',
+        '1-(1-' + u + ')^4',
+        'iif(' + u + '<0.5, 8*' + u + '^4, 1-(2-2*' + u + ')^4/2)',
+        'iif(' + u + '<=0, 0, 2^(10*' + u + '-10))',
+        'iif(' + u + '>=1, 1, 1-2^(-10*' + u + '))',
+        'iif(' + u + '<=0, 0, iif(' + u + '>=1, 1, iif(' + u + '<0.5, 2^(20*' + u + '-10)/2, (2-2^(10-20*' + u + '))/2)))',
+        c3 + '*' + u + '^3-' + c1 + '*' + u + '^2',
+        '1+' + c3 + '*(' + u + '-1)^3+' + c1 + '*(' + u + '-1)^2',
+        'iif(' + u + '<0.5, (2*' + u + ')^2*(' + (c2 + 1) + '*2*' + u + '-' + c2 + ')/2, ((2*' + u + '-2)^2*(' + (c2 + 1) + '*(2*' + u + '-2)+' + c2 + ')+2)/2)'
+    ];
+    let e = f[f.length - 1];
+    for (let i = f.length - 2; i >= 0; i--) e = 'iif(T.Ease<' + (i + 0.5) + ', ' + f[i] + ', ' + e + ')';
+    return e;
+}
+function transform() {
+    const D = TRANSFORM_DEFAULTS, T = 'XfMove';
+    const out = 'iif(T.OutF>0, T.OutF, comp.RenderEnd-comp.RenderStart)';
+    const t = 'floor((time-comp.RenderStart)/T.Hold)*T.Hold';
+    const prog = 'min(1, max(0, (' + t + '-T.InF)/max(1, ' + out + '-T.InF)))';
+    const u = 'iif(T.Reverse>0.5, 1-T.Prog, T.Prog)';
+    const ex = (x) => x.replace(/\bT\./g, T + '.');
+    const hidden = (id) => id + ' = { LINKS_Name = "' + id + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", IC_Visible = false, INP_Passive = true, INP_External = false, ICS_ControlPage = "Controls", }';
+    const pct = (id, label, def, min, max, lo, hi) => id + ' = { LINKS_Name = "' + label + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = ' + def +
+        ', INP_MinScale = ' + min + ', INP_MaxScale = ' + max + ', INP_MinAllowed = ' + lo + ', INP_MaxAllowed = ' + hi + ', ICS_ControlPage = "Controls", }';
+    const user = '\t\t\t\t\tUserControls = ordered() { ' +
+        pct('ZoomPct', 'Zoom %', D.ZoomPct, 50, 200, 1, 1000) + ', ' +
+        pct('MoveX', 'Left / Right %', D.MoveX, -50, 50, -200, 200) + ', ' +
+        pct('MoveY', 'Up / Down %', D.MoveY, -50, 50, -200, 200) + ', ' +
+        'Ease = { LINKS_Name = "Ease", LINKID_DataType = "Number", INPID_InputControl = "ComboControl", INP_Integer = true, INP_Default = ' + D.Ease + ', ' +
+        EASES.map(n => '{ CCS_AddString = "' + n + '", }').join(', ') + ', ICS_ControlPage = "Controls", }, ' +
+        'Reverse = { LINKS_Name = "Reverse", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 0, ICS_ControlPage = "Controls", INPS_StatusText = "Start at the values and end neutral", }, ' +
+        'InF = { LINKS_Name = "Start Frame", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, INP_Default = 0, INP_MinScale = 0, INP_MaxScale = 120, INP_MinAllowed = 0, INP_MaxAllowed = 100000, ICS_ControlPage = "Controls", INPS_StatusText = "Clip frame the move starts on (0 = the first)", }, ' +
+        'OutF = { LINKS_Name = "End Frame", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, INP_Default = 0, INP_MinScale = 0, INP_MaxScale = 120, INP_MinAllowed = 0, INP_MaxAllowed = 100000, ICS_ControlPage = "Controls", INPS_StatusText = "Clip frame the move ends on (0 = the last)", }, ' +
+        holdCtl() + ', ' + hidden('Prog') + ', ' + hidden('E') + ', },\n';
+    return group('ELSATransform', [T, 'Input'], T, [
+        [T, 'ZoomPct', 'Zoom %', D.ZoomPct], [T, 'MoveX', 'Left / Right %', D.MoveX], [T, 'MoveY', 'Up / Down %', D.MoveY],
+        [T, 'Ease', 'Ease', D.Ease], [T, 'Reverse', 'Reverse', D.Reverse], [T, 'InF', 'Start Frame', D.InF], [T, 'OutF', 'End Frame (0 = last)', D.OutF]
+    ], [
+        tool(T, 'Transform', [
+            'ZoomPct = Input { Value = ' + D.ZoomPct + ', }', 'MoveX = Input { Value = ' + D.MoveX + ', }', 'MoveY = Input { Value = ' + D.MoveY + ', }',
+            'Ease = Input { Value = ' + D.Ease + ', }', 'Reverse = Input { Value = ' + D.Reverse + ', }', 'InF = Input { Value = ' + D.InF + ', }', 'OutF = Input { Value = ' + D.OutF + ', }',
+            'Hold = Input { Value = 1, }',
+            expr('Prog', 0, ex(prog)),
+            expr('E', 0, ex(easeExpr(u))),
+            expr('Size', 1, ex('1+(T.ZoomPct/100-1)*T.E')),
+            expr('Center', '{ 0.5, 0.5 }', ex('Point(0.5+T.MoveX/100*T.E, 0.5+T.MoveY/100*T.E)'))
+        ], 0, 0, user)
+    ]);
+}
+
+const MAKERS = { Transform: transform, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch };
 
 // Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
 function installEffects() {
@@ -185,7 +252,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: !!e.ofx && !e.repeat, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined })); }
+function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;

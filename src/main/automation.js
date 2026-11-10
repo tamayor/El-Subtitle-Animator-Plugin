@@ -974,10 +974,13 @@ const TOOLS = {
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
         // effect presets (Glitch / Wiggle / Stop Motion) on the new clip, as Resolve effects (effect-presets.js)
         // each entry: 'Wiggle' or { id: 'Wiggle', strength: 0..100 } (strength left out = the effect's light default)
-        const fxSpec = {};
+        const fxSpec = {}, fxParams = {};
         for (const x of (Array.isArray(args.effects) ? args.effects : [])) {
             if (typeof x === 'string') fxSpec[x] = null;
-            else if (x && typeof x === 'object' && x.id) fxSpec[String(x.id)] = Number.isFinite(Number(x.strength)) ? Number(x.strength) : null;
+            else if (x && typeof x === 'object' && x.id) {
+                fxSpec[String(x.id)] = Number.isFinite(Number(x.strength)) ? Number(x.strength) : null;
+                if (x.params && typeof x.params === 'object') fxParams[String(x.id)] = x.params;
+            }
         }
         const fxWant = Object.keys(fxSpec);
         const fxDone = [];
@@ -988,7 +991,7 @@ const TOOLS = {
                 try {
                     // StopMotion's strength = its Frame Repeat (1..10, default 2): glitch / wiggle on the clip hold for it too
                     const hold = fxWant.includes('StopMotion') ? (fxSpec.StopMotion !== null && fxSpec.StopMotion !== undefined ? fxSpec.StopMotion : 2) : null;
-                    const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id], hold }, 15000);
+                    const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id], hold, params: fxParams[id] || null }, 15000);
                     if (r && !(r.failed && r.failed.length)) fxDone.push(id);
                     else notes.push('Effect ' + id + ' could not be added');
                 } catch (e) { notes.push('Effect ' + id + ' could not be added: ' + e.message); }

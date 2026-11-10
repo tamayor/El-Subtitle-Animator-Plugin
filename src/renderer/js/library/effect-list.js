@@ -22,6 +22,7 @@ function fxStrengthShown(e) {
 // ---- Glitch options (Entry > Blink at start, Colour A / B, Opacity)
 const FX_PARAM_IDS = ['BlinkIn', 'ColorARed', 'ColorAGreen', 'ColorABlue', 'ColorBRed', 'ColorBGreen', 'ColorBBlue', 'Opacity'];
 function fxDefaultParams(e) {
+    if (e.transform) return Object.assign({}, e.transform.defaults);
     const g = e.glitch || { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85 };
     return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity };
 }
@@ -38,7 +39,7 @@ function fxParamsShown(e) {
         const p = c.params && c.params[e.id];
         if (c.effects && c.effects[e.id] && p) {
             const out = fxNextParams(e);
-            for (const k of FX_PARAM_IDS) if (Number.isFinite(Number(p[k])) && p[k] !== null) out[k] = Number(p[k]);
+            for (const k of (e.transform ? Object.keys(e.transform.defaults) : FX_PARAM_IDS)) if (Number.isFinite(Number(p[k])) && p[k] !== null) out[k] = Number(p[k]);
             return out;
         }
     }
@@ -111,6 +112,89 @@ function fxGlitchOptions(e, st) {
     op.title = 'How strong the coloured fringes are';
     op.append(cap, rng, val);
     d.append(entry, bl, look, colRow, op);
+    for (const ev of ['click', 'mousedown', 'pointerdown']) d.addEventListener(ev, (x) => x.stopPropagation());
+    return d;
+}
+
+// ---- Transform: Zoom % / Left-Right % / Up-Down % (where it ends), easing curve, Reverse, Length
+function fxTransformOptions(e, st) {
+    const p = fxParamsShown(e);
+    const d = document.createElement('details');
+    d.className = 'fx-opts';
+    d.open = fxUI.open[e.id] !== undefined ? !!fxUI.open[e.id] : true;
+    d.addEventListener('toggle', () => { fxUI.open[e.id] = d.open; });
+    const sum = document.createElement('summary');
+    sum.textContent = 'Options';
+    d.appendChild(sum);
+    const hold = (el) => {
+        for (const ev of ['click', 'mousedown', 'pointerdown']) el.addEventListener(ev, (x) => x.stopPropagation());
+        el.addEventListener('focus', () => { fxUI.sliding = true; });
+        el.addEventListener('blur', () => { fxUI.sliding = false; });
+    };
+    const slider = (key, label, min, max, fmt, title) => {
+        const row = document.createElement('label'); row.className = 'fx-strength'; row.title = title;
+        const cap = document.createElement('span'); cap.className = 'fx-strength-cap'; cap.textContent = label;
+        const rng = document.createElement('input'); rng.type = 'range'; rng.min = String(min); rng.max = String(max); rng.step = '1'; rng.value = String(p[key]);
+        const val = document.createElement('span'); val.className = 'fx-strength-val'; val.textContent = fmt(Number(p[key]));
+        hold(rng);
+        rng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
+        for (const ev of ['pointerup', 'pointercancel']) rng.addEventListener(ev, () => { fxUI.sliding = false; });
+        rng.addEventListener('input', () => { val.textContent = fmt(Number(rng.value)); fxSendParams(e, st, { [key]: Number(rng.value) }, false); });
+        rng.addEventListener('change', () => fxSendParams(e, st, { [key]: Number(rng.value) }, true));
+        rng.addEventListener('dblclick', () => {
+            const v = e.transform.defaults[key];
+            rng.value = String(v); val.textContent = fmt(v); fxSendParams(e, st, { [key]: v }, true);
+        });
+        row.append(cap, rng, val);
+        return row;
+    };
+    const signed = (v) => (v > 0 ? '+' : '') + Math.round(v) + '%';
+    const zoom = slider('ZoomPct', 'Zoom', 50, 200, v => Math.round(v) + '%', 'Zoom at the end of the move (100% = no zoom, 120% = push in, 80% = pull out)');
+    const mx = slider('MoveX', 'Left / Right', -50, 50, signed, 'Moves the picture sideways, in percent of the frame (+ = right, - = left)');
+    const my = slider('MoveY', 'Up / Down', -50, 50, signed, 'Moves the picture up or down, in percent of the frame (+ = up, - = down)');
+    // easing curve
+    const er = document.createElement('label'); er.className = 'fx-opt-row'; er.title = 'How the move speeds up and slows down';
+    const ec = document.createElement('span'); ec.className = 'fx-strength-cap'; ec.textContent = 'Ease';
+    const sel = document.createElement('select'); sel.className = 'fx-select';
+    e.transform.eases.forEach((n, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = n; sel.appendChild(o); });
+    sel.value = String(Math.round(Number(p.Ease)) || 0);
+    hold(sel);
+    sel.addEventListener('change', () => { fxUI.sliding = false; fxSendParams(e, st, { Ease: Number(sel.value) }, true); });
+    er.append(ec, sel);
+    // Start / End: clip frames the move runs between (Start 0 = the first frame, End = the last frame by default; the
+    // effect stores End 0 for "the last frame", so it follows a trimmed clip)
+    const clip = fxUI.clips.find(c => c.effects && c.effects[e.id] && Number(c.frames) > 0);
+    const last = clip ? Number(clip.frames) - 1 : null;
+    const rr = document.createElement('div'); rr.className = 'fx-opt-row';
+    const frameBox = (label, key, title) => {
+        const w = document.createElement('label'); w.className = 'fx-check'; w.title = title;
+        const num = document.createElement('input'); num.type = 'number'; num.min = '0'; num.step = '1'; num.className = 'fx-num';
+        if (last !== null) num.max = String(last);
+        const v = Math.round(Number(p[key])) || 0;
+        num.value = String(key === 'OutF' && v <= 0 && last !== null ? last : v);
+        hold(num);
+        num.addEventListener('change', () => {
+            fxUI.sliding = false;
+            let x = Math.max(0, Math.round(Number(num.value) || 0));
+            if (last !== null) x = Math.min(x, last);
+            num.value = String(x);
+            // End on the clip's last frame is kept as 0 (= "last frame"), so trimming the clip keeps the move to its end
+            fxSendParams(e, st, { [key]: key === 'OutF' && last !== null && x >= last ? 0 : x }, true);
+        });
+        w.append(document.createTextNode(label), num);
+        return w;
+    };
+    rr.append(frameBox('Start', 'InF', 'Clip frame the move starts on (0 = the first frame)'),
+        frameBox('End', 'OutF', 'Clip frame the move ends on (the last frame by default)' + (last !== null ? '; last frame = ' + last : '')));
+    // reverse
+    const rv = document.createElement('div'); rv.className = 'fx-opt-row';
+    const rl = document.createElement('label'); rl.className = 'fx-check'; rl.title = 'Start at the values above and end neutral (zoom out / move back)';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = Number(p.Reverse) >= 0.5;
+    hold(cb);
+    cb.addEventListener('change', () => fxSendParams(e, st, { Reverse: cb.checked ? 1 : 0 }, true));
+    rl.append(cb, document.createTextNode('Reverse'));
+    rv.appendChild(rl);
+    d.append(zoom, mx, my, er, rr, rv);
     for (const ev of ['click', 'mousedown', 'pointerdown']) d.addEventListener(ev, (x) => x.stopPropagation());
     return d;
 }
@@ -215,6 +299,7 @@ function renderEffects() {
         row.append(cap, rng, val);
         c.appendChild(row);
         if (e.glitch) c.appendChild(fxGlitchOptions(e, st));
+        if (e.transform) c.appendChild(fxTransformOptions(e, st));
         const dots = tagDotsEl({ tags: fxTagsOf(e) });
         if (dots) c.appendChild(dots);
         c.addEventListener('click', () => fxToggle(e));
@@ -239,7 +324,7 @@ async function fxToggle(e) {
     // the Stop Motion Frame Repeat the clip's glitch / wiggle hold for (the bridge uses it only while Stop Motion is on)
     const sm = fxUI.effects.find(x => x.repeat);
     const hold = sm ? fxStrengthShown(sm) : null;
-    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && e.glitch ? fxNextParams(e) : null, hold); } catch (err) { r = { error: String(err && err.message || err) }; }
+    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && (e.glitch || e.transform) ? fxNextParams(e) : null, hold); } catch (err) { r = { error: String(err && err.message || err) }; }
     delete fxUI.pending[e.id];
     if (!r || r.busy || r.error) {
         fxUI.clips = before;

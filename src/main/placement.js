@@ -216,11 +216,17 @@ async function pickTrackInner(tl, kind, wanted, s, e, firstAuto, notes, placeIn,
 
 async function fitDuration(item, want) {
     // SetRightOffset(x) leaves x frames trimmed off the right edge (tested: ro + (current - wanted)).
+    // A clip can only grow until nothing is trimmed off (offset 0): asking for more made Resolve throw
+    // "SetRightOffset: Invalid offset", so the offset is clamped and the clip is left as long as it can get.
+    want = Math.round(Number(want));
+    if (!(want >= 1)) return false;
     for (let i = 0; i < 3; i++) {
         const d = await item.GetDuration();
         if (d === want) return true;
-        const ro = await item.GetRightOffset();
-        await item.SetRightOffset(ro + (d - want));
+        const ro = Number(await item.GetRightOffset()) || 0;
+        const next = Math.max(0, ro + (d - want));
+        if (next === ro) break;                              // already at its full length
+        try { await item.SetRightOffset(next); } catch (e) { break; }
     }
     return (await item.GetDuration()) === want;
 }

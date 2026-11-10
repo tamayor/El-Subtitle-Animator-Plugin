@@ -219,7 +219,9 @@ function frameToTC(frame, meta) {
 // case every SUB_FULL_MS. Concurrent callers share one read.
 // The full read blocks the poll for its length (0.8 s on 200 subtitles, seconds when Resolve is busy), so it comes
 // every SUB_FULL_MS, and every SUB_FULL_AWAY_MS while the user works in Resolve (the panel's Re-read button forces one).
-const SUB_PROBE_MS = 3000, SUB_NAMES_MS = 6000, SUB_NAMES_AWAY_MS = 15000, SUB_FULL_MS = 60000, SUB_FULL_AWAY_MS = 120000;
+// The count check is ~60 ms on a 200-subtitle track; while the panel is in the background it comes every
+// SUB_PROBE_AWAY_MS (the first poll after the panel gets focus again checks at once, the last check being > SUB_PROBE_MS old).
+const SUB_PROBE_MS = 3000, SUB_PROBE_AWAY_MS = 10000, SUB_NAMES_MS = 6000, SUB_NAMES_AWAY_MS = 30000, SUB_FULL_MS = 60000, SUB_FULL_AWAY_MS = 120000;
 let subReading = null;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
@@ -244,7 +246,7 @@ async function getSubtitles(tl, force, tlName) {
         const age = now - c.at;
         if (age < SUB_PROBE_MS) return c.list;
         if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
-            if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
+            if (now - (c.probedAt || 0) < (panelAway() ? SUB_PROBE_AWAY_MS : SUB_PROBE_MS)) return c.list;
             if (subReading) return subReading;
             // The check runs behind the caller's back: the poll gets the list it has at once (the check is a call per
             // track and, every SUB_NAMES_MS, one per subtitle; when Resolve was busy it held the poll for seconds).

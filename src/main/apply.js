@@ -81,14 +81,14 @@ async function applyInner(req, warnings, sp) {
         // The playhead is noted before and after the snapshot: with the two readings apart and equal, the playback check
         // before the insert (playback.js isPlaying) knows the timeline stands still without a wait of its own.
         const tlName = String(await tl.GetName());
-        noteFrame(tlName, tcToFrame(origTC, meta));
+        noteFrame(tlName, tcToFrame(origTC, meta), origTC);
         if (req.live && state.liveSession) await liveRemove('keep');      // first, so a leftover preview clip cannot change which layer is picked
         sp.mark('prep');
         // One read of the timeline's clips for this whole placement (timeline-snapshot.js): the cut guard, every track
         // pick (text and each sound) and the temp-clip sweep work from it instead of walking the timeline again each.
         // Taken after the running preview's clips are removed, so it shows the timeline as it is now.
         const snap = await takeSnapshot(tl, { kinds: ['video', 'audio'], withIds: regHasEntries(), withEnabled: !(req.place && req.place.disabledClip) });
-        try { noteFrame(tlName, tcToFrame(await tl.GetCurrentTimecode(), meta)); } catch (e) { /* measured by isPlaying then */ }
+        try { const tcNow = await tl.GetCurrentTimecode(); noteFrame(tlName, tcToFrame(tcNow, meta), tcNow); } catch (e) { /* measured by isPlaying then */ }
         sp.mark('snapshot');
         if (req.live) await ensureStopped(tl);      // a playing (looping) timeline moves the playhead under the insert
         const cutBefore = await cutSnapshot(tl, snap);

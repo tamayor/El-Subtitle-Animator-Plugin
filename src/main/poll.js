@@ -57,7 +57,7 @@ async function pollInner(force) {
         else { meta = await timelineMeta(tl, project); pollMeta = { key: tlName, at: Date.now(), meta }; }
         const [subs, tc] = await Promise.all([getSubtitles(tl, force, tlName), tl.GetCurrentTimecode()]);
         const frame = tcToFrame(tc, meta);
-        noteFrame(tlName, frame);      // playback.js isPlaying knows a still timeline from the last two readings
+        noteFrame(tlName, frame, tc);      // playback.js isPlaying knows a still timeline from the last two readings
 
         // A selected subtitle wins; otherwise the subtitle under the playhead.
         let sub = null, source = 'playhead';

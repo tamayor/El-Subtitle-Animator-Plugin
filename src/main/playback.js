@@ -13,18 +13,27 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 // A reading of the playhead (the panel's poll every 200-1200 ms, and a placement before and after its timeline
 // snapshot): the last two are kept, so isPlaying can tell a still timeline without a wait of its own.
-function noteFrame(tlName, frame) {
+function noteFrame(tlName, frame, tc) {
     const h = state.playhead, same = !!(h && h.tlName === tlName);
-    state.playhead = { tlName, frame, at: Date.now(), prevFrame: same ? h.frame : null, prevAt: same ? h.at : 0 };
+    state.playhead = { tlName, frame, tc: tc == null ? null : String(tc), at: Date.now(), prevFrame: same ? h.frame : null, prevAt: same ? h.at : 0 };
 }
 
+// A playing timeline moves 2+ frames in STILL_GAP_MS (24-60 fps); two equal readings at least that far apart mean it stands.
+const STILL_GAP_MS = 100, RECENT_MS = 2500;
 async function isPlaying(tl) {
-    // The playhead was read twice in the last moment, at least 150 ms apart, and did not move: standing still, no
-    // 130 ms wait (a playing timeline moves 3+ frames in 150 ms).
+    // The playhead was read twice in the last moment, far enough apart, and did not move: standing still, no wait.
     try {
         const h = state.playhead;
-        if (h && h.prevAt && Date.now() - h.at < 2500 && h.at - h.prevAt >= 150 && h.at - h.prevAt <= 2500 && h.frame === h.prevFrame) {
+        if (h && h.prevAt && Date.now() - h.at < RECENT_MS && h.at - h.prevAt >= STILL_GAP_MS && h.at - h.prevAt <= RECENT_MS && h.frame === h.prevFrame) {
             if (String(await tl.GetName()) === h.tlName) return false;
+        }
+        // One recent reading (e.g. right after a placement's snapshot): one more now, after the rest of STILL_GAP_MS,
+        // instead of a fresh pair 130 ms apart. Only "still" is concluded from it: a different reading may be this
+        // plugin's own move (parkPlayhead, a seek) since, so that case is measured below.
+        if (h && h.tc && Date.now() - h.at < RECENT_MS && String(await tl.GetName()) === h.tlName) {
+            const rest = STILL_GAP_MS - (Date.now() - h.at);
+            if (rest > 0) await wait(rest);
+            if (String(await tl.GetCurrentTimecode()) === h.tc) return false;
         }
     } catch (e) { /* measured below */ }
     try {

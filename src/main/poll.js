@@ -8,6 +8,7 @@ const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { checkResolveAlive } = require('./lifecycle');
 const { frameToTC, getProject, getSubtitles, tcToFrame, timelineMeta } = require('./resolve');
+const PERF = require('./perf');
 
 let appIdleReason = '';
 function setAppIdle(v, reason) {
@@ -25,9 +26,24 @@ function parkUntilFocus() {
     return { ok: true };
 }
 let pollMeta = { key: null, at: 0, meta: null };
-async function poll(event, force) {
+// The selection is read at most every SEL_EVERY_MS (a poll comes every 200 ms; a selection rarely changes that fast),
+// and the subtitle tracks' on/off state is kept for TRACK_ON_MS.
+const SEL_EVERY_MS = 500, TRACK_ON_MS = 2000;
+let selCache = { at: 0, tlName: null, sub: null };
+let trackOn = { at: 0, tlName: null, map: new Map() };
+let inflight = null;
+
+// Several polls arriving while one is still being answered (Resolve busy) share that answer instead of stacking up.
+function poll(event, force) {
     if (state.applying && state.lastPoll) return state.lastPoll;
     if (state.appIdle && state.lastPoll && !force) return state.lastPoll;
+    if (inflight && !force) return inflight;
+    inflight = pollInner(force).finally(() => { inflight = null; });
+    return inflight;
+}
+
+async function pollInner(force) {
+    const sp = PERF.span('poll');
     try {
         const project = await getProject();
         if (!project) return { ok: false, reason: 'Open a project in Resolve' };
@@ -42,39 +58,48 @@ async function poll(event, force) {
 
         // A selected subtitle wins; otherwise the subtitle under the playhead.
         let sub = null, source = 'playhead';
-        try {
-            // Polled 5 times a second: with many clips selected, asking each one's track in turn flooded Resolve. Only
-            // the first MAX_SEL are looked at, all at once.
-            const MAX_SEL = 12;
-            const all = (await tl.GetSelectedClips()) || [];
-            const sel = (Array.isArray(all) ? all : Object.values(all)).slice(0, MAX_SEL);
-            const types = await Promise.all(sel.map(c => Promise.resolve(c.GetTrackTypeAndIndex()).catch(() => null)));
-            for (let k = 0; k < sel.length; k++) {
-                const c = sel[k], tt = types[k];
-                if (tt && tt[0] === 'subtitle') {
-                    // A turned-off subtitle (clip or track) is not the current subtitle, even when selected.
-                    let on = true;
-                    try { on = (await c.GetClipEnabled()) !== false && (await tl.GetIsTrackEnabled('subtitle', tt[1])) !== false; } catch (e) { on = true; }
-                    if (!on) continue;
-                    const sStart = await c.GetStart();
-                    const sEnd = await c.GetEnd();
-                    let sDur = (typeof c.GetDuration === 'function') ? await c.GetDuration() : 0;
-                    if (!sDur || sDur <= 0) sDur = Math.max(1, sEnd - sStart);
-                    const sText = await c.GetName();
-                    const idx = subs.findIndex(x => x.start === sStart && x.track === tt[1]);
-                    sub = {
-                        index: idx >= 0 ? idx + 1 : 1,
-                        text: sText,
-                        start: sStart,
-                        end: sEnd,
-                        duration: sDur,
-                        track: tt[1]
-                    };
-                    source = 'selection';
-                    break;
+        const now = Date.now();
+        if (!force && selCache.tlName === tlName && now - selCache.at < SEL_EVERY_MS) {
+            if (selCache.sub) { sub = selCache.sub; source = 'selection'; }
+        } else {
+            try {
+                // With many clips selected, asking each one's track in turn flooded Resolve. Only the first MAX_SEL are
+                // looked at, all at once. The items are kept in state.lastSelection for seg-watch.js.
+                const MAX_SEL = 12;
+                const all = (await tl.GetSelectedClips()) || [];
+                const selAll = Array.isArray(all) ? all : Object.values(all);
+                const sel = selAll.slice(0, MAX_SEL);
+                const types = await Promise.all(sel.map(c => Promise.resolve(c.GetTrackTypeAndIndex()).catch(() => null)));
+                state.lastSelection = { at: now, tlName, items: sel, types, count: selAll.length };
+                for (let k = 0; k < sel.length; k++) {
+                    const c = sel[k], tt = types[k];
+                    if (tt && tt[0] === 'subtitle') {
+                        // A turned-off subtitle (clip or track) is not the current subtitle, even when selected.
+                        let on = true;
+                        try {
+                            if (trackOn.tlName !== tlName || now - trackOn.at > TRACK_ON_MS) trackOn = { at: now, tlName, map: new Map() };
+                            if (!trackOn.map.has(tt[1])) trackOn.map.set(tt[1], (await tl.GetIsTrackEnabled('subtitle', tt[1])) !== false);
+                            on = (await c.GetClipEnabled()) !== false && trackOn.map.get(tt[1]) !== false;
+                        } catch (e) { on = true; }
+                        if (!on) continue;
+                        const [sStart, sEnd, sText] = await Promise.all([c.GetStart(), c.GetEnd(), c.GetName()]);
+                        const sDur = Math.max(1, sEnd - sStart);
+                        const idx = subs.findIndex(x => x.start === sStart && x.track === tt[1]);
+                        sub = {
+                            index: idx >= 0 ? idx + 1 : 1,
+                            text: sText,
+                            start: sStart,
+                            end: sEnd,
+                            duration: sDur,
+                            track: tt[1]
+                        };
+                        source = 'selection';
+                        break;
+                    }
                 }
-            }
-        } catch (e) { /* selection not available: fall back to playhead */ }
+            } catch (e) { /* selection not available: fall back to playhead */ }
+            selCache = { at: now, tlName, sub };
+        }
 
         if (!sub) {
             // Find the enabled subtitle under the playhead across all tracks; prefer higher subtitle tracks if overlapping
@@ -86,7 +111,12 @@ async function poll(event, force) {
                 source = 'playhead';
             }
         }
-        state.lastPoll = { ok: true, timeline: tlName, fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub, subtitles: subs };
+        // The subtitle list itself is not sent on every poll (20-60 KB five times a second): the panel asks for it
+        // (app:subtitles) when subsVersion changes.
+        state.lastPoll = {
+            ok: true, timeline: tlName, fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub,
+            subsVersion: state.subCache.version || 1
+        };
         return state.lastPoll;
     } catch (e) {
         if (state.hasSeenResolve) checkResolveAlive();
@@ -95,7 +125,7 @@ async function poll(event, force) {
             return { ok: false, reason: 'Switch to the Edit page in Resolve' };
         }
         return { ok: false, reason: msg };
-    }
+    } finally { sp.end(); }
 }
 
 // ------------------------------------------------------------------ live frame and seeking

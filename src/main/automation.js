@@ -24,7 +24,8 @@ const { settleNow } = require('./settle');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
-const { frameToTC, getProject, getSubtitles, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const { findItemsByIds, frameToTC, getProject, getSubtitles, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const PERF = require('./perf');
 const LAYOUT = require('./layout');
 const STACK = require('./stack');
 const REPAIR = require('./repair');
@@ -459,20 +460,10 @@ async function currentTimeline() {
 }
 
 async function subtitleAt(tl, n) {
-    const subs = await getSubtitles(tl, true);
+    const subs = await getSubtitles(tl, false);
     const s = subs.find(x => x.index === Number(n));
     if (!s) throw new Error('No subtitle #' + n + ' (the timeline has ' + subs.length + ')');
     return s;
-}
-
-async function findItem(tl, kind, id) {
-    const n = (await tl.GetTrackCount(kind)) || 0;
-    for (let t = 1; t <= n; t++) {
-        for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
-            try { if (String(await it.GetUniqueId()) === String(id)) return it; } catch (e) { /* ignore */ }
-        }
-    }
-    return null;
 }
 
 async function waitFree(ms) {
@@ -485,15 +476,55 @@ async function waitFree(ms) {
 // ------------------------------------------------------------------ tools
 
 const TOOLS = {
-    async status() {
+    async status(args) {
         const { tl, meta } = await currentTimeline();
-        const subs = await getSubtitles(tl, true);
-        return {
+        const subs = await getSubtitles(tl, !!(args && args.refresh));
+        const out = {
             timeline: await tl.GetName(), fps: meta.fps, width: meta.width, height: meta.height,
             videoTracks: await tl.GetTrackCount('video'), subtitles: subs.length,
             panelBusy: !!state.applying, previewRunning: !!state.liveSession,
             rulesFile: RULES_FILE, rules: loadRules(), placedThisSession: placed.length
         };
+        if (PERF.perfEnabled()) out.perf = PERF.perfSummary(15);
+        return out;
+    },
+
+    // Performance measuring (src/main/perf.js): { enable, reset, top, settings: { promiseApi, renderProcess, sampleRenderer } }.
+    async perf(args) {
+        const a = args || {};
+        const patch = {};
+        if (typeof a.enable === 'boolean') patch.enabled = a.enable;
+        if (a.settings && typeof a.settings === 'object') Object.assign(patch, a.settings);
+        if (Object.keys(patch).length) PERF.setPerf(patch);
+        if (a.reset) PERF.perfReset();
+        return PERF.perfSummary(Number(a.top) || 40);
+    },
+
+    // Blank-render check for the clips placed this session (or the given ids): the comp's output is rendered at two
+    // frames (40% in and 2 before the end) and counted blank when nothing is drawn. Used to judge the wake settings.
+    async verify_placed(args) {
+        await waitFree(10000);
+        await settleNow();
+        const ids = Array.isArray(args && args.itemIds) && args.itemIds.length ? args.itemIds.map(String) : placed.map(p => p.itemId);
+        const { tl } = await currentTimeline();
+        const found = await findItemsByIds(tl, ids, 'video');
+        const out = [];
+        for (const id of ids) {
+            const it = found.get(id);
+            if (!it) { out.push({ itemId: id, error: 'not on the timeline' }); continue; }
+            const dur = Number(await it.GetDuration()) || 0;
+            const frames = [Math.max(0, Math.round(dur * 0.4)), Math.max(0, dur - 2)];
+            const r = { itemId: id, name: await it.GetName(), frames: [] };
+            for (const f of frames) {
+                try { r.frames.push(Object.assign({ frame: f }, await bridgeCall('probe_render', { item: id, comp: null, frame: f }, 30000))); }
+                catch (e) { r.frames.push({ frame: f, error: e.message }); }
+            }
+            r.blank = r.frames.some(x => x.nonEmpty === false);
+            if (r.frames.some(x => x.skipped)) r.skipped = r.frames.find(x => x.skipped).skipped;
+            out.push(r);
+        }
+        const checked = out.filter(x => !x.error && !x.skipped);
+        return { total: ids.length, checked: checked.length, skipped: out.filter(x => x.skipped).length, blank: checked.filter(x => x.blank).length, clips: out };
     },
 
     async get_rules() { return Object.assign({ file: RULES_FILE }, loadRules()); },
@@ -583,7 +614,7 @@ const TOOLS = {
     async list_subtitles(args) {
         args = args || {};
         const { tl, meta } = await currentTimeline();
-        const subs = await getSubtitles(tl, true);
+        const subs = await getSubtitles(tl, !!(args && args.refresh));
         const from = Math.max(1, Number(args.from) || 1);
         const to = Math.min(subs.length, Number(args.to) || subs.length);
         const done = new Map(placed.map(p => [p.subtitle, p]));
@@ -857,7 +888,7 @@ const TOOLS = {
         let tail = Number(a.tail) || 0;
         if (tail > 0) {
             try {
-                const all = await getSubtitles(tl, true);
+                const all = await getSubtitles(tl, false);
                 let next = Infinity;
                 for (const s of all) {
                     if (s.start < holdEnd && s.end > holdEnd) { next = holdEnd; break; }
@@ -912,7 +943,7 @@ const TOOLS = {
     async regroup(args) {
         args = args || {};
         const { tl, meta } = await currentTimeline();
-        const subs = await getSubtitles(tl, true);
+        const subs = await getSubtitles(tl, false);
         const want = (Array.isArray(args.subtitles) ? args.subtitles : []).map(Number);
         if (!want.length) throw new Error('Give the subtitle numbers to regroup');
         const picked = want.map(n => { const s = subs.find(x => x.index === n); if (!s) throw new Error('No subtitle #' + n); return s; });
@@ -1023,13 +1054,16 @@ const TOOLS = {
         const { tl } = await currentTimeline();
         const rec = placed[i];
         const audioIds = [rec.audioId, ...(rec.extraAudioIds || [])].filter(Boolean);
-        const items = [await findItem(tl, 'video', rec.itemId)];
-        for (const aid of audioIds) items.push(await findItem(tl, 'audio', aid));
-        const found = items.filter(Boolean);
+        const vids = await findItemsByIds(tl, [rec.itemId], 'video');
+        let auds = await findItemsByIds(tl, audioIds, 'audio');
+        const found = [vids.get(rec.itemId), ...audioIds.map(id => auds.get(id))].filter(Boolean);
         if (!found.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.' }; }
         let ok = await tl.DeleteClips(found, false);
         // a copy that survived the batch delete (Resolve sometimes skips linked clips) is deleted on its own
-        for (const aid of audioIds) { try { const it = await findItem(tl, 'audio', aid); if (it) ok = (await tl.DeleteClips([it], false)) && ok; } catch (e) { /* ignore */ } }
+        try {
+            auds = await findItemsByIds(tl, audioIds, 'audio');
+            for (const aid of audioIds) { const it = auds.get(aid); if (it) ok = (await tl.DeleteClips([it], false)) && ok; }
+        } catch (e) { /* ignore */ }
         const soundsRemoved = found.length - 1;
         if (ok) placed.splice(i, 1);
         // the subtitle clips this placement turned off come back on, unless another placed clip still covers them

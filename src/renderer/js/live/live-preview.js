@@ -99,25 +99,24 @@ async function previewAgain() {
     await addLiveClip({ start, end, text: defaultText }, true);
     refreshLiveBar();
 }
+// The subtitle list is no longer sent with every poll (it was 20-60 KB five times a second); the poll carries a version
+// number (subsVersion) and the list is asked for (app:subtitles) when that number changes.
+const subsCache = { version: null, timeline: null, list: [] };
 async function getAllSubtitles(force) {
+    const L = state.live;
+    if (!force && L && L.ok && subsCache.list.length && subsCache.version === L.subsVersion && subsCache.timeline === L.timeline) return subsCache.list;
     try {
         if (window.sa && window.sa.subtitles) {
             const res = await window.sa.subtitles(!!force);
             if (res && res.ok && Array.isArray(res.subtitles) && res.subtitles.length) {
+                subsCache.version = res.version || (L && L.subsVersion) || null;
+                subsCache.timeline = L && L.timeline;
+                subsCache.list = res.subtitles;
                 return res.subtitles;
             }
         }
     } catch (e) { }
-    if (!force && state.live && Array.isArray(state.live.subtitles) && state.live.subtitles.length) {
-        return state.live.subtitles;
-    }
-    try {
-        const fresh = await window.sa.poll(!!force);
-        if (fresh && Array.isArray(fresh.subtitles) && fresh.subtitles.length) {
-            state.live = fresh;
-            return fresh.subtitles;
-        }
-    } catch (e) { }
+    if (!force && subsCache.list.length) return subsCache.list;
     return [];
 }
 

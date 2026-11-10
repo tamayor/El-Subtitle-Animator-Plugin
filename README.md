@@ -116,3 +116,38 @@ npm run check    # ESLint + panel script load-order check + Inspector guard (too
 ```
 
 To turn on debug logging, run with `SA_DEBUG=1`. The log goes to `_debug/preview-log.txt`.
+
+### Performance measuring
+
+The panel does no video rendering of its own: a placement is Resolve scripting calls (one per clip property, from
+Electron's main thread), one serial Python helper for the Fusion work, and file work on the main thread. `src/main/perf.js`
+times all of that at runtime, switched on from the header **Fusion** popover (Performance) or the MCP tool `perf`
+(`{ enable: true }`); the settings live in `<data>/_app/perf.json`.
+
+- Every measurement goes to `_debug/perf-log.jsonl` (one JSON line each, buffered, written asynchronously) and into an
+  in-memory summary: `perf` (MCP), `status.perf`, or "Copy summary" in the popover.
+- Names: `apply` and its stages (`apply.snapshot`, `apply.pickTrackV`, `apply.sfxPrepare`, `apply.sweep`, `apply.template`,
+  `apply.insert`, `apply.setOutput`, `apply.setText`, `apply.transform`, `apply.sfx`, `apply.refresh`, `apply.highlight`,
+  `apply.rows`, `apply.cutCheck`, `apply.disableSubs`), `live.update`, `poll`, `sub.full` / `sub.probe` / `sub.setEnabled`,
+  `tl.snapshot` / `tl.findItems` / `tl.sweepTemp`, `place.*` (pickTrack, cutSnapshot, importSfx, presetTitleFor,
+  presetTitleNames, extraSfx, insertDirect, insertThrew, mediaPoolItem), `bridge.<op>` (sent to answered),
+  `bridge.wait.<op>` (queued), `bridge.py.<op>` (the helper's own time) and `bridge.<op>#toolLists / getAttrs / getInputs /
+  setInputs / woken / renders` (the helper's Fusion calls per request), `segwatch.*`, `timing.candidates`, `startup.*`,
+  `resolve.<Method>` (every Resolve API call, through a Proxy around the Resolve object while measuring is on; the
+  summary's `resolveCallsPerSec` comes from these), and with "Panel self-timing" `renderer.pollRtt.p50 / p95` and
+  `renderer.longTasks` (tasks over 50 ms on the panel's thread, per minute).
+- `verify_placed` (MCP) renders every clip placed this session at two frames through the helper (`probe_render`) and
+  reports how many came out blank: run it before and after changing the wake settings (the "Lighter variants" in the
+  popover: `refreshIfRecentWake`, `wakeLock`, `highlightProbeFrames`; all default to the panel's old behaviour).
+- `promiseApi`: `probe` tries Blackmagic's promise-based scripting API once next to the blocking one and logs what it does
+  (`perf.probe.promiseApi`); `on` connects with it (every call then yields to the event loop instead of blocking
+  it). `renderProcess`: a second Python helper takes the renders (preview captures, live frames) so they never hold up
+  placements.
+
+How the hot paths are kept cheap (so a change there keeps it that way): one timeline snapshot per placement
+(`timeline-snapshot.js`; `pickTrack`, `cutSnapshot`, `sweepTempClips` take it), items looked up by id in one pass
+(`findItemsByIds`), the subtitle list read with four calls per clip and sent to the panel only when its version
+changes, preset files read once per version (`fusion-setting.js presetText / derived`; template bodies, text styles,
+nodes, add-ons all derive from it), the library parsed once per file version, the Fusion helper's requests queued in
+three lanes with the timeout counted from the moment a request is sent, and the helper reading each comp's tool list
+and each tool's attributes once per request.

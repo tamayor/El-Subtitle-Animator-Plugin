@@ -18,6 +18,9 @@ module.exports = {
     liveSession: null,
     placePrefs: null,          // the panel's Placement settings (locked / disabled / first-empty / track range), for MCP placements
     bridge: null,
+    bridgeRender: null,        // optional second Fusion helper for renders (perf.json renderProcess, fusion-bridge.js)
+    lastSelection: null,       // { at, items, ids } the clips selected in Resolve, read by poll() and reused by seg-watch.js
+    segSweepHot: 0,            // Date.now() of the last change that seg-watch's sweep should look at soon
     mainWindow: null,
     resolveWatchTimer: null,
     segWatchTimer: null,

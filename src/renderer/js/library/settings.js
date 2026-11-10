@@ -302,7 +302,7 @@ function renderLive() {
 }
 
 function renderAll() {
-    renderAnimations();
+    renderAnimationsIfChanged();
     renderSettings();
     renderDefaultSfx();
     renderSfxOriginals();

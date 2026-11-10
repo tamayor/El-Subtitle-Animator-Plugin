@@ -3,7 +3,7 @@
 
 module.exports = {
     liveAlive, liveClearMarks, liveFinish, liveRemove, liveSetMarks, liveUpdate, loopOn, loopRestore,
-    placeLiveSfx, regAdd, regDel, sweepTempClips, waitIdle
+    placeLiveSfx, regAdd, regCount, regDel, sweepTempClips, waitIdle
 };
 
 const fs = require('fs');
@@ -21,6 +21,7 @@ const {
     placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
 const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const PERF = require('./perf');
 
 
 // In/Out on the timeline around the preview clip, so Resolve plays (loops) just that range. The user's own In/Out
@@ -173,6 +174,7 @@ async function liveUpdate(event, req) {
     if (!state.liveSession) return { ok: false, error: 'No Resolve preview is running', gone: true };
     if (state.applying) return { ok: false, busy: true };
     state.applying = true;
+    const sp = PERF.span('live.update');
     try {
         const lib = loadLib();
         const anim = lib.animations.find(a => a.id === state.liveSession.animId);
@@ -270,7 +272,7 @@ async function liveUpdate(event, req) {
         return { ok: true, warnings, start: textStart, frames: want, track, moved, sfxMoved };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e) };
-    } finally { state.applying = false; }
+    } finally { state.applying = false; sp.end(); }
 }
 
 // Row sounds (layers aligned to Upper / Emphasis / Lower) of the running preview follow which rows have text: the
@@ -395,6 +397,7 @@ async function liveFinish(event, req) {
     if (state.applying) return { ok: false, error: 'Resolve is busy. Try again in a moment.' };
     const s = state.liveSession;
     state.applying = true;
+    state.segSweepHot = Date.now();
     const warnings = [];
     try {
         const lib = loadLib();
@@ -506,26 +509,72 @@ async function liveFinish(event, req) {
 // failed "Add to timeline" is found and removed by the next sweep (start of every preview / apply).
 let liveMarks = { saved: undefined };      // the timeline's own In/Out before the preview touched them
 
-function regRead() { try { const a = JSON.parse(fs.readFileSync(CLIP_REG, 'utf8')); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } }
-function regWrite(a) { try { fs.writeFileSync(CLIP_REG, JSON.stringify(a)); } catch (e) { /* best effort */ } }
+// The registry is read once and kept in memory; adding an id writes the file at once (that write is the crash safety),
+// removing one is written a moment later (several removals in a row cost one write).
+// An id the sweep does not find on the current timeline may belong to a preview left on another timeline, so it is
+// kept, with the number of sweeps that missed it ("id|misses" in the file), and dropped after REG_MAX_MISSES of them.
+// (Keeping every unfound id for good is what used to leave the registry full and every placement walking the timeline.)
+const REG_MAX_MISSES = 20, REG_MAX = 60;
+let reg = null, regTimer = null;
+const regMiss = new Map();      // id -> sweeps that did not find it
+function regRead() {
+    if (reg) return reg.slice();
+    reg = [];
+    try {
+        const a = JSON.parse(fs.readFileSync(CLIP_REG, 'utf8'));
+        for (const x of (Array.isArray(a) ? a : [])) {
+            const [id, m] = String(x).split('|');
+            if (!id) continue;
+            reg.push(id);
+            if (m && Number(m) > 0) regMiss.set(id, Number(m));
+        }
+    } catch (e) { reg = []; }
+    return reg.slice();
+}
+function regWrite(a, later) {
+    reg = a.slice();
+    for (const id of regMiss.keys()) if (!reg.includes(id)) regMiss.delete(id);
+    if (!later) { if (regTimer) { clearTimeout(regTimer); regTimer = null; } regFlush(); return; }
+    if (regTimer) return;
+    regTimer = setTimeout(() => { regTimer = null; regFlush(); }, 150);
+    if (regTimer.unref) regTimer.unref();
+}
+function regFlush() { try { fs.writeFileSync(CLIP_REG, JSON.stringify((reg || []).map(id => regMiss.get(id) ? id + '|' + regMiss.get(id) : id))); } catch (e) { /* best effort */ } }
+function regCount() { return regRead().length; }
 function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(String(id))) { a.push(String(id)); regWrite(a); } }
-function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id))); }
-async function sweepTempClips(tl) {
+function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id)), true); }
+// snap: a timeline snapshot taken by the caller (timeline-snapshot.js) with the items' ids, so the sweep does not
+// walk the timeline again. Without one (or one without ids) it reads the ids itself - CHUNK at a time, by track.
+async function sweepTempClips(tl, snap) {
     const ids = new Set(regRead());
     if (state.liveSession) { ids.delete(String(state.liveSession.itemId)); if (state.liveSession.sfxId) ids.delete(String(state.liveSession.sfxId)); for (const x of (state.liveSession.extraIds || [])) ids.delete(String(x)); }      // the clip of a running Resolve preview stays
     if (!ids.size || !tl) return;
+    const sp = PERF.span('tl.sweepTemp');
     try {
         const stray = [], seen = new Set();
-        for (const kind of ['video', 'audio']) {
-            const tracks = (await tl.GetTrackCount(kind)) || 0;
-            for (let t = 1; t <= tracks; t++) {
-                for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
-                    try { const id = String(await it.GetUniqueId()); if (ids.has(id)) { stray.push(it); seen.add(id); } } catch (e) { /* ignore */ }
+        const take = (id, it) => { if (ids.has(id) && !seen.has(id)) { stray.push(it); seen.add(id); } };
+        if (snap && snap.withIds) {
+            for (const kind of ['video', 'audio']) for (const tr of (snap.tracks[kind] || [])) for (const x of tr.items) if (x.id) take(x.id, x.it);
+        } else {
+            for (const kind of ['video', 'audio']) {
+                const tracks = (await tl.GetTrackCount(kind)) || 0;
+                for (let t = 1; t <= tracks; t++) {
+                    const its = (await tl.GetItemListInTrack(kind, t)) || [];
+                    for (let i = 0; i < its.length; i += 40) {
+                        const part = its.slice(i, i + 40);
+                        const got = await Promise.all(part.map(it => Promise.resolve(it.GetUniqueId()).then(String).catch(() => null)));
+                        for (let k = 0; k < part.length; k++) if (got[k]) take(got[k], part[k]);
+                    }
                 }
             }
         }
-        if (stray.length) { try { await tl.DeleteClips(stray, false); } catch (e) { return; } }
-        // Entries not on this timeline any more (already deleted, or on another timeline) are dropped once checked.
-        regWrite(regRead().filter(x => !seen.has(x)).slice(-60));
+        let deleted = true;
+        if (stray.length) { try { deleted = (await tl.DeleteClips(stray, false)) !== false; } catch (e) { deleted = false; } }
+        // Found ids were deleted: dropped (kept only when Resolve refused the delete). Ids not found are not on this
+        // timeline: already deleted, or a preview left on another timeline - kept for up to REG_MAX_MISSES sweeps so
+        // that timeline's next sweep can still remove them, then forgotten.
+        for (const id of ids) if (!seen.has(id)) regMiss.set(id, (regMiss.get(id) || 0) + 1);
+        regWrite(regRead().filter(x => !ids.has(x) || (seen.has(x) ? !deleted : (regMiss.get(x) || 0) < REG_MAX_MISSES)).slice(-REG_MAX));
     } catch (e) { /* ignore */ }
+    sp.end({ ids: ids.size, viaSnapshot: !!(snap && snap.withIds) });
 }

@@ -2,14 +2,43 @@
 // nodes a preset contains, plus converting a panel text design back into Fusion input values.
 
 module.exports = {
-    blockEnd, clearDesignCache, copyPreset, designForFusion, detectNodes, expandAllTools, expandToolsInFile,
-    fusionBoxes, nodesWithDesign, parseTextStyle
+    blockEnd, clearDesignCache, copyPreset, derived, designForFusion, detectNodes, expandAllTools, expandToolsInFile,
+    fusionBoxes, nodesWithDesign, parseTextStyle, presetText
 };
 
 const fs = require('fs');
 
 const { validFontStyle } = require('./fonts');
 const { addRetiming } = require('./retime');
+
+// ------------------------------------------------------------------ one read per preset file
+// Every place that needs a preset's text (node detection, text style, template body, add-ons, segments) used to read
+// and regex the file again - up to 350 KB, several times per placement and once per preset on every library refresh.
+// The text and everything worked out from it are kept here by the file's size and modification time, so an unchanged
+// file costs one stat. derived(file, name, make) stores make(text) under `name` for that version of the file.
+const fileCache = new Map();      // path -> { key, text, derived: Map }
+const FILE_CACHE_MAX = 200;
+function presetText(file) {
+    if (!file) return null;
+    let st;
+    try { st = fs.statSync(file); } catch (e) { fileCache.delete(file); return null; }
+    const key = st.size + ':' + st.mtimeMs;
+    let c = fileCache.get(file);
+    if (!c || c.key !== key) {
+        let text;
+        try { text = fs.readFileSync(file, 'utf8'); } catch (e) { fileCache.delete(file); return null; }
+        c = { key, text, derived: new Map() };
+        fileCache.set(file, c);
+        if (fileCache.size > FILE_CACHE_MAX) fileCache.delete(fileCache.keys().next().value);
+    }
+    return c;
+}
+function derived(file, name, make) {
+    const c = presetText(file);
+    if (!c) return make(null);
+    if (!c.derived.has(name)) c.derived.set(name, make(c.text));
+    return c.derived.get(name);
+}
 
 function rgbToHex(r, g, b) {
     const c = (x) => Math.max(0, Math.min(255, Math.round((Number(x) || 0) * 255))).toString(16).padStart(2, '0');
@@ -229,7 +258,16 @@ function isMirrorBlock(block, raw) {
 // Text tab controls: model field -> Fusion Text+ input id
 const TEXT_EXTRA_IDS = [['vAnchor', 'VerticalTopCenterBottom'], ['vJustify', 'VerticallyJustified'], ['hAnchor', 'HorizontalLeftCenterRight'], ['hJustify', 'HorizontallyJustified'], ['direction', 'Direction'], ['lineDirection', 'LineDirection'], ['strikeout', 'Strikeout'], ['underline', 'Underline']];
 
+// The file's part is parsed once per file version and tool (derived cache); the saved design is merged onto a copy.
 function parseTextStyle(filePath, savedDesign, toolName) {
+    const fromFile = (filePath && presetText(filePath))
+        ? derived(filePath, 'style:' + (toolName || ''), () => parseTextStyleFile(filePath, toolName))
+        : parseTextStyleFile(null, toolName);
+    const def = JSON.parse(JSON.stringify(fromFile.def));
+    const fileSoftnessSet = new Set(fromFile.softness);
+    return mergeSavedDesign(def, fileSoftnessSet, savedDesign);
+}
+function parseTextStyleFile(filePath, toolName) {
     const def = {
         font: 'Poppins',
         style: 'Bold',
@@ -248,8 +286,9 @@ function parseTextStyle(filePath, savedDesign, toolName) {
     };
     const fileSoftnessSet = new Set();
     try {
-        if (filePath && fs.existsSync(filePath)) {
-            const raw = fs.readFileSync(filePath, 'utf8');
+        const c = filePath ? presetText(filePath) : null;
+        if (c) {
+            const raw = c.text;
             const chunk = textPlusChunk(raw, toolName);
             const num = (key) => {
                 const m = new RegExp('\\b' + key + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*(?:Number\\s*\\{\\s*Value\\s*=\\s*)?([\\d.\\-]+)').exec(chunk);
@@ -360,7 +399,9 @@ function parseTextStyle(filePath, savedDesign, toolName) {
             def.animSpec = parseAnimSpec(raw, chunk);
         }
     } catch (e) { /* use default */ }
-
+    return { def, softness: [...fileSoftnessSet] };
+}
+function mergeSavedDesign(def, fileSoftnessSet, savedDesign) {
     if (savedDesign && typeof savedDesign === 'object') {
         if (savedDesign.font) def.font = savedDesign.font;
         if (savedDesign.style) def.style = savedDesign.style;
@@ -394,8 +435,6 @@ function parseTextStyle(filePath, savedDesign, toolName) {
 // ------------------------------------------------------------------ detect Text+ / template nodes in a preset file
 // Lists every top-level Text+ in a .comp/.setting, and every macro (title template) that publishes a text input.
 // Text+ nodes buried inside a macro are reached through the macro's published inputs instead.
-const nodeCache = new Map();
-
 function unescapeFusion(str) {
     return String(str || '').replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
@@ -492,14 +531,8 @@ function parseNodes(raw) {
 }
 
 function detectNodes(filePath) {
-    let st;
-    try { st = fs.statSync(filePath); } catch (e) { return []; }
-    const key = filePath + ':' + st.mtimeMs;
-    if (nodeCache.has(key)) return nodeCache.get(key);
-    let out = [];
-    try { out = parseNodes(fs.readFileSync(filePath, 'utf8')); } catch (e) { out = []; }
-    nodeCache.set(key, out);
-    return out;
+    if (!filePath || !presetText(filePath)) return [];
+    return derived(filePath, 'nodes', (raw) => { try { return raw ? parseNodes(raw) : []; } catch (e) { return []; } });
 }
 
 // Only the Text+ design values you actually changed are sent to Fusion. Everything the preset file already says
@@ -521,8 +554,9 @@ function designForFusion(compPath, wanted, toolName, force) {
     if (wanted.font && !out.font && !force) {
         let fileHasFont = true;
         try {
-            const raw = (compPath && fs.existsSync(compPath)) ? fs.readFileSync(compPath, 'utf8') : '';
-            fileHasFont = /\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"/.test(textPlusChunk(raw, toolName));
+            fileHasFont = (compPath && presetText(compPath))
+                ? derived(compPath, 'hasFont:' + (toolName || ''), (raw) => /\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"/.test(textPlusChunk(raw || '', toolName)))
+                : false;
         } catch (e) { fileHasFont = true; }
         if (!fileHasFont) out.font = wanted.font;      // the preset states no font: Resolve's default would win otherwise
     }
@@ -585,7 +619,7 @@ function fusionBoxes(compPath, list, force) {
         return Object.assign({}, b, { design: designForFusion(compPath, b.design, b.tool, force) || {} });
     });
 }
-const nodeDesignCache = new Map(); function clearDesignCache() { nodeDesignCache.clear(); }
+const nodeDesignCache = new Map(); function clearDesignCache() { nodeDesignCache.clear(); fileCache.clear(); }
 function nodesWithDesign(animPath) {
     let st;
     try { st = fs.statSync(animPath); } catch (e) { return []; }

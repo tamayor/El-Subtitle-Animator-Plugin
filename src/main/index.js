@@ -9,7 +9,7 @@ const { prepareColorScript, startJxaHelper, stopJxaHelper } = require('./color-p
 const { listSystemFonts, syncAllPresetFonts } = require('./fonts');
 const { bridgeCall } = require('./fusion-bridge');
 const { registerIpcHandlers } = require('./ipc');
-const { checkResolveAlive, cleanup, quitPlugin } = require('./lifecycle');
+const { cleanup, quitPlugin, watchResolve } = require('./lifecycle');
 const { dlog } = require('./log');
 const { createWindow } = require('./window');
 const { loadLib } = require('./library');
@@ -17,6 +17,7 @@ const { startupTemplates } = require('./placement');
 const { pruneSfxCache } = require('./sfx');
 const { prunePreviews } = require('./previews');
 const { startSegWatch } = require('./seg-watch');
+const PERF = require('./perf');
 
 // A stray error anywhere must never take the panel down or leave Resolve with a dead plugin.
 process.on('uncaughtException', (err) => { try { console.error('[uncaughtException]', err && err.stack || err); dlog('[uncaughtException]', String(err && err.stack || err)); } catch (e) { /* ignore */ } });
@@ -39,21 +40,22 @@ app.whenReady().then(() => {
     try { startAutomation(); } catch (e) { dlog('[automation] not started', String(e && e.message || e)); }      // for the MCP script (mcp/)
 
     // Auto-close together with DaVinci Resolve.
-    checkResolveAlive();
-    state.resolveWatchTimer = setInterval(checkResolveAlive, 1500);
+    watchResolve();
 
-    // Warm-ups, staggered so the window shows first.
-    setTimeout(() => { listSystemFonts(); }, 800);
-    setTimeout(() => { startJxaHelper(); }, 800);      // compiled and warmed once, so the first click is quick too
-    setTimeout(() => { bridgeCall('ping', {}, 30000).catch(() => { /* only a warm-up */ }); }, 1200);
-    setTimeout(() => { startSegWatch(); }, 3000);      // Inspector timing sliders of MultiText clips
-    setTimeout(() => { prepareColorScript(); }, 1500);
-    setTimeout(() => { syncAllPresetFonts(); }, 2000);
+    // Warm-ups, staggered so the window shows first. Each one is timed (perf.js) so a slow start can be traced.
+    const warm = (name, ms, fn) => setTimeout(() => { const t0 = Date.now(); try { const r = fn(); if (r && typeof r.then === 'function') r.catch(() => { /* only a warm-up */ }).finally(() => PERF.record('startup.' + name, Date.now() - t0)); else PERF.record('startup.' + name, Date.now() - t0); } catch (e) { PERF.record('startup.' + name, Date.now() - t0, { error: String(e && e.message || e) }); } }, ms);
+    warm('fonts', 800, () => listSystemFonts());
+    warm('jxa', 800, () => startJxaHelper());      // compiled and warmed once, so the first click is quick too
+    warm('bridgePing', 1200, () => bridgeCall('ping', {}, 30000));
+    warm('segWatch', 3000, () => startSegWatch());      // Inspector timing sliders of MultiText clips
+    warm('colorScript', 1500, () => prepareColorScript());
+    warm('presetFonts', 2000, () => syncAllPresetFonts());
     // Title templates are renamed to their preset's name, and those of presets removed while the plugin was closed go.
-    setTimeout(() => { try { startupTemplates(loadLib().animations); } catch (e) { /* next start */ } }, 2500);
-    // Expired trimmed sound clips and previews are cleared at start-up and every 6 hours while the panel stays open.
-    const pruneCaches = () => { try { pruneSfxCache(); } catch (e) { /* ignore */ } try { prunePreviews(); } catch (e) { /* ignore */ } };
-    setTimeout(pruneCaches, 4000);
+    warm('templates', 2500, () => startupTemplates(loadLib().animations));
+    // Expired trimmed sound clips and previews are cleared at start-up and every 6 hours while the panel stays open
+    // (deferred to their own turn of the event loop, after the window's first requests; the walks are timed as startup.prune).
+    const pruneCaches = () => Promise.resolve().then(() => pruneSfxCache()).catch(() => { /* ignore */ }).then(() => prunePreviews()).catch(() => { /* ignore */ });
+    warm('prune', 4000, () => pruneCaches());
     setInterval(pruneCaches, 6 * 3600 * 1000).unref();
 });
 

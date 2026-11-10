@@ -458,10 +458,31 @@ function initPresetViewMode() {
     }
 }
 
+// renderAll (every library payload, after most actions) rebuilds the whole preset grid. This builds it only when
+// something it shows has changed: the presets' listed fields, the view mode, search, tag filter, order, selection and
+// variant fronts. Anything that calls renderAnimations() directly still rebuilds unconditionally.
+let animGridSig = '';
+function animGridSignature() {
+    const lib = state.lib || {};
+    const anims = (lib.animations || []).map(a => [a.id, a.name, a.updatedAt, a.missing ? 1 : 0, a.preview ? (a.preview.stamp || 0) + ':' + (a.preview.count || 0) : '-',
+        (a.tags || []).join(','), a.sfx || '', a.isMultiText ? 1 : 0, a.variantGroup || '', a.useSfx === false ? 0 : 1, a.sample || '']);
+    let filter = '';
+    try { filter = JSON.stringify(typeof tagUI !== 'undefined' && tagUI.filter ? tagUI.filter.use : null); } catch (e) { filter = '?'; }
+    return JSON.stringify([state.useViewMode, state.presetSearch || '', filter, state.selectedId, useOrderMode(), lib.useOrder || null,
+        state.variantFront || null, anims]);
+}
+function renderAnimationsIfChanged() {
+    const sig = animGridSignature();
+    if (sig === animGridSig && $('animGrid') && $('animGrid').childElementCount) return false;
+    renderAnimations();
+    return true;
+}
+
 // Use tab: the text + sound effects that are already made. Click one to pick it.
 function renderAnimations() {
     const grid = $('animGrid');
     if (!grid) return;
+    animGridSig = animGridSignature();
     grid.textContent = '';
     const mode = state.useViewMode;
     grid.className = 'grid ' + (mode === 'grid' ? 'view-grid' : (mode === 'gallery' ? 'view-gallery' : 'view-list'));

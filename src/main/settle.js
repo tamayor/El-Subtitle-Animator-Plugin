@@ -53,7 +53,7 @@ async function runPass(all) {
         for (const [id, p] of (all ? due : due.slice(0, c.batch))) {
             if (state.applying) break;
             try {
-                await bridgeCall('refresh', { item: id, comp: p.comp }, 15000);
+                await bridgeCall('refresh', { item: id, comp: p.comp }, 15000, { lane: 2 });      // background lane: live frames and placements go first
                 p.passes += 1;
                 p.due = Date.now() + c.gap;
                 dlog('settle', 'woke', id, 'pass', p.passes);

@@ -164,26 +164,39 @@ function migrateAndCleanLib(lib) {
 // The library file (hundreds of KB) is asked for by most actions. Its text is kept with the file's size and
 // modification time, so an unchanged file is not read from disk again; it is still parsed each time, so every
 // caller gets its own copy to change.
-const libRaw = { key: '', raw: null };
+// The parsed object is kept too (libRaw.parsed) and every caller gets a structuredClone of it: parsing 337 KB of
+// JSON on every one of the dozens of calls per action was a visible part of each action's time.
+const libRaw = { key: '', raw: null, parsed: null };
 function readLibRaw() {
     let st = null;
-    try { st = fs.statSync(LIB_FILE); } catch (e) { libRaw.key = ''; libRaw.raw = null; return null; }
+    try { st = fs.statSync(LIB_FILE); } catch (e) { libRaw.key = ''; libRaw.raw = null; libRaw.parsed = null; return null; }
     const key = st.size + ':' + st.mtimeMs;
     if (libRaw.key === key && libRaw.raw !== null) return libRaw.raw;
     let raw = null;
     try { raw = fs.readFileSync(LIB_FILE, 'utf8'); } catch (e) { raw = null; }
-    libRaw.key = raw === null ? '' : key; libRaw.raw = raw;
+    libRaw.key = raw === null ? '' : key; libRaw.raw = raw; libRaw.parsed = null;
     return raw;
 }
+// The library file as an object (shared, never handed out: callers clone), or null when it cannot be read.
+function readLibParsed() {
+    const raw = readLibRaw();
+    if (raw === null) return null;
+    if (libRaw.parsed) return libRaw.parsed;
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    libRaw.parsed = parsed;
+    return parsed;
+}
 const segCache = new Map();      // segmentsOf: preset file -> { mt, list }
+let dirsEnsured = false;
 function loadLib() {
-    ensureDirs();
+    if (!dirsEnsured) { ensureDirs(); dirsEnsured = true; }
     let lib = { defaultSfx: null, alwaysOnTop: true, animations: [], tags: [] };
     const raw = readLibRaw();
     if (raw !== null) {
-        let parsed = null;
-        try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        let parsed = readLibParsed();
+        if (!parsed) {
             // Damaged file: keep it for inspection and fall back to the last good copy instead of starting empty.
             try { fs.copyFileSync(LIB_FILE, LIB_FILE + '.corrupt-' + Date.now()); } catch (e) { /* ignore */ }
             try { parsed = JSON.parse(fs.readFileSync(LIB_FILE + '.bak', 'utf8')); } catch (e) { parsed = null; }
@@ -191,7 +204,7 @@ function loadLib() {
                 try { fs.copyFileSync(LIB_FILE + '.bak', LIB_FILE); } catch (e) { /* ignore */ }
             } else parsed = null;
         }
-        if (parsed) lib = Object.assign(lib, parsed);
+        if (parsed) lib = Object.assign(lib, structuredClone(parsed));
     }
     if (!Array.isArray(lib.animations)) lib.animations = [];
     if (!Array.isArray(lib.tags)) lib.tags = [];
@@ -252,7 +265,7 @@ function seedRowSounds(lib) {
 // Stamps updatedAt on every preset that is new or changed since the last save (shown and sorted in the Library tab).
 function stampUpdated(lib) {
     let prev = null;
-    try { const raw = readLibRaw(); prev = raw === null ? null : JSON.parse(raw); } catch (e) { prev = null; }
+    try { prev = readLibParsed(); } catch (e) { prev = null; }
     const key = (a) => { const c = Object.assign({}, a); delete c.updatedAt; return JSON.stringify(c); };
     const before = new Map(((prev && Array.isArray(prev.animations)) ? prev.animations : []).map(a => [a.id, a]));
     const now = Date.now();
@@ -264,10 +277,11 @@ function stampUpdated(lib) {
 }
 
 function saveLib(lib) {
-    ensureDirs();
+    if (!dirsEnsured) { ensureDirs(); dirsEnsured = true; }
     stampUpdated(lib);
     const tmp = LIB_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(lib, null, 2));
+    const text = JSON.stringify(lib, null, 2);
+    fs.writeFileSync(tmp, text);
     // Keep the previous good version (at most once a minute, so rapid edits stay cheap).
     try {
         if (fs.existsSync(LIB_FILE) && (!fs.existsSync(LIB_FILE + '.bak') || Date.now() - fs.statSync(LIB_FILE + '.bak').mtimeMs > 60000)) {
@@ -275,6 +289,8 @@ function saveLib(lib) {
         }
     } catch (e) { /* ignore */ }
     fs.renameSync(tmp, LIB_FILE);
+    // the next loadLib finds the file changed (stat) and would parse again: hand it what was just written instead
+    try { const st = fs.statSync(LIB_FILE); libRaw.key = st.size + ':' + st.mtimeMs; libRaw.raw = text; libRaw.parsed = structuredClone(lib); } catch (e) { libRaw.key = ''; }
 }
 
 function uniqueName(dir, base) {

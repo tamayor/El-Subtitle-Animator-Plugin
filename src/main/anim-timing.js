@@ -10,6 +10,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming };
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
+const PERF = require('./perf');
 const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx, refitRowSfx } = require('./placement');
 
 // itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
@@ -38,28 +39,53 @@ async function clipFacts(item) {
 }
 
 // The clips worth looking at: the selected video clips first, then the clips under the playhead from the top track down.
+// The clip list is read every TRACKS_MS (40 clips at a time, in parallel; one call at a time it was every clip of
+// the timeline, serially, every 2 s); the answer for one (frame, selection) is shared by the timing bar and the Clip
+// controls, which poll 300 ms and 700 ms apart, for CAND_MS.
+const TRACKS_MS = 5000, CAND_MS = 600;
+let candMemo = { key: '', at: 0, list: null };
 async function candidates(tl, frame, tlName) {
+    const ls = state.lastSelection;
+    const selKey = (ls && Date.now() - ls.at < 1500) ? ls.items.length + ':' + ls.at : 'q';
+    const key = tlName + ':' + frame + ':' + selKey;
+    if (candMemo.list && candMemo.key === key && Date.now() - candMemo.at < CAND_MS) return candMemo.list;
+    const sp = PERF.span('timing.candidates');
     const out = [];
     try {
-        for (const c of (await tl.GetSelectedClips()) || []) {
-            const tt = await c.GetTrackTypeAndIndex();
-            if (tt && tt[0] === 'video' && (await c.GetFusionCompCount()) > 0) out.push(Object.assign(await clipFacts(c), { selected: true }));
+        // the selection the panel's poll just read (poll.js), else Resolve's
+        let sel, types;
+        if (ls && Date.now() - ls.at < 1500) { sel = ls.items; types = ls.types; }
+        else {
+            const all = (await tl.GetSelectedClips()) || [];
+            sel = Array.isArray(all) ? all : Object.values(all);
+            types = await Promise.all(sel.map(c => Promise.resolve(c.GetTrackTypeAndIndex()).catch(() => null)));
         }
+        const vid = sel.filter((c, k) => types[k] && types[k][0] === 'video');
+        const comps = await Promise.all(vid.map(c => Promise.resolve(c.GetFusionCompCount()).catch(() => 0)));
+        const facts = await Promise.all(vid.filter((c, k) => comps[k] > 0).map(c => clipFacts(c).catch(() => null)));
+        for (const f of facts) if (f) out.push(Object.assign(f, { selected: true }));
     } catch (e) { /* no selection API: playhead only */ }
-    if (tracks.key !== tlName || Date.now() - tracks.at > 2000) {
+    if (tracks.key !== tlName || Date.now() - tracks.at > TRACKS_MS) {
         const list = [];
         const n = (await tl.GetTrackCount('video')) || 0;
         for (let t = n; t >= 1; t--) {
-            for (const it of (await tl.GetItemListInTrack('video', t)) || []) {
-                try { list.push({ item: it, start: Number(await it.GetStart()), end: Number(await it.GetEnd()) }); } catch (e) { /* skip */ }
+            const its = (await tl.GetItemListInTrack('video', t)) || [];
+            const arr = Array.isArray(its) ? its : Object.values(its);
+            for (let i = 0; i < arr.length; i += 40) {
+                const part = arr.slice(i, i + 40);
+                const se = await Promise.all(part.map(it => Promise.all([it.GetStart(), it.GetEnd()]).catch(() => null)));
+                for (let k = 0; k < part.length; k++) if (se[k]) list.push({ item: part[k], start: Number(se[k][0]), end: Number(se[k][1]) });
             }
         }
         tracks = { key: tlName, at: Date.now(), list };
     }
-    for (const x of tracks.list) {
-        if (frame < x.start || frame >= x.end) continue;
-        try { if ((await x.item.GetFusionCompCount()) > 0) out.push(await clipFacts(x.item)); } catch (e) { /* gone */ }
+    const under = tracks.list.filter(x => frame >= x.start && frame < x.end);
+    const counts = await Promise.all(under.map(x => Promise.resolve(x.item.GetFusionCompCount()).catch(() => 0)));
+    for (let k = 0; k < under.length; k++) {
+        if (counts[k] > 0) { try { out.push(await clipFacts(under[k].item)); } catch (e) { /* gone */ } }
     }
+    candMemo = { key, at: Date.now(), list: out };
+    sp.end({ n: out.length });
     return out;
 }
 
@@ -191,6 +217,8 @@ async function setClipTiming(event, itemId, ranges, wake) {
     if (!list.length) return { error: 'No timing to set' };
     const r = await bridgeCall('timing_set', { item: String(itemId), ranges: list, wake: !!wake }, 6000);
     cache.delete(String(itemId));      // the next read shows what the clip really has now
+    candMemo.list = null;
+    state.segSweepHot = Date.now();    // seg-watch's sweep looks soon
     if (!(r && r.ok)) return { error: (r && r.why) || 'Could not set the timing on that clip' };
     // A change made outright (release, keys, buttons): the Upper / Emphasis / Lower sounds follow their row's start.
     let sounds = null;

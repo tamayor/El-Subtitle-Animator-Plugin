@@ -30,10 +30,15 @@ const FIX_DEFAULTS = Object.freeze({
     fitFollowerDelay: true,     // clips shorter than the animation: shorten the Follower's per-letter Delay
     fitSegments: true,          // segment presets: scale their ranges down to fit a short clip
     clipSliderMax: true,        // the timing sliders run up to the clip's length
-    inspectorTimingWatch: true  // MultiText Start / End sliders dragged in Resolve's Inspector re-key the letters (seg-watch.js)
+    inspectorTimingWatch: true, // MultiText Start / End sliders dragged in Resolve's Inspector re-key the letters (seg-watch.js)
+    // Lighter variants, all off by default (= what the panel always did). Measure with the perf tool and the blank-render
+    // check (MCP verify_placed) before switching them on.
+    refreshIfRecentWake: false, // skip the refresh after placing when the insert wake ran less than 200 ms before
+    wakeLock: false,            // toggle the tools of a wake inside comp.Lock() / Unlock(): one re-render instead of one per toggle
+    highlightProbeFrames: 9     // frames rendered to find where a highlight box is widest (auto balance); 5 = coarse-to-fine
 });
 
-const LIMITS = { settlePasses: [0, 6], settleDelayMs: [200, 20000], settleGapMs: [200, 20000], settleBatch: [1, 50] };
+const LIMITS = { settlePasses: [0, 6], settleDelayMs: [200, 20000], settleGapMs: [200, 20000], settleBatch: [1, 50], highlightProbeFrames: [3, 9] };
 const WAKE_MODES = ['all', 'followers', 'off'];
 
 let current = null;
@@ -86,7 +91,8 @@ function bridgeFixes() {
     const f = getFixes();
     return {
         wakeMode: f.wakeMode, wakeOnInsert: f.wakeOnInsert, retouchText: f.retouchText,
-        fitFollowerDelay: f.fitFollowerDelay, fitSegments: f.fitSegments, clipSliderMax: f.clipSliderMax
+        fitFollowerDelay: f.fitFollowerDelay, fitSegments: f.fitSegments, clipSliderMax: f.clipSliderMax,
+        wakeLock: f.wakeLock, highlightProbeFrames: f.highlightProbeFrames
     };
 }
 

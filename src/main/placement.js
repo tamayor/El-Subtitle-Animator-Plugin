@@ -7,7 +7,7 @@ const FADE_WARNING = 'Resolve did not take the sound\'s fade-out. Drag the fade 
 module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
     importSfx, insertTitleAtEnd, installAllTemplates, relinkToProjectCopy, inspectorSafeComp, isTitleClipName, layerList, moveTitleSafe, pickTrack,
-    presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
+    presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, pruneTemplates, startupTemplates, syncTemplates,
     placeExtraSfx, refitRowSfx, rowFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, sfxCutFor, sfxCutFrames, titleKindFor, titlesDir, trackUsable, typingFramesFor
 };
 
@@ -18,13 +18,15 @@ const os = require('os');
 const state = require('./state');
 const { ANIM_DIR, APP_DATA_DIR, DATA_DIR } = require('./config');
 const { isEditedSfxName, sfxFilePath } = require('./sfx');
-const { blockEnd, detectNodes, expandAllTools } = require('./fusion-setting');
+const { blockEnd, derived, detectNodes, expandAllTools, presetText } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
 const { upgradeRetiming } = require('./retime');
 const { hideAddons } = require('./addon-controls');
-const { frameToTC, tcToFrame } = require('./resolve');
+const { findItemsByIds, frameToTC, tcToFrame } = require('./resolve');
 const { ensureStopped } = require('./playback');
+const { snapAdd, snapAddTrack, snapCutKeys, snapTrack } = require('./timeline-snapshot');
+const PERF = require('./perf');
 
 // ------------------------------------------------------------------ building the clip
 // Placement options (all off by default), set from the pop-up beside "Add to timeline":
@@ -65,35 +67,55 @@ function placeOpts(o) {
     return Object.assign({ locked: !!o.locked, disabledTrack: !!o.disabledTrack, disabledClip: !!o.disabledClip, firstEmpty: !!o.firstEmpty }, vr, audioRangeOf(o, vr));
 }
 
-async function trackUsable(tl, kind, t) {
+// snap (optional, timeline-snapshot.js): the tracks and clips read once for this placement; without it the track is
+// read from Resolve here (its clips 40 at a time).
+async function trackUsable(tl, kind, t, snap) {
+    const tr = snapTrack(snap, kind, t);
+    if (tr) return !tr.locked && tr.enabled;
     try { if (await tl.GetIsTrackLocked(kind, t)) return false; } catch (e) { /* ignore */ }
     try { if ((await tl.GetIsTrackEnabled(kind, t)) === false) return false; } catch (e) { /* ignore */ }
     return true;
 }
+// The clips of a track as [{ start, end, enabled }], from the snapshot or from Resolve.
+async function trackClips(tl, kind, t, snap, withEnabled) {
+    const tr = snapTrack(snap, kind, t);
+    if (tr) return tr.items;
+    const its = (await tl.GetItemListInTrack(kind, t)) || [];
+    const arr = Array.isArray(its) ? its : Object.values(its);
+    const out = [];
+    for (let i = 0; i < arr.length; i += 40) {
+        out.push(...await Promise.all(arr.slice(i, i + 40).map(async (it) => {
+            try {
+                const [start, end, on] = await Promise.all([it.GetStart(), it.GetEnd(), withEnabled ? Promise.resolve(it.GetClipEnabled()).then(v => v !== false).catch(() => true) : true]);
+                return { it, start: Number(start), end: Number(end), enabled: on };
+            } catch (e) { return null; }
+        })));
+    }
+    return out.filter(Boolean);
+}
 
 // Does this track hold something in [s, e) that counts under the placement options?
-async function trackHasClip(tl, kind, t, s, e, po) {
+async function trackHasClip(tl, kind, t, s, e, po, snap) {
+    const tr = snapTrack(snap, kind, t);
     try {
-        if (!po.locked && await tl.GetIsTrackLocked(kind, t)) return false;
-        if (!po.disabledTrack && (await tl.GetIsTrackEnabled(kind, t)) === false) return false;
+        const locked = tr ? tr.locked : !!(await tl.GetIsTrackLocked(kind, t));
+        if (!po.locked && locked) return false;
+        const enabled = tr ? tr.enabled : (await tl.GetIsTrackEnabled(kind, t)) !== false;
+        if (!po.disabledTrack && !enabled) return false;
     } catch (err) { /* ignore */ }
-    for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
-        if (!((await it.GetStart()) < e && (await it.GetEnd()) > s)) continue;
-        if (!po.disabledClip) {
-            let on = true;
-            try { on = (await it.GetClipEnabled()) !== false; } catch (err) { on = true; }
-            if (!on) continue;
-        }
+    for (const x of await trackClips(tl, kind, t, snap, !po.disabledClip)) {
+        if (!(x.start < e && x.end > s)) continue;
+        if (!po.disabledClip && x.enabled === false) continue;
         return true;
     }
     return false;
 }
 
-async function trackIsFree(tl, kind, t, s, e) {
-    if (await tl.GetIsTrackLocked(kind, t)) return false;
-    const items = (await tl.GetItemListInTrack(kind, t)) || [];
-    for (const it of items) {
-        if ((await it.GetStart()) < e && (await it.GetEnd()) > s) return false;
+async function trackIsFree(tl, kind, t, s, e, snap) {
+    const tr = snapTrack(snap, kind, t);
+    if (tr ? tr.locked : await tl.GetIsTrackLocked(kind, t)) return false;
+    for (const x of await trackClips(tl, kind, t, snap, false)) {
+        if (x.start < e && x.end > s) return false;
     }
     return true;
 }
@@ -103,13 +125,20 @@ async function trackIsFree(tl, kind, t, s, e) {
 // (rangeFrom / rangeTo): the first usable empty layer from rangeFrom up, past the range when it is full. A new track is
 // added when there is none. Auto (audio) = the lowest free audio track, or with an audio range (see audioRangeOf) the
 // first free usable track from audioFrom up, past the range when it is full.
-async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
-    const n = await tl.GetTrackCount(kind);
+async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn, snap) {
+    const sp = PERF.span('place.pickTrack');
+    try { return await pickTrackInner(tl, kind, wanted, s, e, firstAuto, notes, placeIn, snap); }
+    finally { sp.end({ kind, snap: !!snap }); }
+}
+async function pickTrackInner(tl, kind, wanted, s, e, firstAuto, notes, placeIn, snap) {
+    const n = (snap && snap.tracks[kind]) ? snap.tracks[kind].length : await tl.GetTrackCount(kind);
     const label = (kind === 'audio' ? 'A' : 'V');
     const po = placeOpts(placeIn);
+    // tracks added here are added to the snapshot too, so the rest of this placement sees them
+    const addTrack = async () => { await (kind === 'audio' ? tl.AddTrack('audio', 'stereo') : tl.AddTrack('video')); if (snap) snapAddTrack(snap, kind, (snap.tracks[kind] || []).length + 1); };
     if (kind === 'video' && wanted === 1) { notes.push('V1 is never used for Text+ (it would cut the clips), so the top layer was used'); wanted = 0; }
     if (wanted > 0 && wanted <= n) {
-        if (await trackIsFree(tl, kind, wanted, s, e)) return wanted;
+        if (await trackIsFree(tl, kind, wanted, s, e, snap)) return wanted;
         notes.push(label + wanted + ' is busy there, so the lowest free track was used');
     }
     if (kind === 'video') {
@@ -117,24 +146,24 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
         const ranged = po.ranged;
         const where = ranged ? ' (range V' + lo + '-' + (hi === Infinity ? '∞' : 'V' + hi) + ')' : '';
         // adds tracks until V<t> exists (a range that starts above the current top track)
-        const addUpTo = async (t) => { let c = n; while (c < t) { await tl.AddTrack('video'); c++; } return t; };
+        const addUpTo = async (t) => { let c = n; while (c < t) { await addTrack(); c++; } return t; };
         let target = null;
         // a range always starts at its first track and steps up past locked / disabled / busy ones (never jumps
         // above a higher clip like "top" does); no range = the top, or the lowest empty layer with firstEmpty
         if (po.firstEmpty || ranged) {
             for (let t = Math.max(1, lo); t <= Math.min(n, hi); t++) {
-                if (!(await trackUsable(tl, kind, t))) continue;
-                if (!(await trackHasClip(tl, kind, t, s, e, po))) { target = t; break; }
+                if (!(await trackUsable(tl, kind, t, snap))) continue;
+                if (!(await trackHasClip(tl, kind, t, s, e, po, snap))) { target = t; break; }
             }
             if (target === null && n < lo) target = lo;            // the range starts above the existing tracks
             if (target === null && n < hi) target = n + 1;         // the range has room for a new track
         } else {
             let top = 0;
             for (let t = Math.min(n, hi); t >= lo; t--) {
-                if (await trackHasClip(tl, kind, t, s, e, po)) { top = t; break; }
+                if (await trackHasClip(tl, kind, t, s, e, po, snap)) { top = t; break; }
             }
             let t = Math.max(lo, top + 1);
-            while (t <= n && t <= hi && !(await trackUsable(tl, kind, t))) t++;
+            while (t <= n && t <= hi && !(await trackUsable(tl, kind, t, snap))) t++;
             if (t <= hi) target = t;
         }
         if (target !== null) {
@@ -145,13 +174,13 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
         }
         // every layer of the range is taken: the lowest free layer above it, else a new track on top
         for (let t = hi + 1; t <= n; t++) {
-            if (!(await trackUsable(tl, kind, t))) continue;
-            if (!(await trackHasClip(tl, kind, t, s, e, po))) {
+            if (!(await trackUsable(tl, kind, t, snap))) continue;
+            if (!(await trackHasClip(tl, kind, t, s, e, po, snap))) {
                 notes.push(label + lo + '-' + label + (hi === Infinity ? '∞' : hi) + ' are all taken there, so ' + label + t + ' (above the range) was used');
                 return t;
             }
         }
-        await tl.AddTrack('video');
+        await addTrack();
         notes.push(ranged ? (label + lo + '-' + label + hi + ' are all taken there, added ' + label + (n + 1) + ' above the range') : ('no empty layer, added ' + label + (n + 1)));
         return n + 1;
     }
@@ -159,28 +188,28 @@ async function pickTrack(tl, kind, wanted, s, e, firstAuto, notes, placeIn) {
         const lo = Math.max(firstAuto, po.audioFrom), hi = po.audioTo === null ? Infinity : po.audioTo;
         const span = 'A' + lo + '-' + (hi === Infinity ? '∞' : 'A' + hi);
         for (let t = lo; t <= Math.min(n, hi); t++) {
-            if (!(await trackUsable(tl, kind, t))) continue;
-            if (await trackIsFree(tl, kind, t, s, e)) return t;
+            if (!(await trackUsable(tl, kind, t, snap))) continue;
+            if (await trackIsFree(tl, kind, t, s, e, snap)) return t;
         }
         if (n < hi) {                                   // room in the range for new tracks
             const target = Math.max(lo, n + 1);
-            for (let c = n; c < target; c++) await tl.AddTrack('audio', 'stereo');
+            for (let c = n; c < target; c++) await addTrack();
             notes.push('audio range ' + span + ': no free track yet, added A' + (n + 1) + (target > n + 1 ? '-A' + target : ''));
             return target;
         }
         for (let t = hi + 1; t <= n; t++) {
-            if (!(await trackUsable(tl, kind, t))) continue;
-            if (await trackIsFree(tl, kind, t, s, e)) { notes.push(span + ' are all taken there, so A' + t + ' (above the range) was used'); return t; }
+            if (!(await trackUsable(tl, kind, t, snap))) continue;
+            if (await trackIsFree(tl, kind, t, s, e, snap)) { notes.push(span + ' are all taken there, so A' + t + ' (above the range) was used'); return t; }
         }
-        await tl.AddTrack('audio', 'stereo');
+        await addTrack();
         notes.push(span + ' are all taken there, added A' + (n + 1) + ' above the range');
         return n + 1;
     }
     for (let t = firstAuto; t <= n; t++) {
-        if (await trackIsFree(tl, kind, t, s, e)) return t;
+        if (await trackIsFree(tl, kind, t, s, e, snap)) return t;
         notes.push(label + t + ' busy');
     }
-    if (kind === 'audio') await tl.AddTrack('audio', 'stereo'); else await tl.AddTrack('video');
+    await addTrack();
     notes.push('no free ' + label + ' track, added ' + label + (n + 1));
     return n + 1;
 }
@@ -243,18 +272,32 @@ async function timelineSfxDir(project) {
     dlog('TIMELINE-SFX-DIR', key, dir);
     return dir;
 }
+// Two files with the same size are compared by content once; the answer is kept by both files' size + mtime.
+const sameFileCache = new Map();
 function sameFile(a, b) {
     try {
         const sa = fs.statSync(a), sb = fs.statSync(b);
-        return sa.size === sb.size && fs.readFileSync(a).equals(fs.readFileSync(b));
+        if (sa.size !== sb.size) return false;
+        const key = a + '|' + sa.mtimeMs + '|' + b + '|' + sb.mtimeMs + '|' + sa.size;
+        if (sameFileCache.has(key)) return sameFileCache.get(key);
+        const same = fs.readFileSync(a).equals(fs.readFileSync(b));
+        sameFileCache.set(key, same);
+        if (sameFileCache.size > 500) sameFileCache.delete(sameFileCache.keys().next().value);
+        return same;
     } catch (e) { return false; }
 }
 // The path to import: the timeline's copy of sfxPath (made when missing), or sfxPath itself when no copy can be made.
+// Remembered per (footage folder, sound file version), so a sound placed again costs one stat.
+const sfxCopyCache = new Map();
 async function projectSfxCopy(project, sfxPath) {
     try {
         if (path.basename(path.dirname(sfxPath)) === PROJECT_SFX_DIR) return sfxPath;      // already a timeline copy
         const dir = await timelineSfxDir(project);
         if (!dir) return sfxPath;
+        let st = null;
+        try { st = fs.statSync(sfxPath); } catch (e) { st = null; }
+        const ck = st ? dir + '|' + sfxPath + '|' + st.size + '|' + st.mtimeMs : null;
+        if (ck && sfxCopyCache.has(ck) && fs.existsSync(sfxCopyCache.get(ck))) return sfxCopyCache.get(ck);
         const outDir = path.join(dir, PROJECT_SFX_DIR);
         fs.mkdirSync(outDir, { recursive: true });
         let dst = path.join(outDir, path.basename(sfxPath));
@@ -265,6 +308,7 @@ async function projectSfxCopy(project, sfxPath) {
             dst = path.join(outDir, path.basename(sfxPath, ext) + ' ' + tag + ext);
         }
         if (!fs.existsSync(dst)) fs.copyFileSync(sfxPath, dst);
+        if (ck) { sfxCopyCache.set(ck, dst); if (sfxCopyCache.size > 500) sfxCopyCache.delete(sfxCopyCache.keys().next().value); }
         return dst;
     } catch (e) {
         dlog('PROJECT-SFX-COPY-FAIL', String(e && e.message || e));
@@ -283,38 +327,73 @@ async function relinkToProjectCopy(project, sfxItem) {
 }
 
 // projectCopy: true when the subtitle is being applied (see projectSfxCopy); previews import from the library.
+// The "Subtitle Animator" bin's clips by file path, read once per project and kept while the bin's clip count is
+// unchanged (one GetClipList per import instead of a name + path read of every clip, in a bin that only grows).
+const sfxBin = { key: '', folder: null, count: -1, byPath: new Map() };
 async function importSfx(project, sfxPath, projectCopy) {
+    const sp = PERF.span('place.importSfx');
+    try { return await importSfxInner(project, sfxPath, projectCopy); }
+    finally { sp.end(); }
+}
+async function importSfxInner(project, sfxPath, projectCopy) {
     if (projectCopy) sfxPath = await projectSfxCopy(project, sfxPath);
     const mp = await project.GetMediaPool();
-    const keep = await mp.GetCurrentFolder();
     let target = null;
+    let pkey = '';
+    try { pkey = String(await project.GetName()); } catch (e) { pkey = ''; }
     try {
-        const root = await mp.GetRootFolder();
-        const subs = (await root.GetSubFolderList()) || [];
-        for (const f of subs) { if ((await f.GetName()) === 'Subtitle Animator') { target = f; break; } }
-        if (!target) target = await mp.AddSubFolder(root, 'Subtitle Animator');
+        if (sfxBin.key === pkey && sfxBin.folder) {
+            target = sfxBin.folder;
+            try { await target.GetName(); } catch (e) { target = null; }      // a stale handle (project reopened)
+        }
+        if (!target) {
+            const root = await mp.GetRootFolder();
+            const subs = (await root.GetSubFolderList()) || [];
+            const names = await Promise.all(subs.map(f => Promise.resolve(f.GetName()).catch(() => '')));
+            target = subs[names.indexOf('Subtitle Animator')] || null;
+            if (!target) target = await mp.AddSubFolder(root, 'Subtitle Animator');
+            sfxBin.key = pkey; sfxBin.folder = target; sfxBin.count = -1; sfxBin.byPath = new Map();
+        }
     } catch (e) { /* ignore */ }
-    const want = path.basename(sfxPath);
+    const wantPath = path.resolve(sfxPath);
     // A clip is reused only when it is THIS file: matching the name alone picked up stale clips imported from an older
     // data folder (e.g. ~/Documents/Subtitle Animator/sfx/applepay.mp3), which are offline once that folder is gone.
-    const samePath = async (c) => {
-        try { return path.resolve(String(await c.GetClipProperty('File Path') || '')) === path.resolve(sfxPath); } catch (e) { return false; }
+    const refresh = async () => {
+        const clips = (await target.GetClipList()) || [];
+        const arr = Array.isArray(clips) ? clips : Object.values(clips);
+        if (arr.length === sfxBin.count && sfxBin.byPath.size) return;
+        const byPath = new Map();
+        for (let i = 0; i < arr.length; i += 40) {
+            const part = arr.slice(i, i + 40);
+            const paths = await Promise.all(part.map(c => Promise.resolve(c.GetClipProperty('File Path')).then(p => path.resolve(String(p || ''))).catch(() => '')));
+            for (let k = 0; k < part.length; k++) if (paths[k] && !byPath.has(paths[k])) byPath.set(paths[k], part[k]);
+        }
+        sfxBin.count = arr.length; sfxBin.byPath = byPath;
+    };
+    const stillSame = async (c) => {
+        try { return path.resolve(String(await c.GetClipProperty('File Path') || '')) === wantPath; } catch (e) { return false; }
     };
     const findSame = async () => {
-        for (const c of ((await target.GetClipList()) || [])) {
-            if ((await c.GetName()) === want && await samePath(c)) return c;
-        }
-        return null;
+        if (!target) return null;
+        try { await refresh(); } catch (e) { return null; }
+        const hit = sfxBin.byPath.get(wantPath) || null;
+        if (!hit) return null;
+        if (await stillSame(hit)) return hit;
+        // the clip was replaced by hand (same count, another clip): read the bin again
+        sfxBin.count = -1;
+        try { await refresh(); } catch (e) { return null; }
+        const again = sfxBin.byPath.get(wantPath) || null;
+        return (again && await stillSame(again)) ? again : null;
     };
-    if (target) {
-        const hit = await findSame();
-        if (hit) return { mp, item: hit };
-        try { await mp.SetCurrentFolder(target); } catch (e) { /* ignore */ }
-    }
+    const hit = await findSame();
+    if (hit) return { mp, item: hit };
+    const keep = await mp.GetCurrentFolder();
+    if (target) { try { await mp.SetCurrentFolder(target); } catch (e) { /* ignore */ } }
     let items = await mp.ImportMedia([sfxPath]);
+    sfxBin.count = -1;      // the bin changed: read again next time
     if ((!items || !items.length) && target) {
-        const hit = await findSame();
-        if (hit) items = [hit];
+        const again = await findSame();
+        if (again) items = [again];
     }
     try { if (keep) await mp.SetCurrentFolder(keep); } catch (e) { /* ignore */ }
     return { mp, item: items && items[0] };
@@ -327,8 +406,11 @@ async function parkPlayhead(tl, frame, meta) {
     for (let i = 0; i < 4; i++) {
         try {
             await tl.SetCurrentTimecode(frameToTC(frame, meta));
-            await new Promise(r => setTimeout(r, 40));
-            if (tcToFrame(await tl.GetCurrentTimecode(), meta) === frame) return true;
+            // read back as soon as Resolve reports the move (up to 4 x 10 ms) instead of a fixed 40 ms wait
+            for (let k = 0; k < 4; k++) {
+                if (tcToFrame(await tl.GetCurrentTimecode(), meta) === frame) return true;
+                await new Promise(r => setTimeout(r, 10));
+            }
         } catch (e) { /* retry */ }
         await new Promise(r => setTimeout(r, 120));
     }
@@ -345,12 +427,19 @@ async function parkPlayhead(tl, frame, meta) {
 
 function ofxNames(txt) { const r = [], re = /ofx\.com\.blackmagicdesign\.resolvefx\.(\w+)\s*\{/g; let m; while ((m = re.exec(txt))) r.push(m[1]); return r; }
 
+// The adjusted text of a preset (expanded tools, Stop Motion made native), worked out once per file version.
+function safeCompText(compPath) {
+    const c = presetText(compPath);
+    if (!c) return null;
+    const r = derived(compPath, 'safe', (orig) => ({ orig, text: stopMotionToNative(expandAllTools(orig)), ofx: ofxNames(orig).filter(n => n !== 'StopMotion') }));
+    state.ofxLeft.set(compPath, r.ofx);
+    return r;
+}
 function inspectorSafeComp(compPath) {
     try {
-        const orig = fs.readFileSync(compPath, 'utf8');
-        state.ofxLeft.set(compPath, ofxNames(orig).filter(n => n !== 'StopMotion'));
-        const s = stopMotionToNative(expandAllTools(orig));
-        return s === orig ? compPath : writeSafeComp(compPath, s);
+        const r = safeCompText(compPath);
+        if (!r) return compPath;
+        return r.text === r.orig ? compPath : writeSafeComp(compPath, r.text);
     } catch (e) { return compPath; }
 }
 
@@ -471,12 +560,24 @@ function presetTitleName(compPath, presetName) {
 }
 // Template names of every preset whose file exists, by preset id. Two presets with the same name get " 2", " 3", ...
 // in library order (compared without case: the macOS file system ignores it). animations: library.json entries.
+// Remembered for the same list of (id, name, file, file version): called per apply, per Clip-controls read and per
+// template sync, and it used to read every preset file each time.
+const titleNamesMemo = { key: '', map: null };
 function presetTitleNames(animations) {
+    const sp = PERF.span('place.presetTitleNames');
+    const parts = [];
+    for (const a of animations || []) {
+        if (!a || !a.file) continue;
+        const c = presetText(path.join(ANIM_DIR, a.file));
+        parts.push(a.id + '\u0001' + a.name + '\u0001' + a.file + '\u0001' + (c ? c.key : '-'));
+    }
+    const key = parts.join('\u0002');
+    if (titleNamesMemo.map && titleNamesMemo.key === key) { sp.end({ cached: true }); return new Map(titleNamesMemo.map); }
     const out = new Map(), used = new Set();
     for (const a of animations || []) {
         try {
             const f = path.join(ANIM_DIR, a.file);
-            if (!a.file || !fs.existsSync(f)) continue;
+            if (!a.file || !presetText(f)) continue;
             const base = presetTitleName(f, a.name);
             let name = base, n = 2;
             while (used.has(name.toLowerCase())) name = base + ' ' + n++;
@@ -484,6 +585,8 @@ function presetTitleNames(animations) {
             out.set(a.id, name);
         } catch (e) { /* skip */ }
     }
+    titleNamesMemo.key = key; titleNamesMemo.map = new Map(out);
+    sp.end({ cached: false, n: out.size });
     return out;
 }
 // Deletes the templates of presets that are gone (removed, file replaced) from the plugin's own template folder, so
@@ -570,27 +673,52 @@ function startupTemplates(animations) {
 
 // Installs (or refreshes) the template for a preset and returns its name, or null when it could not be written.
 // name: the preset's template name from presetTitleNames (the file name is used without it).
-function presetTitleFor(compPath, name) {
-    try {
-        name = name || presetTitleName(compPath);
+// The template body is worked out once per preset file version (derived cache). Whether the installed file already
+// holds it is remembered by that file's size + mtime from the last write or compare, so an apply costs one stat here;
+// a template file changed or deleted by anything else is noticed by the stat and rewritten.
+const installedTpl = new Map();      // template file -> { key: size:mtime of the file holding `body`, bodyLen }
+function templateBody(compPath) {
+    const safe = safeCompText(compPath);
+    if (!safe) return null;
+    return derived(compPath, 'templateBody', () => {
         // presets retimed before the Animation Start slider existed get it here (src/main/retime.js)
-        const raw = asSetting(upgradeRetiming(fs.readFileSync(inspectorSafeComp(compPath), 'utf8')));
+        const raw = asSetting(upgradeRetiming(safe.text));
         if (!raw) return null;
         // the preset's add-ons are edited from the panel's Clip controls, not Resolve's Inspector (addon-controls.js)
-        const body = hideAddons(withOutput(raw));
+        return hideAddons(withOutput(raw));
+    });
+}
+function presetTitleFor(compPath, name) {
+    const sp = PERF.span('place.presetTitleFor');
+    try {
+        name = name || presetTitleName(compPath);
+        const body = templateBody(compPath);
+        if (!body) return null;
         const dir = titlesDir();
-        fs.mkdirSync(dir, { recursive: true });
         const file = path.join(dir, name + '.setting');
+        let st = null;
+        try { st = fs.statSync(file); } catch (e) { st = null; }
+        const known = installedTpl.get(file);
+        if (st && known && known.key === st.size + ':' + st.mtimeMs && known.body === body) return name;
         let cur = null;
-        try { cur = fs.readFileSync(file, 'utf8'); } catch (e) { /* not installed yet */ }
-        if (cur !== body) fs.writeFileSync(file, body);
+        if (st) { try { cur = fs.readFileSync(file, 'utf8'); } catch (e) { cur = null; } }
+        if (cur !== body) {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(file, body);
+            try { st = fs.statSync(file); } catch (e) { st = null; }
+        }
+        if (st) installedTpl.set(file, { key: st.size + ':' + st.mtimeMs, body });
         return name;
     } catch (e) {
         dlog('PRESET-TITLE-FAIL', String(e && e.message || e));
         return null;
-    }
+    } finally { sp.end(); }
 }
 function isTitleClipName(n) { return /^(Text\+|MultiText)/.test(String(n || '')); }
+// How long ago the template file was (re)written; Infinity when it does not exist.
+function templateAgeMs(title) {
+    try { return Date.now() - fs.statSync(path.join(titlesDir(), title + '.setting')).mtimeMs; } catch (e) { return Infinity; }
+}
 // The tool that feeds a preset's output (its MediaOut's SourceOp in the title template), e.g. "StopMotion1" for a
 // wiggle preset. Resolve connects an inserted title's MediaOut to "Template" regardless, so apply reconnects it to
 // this one (bridge op set_output). Null when the template cannot be read or has no MediaOut.
@@ -603,8 +731,19 @@ function typingFramesFor(len, fps) {
     return Math.max(1, Math.min(n - 1, Math.max(10, n - Math.round(Number(fps) || 25))));
 }
 function presetOutputFor(title) {
+    const file = path.join(titlesDir(), title + '.setting');
+    if (!presetText(file)) return null;
+    return derived(file, 'output', (s) => presetOutputOf(s));
+}
+// Row controls (Row Gap / Justify, add-multitext-row-controls.py) on the preset's Template: only those clips get the
+// multitext_rows bridge pass after placing.
+function presetHasRowControls(title) {
+    const file = path.join(titlesDir(), title + '.setting');
+    if (!presetText(file)) return false;
+    return derived(file, 'rowControls', (s) => /\bRowGap\s*=\s*Input\b/.test(s || ''));
+}
+function presetOutputOf(s) {
     try {
-        const s = fs.readFileSync(path.join(titlesDir(), title + '.setting'), 'utf8');
         const re = /([A-Za-z_]\w*)\s*=\s*(?:MediaOut|Saver)\s*\{/g;
         let m;
         while ((m = re.exec(s))) {
@@ -659,8 +798,11 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
             try { item = await tl.InsertFusionTitleIntoTimeline(titleName); }
             catch (e) {
                 dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
+                PERF.record('place.insertThrew', 0, { title: titleName, attempt });
                 if (!title) throw e;
-                if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
+                // a template written moments ago needs Resolve's scan (about 1.5 s); an older one that throws is
+                // more likely a passing refusal, tried again sooner
+                if (attempt < attempts - 1) await new Promise(r => setTimeout(r, templateAgeMs(titleName) < 10000 ? 1500 : 500));
                 continue;
             }
             if (!item) break;
@@ -680,22 +822,29 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
 // Cut guard: the boundaries of the real clips (V1 and every audio track, Text+ ignored) are noted before and after
 // each step this plugin takes on the timeline. A difference is written to _debug/preview-log.txt and shown as a
 // warning, so any cut the plugin could cause is caught the moment it happens.
-async function cutSnapshot(tl) {
+// snap: a timeline snapshot with V1 and the audio tracks (timeline-snapshot.js) read for this placement; without one
+// the clips are read here, 40 at a time.
+async function cutSnapshot(tl, snap) {
+    if (snap && snap.tracks && snap.tracks.video && snap.tracks.audio) return snapCutKeys(snap);
+    const sp = PERF.span('place.cutSnapshot');
     const out = [];
     try {
         const na = (await tl.GetTrackCount('audio')) || 0;
         const tracks = [['video', 1]];
         for (let t = 1; t <= na; t++) tracks.push(['audio', t]);
         for (const [kind, t] of tracks) {
-            for (const it of ((await tl.GetItemListInTrack(kind, t)) || [])) {
-                try {
-                    const nm = String(await it.GetName());
-                    if (/^Text\+/.test(nm)) continue;
-                    out.push(kind[0] + t + ':' + (await it.GetStart()) + '-' + (await it.GetEnd()));
-                } catch (e) { /* ignore */ }
+            const its = (await tl.GetItemListInTrack(kind, t)) || [];
+            const arr = Array.isArray(its) ? its : Object.values(its);
+            for (let i = 0; i < arr.length; i += 40) {
+                const facts = await Promise.all(arr.slice(i, i + 40).map(it => Promise.all([it.GetName(), it.GetStart(), it.GetEnd()]).catch(() => null)));
+                for (const f of facts) {
+                    if (!f || /^Text\+/.test(String(f[0]))) continue;
+                    out.push(kind[0] + t + ':' + f[1] + '-' + f[2]);
+                }
             }
         }
-    } catch (e) { return null; }
+    } catch (e) { sp.end({ failed: true }); return null; }
+    sp.end({ n: out.length });
     return out;
 }
 function cutCheck(label, before, after) {
@@ -761,7 +910,7 @@ async function findTextTemplate(project, kind) {
     return null;
 }
 // title: a preset's template name; only a Media Pool item Resolve handed out for that same template is used then.
-async function directPlaceTitle(tl, project, track, start, want, kind, title) {
+async function directPlaceTitle(tl, project, track, start, want, kind, title, snap) {
     const T = title ? presetTplState(title) : state.tplState[kind === 'multitext' ? 'multitext' : 'text'];
     if (T.broken || !(track >= 2)) return null;
     const tpl = title ? T.auto : ((await findTextTemplate(project, kind)) || T.auto);
@@ -771,7 +920,7 @@ async function directPlaceTitle(tl, project, track, start, want, kind, title) {
     try {
         const mp = await project.GetMediaPool();
         const full = T.good < 3;
-        const before = full ? await cutSnapshot(tl) : null;
+        const before = full ? await cutSnapshot(tl, snap) : null;
         const placed = await mp.AppendToTimeline([{ mediaPoolItem: tpl, mediaType: 1, trackIndex: track, recordFrame: start, startFrame: 0, endFrame: want }]);
         item = placed && placed[0];
         let ok = !!item, why = 'no clip returned';
@@ -800,13 +949,7 @@ async function directPlaceTitle(tl, project, track, start, want, kind, title) {
 
 async function findAudioItemById(tl, id) {
     if (!id) return null;
-    const tracks = (await tl.GetTrackCount('audio')) || 0;
-    for (let t = 1; t <= tracks; t++) {
-        for (const it of ((await tl.GetItemListInTrack('audio', t)) || [])) {
-            try { if (String(await it.GetUniqueId()) === String(id)) return it; } catch (e) { /* ignore */ }
-        }
-    }
-    return null;
+    return (await findItemsByIds(tl, [id], 'audio')).get(String(id)) || null;
 }
 // The sound of a Preview in Resolve: a real clip on the timeline that can be moved / trimmed by hand. It is NOT linked
 // to the Text+ while the preview runs (clicking a linked clip selects both, and Resolve's Inspector then hides the
@@ -866,9 +1009,14 @@ function layerList(req, anim) {
 // clip-relative frames where the rows start (bridge row_times); null / empty = those layers fall back to the text start.
 // rowFrames may also be { rows, segs } (rowFramesFor): segs = { <n>: clip-relative start of segment n's in-animation }
 // for layers aligned to one row of a MultiText preset (align 'seg', seg: n = Upper / Emphasis / Lower).
-async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames) {
+async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames, snap) {
     const out = [];
     if (!layers || !layers.length) return out;
+    const sp = PERF.span('place.extraSfx');
+    try { return await placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames, snap, out); }
+    finally { sp.end({ layers: layers.length, placed: out.length }); }
+}
+async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames, snap, out) {
     const tlStart = await tl.GetStartFrame();
     const rf = Array.isArray(rowFrames) ? { rows: rowFrames, segs: null } : (rowFrames || {});
     rowFrames = rf.rows || null;
@@ -886,7 +1034,7 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
                 }
                 if (segStart === null) notes.push('sound "' + path.basename(l.file) + '": the preset has no row ' + n + ' timing, placed at the text start');
                 const placed = await placeExtraSfx(tl, project, meta, [Object.assign({}, l, { align: 'start', offset: (segStart || 0) + (Math.round(Number(l.offset) || 0)) })],
-                    textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, null);
+                    textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, null, snap);
                 for (const x of placed) { x.seg = n; x.off = Math.round(Number(l.offset) || 0); segLinks.push({ id: x.id, seg: n, off: x.off }); }
                 out.push(...placed);
                 continue;
@@ -894,7 +1042,7 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             if (l.align === 'rows') {
                 const rows = (Array.isArray(rowFrames) && rowFrames.length) ? rowFrames : [0];
                 if (rows.length === 1 && !(Array.isArray(rowFrames) && rowFrames.length)) notes.push('sound "' + path.basename(l.file) + '": the preset has no rows, placed once');
-                const copies = await placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy);
+                const copies = await placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy, snap);
                 // remembered per text clip, so a later change of the animation's speed re-spaces the copies (refitRowSfx)
                 if (videoId && copies.length && Array.isArray(rowFrames) && rowFrames.length) {
                     rowSfxSet(String(videoId), { layer: JSON.parse(JSON.stringify(l)), end: textEnd - textStart, track: copies[0].track,
@@ -919,10 +1067,11 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
             len = Math.max(1, len);
             let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);
             start = Math.max(tlStart, start);
-            const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes, place);
+            const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, start, start + len, 1, notes, place, snap);
             const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: start, startFrame: trimIn, endFrame: trimIn + len }]);
             if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed.'); continue; }
             const it = placed[0];
+            snapAdd(snap, 'audio', track, { it, name: path.basename(l.file), start, end: start + len });
             const fps = Math.round((meta && meta.fps) || 25);
             const fade = Math.max(0, Math.min(len, (l.fade === null || l.fade === undefined) ? fps : Math.round(Number(l.fade) || 0)));
             if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
@@ -947,15 +1096,30 @@ async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, note
 // (off = frames after the row's start; empty = the rows that had no text when last looked at). Older entries were a
 // plain list of sounds. Entries whose clips are gone are dropped when they are next looked up.
 const SEG_SFX_FILE = path.join(APP_DATA_DIR, 'seg-sounds.json');
-function segSfxRead() { try { const o = JSON.parse(fs.readFileSync(SEG_SFX_FILE, 'utf8')); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+// Read once and kept in memory; writes are gathered and made 150 ms later (a placement writes it several times in a row).
+let segSfx = null, segSfxTimer = null;
+function segSfxRead() {
+    if (segSfx) return segSfx;
+    try { const o = JSON.parse(fs.readFileSync(SEG_SFX_FILE, 'utf8')); segSfx = (o && typeof o === 'object') ? o : {}; } catch (e) { segSfx = {}; }
+    return segSfx;
+}
 function segSfxWrite(o) {
+    segSfx = o;
+    const keys = Object.keys(o);
+    if (keys.length > 2000) for (const k of keys.slice(0, keys.length - 2000)) delete o[k];
+    if (segSfxTimer) return;
+    segSfxTimer = setTimeout(segSfxFlush, 150);
+    if (segSfxTimer.unref) segSfxTimer.unref();
+}
+function segSfxFlush() {
+    if (segSfxTimer) { clearTimeout(segSfxTimer); segSfxTimer = null; }
+    if (!segSfx) return;
     try {
-        const keys = Object.keys(o);
-        if (keys.length > 2000) for (const k of keys.slice(0, keys.length - 2000)) delete o[k];
         fs.mkdirSync(APP_DATA_DIR, { recursive: true });
-        fs.writeFileSync(SEG_SFX_FILE, JSON.stringify(o));
+        fs.writeFileSync(SEG_SFX_FILE, JSON.stringify(segSfx));
     } catch (e) { dlog('SEG-SFX-WRITE', e.message); }
 }
+process.on('exit', () => { try { segSfxFlush(); } catch (e) { /* ignore */ } });
 // rows: the per-row copies of 'rows' sounds (Kinetic Cloud): [{ layer, end (frames after the text start the copies stop
 // at), track, frames (the row frames they were placed for), ids }], one entry per sound layer.
 const segRec = (v) => Array.isArray(v) ? { sounds: v, layers: [], empty: {}, rows: [] }
@@ -1030,7 +1194,7 @@ async function rowFramesFor(itemId, compName, layers, warnings) {
 }
 // One copy of the sound per row: each starts at its row's frame (+ the layer's offset); a 'clip' length runs until the
 // next row starts (and never past the text end), a fixed length is kept. All copies share one audio track.
-async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy) {
+async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlStart, notes, videoItem, warnings, place, projectCopy, snap) {
     const out = [];
     const p = sfxFilePath(l.file);
     if (!fs.existsSync(p)) { warnings.push('Layered sound "' + path.basename(l.file) + '" is missing.'); return out; }
@@ -1056,12 +1220,13 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
     }
     if (!cuts.length) return out;
     const first = cuts[0].start, last = cuts[cuts.length - 1];
-    const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, first, last.start + last.len, 1, notes, place);
+    const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, first, last.start + last.len, 1, notes, place, snap);
     const items = [];
     for (const c of cuts) {
         const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: c.start, startFrame: trimIn, endFrame: trimIn + c.len }]);
         if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed at frame ' + (c.start - textStart) + '.'); continue; }
         const it = placed[0];
+        snapAdd(snap, 'audio', track, { it, name: path.basename(l.file), start: c.start, end: c.start + c.len });
         const fade = Math.max(0, Math.min(c.len, (l.fade === null || l.fade === undefined) ? Math.min(c.len, Math.round(fps / 5)) : Math.round(Number(l.fade) || 0)));
         if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
         const vol = Number(l.volume) || 0;
@@ -1115,20 +1280,21 @@ async function refitRowSfx(tl, project, meta, textItem, itemId, projectCopy) {
 }
 // Deletes the given sound clips and forgets only the ones that are really gone. One that Resolve refused to delete
 // stays in the registry, so the next sweep removes it (before, all ids were forgotten and a refused one stayed for good).
+// find: findItemById / findAudioItemById (says which kind of track to look on); all ids are looked up in one pass.
 async function deleteClipsById(tl, ids, find) {
     ids = (ids || []).filter(Boolean).map(String);
     if (!ids.length) return [];
+    const kind = find === findAudioItemById ? 'audio' : 'video';
     let left = ids;
     for (let attempt = 0; attempt < 2 && left.length; attempt++) {
-        const items = [];
-        for (const id of left) { try { const it = await find(tl, id); if (it) items.push(it); } catch (e) { /* ignore */ } }
+        const found = await findItemsByIds(tl, left, kind);
+        const items = left.map(id => found.get(id)).filter(Boolean);
         if (items.length) {
             try { await tl.DeleteClips(items, false); } catch (e) { /* checked below */ }
             if (attempt === 0) await new Promise(r => setTimeout(r, 60));
         }
-        const still = [];
-        for (const id of left) { try { if (await find(tl, id)) still.push(id); } catch (e) { /* ignore */ } }
-        left = still;
+        const still = await findItemsByIds(tl, left, kind);
+        left = left.filter(id => still.has(id));
     }
     for (const id of ids) if (!left.includes(id)) regDel(id);
     if (left.length) dlog('DELETE-LEFT', left);
@@ -1137,11 +1303,6 @@ async function deleteClipsById(tl, ids, find) {
 async function deleteExtraSfx(tl, ids) { return deleteClipsById(tl, ids, findAudioItemById); }
 
 async function findItemById(tl, id) {
-    const tracks = (await tl.GetTrackCount('video')) || 0;
-    for (let t = 1; t <= tracks; t++) {
-        for (const it of ((await tl.GetItemListInTrack('video', t)) || [])) {
-            try { if (String(await it.GetUniqueId()) === String(id)) return it; } catch (e) { /* ignore */ }
-        }
-    }
-    return null;
+    if (!id) return null;
+    return (await findItemsByIds(tl, [id], 'video')).get(String(id)) || null;
 }

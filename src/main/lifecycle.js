@@ -1,7 +1,7 @@
 // Cleanup on exit and auto-quitting when DaVinci Resolve closes.
 
 module.exports = {
-    checkResolveAlive, cleanup, quitPlugin
+    checkResolveAlive, cleanup, quitPlugin, watchResolve
 };
 
 const { execFile } = require('child_process');
@@ -12,6 +12,7 @@ const state = require('./state');
 const { INITIAL_PPID } = require('./config');
 const { liveRemove, waitIdle } = require('./live-preview');
 const { stopAutomation } = require('./automation');
+const { dlog } = require('./log');
 
 
 // On quit an un-applied Resolve preview (its Text+ / MultiText and sounds) is taken off the timeline and the user's
@@ -32,6 +33,8 @@ function cleanup() {
         if (state.segSweepTimer) { clearInterval(state.segSweepTimer); state.segSweepTimer = null; }
         try { stopAutomation(); } catch (e) { /* ignore */ }
         try { if (state.bridge) state.bridge.kill(); } catch (e) { /* ignore */ }
+        try { if (state.bridgeRender) state.bridgeRender.kill(); } catch (e) { /* ignore */ }
+        try { require('./perf').perfFlush(); } catch (e) { /* ignore */ }
         try { WorkflowIntegration.CleanUp(); } catch (e) { /* ignore */ }
         state.resolveObj = null;
         return true;
@@ -61,7 +64,23 @@ function isPidAlive(pid) {
     }
 }
 
-function checkResolveAlive() {
+// Three ways to notice Resolve going away, cheapest first: Blackmagic's 'ResolveQuit' callback (when the module has
+// it), the parent process (Resolve starts this plugin) checked every 1.5 s with a signal 0, and a `pgrep` for the
+// Resolve process every PGREP_MS as the fallback (it used to run every 1.5 s: 40 processes a minute for nothing).
+const PGREP_MS = 15000;
+let lastPgrep = 0;
+function watchResolve() {
+    try {
+        if (typeof WorkflowIntegration.RegisterCallback === 'function') {
+            const ok = WorkflowIntegration.RegisterCallback('ResolveQuit', () => { dlog('ResolveQuit callback'); quitPlugin(); });
+            dlog('ResolveQuit callback registered', ok);
+        }
+    } catch (e) { /* the polls below still catch it */ }
+    checkResolveAlive(true);
+    state.resolveWatchTimer = setInterval(checkResolveAlive, 1500);
+}
+
+function checkResolveAlive(force) {
     if (state.isQuitting) return;
     // 1. If launched as a child of Resolve, auto-close immediately if the parent process exited
     if (INITIAL_PPID > 1 && (process.ppid !== INITIAL_PPID || !isPidAlive(INITIAL_PPID))) {
@@ -70,7 +89,10 @@ function checkResolveAlive() {
             return;
         }
     }
-    // 2. Check if the DaVinci Resolve process is running on macOS
+    // 2. Check if the DaVinci Resolve process is running on macOS (every PGREP_MS, or when asked)
+    const now = Date.now();
+    if (!force && now - lastPgrep < PGREP_MS) return;
+    lastPgrep = now;
     execFile('pgrep', ['-x', 'Resolve'], (err, stdout) => {
         if (state.isQuitting) return;
         const running = !err && Boolean(String(stdout || '').trim());

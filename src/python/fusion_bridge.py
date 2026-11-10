@@ -30,10 +30,30 @@ _resolve = None
 
 # The Fusion fixes the panel applies (src/main/fusion-fixes.js; set with the "config" operation).
 FIX = {"wakeMode": "all", "wakeOnInsert": True, "retouchText": True,
-       "fitFollowerDelay": True, "fitSegments": True, "clipSliderMax": True}
+       "fitFollowerDelay": True, "fitSegments": True, "clipSliderMax": True,
+       "wakeLock": False, "highlightProbeFrames": 9}
 
 _items = {}   # item id -> TimelineItem
 _comps = {}   # (item id, comp name) -> comp
+
+# Per-request accounting for the panel's perf log (src/main/perf.js): how many Fusion calls an operation made.
+COUNTERS = {"toolLists": 0, "getAttrs": 0, "getInputs": 0, "setInputs": 0, "woken": 0, "renders": 0}
+
+
+def count(k, n=1):
+    COUNTERS[k] = COUNTERS.get(k, 0) + n
+
+
+# Within one request a comp's tool list and each tool's attributes are read once (set_text / set_boxes used to walk
+# the list and read every tool's attributes 6-8 times: typing frames, retime, segment fit, keyframes, wake, scan).
+# Cleared at the start of every request, and whenever a tool is added (op_preview_bg).
+_req_tools = {}   # id(comp) -> [tools]
+_req_attrs = {}   # id(obj) -> (obj, attrs)
+
+
+def req_cache_clear():
+    _req_tools.clear()
+    _req_attrs.clear()
 
 
 def resolve():
@@ -88,8 +108,15 @@ def get_comp(item_id, comp_name=None):
 
 
 def tool_list(comp):
+    key = id(comp)
+    hit = _req_tools.get(key)
+    if hit is not None and hit[0] is comp:
+        return list(hit[1])
+    count("toolLists")
     tools = comp.GetToolList(False) or {}
-    return list(tools.values()) if isinstance(tools, dict) else list(tools)
+    lst = list(tools.values()) if isinstance(tools, dict) else list(tools)
+    _req_tools[key] = (comp, lst)
+    return list(lst)
 
 
 def as_list(x):
@@ -99,7 +126,16 @@ def as_list(x):
 
 
 def attrs(obj):
-    return obj.GetAttrs() or {}
+    key = id(obj)
+    hit = _req_attrs.get(key)
+    if hit is not None and hit[0] is obj:
+        return hit[1]
+    count("getAttrs")
+    a = obj.GetAttrs() or {}
+    # comps and tools keep RegID / Name for their life; the few attributes a request changes (PassThrough) are only
+    # ever toggled and put back, so the value read before the toggle stays right
+    _req_attrs[key] = (obj, a)
+    return a
 
 
 # ---------------------------------------------------------------- operations
@@ -315,36 +351,61 @@ def wake_effects(comp):
     if mode == "off":
         return 0
     try:
-        tools = as_list(comp.GetToolList(False))
+        tools = tool_list(comp)
     except Exception:
         return 0
     woken = 0
-    for tool in tools:
-        rid = None
+    # wakeLock (Fusion fix, off by default): the toggles happen inside comp.Lock() / Unlock(), so Resolve re-renders
+    # the comp once at the end instead of once per toggle. Whether a locked wake still "wakes" a blank title is what
+    # the blank-render check (MCP verify_placed) is for.
+    locked = False
+    if FIX.get("wakeLock"):
         try:
-            a = attrs(tool)
-            rid = a.get("TOOLS_RegID")
-            if rid in FOLLOWERS:
-                for i in range(1, 9):
-                    key = "Enabled%d" % i
-                    if tool.GetInput(key) == 1:
-                        tool.SetInput(key, 0)
-                        tool.SetInput(key, 1)
-                woken += 1
-            elif mode == "followers" or rid in WAKE_SKIP or rid in WAKE_MODIFIERS or a.get("TOOLB_PassThrough"):
-                continue
-            else:
-                tool.SetAttrs({"TOOLB_PassThrough": True})
-                tool.SetAttrs({"TOOLB_PassThrough": False})
-                woken += 1
+            comp.Lock()
+            locked = True
         except Exception:
-            # never leave a tool switched off because a later call failed
+            locked = False
+    try:
+        for tool in tools:
+            rid = None
             try:
-                if rid not in FOLLOWERS and rid not in WAKE_SKIP and rid not in WAKE_MODIFIERS:
+                a = attrs(tool)
+                rid = a.get("TOOLS_RegID")
+                if rid in FOLLOWERS:
+                    for i in range(1, 9):
+                        key = "Enabled%d" % i
+                        count("getInputs")
+                        if tool.GetInput(key) == 1:
+                            tool.SetInput(key, 0)
+                            tool.SetInput(key, 1)
+                            count("setInputs", 2)
+                    woken += 1
+                elif mode == "followers" or rid in WAKE_SKIP or rid in WAKE_MODIFIERS or a.get("TOOLB_PassThrough"):
+                    continue
+                else:
+                    tool.SetAttrs({"TOOLB_PassThrough": True})
                     tool.SetAttrs({"TOOLB_PassThrough": False})
+                    count("setInputs", 2)
+                    woken += 1
+            except Exception:
+                # never leave a tool switched off because a later call failed
+                try:
+                    if rid not in FOLLOWERS and rid not in WAKE_SKIP and rid not in WAKE_MODIFIERS:
+                        tool.SetAttrs({"TOOLB_PassThrough": False})
+                except Exception:
+                    pass
+    finally:
+        if locked:
+            try:
+                comp.Unlock()
             except Exception:
                 pass
+    count("woken", woken)
+    WAKE_RAN[0] = True
     return woken
+
+
+WAKE_RAN = [False]   # set when a wake ran in the current request (handle: such a request is not retried)
 
 
 wake_followers = wake_effects   # older name
@@ -515,6 +576,7 @@ FOLLOWERS = ("StyledTextFollower", "Follower")
 
 
 def get_in(tool, name):
+    count("getInputs")
     try:
         return tool.GetInput(name)
     except Exception:
@@ -891,6 +953,7 @@ def hl_set(tool, orig, w, h, dx, dy, ctrl=None):
 def hl_window(tool, t):
     """The rendered pixels' bounding box [x0, y0, x1, y1] (y up), or None."""
     try:
+        count("renders")
         img = tool.Output.GetValue(t)
         d = img.DataWindow if img is not None else None
         if not d:
@@ -908,12 +971,30 @@ def hl_full_time(comp, tool):
     """The frame where the box is widest (a wipe has finished, a pop has settled, the outro has not started)."""
     a = attrs(comp)
     s, e = num(a.get("COMPN_RenderStart"), 0), num(a.get("COMPN_RenderEnd"), 0)
+    probes = int(num(FIX.get("highlightProbeFrames"), 9) or 9)
     best, best_t = -1, None
-    for i in range(9):
-        t = int(round(s + (e - s) * (0.3 + 0.075 * i)))
+
+    def look(t):
+        nonlocal best, best_t
         b = hl_window(tool, t)
         if b and b[2] - b[0] > best + 0.5:
             best, best_t = b[2] - b[0], t
+
+    if probes >= 9:
+        for i in range(9):
+            look(int(round(s + (e - s) * (0.3 + 0.075 * i))))
+        return best_t
+    # coarse-to-fine (Fusion fix highlightProbeFrames < 9): 3 probes across the same 30%-90% span, then the two
+    # frames half a step either side of the widest one. A wipe grows then holds, so the widest spot is found with 5 renders.
+    steps = [0.3, 0.6, 0.9]
+    for f in steps:
+        look(int(round(s + (e - s) * f)))
+    if best_t is None:
+        return None
+    for d in (-0.15, 0.15):
+        f = (best_t - s) / float(e - s) + d if e > s else 0.0
+        if 0.0 <= f <= 1.0:
+            look(int(round(s + (e - s) * f)))
     return best_t
 
 
@@ -1260,11 +1341,32 @@ def op_set_boxes(a):
     return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
 
 
+_audio_items = {}   # audio item id -> TimelineItem (link_clips)
+
+
 def find_any_item(item_id, kind="video"):
+    if kind == "video":
+        try:
+            return find_item(item_id)
+        except Exception:
+            return None
+    it = _audio_items.get(str(item_id))
+    if it is not None:
+        try:
+            if str(it.GetUniqueId()) == str(item_id):
+                return it
+        except Exception:
+            pass
+        _audio_items.pop(str(item_id), None)
     tl = timeline()
     for t in range(1, tl.GetTrackCount(kind) + 1):
         for it in tl.GetItemListInTrack(kind, t) or []:
-            if str(it.GetUniqueId()) == str(item_id):
+            try:
+                uid = str(it.GetUniqueId())
+            except Exception:
+                continue
+            _audio_items[uid] = it
+            if uid == str(item_id):
                 return it
     return None
 
@@ -1607,6 +1709,50 @@ def op_live_frame(a):
     }
 
 
+def output_tool(comp):
+    """The tool whose image the clip shows: the MediaOut's source, else the tool named Template."""
+    for t in tool_list(comp):
+        try:
+            if attrs(t).get("TOOLS_RegID") == "MediaOut":
+                src = t.Input.GetConnectedOutput()
+                if src is not None:
+                    return src.GetTool()
+        except Exception:
+            pass
+    try:
+        return comp.FindTool("Template")
+    except Exception:
+        return None
+
+
+def op_probe_render(a):
+    """Blank-render check (MCP verify_placed): renders the clip's output at one clip-relative frame and says whether
+    anything was drawn. {nonEmpty, bbox: [x0, y0, x1, y1] | None, frame}. The frame is clip-relative."""
+    comp = get_comp(a["item"], a.get("comp"))
+    # Rendering a Text+ whose text comes through a Follower from a script crashed Resolve (2026-11-09, see
+    # hl_adjust): such comps are never rendered here; the check reports them as skipped.
+    for t in tool_list(comp):
+        try:
+            if attrs(t).get("TOOLS_RegID") == "TextPlus":
+                drv = is_driven(t, "StyledText")
+                if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+                    return {"skipped": "follower-fed text: not rendered (it crashed Resolve before)", "frame": int(a.get("frame") or 0)}
+        except Exception:
+            pass
+    tool = output_tool(comp)
+    if tool is None:
+        raise RuntimeError("the comp has no output tool")
+    rs = num(attrs(comp).get("COMPN_RenderStart"), 0)
+    t = int(rs + max(0, int(a.get("frame") or 0)))
+    count("renders")
+    img = tool.Output.GetValue(t)
+    d = img.DataWindow if img is not None else None
+    if not d:
+        return {"nonEmpty": False, "bbox": None, "frame": t}
+    x0, y0, x1, y1 = float(d[1]), float(d[2]), float(d[3]), float(d[4])
+    return {"nonEmpty": (x1 - x0) >= 1 and (y1 - y0) >= 1, "bbox": [x0, y0, x1, y1], "frame": t}
+
+
 def op_set_output(a):
     """Title templates only: Resolve wires the inserted title's MediaOut to the tool named "Template", whatever the
     template file says. For a preset whose text runs through effects (wiggle, glitch, stop motion) that skips the whole
@@ -1655,6 +1801,7 @@ def op_preview_bg(a):
     try:
         bg = comp.AddTool("Background", -32768, -32768)
         mg = comp.AddTool("Merge", -32768, -32768)
+        req_cache_clear()      # the tool list changed
         if bg is None or mg is None:
             return {"ok": False, "why": "could not add tools"}
         bg.SetInput("TopLeftRed", float(col[0]))
@@ -2358,26 +2505,55 @@ def op_row_times(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "probe_render": op_probe_render}
+
+
+# Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the
+# renders (they already took their time, the panel retries itself), not the watchers (the next tick comes anyway), and
+# never once a wake has run (a second attempt would wake - re-render - the whole comp again).
+NO_RETRY = {"capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
 
 
 def handle(req):
+    import time
     fn = OPS.get(req.get("op"))
     if not fn:
         return {"id": req.get("id"), "ok": False, "error": "Unknown operation"}
-    # A failed render or frame grab is not run a second time: it already took its time, and the panel retries itself.
-    attempts = (2,) if req.get("op") in ("capture", "live_frame") else (1, 2)
+    op = req.get("op")
+    t_start = time.perf_counter()
+    for k in COUNTERS:
+        COUNTERS[k] = 0
+    WAKE_RAN[0] = False
+    out = None
+    attempts = (2,) if op in NO_RETRY else (1, 2)
     for attempt in attempts:
+        req_cache_clear()
+        t0 = time.perf_counter()
         try:
-            return {"id": req.get("id"), "ok": True, "result": fn(req.get("args") or {})}
+            out = {"id": req.get("id"), "ok": True, "result": fn(req.get("args") or {})}
+            break
         except Cancelled:
-            return {"id": req.get("id"), "ok": False, "error": "cancelled"}
+            out = {"id": req.get("id"), "ok": False, "error": "cancelled"}
+            break
         except Exception as e:
-            _items.clear()
-            _comps.clear()
-            if attempt == 2:
-                return {"id": req.get("id"), "ok": False, "error": str(e) or e.__class__.__name__,
-                        "trace": traceback.format_exc()[-600:]}
+            # only what this request touched can be stale: its item and comps, not every handle the helper knows
+            item = (req.get("args") or {}).get("item") if isinstance(req.get("args"), dict) else None
+            if item is not None:
+                _items.pop(str(item), None)
+                for k in [k for k in _comps if k[0] == str(item)]:
+                    _comps.pop(k, None)
+                _seg_seen.pop(str(item), None)
+            else:
+                _items.clear()
+                _comps.clear()
+            slow = (time.perf_counter() - t0) > 2.0
+            if attempt == 2 or slow or WAKE_RAN[0]:
+                out = {"id": req.get("id"), "ok": False, "error": str(e) or e.__class__.__name__,
+                       "trace": traceback.format_exc()[-600:]}
+                break
+    req_cache_clear()
+    out["perf"] = {"ms": round((time.perf_counter() - t_start) * 1000.0, 2), "counters": {k: v for k, v in COUNTERS.items() if v}}
+    return out
 
 
 def main():

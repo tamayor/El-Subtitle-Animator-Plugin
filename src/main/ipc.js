@@ -34,6 +34,7 @@ const {
 const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
+const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
 const { clipTiming, setClipTiming } = require('./anim-timing');
 const { clipControls, setClipControls } = require('./clip-controls');
 
@@ -55,6 +56,12 @@ const SAFE_HANDLERS = {
     // Header "Fusion" button: which Fusion fixes are applied to placed titles (fusion-fixes.js)
     'fusion:getFixes': () => ({ fixes: getFixes(), defaults: FIX_DEFAULTS }),
     'fusion:setFixes': setFixes,
+    // Performance measuring (perf.js): settings, the live summary, and measurements the panel reports about itself
+    'perf:get': () => ({ perf: getPerf(), defaults: PERF_DEFAULTS }),
+    'perf:set': (e, patch) => setPerf(patch),
+    'perf:summary': (e, top) => perfSummary(Number(top) || 0),
+    'perf:reset': () => { perfReset(); return true; },
+    'perf:record': (e, name, ms, meta) => { if (typeof name === 'string' && /^[\w.#-]{1,80}$/.test(name)) record('renderer.' + name, ms, meta); return true; },
     'app:setVersion': setAppVersion,
     'act:scanClip': scanClip,
     'act:updateLatest': updateLatest,

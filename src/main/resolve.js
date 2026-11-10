@@ -2,7 +2,7 @@
 // and timeline item lookups by id.
 
 module.exports = {
-    frameToTC, getProject, getSubtitles, listSubtitles, setSubtitlesEnabled, tcToFrame, timelineMeta
+    findItemsByIds, frameToTC, getProject, getSubtitles, listSubtitles, setSubtitlesEnabled, tcToFrame, timelineMeta
 };
 
 const WorkflowIntegration = require('./workflow-integration');
@@ -10,18 +10,97 @@ const WorkflowIntegration = require('./workflow-integration');
 const state = require('./state');
 const { PLUGIN_ID } = require('./config');
 const { subtitleColorsFromDb } = require('./clip-colors-db');
+const PERF = require('./perf');
+const { dlog } = require('./log');
 
 // ------------------------------------------------------------------ Resolve connection
 
+// Blackmagic's module offers the API twice: Initialize() / GetResolve() give objects whose every call BLOCKS this
+// process until Resolve answers (the panel's IPC, the MCP server and the window all wait behind it), while
+// InitializePromise() / GetResolvePromise() give objects whose calls return promises ("all further calls to the
+// returned Resolve object will, in turn, return the promise objects", README of the Workflow Integrations SDK).
+// Every caller here already awaits each call, so both work. Which one is used is the perf.json setting promiseApi:
+// 'off' (the blocking API, the default), 'on' (the promise API) or 'probe' (the blocking API, plus a one-time check of
+// the promise API logged to the perf log, see probePromiseApi).
+let resolveMode = null;          // 'sync' | 'promise': how state.resolveObj was obtained
+let connecting = null;
+
 async function getResolve() {
-    if (state.resolveObj) return state.resolveObj;
-    const ok = await WorkflowIntegration.Initialize(PLUGIN_ID);
-    if (!ok) throw new Error('Could not connect to DaVinci Resolve (is this Resolve Studio?)');
-    state.resolveObj = await WorkflowIntegration.GetResolve();
-    if (!state.resolveObj) throw new Error('Could not get the Resolve object');
-    state.hasSeenResolve = true;
-    return state.resolveObj;
+    const mode = PERF.getPerf().promiseApi === 'on' ? 'promise' : 'sync';
+    if (state.resolveObj && resolveMode === mode) return PERF.perfEnabled() ? PERF.wrapResolve(state.resolveObj) : state.resolveObj;
+    if (connecting) return connecting;
+    connecting = (async () => {
+        if (state.resolveObj && resolveMode !== mode) resetHandles();      // handles from one API must not be mixed with the other
+        let obj = null;
+        if (mode === 'promise' && typeof WorkflowIntegration.InitializePromise === 'function' && typeof WorkflowIntegration.GetResolvePromise === 'function') {
+            const ok = await WorkflowIntegration.InitializePromise(PLUGIN_ID);
+            if (!ok) throw new Error('Could not connect to DaVinci Resolve (is this Resolve Studio?)');
+            obj = await WorkflowIntegration.GetResolvePromise();
+            try { if (typeof WorkflowIntegration.SetAPITimeout === 'function') WorkflowIntegration.SetAPITimeout(20); } catch (e) { /* optional */ }
+        } else {
+            const ok = await WorkflowIntegration.Initialize(PLUGIN_ID);
+            if (!ok) throw new Error('Could not connect to DaVinci Resolve (is this Resolve Studio?)');
+            obj = await WorkflowIntegration.GetResolve();
+        }
+        if (!obj) throw new Error('Could not get the Resolve object');
+        state.resolveObj = obj;
+        resolveMode = mode;
+        state.hasSeenResolve = true;
+        return PERF.perfEnabled() ? PERF.wrapResolve(obj) : obj;
+    })().finally(() => { connecting = null; });
+    return connecting;
 }
+
+// Cached API handles (templates, selection, subtitles) are dropped when the connection is made anew.
+function resetHandles() {
+    state.resolveObj = null;
+    state.subCache = { key: '', at: 0, list: [], version: (state.subCache && state.subCache.version) || 0 };      // the next read gets a new version
+    state.lastSelection = null;
+    state.tplState = { text: { auto: null, broken: false, good: 0 }, multitext: { auto: null, broken: false, good: 0 } };
+    state.presetTpl = new Map();
+}
+
+// promiseApi 'probe': once, a few seconds after start-up, the promise API is tried next to the blocking one and what
+// it does is written to the perf log (perf.probe.*): do child objects return promises, do our `typeof x.Fn ===
+// 'function'` guards hold, does a failing call reject or return null, and does a batch of 40 calls run any faster.
+let probed = false;
+async function probePromiseApi() {
+    if (probed || PERF.getPerf().promiseApi !== 'probe') return;
+    probed = true;
+    const out = { api: 'missing' };
+    try {
+        if (typeof WorkflowIntegration.InitializePromise !== 'function' || typeof WorkflowIntegration.GetResolvePromise !== 'function') { PERF.record('perf.probe.promiseApi', 0, out); return; }
+        const ok = await WorkflowIntegration.InitializePromise(PLUGIN_ID);
+        out.api = ok ? 'initialized' : 'init-false';
+        const r = await WorkflowIntegration.GetResolvePromise();
+        const pmR = r.GetProjectManager();
+        out.childIsThenable = !!(pmR && typeof pmR.then === 'function');
+        const pm = await pmR;
+        const project = pm && await pm.GetCurrentProject();
+        const tl = project && await project.GetCurrentTimeline();
+        if (tl) {
+            out.typeofGuard = typeof tl.GetName === 'function';
+            try { const bad = await tl.GetItemListInTrack('video', 999); out.badTrackReturns = bad === null ? 'null' : Array.isArray(bad) ? 'array:' + bad.length : typeof bad; }
+            catch (e) { out.badTrackReturns = 'rejects: ' + String(e && e.message || e); }
+            try { const m = await tl.GetMarkInOut(); out.marksReturn = m === null ? 'null' : typeof m; } catch (e) { out.marksReturn = 'rejects: ' + String(e && e.message || e); }
+            const items = (await tl.GetItemListInTrack('video', 1)) || [];
+            const list = items.slice(0, 40);
+            if (list.length >= 5) {
+                out.itemTypeofGuard = typeof list[0].GetClipColor === 'function';
+                let t0 = Date.now();
+                for (let k = 0; k < 3; k++) await Promise.all(list.map(it => it.GetName()));
+                out.parallel40x3Ms = Date.now() - t0;
+                t0 = Date.now();
+                for (let k = 0; k < 3; k++) for (const it of list) await it.GetName();
+                out.serial40x3Ms = Date.now() - t0;
+                out.n = list.length;
+            }
+        } else out.timeline = 'none';
+    } catch (e) { out.error = String(e && e.message || e); }
+    PERF.record('perf.probe.promiseApi', 0, out);
+    dlog('perf.probe.promiseApi', out);
+}
+setTimeout(() => { probePromiseApi().catch(() => { /* logged */ }); }, 5000).unref();
 
 async function getProject() {
     const resolve = await getResolve();
@@ -47,12 +126,10 @@ async function timelineMeta(tl, proj) {
         }
         if (proj) {
             if (!width) {
-                const pw = await proj.GetSetting('timelineResolutionWidth');
-                width = parseInt(pw, 10);
+                try { width = parseInt(await proj.GetSetting('timelineResolutionWidth'), 10); } catch (e) { /* ignore */ }
             }
             if (!height) {
-                const ph = await proj.GetSetting('timelineResolutionHeight');
-                height = parseInt(ph, 10);
+                try { height = parseInt(await proj.GetSetting('timelineResolutionHeight'), 10); } catch (e) { /* ignore */ }
             }
         }
     }
@@ -93,15 +170,26 @@ function frameToTC(frame, meta) {
 
 // ------------------------------------------------------------------ subtitles
 
-// The full read (five calls per subtitle) is made at most every SUB_FULL_MS. In between, from SUB_PROBE_MS on, only
-// the number of clips on each subtitle track is checked (one call per track): a subtitle added, deleted or split shows
-// up at once, while a long timeline is not re-read every couple of seconds while nothing changed. A text edit or a
-// moved subtitle is picked up by the next full read.
-const SUB_PROBE_MS = 2000, SUB_FULL_MS = 6000;
+// The full read (four calls per subtitle) is made at most every SUB_FULL_MS (longer while the user works in Resolve,
+// SUB_FULL_AWAY_MS). In between, from SUB_PROBE_MS on, only the number of clips on each subtitle track is checked (one
+// call per track): a subtitle added, deleted or split shows up at once, while a long timeline is not re-read every
+// couple of seconds while nothing changed. A text edit or a moved subtitle is picked up by the next full read.
+const SUB_PROBE_MS = 2000, SUB_FULL_MS = 6000, SUB_FULL_AWAY_MS = 15000;
+// GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
+// subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
+const SUB_READ_COLOR = false, SUB_READ_DURATION = false;
+const CHUNK = 40;
 async function subtitleCounts(tl, tracks) {
     const out = [];
     for (let t = 1; t <= tracks; t++) out.push(((await tl.GetItemListInTrack('subtitle', t)) || []).length);
     return out.join(',');
+}
+function panelAway() {
+    try { return state.appIdle || !!(state.mainWindow && !state.mainWindow.isDestroyed() && !state.mainWindow.isFocused()); } catch (e) { return false; }
+}
+// A string that changes whenever anything the panel shows about the subtitles changes (version below follows it).
+function subSignature(list) {
+    return list.map(s => s.track + ':' + s.start + ':' + s.end + ':' + (s.enabled === false ? 0 : 1) + ':' + s.color + ':' + s.text).join('\n');
 }
 async function getSubtitles(tl, force) {
     const key = await tl.GetName();
@@ -109,34 +197,37 @@ async function getSubtitles(tl, force) {
     if (!force && c.key === key) {
         const age = now - c.at;
         if (age < SUB_PROBE_MS) return c.list;
-        if (age < SUB_FULL_MS) {
+        if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
             if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
+            const sp = PERF.span('sub.probe');
             const tracks = (await tl.GetTrackCount('subtitle')) || 0;
             const counts = await subtitleCounts(tl, tracks);
+            sp.end();
             c.probedAt = Date.now();
             if (counts === c.counts) return c.list;
         }
     }
+    const sp = PERF.span('sub.full');
     const list = [];
+    const items = [];      // the Resolve handles, kept next to the list so setSubtitlesEnabled can act on them without a new walk
     const tracks = (await tl.GetTrackCount('subtitle')) || 0;
-    // Each subtitle needs five calls into Resolve. Made one after another that was thousands of round trips every couple
+    // Each subtitle needs a few calls into Resolve. Made one after another that was thousands of round trips every couple
     // of seconds on a long timeline (the panel lagged), so each item's calls run together, CHUNK items at a time.
-    const CHUNK = 40;
     // enabled: false when the clip or its whole subtitle track is turned off (e.g. a subtitle already animated by Place).
     const readItem = async (it, t, trackOn) => {
-        const color = (typeof it.GetClipColor === 'function') ? Promise.resolve(it.GetClipColor()).catch(() => '') : '';
-        const dur = (typeof it.GetDuration === 'function') ? it.GetDuration() : 0;
+        const color = (SUB_READ_COLOR && typeof it.GetClipColor === 'function') ? Promise.resolve(it.GetClipColor()).catch(() => '') : '';
+        const dur = (SUB_READ_DURATION && typeof it.GetDuration === 'function') ? it.GetDuration() : 0;
         const on = (typeof it.GetClipEnabled === 'function') ? Promise.resolve(it.GetClipEnabled()).catch(() => true) : true;
-        const [start, end, d, c, text, clipOn] = await Promise.all([it.GetStart(), it.GetEnd(), dur, color, it.GetName(), on]);
+        const [start, end, d, cl, text, clipOn] = await Promise.all([it.GetStart(), it.GetEnd(), dur, color, it.GetName(), on]);
         const duration = (d && d > 0) ? d : Math.max(1, end - start);
-        return { text, start, end, duration, track: t, color: c || '', enabled: trackOn && clipOn !== false };
+        return { text, start, end, duration, track: t, color: cl || '', enabled: trackOn && clipOn !== false, it };
     };
     for (let t = 1; t <= tracks; t++) {
-        const items = (await tl.GetItemListInTrack('subtitle', t)) || [];
+        const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
         let trackOn = true;
         try { trackOn = (await tl.GetIsTrackEnabled('subtitle', t)) !== false; } catch (e) { /* assume on */ }
-        for (let i = 0; i < items.length; i += CHUNK) {
-            list.push(...await Promise.all(items.slice(i, i + CHUNK).map(it => readItem(it, t, trackOn))));
+        for (let i = 0; i < its.length; i += CHUNK) {
+            list.push(...await Promise.all(its.slice(i, i + CHUNK).map(it => readItem(it, t, trackOn))));
         }
     }
     // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.
@@ -154,8 +245,13 @@ async function getSubtitles(tl, force) {
         } catch (e) { /* colours stay empty */ }
     }
     list.sort((a, b) => a.start - b.start);
+    // The handles stay out of the list (it is sent to the panel and the MCP script), in a parallel array.
+    for (const s of list) { items.push(s.it); delete s.it; }
     list.forEach((item, i) => { item.index = i + 1; });
-    state.subCache = { key, at: Date.now(), probedAt: Date.now(), list, counts: await subtitleCounts(tl, tracks) };
+    const sig = subSignature(list);
+    const version = (c.key === key && c.sig === sig) ? (c.version || 1) : ((c.version || 0) + 1);
+    state.subCache = { key, at: Date.now(), probedAt: Date.now(), list, items, counts: await subtitleCounts(tl, tracks), sig, version };
+    sp.end({ n: list.length, tracks });
     return list;
 }
 
@@ -163,24 +259,77 @@ async function getSubtitles(tl, force) {
 // words underneath the animation. range = { start, end } in timeline frames (the caption's own words, not a held
 // tail). A subtitle counts when it is mostly (half its length or more) inside the range, so a regrouped phrase
 // takes the subtitles it re-split. Returns the clips changed as [{ track, start, end, text }].
+// The subtitle list just read (getSubtitles keeps the clips' handles) says which clips overlap, so only those are
+// asked and switched; the full walk is the fallback when no current list is at hand.
 async function setSubtitlesEnabled(tl, range, enabled) {
     const out = [];
     if (!tl || !range || !(range.end > range.start)) return out;
-    const tracks = (await tl.GetTrackCount('subtitle')) || 0;
-    for (let t = 1; t <= tracks; t++) {
-        if (range.track && Number(range.track) !== t) continue;
-        for (const it of ((await tl.GetItemListInTrack('subtitle', t)) || [])) {
-            try {
-                const s = await it.GetStart(), e = await it.GetEnd();
-                const overlap = Math.min(e, range.end) - Math.max(s, range.start);
-                if (overlap <= 0 || overlap * 2 < (e - s)) continue;
-                if (((await it.GetClipEnabled()) !== false) === !!enabled) continue;
-                if (await it.SetClipEnabled(!!enabled)) out.push({ track: t, start: s, end: e, text: await it.GetName() });
-            } catch (err) { /* one clip that will not switch does not stop the rest */ }
+    const sp = PERF.span('sub.setEnabled');
+    const overlaps = (s, e) => { const o = Math.min(e, range.end) - Math.max(s, range.start); return o > 0 && o * 2 >= (e - s); };
+    const flip = async (it, t, s, e) => {
+        try {
+            if (((await it.GetClipEnabled()) !== false) === !!enabled) return;
+            if (await it.SetClipEnabled(!!enabled)) out.push({ track: t, start: s, end: e, text: await it.GetName() });
+        } catch (err) { /* one clip that will not switch does not stop the rest */ }
+    };
+    let viaCache = false;
+    try {
+        const c = state.subCache;
+        const key = await tl.GetName();
+        if (c.key === key && Array.isArray(c.items) && c.items.length === c.list.length && c.list.length) {
+            viaCache = true;
+            for (let i = 0; i < c.list.length; i++) {
+                const s = c.list[i];
+                if (range.track && Number(range.track) !== s.track) continue;
+                if (!overlaps(s.start, s.end)) continue;
+                const it = c.items[i];
+                // the handle must still be this clip (the list is at most a few seconds old; a moved clip is skipped)
+                let st; try { st = await it.GetStart(); } catch (e) { st = null; }
+                if (st !== s.start) { viaCache = false; break; }      // the rest is found by the full walk; what was flipped stays in `out`
+                await flip(it, s.track, s.start, s.end);
+            }
+        }
+    } catch (e) { viaCache = false; }
+    if (!viaCache) {
+        const tracks = (await tl.GetTrackCount('subtitle')) || 0;
+        for (let t = 1; t <= tracks; t++) {
+            if (range.track && Number(range.track) !== t) continue;
+            const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
+            for (let i = 0; i < its.length; i += CHUNK) {
+                const part = its.slice(i, i + CHUNK);
+                const se = await Promise.all(part.map(async (it) => { try { return [await it.GetStart(), await it.GetEnd()]; } catch (e) { return null; } }));
+                for (let k = 0; k < part.length; k++) {
+                    if (!se[k] || !overlaps(se[k][0], se[k][1])) continue;
+                    await flip(part[k], t, se[k][0], se[k][1]);
+                }
+            }
         }
     }
     if (out.length) state.subCache.at = 0;
+    sp.end({ changed: out.length, viaCache });
     return out;
+}
+
+// Timeline items by unique id, in one pass over the tracks of `kind` (video / audio) with the ids read CHUNK at a time.
+// Returns Map id -> item for the ids found. Used wherever one id per walk used to be looked up.
+async function findItemsByIds(tl, ids, kind) {
+    const want = new Set((ids || []).map(String));
+    const found = new Map();
+    if (!tl || !want.size) return found;
+    const sp = PERF.span('tl.findItems');
+    const tracks = (await tl.GetTrackCount(kind || 'video')) || 0;
+    let scanned = 0;
+    for (let t = 1; t <= tracks && found.size < want.size; t++) {
+        const its = (await tl.GetItemListInTrack(kind || 'video', t)) || [];
+        for (let i = 0; i < its.length && found.size < want.size; i += CHUNK) {
+            const part = its.slice(i, i + CHUNK);
+            const got = await Promise.all(part.map(it => Promise.resolve(it.GetUniqueId()).then(String).catch(() => null)));
+            scanned += part.length;
+            for (let k = 0; k < part.length; k++) if (got[k] && want.has(got[k]) && !found.has(got[k])) found.set(got[k], part[k]);
+        }
+    }
+    sp.end({ kind: kind || 'video', want: want.size, found: found.size, scanned });
+    return found;
 }
 
 // The panel's subtitle list for the current timeline.
@@ -191,7 +340,7 @@ async function listSubtitles(event, force) {
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, error: 'Open a timeline in Resolve' };
         const subs = await getSubtitles(tl, !!force);
-        return { ok: true, subtitles: subs };
+        return { ok: true, subtitles: subs, version: state.subCache.version || 1 };
     } catch (err) {
         return { ok: false, error: String(err && err.message || err) };
     }

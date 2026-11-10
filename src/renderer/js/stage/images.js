@@ -48,10 +48,51 @@ function previewImages(a) {
 // which is right for any colour, gradient, soft shadow or semi-transparent element. Older single-pass frames
 // fall back to keying out the background colour they were rendered on.
 const SAKey = (() => {
-    return {
-        key: async () => null,
-        available: () => false
-    };
+    // js/workers/key-worker.js holds the same pixel loops as keyedImage / keyMatteRegion below. The frame goes to a
+    // worker as an ImageBitmap (no pixel copy on this thread), comes back as RGBA bytes and is turned into an
+    // ImageBitmap here, which the card preview draws like a canvas (and closes when the render is replaced).
+    const N = 2;
+    let workers = null, next = 0, seq = 1;
+    const pending = new Map();
+    function boot() {
+        if (workers !== null) return;
+        try {
+            if (typeof Worker === 'undefined' || typeof createImageBitmap === 'undefined') { workers = false; return; }
+            workers = [];
+            for (let i = 0; i < N; i++) {
+                const w = new Worker('./js/workers/key-worker.js');
+                w.onmessage = (e) => {
+                    const m = e.data || {};
+                    const p = pending.get(m.id);
+                    if (!p) return;
+                    pending.delete(m.id);
+                    if (m.error || !m.data) { p.resolve(null); return; }
+                    try {
+                        const img = new ImageData(new Uint8ClampedArray(m.data), m.w, m.h);
+                        createImageBitmap(img).then(bitmap => p.resolve({ bitmap, bounds: m.bounds }), () => p.resolve(null));
+                    } catch (err) { p.resolve(null); }
+                };
+                w.onerror = () => { for (const p of pending.values()) p.resolve(null); pending.clear(); };
+                workers.push(w);
+            }
+        } catch (e) { workers = false; }
+    }
+    function available() { boot(); return Array.isArray(workers) && workers.length > 0; }
+    async function key(im, white, bg) {
+        if (!available() || !im || !im.naturalWidth) return null;
+        try {
+            const [bm, wb] = await Promise.all([createImageBitmap(im), white ? createImageBitmap(white) : null]);
+            const id = seq++;
+            const w = workers[next++ % workers.length];
+            return await new Promise((resolve) => {
+                pending.set(id, { resolve });
+                const transfer = wb ? [bm, wb] : [bm];
+                w.postMessage({ id, bitmap: bm, white: wb, whiteBg: bg === 'white' }, transfer);
+                setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve(null); } }, 20000);
+            });
+        } catch (e) { return null; }
+    }
+    return { key, available };
 })();
 
 // Keys out the black (0,0,0) background of exported Text+ preview frames so they overlay cleanly on live video.

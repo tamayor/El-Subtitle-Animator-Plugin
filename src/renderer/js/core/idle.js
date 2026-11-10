@@ -10,6 +10,7 @@ if (window.sa && window.sa.onWinIdle) window.sa.onWinIdle((idle, why) => {
     if (idle) { setStatus(why === 'parked' ? 'Done: real-time rendering is paused until you come back to this window.' : 'Minimized: real-time rendering is paused.', ''); return; }
     setStatus('Back: real-time rendering resumed.', 'ok');
     state.liveBg.key = '';
+    pollWake();
     try { redrawStages(); } catch (e) { /* ignore */ }
     try { refreshLiveBg(); } catch (e) { /* ignore */ }
 });
@@ -25,19 +26,70 @@ setInterval(() => {
 }, 5000);
 
 // ---------------------------------------------------------------- live subtitle
-// Every poll is a handful of calls into Resolve (project, timeline, timecode, selection). While this window is the
-// active one it polls 5 times a second; while the user works in Resolve itself (this window unfocused) it polls at
-// POLL_BG_MS, so the panel following the playhead costs Resolve less while they edit. A running Resolve preview keeps
-// the quick rate, since it follows the playhead from caption to caption.
-const POLL_FG_MS = 200, POLL_BG_MS = 400;
+// Every poll is a handful of calls into Resolve (project, timeline, timecode, selection). The rate adapts to what is
+// going on: POLL_FG_MS while something moves (the playhead, the selection, a Resolve preview, the user's hand on the
+// panel), POLL_FG_REST_MS once nothing has changed for REST_AFTER_MS, and the slower pair while the user works in
+// Resolve itself (this window unfocused). Any input on the panel brings the quick rate back at once, so the first
+// interaction never waits for a slow tick.
+const POLL_FG_MS = 200, POLL_FG_REST_MS = 500, POLL_BG_MS = 400, POLL_BG_REST_MS = 1200, REST_AFTER_MS = 2000;
+const pollState = { lastChange: 0, sig: '', rtt: [], longTasks: 0, perfOn: false, perfAt: 0 };
+function pollWake() { pollState.lastChange = Date.now(); }
+for (const ev of ['mousedown', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, pollWake, { passive: true, capture: true });
+window.addEventListener('focus', pollWake);
+
+function pollSignature(L) {
+    if (!L || !L.ok) return 'off';
+    return L.frame + '|' + L.source + '|' + (L.subtitle ? L.subtitle.start + ':' + L.subtitle.track : '-') + '|' + L.count + '|' + L.subsVersion + '|' + L.timeline;
+}
+function pollDelay(focused) {
+    const moving = state.livePrev || (typeof playWatch !== 'undefined' && playWatch.playing) || (Date.now() - pollState.lastChange < REST_AFTER_MS);
+    if (focused) return moving ? POLL_FG_MS : POLL_FG_REST_MS;
+    return (moving && state.livePrev) ? POLL_FG_MS : (moving ? POLL_BG_MS : POLL_BG_REST_MS);
+}
 async function tick() {
     if (state.idle) { setTimeout(tick, 500); return; }          // minimized: no real-time polling of Resolve
     if (!state.busy && !state.drag) {
+        const t0 = performance.now();
         try { state.live = await window.sa.poll(false); } catch (e) { state.live = { ok: false, reason: 'Not connected' }; }
+        pollSample(performance.now() - t0);
+        const sig = pollSignature(state.live);
+        if (sig !== pollState.sig) { pollState.sig = sig; pollState.lastChange = Date.now(); }
         watchPlayback(state.live);
         renderLive();
     }
     let focused = true;
     try { focused = document.hasFocus(); } catch (e) { focused = true; }
-    setTimeout(tick, (focused || state.livePrev) ? POLL_FG_MS : POLL_BG_MS);
+    setTimeout(tick, pollDelay(focused));
 }
+
+// ---------------------------------------------------------------- the panel's own measurements (perf.js)
+// While performance measuring is on in the main process, the poll's round trip (p50 / p95 over the last minute) and
+// the number of long tasks (> 50 ms) on this thread are reported once a minute as renderer.pollRtt / renderer.longTasks.
+function pollSample(ms) {
+    pollState.rtt.push(ms);
+    if (pollState.rtt.length > 600) pollState.rtt.splice(0, pollState.rtt.length - 600);
+}
+try {
+    if (typeof PerformanceObserver !== 'undefined') {
+        new PerformanceObserver((list) => { pollState.longTasks += list.getEntries().length; }).observe({ entryTypes: ['longtask'] });
+    }
+} catch (e) { /* not supported */ }
+setInterval(async () => {
+    try {
+        if (!window.sa || !window.sa.getPerf) return;
+        if (Date.now() - pollState.perfAt > 60000) {
+            pollState.perfAt = Date.now();
+            const r = await window.sa.getPerf();
+            pollState.perfOn = !!(r && r.perf && r.perf.enabled && r.perf.sampleRenderer);
+        }
+        if (!pollState.perfOn) { pollState.longTasks = 0; return; }
+        const arr = pollState.rtt.slice().sort((a, b) => a - b);
+        if (arr.length) {
+            const q = (p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+            window.sa.perfRecord('pollRtt.p50', q(0.5), { n: arr.length });
+            window.sa.perfRecord('pollRtt.p95', q(0.95), { n: arr.length });
+        }
+        window.sa.perfRecord('longTasks', pollState.longTasks);
+        pollState.rtt = []; pollState.longTasks = 0;
+    } catch (e) { /* ignore */ }
+}, 60000);

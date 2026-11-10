@@ -156,9 +156,13 @@ function ccRender(info) {
     ccFill(info);
 }
 
+// 700 ms while the clip or its values change, 1500 ms once nothing has changed for 3 s (each read is a Resolve pass
+// plus a bridge call); nothing while the Use tab is away or the window hidden.
+const ccPace = { sig: '', changedAt: 0 };
 async function ccTick() {
     const onUse = document.body.classList.contains('tab-apply');
     const active = document.activeElement && $('clipCtlCard') && $('clipCtlCard').contains(document.activeElement);
+    let delay = 700;
     if (!state.idle && onUse && !ccState.busy && !state.busy && !document.hidden) {
         ccState.busy = true;
         try {
@@ -166,11 +170,14 @@ async function ccTick() {
             if (r && r.ok) {
                 // keep the card while the user is in it, even if the selection blinks
                 if (!(active && (r.none || (r.itemId && r.itemId !== ccState.itemId)) && Date.now() - ccState.sentAt < 3000)) ccRender(r);
+                const sig = r.none ? 'none' : (r.itemId + '|' + JSON.stringify(r.values || null));
+                if (sig !== ccPace.sig) { ccPace.sig = sig; ccPace.changedAt = Date.now(); }
+                if (!active && Date.now() - ccPace.changedAt > 3000) delay = 1500;
             }
         } catch (e) { /* not connected: try again */ }
         ccState.busy = false;
     }
-    setTimeout(ccTick, 700);
+    setTimeout(ccTick, delay);
 }
 
 // View, like Animation timing: 'full' (the card), 'compact' (dense rows, two columns when wide) or 'docked'

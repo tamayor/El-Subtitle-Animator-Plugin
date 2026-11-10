@@ -627,6 +627,25 @@
         requestAnimationFrame(loop);
         try { tick(ts); } catch (e) { console.error('preview loop:', e); }
     }
+    // Only the thumbnails inside the window are drawn each frame (a long preset list draws a dozen, not all of them);
+    // which ones are inside is worked out every VISIBLE_EVERY_MS, not every frame.
+    const VISIBLE_EVERY_MS = 300;
+    let visibleThumbs = [], visibleAt = 0;
+    function thumbsToDraw(ts) {
+        if (ts - visibleAt < VISIBLE_EVERY_MS) return visibleThumbs;
+        visibleAt = ts;
+        const all = document.querySelectorAll('canvas.thumb');
+        const H = window.innerHeight || 0, W = window.innerWidth || 0;
+        const out = [];
+        all.forEach((cv) => {
+            if (!cv.isConnected || cv.offsetParent === null) return;
+            const r = cv.getBoundingClientRect();
+            if (r.bottom < -40 || r.top > H + 40 || r.right < -40 || r.left > W + 40) return;
+            out.push(cv);
+        });
+        visibleThumbs = out;
+        return out;
+    }
     function tick(ts) {
         if (!document.hidden) {
             const curFps = (typeof fpsNow === 'function' ? fpsNow() : 25) || 25;
@@ -635,7 +654,7 @@
 
             if (state.tab === 'apply' && ts - last >= interval - 2) {
                 last = ts;
-                document.querySelectorAll('canvas.thumb').forEach(cv => draw(cv, ts));
+                for (const cv of thumbsToDraw(ts)) draw(cv, ts);
             }
         }
     }

@@ -391,9 +391,13 @@ function initAnimTiming() {
 }
 
 // Follows Resolve: which clip, its length and ranges, and the playhead.
+// Only while the Use tab shows and the window is visible; 300 ms while the playhead or the clip changes, 1500 ms once
+// nothing has changed for 3 s (each read is a few Resolve calls and, for a new clip, a bridge call).
+const tmPace = { sig: '', changedAt: 0 };
 async function tmTick() {
     const onUse = document.body.classList.contains('tab-apply');
-    if (!state.idle && onUse && !tmState.dragging && !tmState.busy && !state.busy) {
+    let delay = 300;
+    if (!state.idle && onUse && !document.hidden && !tmState.dragging && !tmState.busy && !state.busy) {
         tmState.busy = true;
         try {
             const r = await window.sa.clipTiming({});
@@ -409,9 +413,12 @@ async function tmTick() {
                     tmState.info = r;
                 }
                 renderTiming();
+                const sig = r.none ? 'none' : (r.itemId + '|' + r.frame + '|' + JSON.stringify(r.ranges || null));
+                if (sig !== tmPace.sig) { tmPace.sig = sig; tmPace.changedAt = Date.now(); }
+                if (Date.now() - tmPace.changedAt > 3000) delay = 1500;
             }
         } catch (e) { /* not connected: try again */ }
         tmState.busy = false;
-    }
-    setTimeout(tmTick, 300);
+    } else if (!onUse || document.hidden) delay = 700;
+    setTimeout(tmTick, delay);
 }

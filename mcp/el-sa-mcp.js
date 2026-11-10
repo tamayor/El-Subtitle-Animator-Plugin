@@ -110,7 +110,22 @@ const S = (props, required) => ({ type: 'object', properties: props || {}, requi
 const subtitleArg = { type: 'integer', description: 'Subtitle number (index from list_subtitles, starting at 1)' };
 
 const TOOLS = [
-    { name: 'status', description: 'Connection check: current timeline, size, fps, subtitle count and the active editing rules.', inputSchema: S() },
+    { name: 'status', description: 'Connection check: current timeline, size, fps, subtitle count and the active editing rules. Pass refresh: true to re-read the subtitles from Resolve (otherwise the panel\'s cached list is used). Includes a perf summary when performance measuring is on.', inputSchema: S({ refresh: { type: 'boolean' } }) },
+    {
+        name: 'perf',
+        description: 'Performance measuring of the panel: enable / disable it, reset the counters, and read the summary (per-stage timings, Resolve API calls per second, Fusion helper timings). Measurements go to _debug/perf-log.jsonl in the code folder. settings: promiseApi "off" | "probe" | "on" (Resolve\'s promise-based API), renderProcess (second Fusion helper for renders), sampleRenderer (the panel reports its own poll round trips and long tasks).',
+        inputSchema: S({
+            enable: { type: 'boolean' },
+            reset: { type: 'boolean' },
+            top: { type: 'integer', description: 'How many entries to list (default 40, 0 = all)' },
+            settings: { type: 'object', properties: { promiseApi: { type: 'string', enum: ['off', 'probe', 'on'] }, renderProcess: { type: 'boolean' }, sampleRenderer: { type: 'boolean' } }, additionalProperties: false }
+        })
+    },
+    {
+        name: 'verify_placed',
+        description: 'Blank-render check: renders each clip placed this session (or the given ids) at two frames and reports how many came out blank. Use after placing to judge the Fusion wake settings.',
+        inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } } })
+    },
     { name: 'get_rules', description: 'The editing rules every placement follows (allowed emoji tags, forced font and text colour, MultiText emphasis font/colour, video layer policy, safe area, MultiText emphasis, sound, free-text notes).', inputSchema: S() },
     {
         name: 'set_rules',
@@ -198,7 +213,7 @@ const TOOLS = [
             all: { type: 'boolean', description: 'List every preset, ignoring the rules' }
         })
     },
-    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, clip colour (the colour the user set on the subtitle clip in Resolve, if any), and whether one was already placed this session. clipColors counts the colours used. Pass color (e.g. "Orange") to list only subtitles with that clip colour, or "any" for every coloured one.', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' }, color: { type: 'string', description: 'Only subtitles whose clip colour is this Resolve colour name (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate), or "any" for all coloured ones' } }) },
+    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, clip colour (the colour the user set on the subtitle clip in Resolve, if any), and whether one was already placed this session. clipColors counts the colours used. Pass color (e.g. "Orange") to list only subtitles with that clip colour, or "any" for every coloured one. Pass refresh: true to re-read the subtitles from Resolve right now (otherwise the panel\'s list, refreshed every few seconds, is used).', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' }, refresh: { type: 'boolean' }, color: { type: 'string', description: 'Only subtitles whose clip colour is this Resolve colour name (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate), or "any" for all coloured ones' } }) },
     {
         name: 'get_frame',
         description: 'Image of the composited timeline frame at a subtitle (middle by default) or at a frame. Use it to find faces and empty space before choosing x/y, and to check a placed clip.',

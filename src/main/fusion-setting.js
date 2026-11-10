@@ -358,6 +358,8 @@ function parseTextStyleFile(filePath, toolName) {
                         const f0 = stops[0], f1 = stops[stops.length - 1];
                         if (el.type === 2) el.color = rgbToHex(f0[1], f0[2], f0[3]);
                         el.color2 = rgbToHex(f1[1], f1[2], f1[3]);
+                        el.stop1 = f0[0];
+                        el.stop2 = f1[0];
                     }
                 }
                 for (const [key, fld, int] of [['MappingAngle', 'mappingAngle', false], ['MappingSize', 'mappingSize', false], ['MappingAspect', 'mappingAspect', false], ['MappingLevel', 'mappingLevel', true]]) {
@@ -567,7 +569,7 @@ function designForFusion(compPath, wanted, toolName, force) {
     }
     // Per shading element, only the fields that really differ from the preset file are sent (changing the colour
     // sends the colour and nothing else), so untouched inputs - and their keyframes - stay exactly as built.
-    const keys = ['name', 'enabled', 'opacity', 'shape', 'thickness', 'level', 'extendH', 'extendV', 'round', 'color', 'color2', 'mappingAngle', 'mappingSize', 'mappingAspect', 'mappingLevel', 'softness', 'offsetX', 'offsetY', 'type'];
+    const keys = ['name', 'enabled', 'opacity', 'shape', 'thickness', 'level', 'extendH', 'extendV', 'round', 'color', 'color2', 'mappingAngle', 'mappingSize', 'mappingAspect', 'mappingLevel', 'softness', 'offsetX', 'offsetY', 'type', 'stop1', 'stop2'];
     const els = [];
     if (Array.isArray(wanted.elements)) {
         for (const el of wanted.elements) {
@@ -589,6 +591,10 @@ function designForFusion(compPath, wanted, toolName, force) {
                 diff.type = 2;
                 diff.color = el.color || b.color || '#ffffff';
                 diff.color2 = el.color2 || b.color2 || '#ffffff';
+                // the stop positions travel with it (else Fusion would get 0 / 1 and lose the preset's spread)
+                const s1 = el.stop1 !== undefined ? el.stop1 : b.stop1, s2 = el.stop2 !== undefined ? el.stop2 : b.stop2;
+                if (s1 !== undefined && s1 !== null) diff.stop1 = s1;
+                if (s2 !== undefined && s2 !== null) diff.stop2 = s2;
             }
             if (Object.keys(diff).length > 2) els.push(diff);
         }

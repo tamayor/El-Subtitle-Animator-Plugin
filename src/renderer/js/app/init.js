@@ -207,6 +207,7 @@ async function initApp() {
     bindPlacementMenu();
     bindLivePreview();
     initPresetViewMode();
+    initEffects();
     renderAnimations();       // the saved view (List / Grid / Gallery) was only read just now: draw the list in it
     if ($('create')) $('create').addEventListener('click', create);
 

@@ -67,6 +67,10 @@ function defaultRules() {
         // presets with one of these tags skip the overrides: keep 'both' = their own font and colour, 'font' = their own
         // font (the colour override still applies), 'color' = their own colour (the font override still applies)
         styleExcept: { normal: null, emphasis: null },
+        // presets whose text fill is a gradient (Money Pop Up, $123,456): enabled = recolour that gradient on every one of
+        // them, even presets that keep their own colour (styleExcept / keepPresetStyle). top / bottom = hex (top null =
+        // the text style colour, bottom null = same as top: a plain fill); topStop / bottomStop 0..1 (null = the preset's)
+        gradient: { enabled: false, top: null, bottom: null, topStop: null, bottomStop: null },
         // 'top' above all clips there, 'first-empty' lowest free layer, 'fixed' V<fixed>; from / to = keep the layer
         // between V<from> and V<to> (to null = no limit; null both = the panel's Placement range)
         track: { mode: 'top', fixed: null, from: null, to: null },
@@ -117,6 +121,7 @@ function cleanRules(r) {
             normal: cleanExcept(r.styleExcept && r.styleExcept.normal),
             emphasis: cleanExcept(r.styleExcept && r.styleExcept.emphasis)
         },
+        gradient: cleanGradient(r.gradient),
         kindStyle: {
             textplus: cleanEmphasis(r.kindStyle && r.kindStyle.textplus),
             multitext: cleanEmphasis(r.kindStyle && r.kindStyle.multitext)
@@ -146,6 +151,12 @@ function cleanRules(r) {
         notes: String(r.notes || '').slice(0, 4000),
         layout: r.layout === undefined ? d.layout : cleanLayout(r.layout)
     };
+}
+
+function cleanGradient(g) {
+    g = (g && typeof g === 'object') ? g : {};
+    const stop = (v) => { const n = Number(v); return (v === null || v === undefined || v === '' || !Number.isFinite(n)) ? null : Math.max(0, Math.min(1, n)); };
+    return { enabled: !!g.enabled, top: cleanHex(g.top), bottom: cleanHex(g.bottom), topStop: stop(g.topStop), bottomStop: stop(g.bottomStop) };
 }
 
 function cleanHighlight(h) {
@@ -244,6 +255,24 @@ function withFillColor(design, color) {
     if (i >= 0) els[i] = el1; else els.unshift(el1);
     out.elements = els;
     return out;
+}
+
+// The rules' gradient recolour for a design whose fill (shading element 1) is a gradient, or null when it is not one.
+// fallback: the text style colour, used for an unset top. The fill stays a gradient (type 2) with the new stops.
+function withGradientFill(design, g, fallback) {
+    if (!g || !g.enabled || !design || !Array.isArray(design.elements)) return null;
+    const i = design.elements.findIndex(e => Number(e.index) === 1);
+    const cur = i >= 0 ? design.elements[i] : null;
+    if (!cur || Number(cur.type) !== 2) return null;
+    const top = g.top || fallback || cur.color || '#ffffff';
+    const bottom = g.bottom || top;
+    const el1 = Object.assign({}, cur, { type: 2, color: top, color2: bottom, enabled: true, modified: true });
+    if (g.topStop !== null && g.topStop !== undefined) el1.stop1 = g.topStop;
+    if (g.bottomStop !== null && g.bottomStop !== undefined) el1.stop2 = g.bottomStop;
+    if (el1.stop1 !== undefined && el1.stop2 !== undefined && el1.stop2 < el1.stop1) el1.stop2 = el1.stop1;
+    const els = design.elements.map(e => Object.assign({}, e));
+    els[i] = el1;
+    return Object.assign({}, design, { elements: els });
 }
 
 function cleanLayout(l) {
@@ -403,7 +432,9 @@ function boxListFor(a, nodes, text, parts, look, sizing) {
         if (n.kind === 'textplus' && primary && n.id !== primary.id) {
             const own = b.design || n.design || null;
             if (own || font || L.color) design = Object.assign({}, own || {}, font ? { font: font.font, style: font.style } : {});
-            if (design && L.color) design = withFillColor(design, L.color);
+            const grad = design && L.gradient ? withGradientFill(design, L.gradient, L.gradientColor) : null;
+            if (grad) design = grad;
+            else if (design && L.color) design = withFillColor(design, L.color);
             if (design) design = sizedDesign(design, sizing).design;
         }
         const out = {
@@ -537,6 +568,7 @@ const TOOLS = {
         if (args && args.emphasis && cur.emphasis) next.emphasis = Object.assign({}, cur.emphasis, args.emphasis);
         if (args && args.styleShare) next.styleShare = Object.assign({}, cur.styleShare, args.styleShare);
         if (args && args.kindStyle) next.kindStyle = Object.assign({}, cur.kindStyle, args.kindStyle);
+        if (args && args.gradient) next.gradient = Object.assign({}, cur.gradient, args.gradient);
         if (args && args.styleExcept) next.styleExcept = Object.assign({}, cur.styleExcept, args.styleExcept);
         const saved = saveRules(next);
         const { unknown } = resolveTags(loadLib(), saved.allowedTags);
@@ -750,10 +782,19 @@ const TOOLS = {
             if (exE !== 'color') { emLook.font = null; emLook.style = null; emLook.keepFont = true; }
             if (exE !== 'font') { emLook.color = null; emLook.keepColor = true; }
         }
-        const look = (font || normColor || emLook) ? { font, color: normColor, emphasis: emLook } : null;
+        // gradient fills: the rules' gradient recolour wins over the preset's own colours (exceptions, keepPresetStyle and
+        // the override share included); its unset top takes the text style colour
+        const gradRule = (rules.gradient && rules.gradient.enabled && !isMT) ? rules.gradient : null;
+        const gradColor = gradRule ? (normColor || (ks && ks.color) || rules.color || null) : null;
+        const look = (font || normColor || emLook || gradRule) ? { font, color: normColor, emphasis: emLook, gradient: gradRule, gradientColor: gradColor } : null;
         let textDesign = parseTextStyle(fs.existsSync(compPath) ? compPath : null, a.textDesign) || null;
         if (font) textDesign = Object.assign({}, textDesign || {}, { font: font.font }, font.style ? { style: font.style } : {});
-        if (look && look.color && !isMT) textDesign = withFillColor(textDesign, look.color);
+        const gradDesign = gradRule ? withGradientFill(textDesign, gradRule, gradColor) : null;
+        if (gradDesign) {
+            textDesign = gradDesign;
+            const e1 = gradDesign.elements.find(e => Number(e.index) === 1);
+            notes.push('gradient fill: ' + e1.color + ' → ' + e1.color2 + ' (gradient rule)');
+        } else if (look && look.color && !isMT) textDesign = withFillColor(textDesign, look.color);
 
         // text size: a multiplier on the preset's own Text+ Size, so long lines can be shrunk to fit the frame
         // (Edit-page scale zooms the whole rendered clip instead and can push the text out of frame)
@@ -931,6 +972,27 @@ const TOOLS = {
         const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, extraAudioIds: res.extraSfxIds || [], subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined, subtitlesDisabled: res.subtitlesDisabled || [] };
         placed.push(rec);
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
+        // effect presets (Glitch / Wiggle / Stop Motion) on the new clip, as Resolve effects (effect-presets.js)
+        // each entry: 'Wiggle' or { id: 'Wiggle', strength: 0..100 } (strength left out = the effect's light default)
+        const fxSpec = {};
+        for (const x of (Array.isArray(args.effects) ? args.effects : [])) {
+            if (typeof x === 'string') fxSpec[x] = null;
+            else if (x && typeof x === 'object' && x.id) fxSpec[String(x.id)] = Number.isFinite(Number(x.strength)) ? Number(x.strength) : null;
+        }
+        const fxWant = Object.keys(fxSpec);
+        const fxDone = [];
+        if (fxWant.length && !args._measure) {
+            const { ORDER } = require('./effect-presets');
+            require('./effect-presets').installEffects();
+            for (const id of ORDER.filter(k => fxWant.includes(k))) {
+                try {
+                    const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id] }, 15000);
+                    if (r && !(r.failed && r.failed.length)) fxDone.push(id);
+                    else notes.push('Effect ' + id + ' could not be added');
+                } catch (e) { notes.push('Effect ' + id + ' could not be added: ' + e.message); }
+            }
+            rec.effects = fxDone;
+        }
         // the real Inspector values, read by the helper (sizes / fonts only): callers must not script the comp themselves
         let inspector;
         if (!args._measure) {
@@ -940,6 +1002,7 @@ const TOOLS = {
         return {
             inspector,
             placed: true, itemId: res.itemId, preset: a.name, subtitle: sub.index, text, parts: parts || undefined,
+            effects: fxDone.length ? fxDone : undefined,
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
             subtitleClipsDisabled: (res.subtitlesDisabled || []).map(s => s.text),
             start: res.start, frames: res.frames, holdUntil: held || undefined, position: { posX, posY }, textSize,

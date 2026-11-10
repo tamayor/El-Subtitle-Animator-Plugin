@@ -535,6 +535,14 @@
     padding: 1px 2px 1px 6px;
 }
 
+/* cap the open Tags list (~6 rows) so presets stay in view; scroll the rest */
+.tags-wrap .tag-list {
+    max-height: 200px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+}
+
 .tags-wrap .tag-row input[type=text].tag-name {
     padding: 3px 6px;
     font-size: 12px;

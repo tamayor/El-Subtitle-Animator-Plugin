@@ -2,7 +2,7 @@
 
 // ---------------------------------------------------------------- tags (Finder-style: name + color)
 const TAG_COLORS = ['#ff453a', '#ff9f0a', '#ffd60a', '#32d74b', '#0a84ff', '#bf5af2', '#8e8e93'];
-const tagUI = { open: false, color: TAG_COLORS[4], filter: { use: [], lib: [] } };
+const tagUI = { open: false, color: TAG_COLORS[4], filter: { use: [], lib: [], fx: [] } };
 
 function allTags() { return Array.isArray(state.lib.tags) ? state.lib.tags : []; }
 function tagById(id) { return allTags().find(t => t.id === id) || null; }

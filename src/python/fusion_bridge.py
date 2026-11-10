@@ -392,7 +392,14 @@ def apply_text_design(tool, td):
                 c1 = list(hex_to_rgb(el["color"])) if el.get("color") else (
                     [float(get_in(tool, "Red%d" % idx) or 1), float(get_in(tool, "Green%d" % idx) or 1), float(get_in(tool, "Blue%d" % idx) or 1)])
                 c2 = list(hex_to_rgb(el["color2"])) if el.get("color2") else stop(keys[-1] if keys else 1.0, [1.0, 1.0, 1.0])
-                tool.SetInput("ShadingGradient%d" % idx, {0.0: c1 + [1.0], 1.0: c2 + [1.0]})
+                # stop positions: the ones sent, else the gradient's own first / last stop (else 0 and 1)
+                p1 = float(el["stop1"]) if el.get("stop1") is not None else (float(keys[0]) if keys else 0.0)
+                p2 = float(el["stop2"]) if el.get("stop2") is not None else (float(keys[-1]) if keys else 1.0)
+                p1 = max(0.0, min(1.0, p1))
+                p2 = max(p1, min(1.0, p2))
+                if p2 - p1 < 1e-6:
+                    p1, p2 = (p1, min(1.0, p1 + 1e-3)) if p1 < 1.0 else (p1 - 1e-3, p1)
+                tool.SetInput("ShadingGradient%d" % idx, {p1: c1 + [1.0], p2: c2 + [1.0]})
             except Exception:
                 pass
         if el.get("softness") is not None:
@@ -3112,8 +3119,149 @@ def op_row_times(a):
     return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
 
 
+# ---------------------------------------------------------------- effect presets (src/main/effect-presets.js)
+# Stop Motion / Wiggle / Glitch are Resolve Fusion effects (Edit/Effects/Subtitle Animator/ELSA <name>.setting) put
+# on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
+# so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
+FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
+FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+FX_ORDER = ["Glitch", "Wiggle", "StopMotion"]
+# the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
+FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
+
+
+def fx_strength_tool(effect, key):
+    try:
+        comp = effect.GetFusionComp()
+        return comp.FindTool(FX_STRENGTH_TOOL[key]) if comp is not None else None
+    except Exception:
+        return None
+
+
+def fx_get_strength(effect, key):
+    t = fx_strength_tool(effect, key)
+    v = get_in(t, "Strength") if t is not None else None
+    return round(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def fx_targets(a):
+    """The clips an effect request is for: the given item ids, else the clips selected on the timeline (video
+    track items only), else the top video clip under the playhead."""
+    tl = timeline()
+    ids = [str(i) for i in (a.get("items") or []) if i]
+    if ids:
+        return [find_item(i) for i in ids]
+    out = []
+    for it in tl.GetSelectedClips() or []:
+        try:
+            tt = it.GetTrackTypeAndIndex() if hasattr(it, "GetTrackTypeAndIndex") else None
+            if tt and tt[0] != "video":
+                continue
+        except Exception:
+            pass
+        out.append(it)
+    if not out:
+        cur = tl.GetCurrentVideoItem()
+        if cur is not None:
+            out.append(cur)
+    return out
+
+
+def fx_on_item(it):
+    """{effect id: Effect} of our effects on a clip."""
+    have = {}
+    for e in it.GetEffects("fusion") or []:
+        name = (e.GetInfo() or {}).get("name")
+        for k, n in FX_NAMES.items():
+            if name == n:
+                have[k] = e
+    return have
+
+
+def fx_state(items):
+    out = []
+    for it in items:
+        have = fx_on_item(it)
+        out.append({"id": str(it.GetUniqueId()), "name": it.GetName(),
+                    "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
+                    "strength": {k: fx_get_strength(e, k) for k, e in have.items()}})
+    return out
+
+
+def op_fx_get(a):
+    """{items?} -> {clips: [{id, name, effects: {Glitch: enabled, ...}}]} for the selected (or given) clips."""
+    return {"clips": fx_state(fx_targets(a))}
+
+
+def op_fx_strength(a):
+    """{effect, value 0..100, items?}: sets that effect's Strength on the selected (or given) clips that have it."""
+    key = str(a.get("effect") or "")
+    if key not in FX_NAMES:
+        raise RuntimeError("Unknown effect " + key)
+    v = max(0.0, min(100.0, float(a.get("value"))))
+    items = fx_targets(a)
+    done = 0
+    for it in items:
+        e = fx_on_item(it).get(key)
+        t = fx_strength_tool(e, key) if e is not None else None
+        if t is None:
+            continue
+        try:
+            t.SetInput("Strength", v)
+            done += 1
+        except Exception:
+            pass
+    return {"set": done, "clips": fx_state(items)}
+
+
+def op_fx_set(a):
+    """{effect, on (true / false / null = flip, judged on the first clip), items?}: adds or removes one effect preset
+    on the selected (or given) clips, keeping our effects in FX_ORDER after any of the clip's other effects."""
+    key = str(a.get("effect") or "")
+    if key not in FX_NAMES:
+        raise RuntimeError("Unknown effect " + key)
+    items = fx_targets(a)
+    if not items:
+        raise RuntimeError("Select a clip on the timeline first")
+    on = a.get("on")
+    if on is None:
+        on = key not in fx_on_item(items[0])
+    failed = []
+    for it in items:
+        have = fx_on_item(it)
+        if on:
+            e = have.get(key)
+            if e is None:
+                e = it.AddEffect("fusion", FX_PREFIX + FX_NAMES[key])
+                if e is None:
+                    failed.append(it.GetName())
+                    continue
+                have[key] = e
+                if a.get("strength") is not None:
+                    t = fx_strength_tool(e, key)
+                    if t is not None:
+                        try:
+                            t.SetInput("Strength", max(0.0, min(100.0, float(a.get("strength")))))
+                        except Exception:
+                            pass
+            elif not e.GetIsEnabled():
+                e.SetIsEnabled(True)
+            # stacking order: ours go last, glitch -> wiggle -> stop motion (stop motion holds the finished look)
+            total = len(it.GetEffects("fusion") or [])
+            mine = [k for k in FX_ORDER if k in have]
+            for n, k in enumerate(mine):
+                try:
+                    have[k].SetIndex(total - len(mine) + n + 1)
+                except Exception:
+                    pass
+        elif key in have:
+            if not it.DeleteEffects([have[key]]):
+                failed.append(it.GetName())
+    return {"on": bool(on), "failed": failed, "clips": fx_state(items)}
+
+
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the

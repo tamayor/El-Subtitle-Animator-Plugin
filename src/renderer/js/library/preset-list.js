@@ -331,10 +331,7 @@ function setPresetViewMode(mode) {
         grid.classList.toggle('view-list', state.useViewMode === 'list');
         grid.classList.toggle('view-gallery', state.useViewMode === 'gallery');
     }
-    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn'), galleryBtn = $('viewGalleryBtn');
-    if (listBtn) listBtn.classList.toggle('on', state.useViewMode === 'list');
-    if (gridBtn) gridBtn.classList.toggle('on', state.useViewMode === 'grid');
-    if (galleryBtn) galleryBtn.classList.toggle('on', state.useViewMode === 'gallery');
+    if ($('viewModeSelect')) $('viewModeSelect').value = state.useViewMode;
     renderAnimations();
 }
 
@@ -354,9 +351,7 @@ function setUseOrderMode(mode) {
 }
 function syncOrderButtons() {
     const m = useOrderMode();
-    const d = $('orderDefaultBtn'), c = $('orderCustomBtn');
-    if (d) d.classList.toggle('on', m === 'default');
-    if (c) c.classList.toggle('on', m === 'custom');
+    if ($('orderModeSelect')) $('orderModeSelect').value = m;
 }
 
 // Every preset in the order the Use tab shows them. Custom: the saved useOrder, presets not in it yet go at the end.
@@ -385,13 +380,12 @@ async function moveInUseOrder(dragged, target, after) {
     try { localStorage.setItem('sa.useOrder', 'custom'); } catch (e) { /* ignore */ }
     renderAnimations();
     takeLib(await window.sa.setUseOrder(ids));
-    if (wasDefault) setStatus('Switched to Custom order. Click Default to see the original sequence again.', 'ok');
+    if (wasDefault) setStatus('Switched to Custom order. Pick Default order to see the original sequence again.', 'ok');
 }
 
 function initPresetViewMode() {
-    const ordD = $('orderDefaultBtn'), ordC = $('orderCustomBtn');
-    if (ordD) ordD.addEventListener('click', () => setUseOrderMode('default'));
-    if (ordC) ordC.addEventListener('click', () => setUseOrderMode('custom'));
+    const ordSel = $('orderModeSelect');
+    if (ordSel) ordSel.addEventListener('change', () => setUseOrderMode(ordSel.value));
     syncOrderButtons();
     let saved = 'list';
     try { saved = localStorage.getItem('sa.presetView') || 'list'; } catch (e) { saved = 'list'; }
@@ -403,18 +397,10 @@ function initPresetViewMode() {
         grid.classList.toggle('view-list', state.useViewMode === 'list');
         grid.classList.toggle('view-gallery', state.useViewMode === 'gallery');
     }
-    const listBtn = $('viewListBtn'), gridBtn = $('viewGridBtn'), galleryBtn = $('viewGalleryBtn');
-    if (listBtn) {
-        listBtn.classList.toggle('on', state.useViewMode === 'list');
-        listBtn.addEventListener('click', () => setPresetViewMode('list'));
-    }
-    if (gridBtn) {
-        gridBtn.classList.toggle('on', state.useViewMode === 'grid');
-        gridBtn.addEventListener('click', () => setPresetViewMode('grid'));
-    }
-    if (galleryBtn) {
-        galleryBtn.classList.toggle('on', state.useViewMode === 'gallery');
-        galleryBtn.addEventListener('click', () => setPresetViewMode('gallery'));
+    const viewSel = $('viewModeSelect');
+    if (viewSel) {
+        viewSel.value = state.useViewMode;
+        viewSel.addEventListener('change', () => setPresetViewMode(viewSel.value));
     }
 
     const searchInput = $('presetSearch');

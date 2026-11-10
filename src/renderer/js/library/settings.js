@@ -3,10 +3,12 @@
 // Use tab: the picked item, its preview and the collapsible alignment.
 function renderSettings() {
     const a = selected();
-    $('settings').classList.toggle('hidden', !a);
+    $('settings').classList.add('hidden');   // the Use-tab settings box is empty now (its controls live in the sticky header): never show it
+    if ($('useDockU')) $('useDockU').classList.toggle('hidden', !a);   // the sticky nav bar needs a selected preset
+    if ($('useDockName')) $('useDockName').textContent = a ? a.name : '';
     if (!a) return;
     syncUse(false);
-    $('useTitle').textContent = a.name;
+    if ($('useTitle')) $('useTitle').textContent = a.name;
     fillAdjust(CTX.U);
     if (window.SABoxes) SABoxes.render('U');
     if (!state.preview) drawStage('U', a, null);
@@ -303,6 +305,7 @@ function renderLive() {
 
 function renderAll() {
     renderAnimationsIfChanged();
+    renderEffects();
     renderSettings();
     renderDefaultSfx();
     renderSfxOriginals();

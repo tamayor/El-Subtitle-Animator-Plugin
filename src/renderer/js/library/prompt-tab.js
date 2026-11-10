@@ -74,7 +74,9 @@ TEXT STYLE
 2. status / get_layout: confirm the timeline shape and appliesToThisTimeline: true. If not, stop and tell me.
 3. set_rules with SIZE_MAX, LINE_SPACING, the text style pairs and sound from SETTINGS, then get_rules to confirm
    they took. NORMAL: a pair for both → font + color; (Text+) → kindStyle.textplus; (MultiText) → kindStyle.multitext.
-   EMPHASIS → emphasis (font, style, color). "override N%" → styleShare.normal / styleShare.emphasis (0 = preset
+   EMPHASIS → emphasis (font, style, color). GRADIENT → gradient {enabled: true, top, bottom, topStop, bottomStop}
+   ("text colour" / no top = top null; one colour = bottom null); place recolours gradient fills itself, even on
+   DANGER / MONEY, so never edit the comp after placing. "override N%" → styleShare.normal / styleShare.emphasis (0 = preset
    default on every clip, 100 = always the override). "except TAG, TAG (keep font & colour | keep font | keep colour)"
    → styleExcept.normal / styleExcept.emphasis = { tags, keep: both | font | color }. CLIP_TRACK (V3–V5) → trackRange
    {from, to} on every place / place_stack; AUDIO_TRACK → audioTrack {mode: any | same | own, from, to}. Presets that keep their own font/colour (DANGER / MONEY): pass
@@ -241,6 +243,7 @@ const PB_MCP_PARAMS = [
         { label: 'tagMatch: any / all of the tags', section: 'PRESETS', key: 'TAG_MATCH', kind: 'enum', options: ['any', 'all'], value: 'any', hint: 'any: a preset needs at least one of the tags; all: every tag.' },
         { label: 'NORMAL: font + colour of the text', section: 'TEXT STYLE', key: 'NORMAL', kind: 'style', value: 'Poppins Bold, #ffffff', hint: 'Sets the rules\' font and color: the font and fill colour forced on the clips.' },
         { label: 'EMPHASIS: font + colour of the key word', section: 'TEXT STYLE', key: 'EMPHASIS', kind: 'style', value: 'Larken Black, #ffd400', hint: 'Sets the rules\' emphasis: the MultiText key-word layer\'s font and fill colour.' },
+        { label: 'GRADIENT: recolour gradient fills', section: 'TEXT STYLE', key: 'GRADIENT', value: 'text colour (top 0.29) → #CF1D46 (bottom 1.0)', hint: 'Presets with a gradient text fill (Money Pop Up, $123,456) get this gradient instead of their own, even when they keep their own colour. "text colour" = the NORMAL colour; one colour = a plain fill. Claude passes it as set_rules gradient.' },
         { label: 'text.maxSize: largest text Size', section: 'SIZE (Inspector values)', key: 'SIZE_MAX', value: '0.162', hint: 'Largest Size, as the Inspector shows it.' },
         { label: 'text.lineSpacing: Line Spacing', section: 'SIZE (Inspector values)', key: 'LINE_SPACING', value: '0.7', hint: 'Line Spacing as the Inspector shows it (1 = normal).' },
         { label: 'track.mode: which video layer', section: 'POSITION (vertical 9:16)', key: 'TRACK_MODE', kind: 'enum', options: ['top', 'first-empty', 'fixed'], value: 'top', hint: 'Starts as the panel\'s Placement setting. top = above everything, first-empty = lowest free layer above V1, fixed = always one layer.' },

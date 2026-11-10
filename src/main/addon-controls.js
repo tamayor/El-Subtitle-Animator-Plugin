@@ -59,7 +59,7 @@ function numOf(body, key) {
 }
 
 // Controls the panel already edits elsewhere (the timing bar) or that are internal read-outs.
-const SKIP = /^(Seg\d+(Start|End)|AnimStart|AnimFrames|AnimNatural|TypingFrames)$/;
+const SKIP = /^(Seg\d+(Start|End)|AnimStart|AnimFrames|AnimNatural|TypingStart|TypingFrames)$/;
 
 // The visible add-ons in Inspector order: { id, kind: 'header' | 'slider' | 'check' | 'combo' | 'color', label, ... }.
 // Colour controls (one ColorControl group of R / G / B inputs) come as one item with ids [r, g, b].

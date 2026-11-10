@@ -350,6 +350,7 @@ function libForUI() {
         alwaysOnTop: lib.alwaysOnTop !== false,
         defaultSfx: lib.defaultSfx ? { file: lib.defaultSfx, path: sfxFilePath(lib.defaultSfx) } : null,
         tags: lib.tags,
+        effectTags: (lib.effectTags && typeof lib.effectTags === 'object') ? lib.effectTags : {},
         useOrder: Array.isArray(lib.useOrder) ? lib.useOrder : [],
         sfxOriginals: listSfxOriginals(),
         animations: lib.animations.map(a => {

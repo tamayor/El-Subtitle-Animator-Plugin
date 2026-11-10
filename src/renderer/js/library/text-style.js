@@ -3,6 +3,8 @@
 //   NORMAL        every text layer (Text+ fill colour / MultiText layers)
 //   EMPHASIS      the MultiText key-word layer; its colour goes on the box / pill behind the word (the word keeps the
 //                 normal colour), presets without a box colour the word itself
+//   GRADIENT      Text+ presets whose fill is a gradient (Money Pop Up, $123,456) get these two stops instead of their
+//                 own; wins over the except tags and the share (as the Prompt tab's GRADIENT rule does on place)
 //   HIGHLIGHT_BOX width / height / x / y (and auto-balance) of that box, run after the clip is placed
 // Each row has an override share (0 % = the preset's own look, 100 % = always) and tags whose presets keep their own
 // font and / or colour. Remembered per computer (localStorage). The Use tab preview renders with the override on, so
@@ -10,7 +12,8 @@
 
 const TEXT_STYLE_KEY = 'sa.textStyle';
 const tsRowDefault = () => ({ font: '', style: '', color: '', share: 100, except: { tags: [], keep: 'both' } });
-const textStyle = { normal: tsRowDefault(), emphasis: tsRowDefault(), highlight: { auto: false, width: 1, height: 1, x: 0, y: 0 } };
+const tsGradDefault = () => ({ enabled: false, top: '', bottom: '', topStop: null, bottomStop: null });
+const textStyle = { normal: tsRowDefault(), emphasis: tsRowDefault(), gradient: tsGradDefault(), highlight: { auto: false, width: 1, height: 1, x: 0, y: 0 } };
 const tsShareCount = { normal: 0, emphasis: 0 };
 const tsUI = { built: '', tagsKey: '' };
 
@@ -34,11 +37,14 @@ function textStyleLoad() {
             keep: ['both', 'font', 'color'].includes(ex.keep) ? ex.keep : 'both'
         };
     }
+    const g = (s.gradient && typeof s.gradient === 'object') ? s.gradient : {};
+    const stop = (v) => (v === null || v === undefined || v === '') ? null : tsNum(v, 0, 1, null);
+    textStyle.gradient = { enabled: !!g.enabled, top: normHex(g.top) || '', bottom: normHex(g.bottom) || '', topStop: stop(g.topStop), bottomStop: stop(g.bottomStop) };
     const h = (s.highlight && typeof s.highlight === 'object') ? s.highlight : {};
     textStyle.highlight = { auto: !!h.auto, width: tsNum(h.width, 0.2, 4, 1), height: tsNum(h.height, 0.2, 4, 1), x: tsNum(h.x, -2, 2, 0), y: tsNum(h.y, -2, 2, 0) };
 }
 function textStyleSave() {
-    try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify({ normal: textStyle.normal, emphasis: textStyle.emphasis, highlight: textStyle.highlight })); } catch (e) { /* optional */ }
+    try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify({ normal: textStyle.normal, emphasis: textStyle.emphasis, gradient: textStyle.gradient, highlight: textStyle.highlight })); } catch (e) { /* optional */ }
 }
 
 // ---------------------------------------------------------------- what applies to a preset
@@ -49,7 +55,8 @@ function tsHighlightSet() { const h = textStyle.highlight; return !!(h.auto || h
 function textStylePreviewKey() {
     const N = textStyle.normal, E = textStyle.emphasis;
     const on = (r) => tsRowSet(r) && r.share > 0;
-    return (on(N) || on(E)) ? JSON.stringify([N, E]) : '';
+    const G = textStyle.gradient;
+    return (on(N) || on(E) || G.enabled) ? JSON.stringify([N, E, G.enabled ? G : null]) : '';
 }
 function tsIsMultiText(a) {
     return !!(a && window.SABoxes && SABoxes.nodesOf(a).some(n => n.kind === 'multitext'));
@@ -90,10 +97,25 @@ function textStyleLook(a, consume) {
         if (exE !== 'font') { em.color = null; em.keepColor = true; }
     }
     if (em && !em.font && !em.color && !em.keepFont && !em.keepColor) em = null;
-    return (font || color || em) ? { font, color, emphasis: em, isMT } : null;
+    // gradient fills: recoloured whatever the except tags / share say; an unset top takes the NORMAL colour
+    const G = textStyle.gradient;
+    const gradient = (G.enabled && !isMT) ? { top: G.top || N.color || '', bottom: G.bottom || '', topStop: G.topStop, bottomStop: G.bottomStop } : null;
+    return (font || color || em || gradient) ? { font, color, emphasis: em, gradient, isMT } : null;
 }
-// A text design with the forced font and (Text+ only) fill colour: shading element 1, made solid.
-function tsDesignWith(td, font, color) {
+// Shading element 1 as the gradient look, when that fill is a gradient; false when it is not one (nothing changed).
+function tsGradientFill(els, g) {
+    const el = g && els.find(e => Number(e.index) === 1);
+    if (!el || Number(el.type) !== 2) return false;
+    const top = g.top || el.color || '#ffffff';
+    Object.assign(el, { type: 2, color: top, color2: g.bottom || top, enabled: true, modified: true });
+    if (g.topStop !== null && g.topStop !== undefined) el.stop1 = g.topStop;
+    if (g.bottomStop !== null && g.bottomStop !== undefined) el.stop2 = g.bottomStop;
+    if (el.stop1 !== undefined && el.stop2 !== undefined && el.stop2 < el.stop1) el.stop2 = el.stop1;
+    return true;
+}
+// A text design with the forced font and (Text+ only) fill colour: shading element 1, made solid; a gradient fill
+// takes the gradient look instead when one is on.
+function tsDesignWith(td, font, color, gradient) {
     const out = cloneTextDesign(td);
     if (font && font.font) {
         out.font = font.font;
@@ -103,7 +125,8 @@ function tsDesignWith(td, font, color) {
             if (known && known.length) out.style = pickStyle(known, out.style);
         }
     }
-    if (color) {
+    const gradDone = !!(gradient && Array.isArray(out.elements) && tsGradientFill(out.elements, gradient));
+    if (color && !gradDone) {
         const els = Array.isArray(out.elements) ? out.elements : (out.elements = []);
         let el = els.find(e => Number(e.index) === 1);
         if (!el) { el = { index: 1 }; els.unshift(el); }
@@ -112,8 +135,8 @@ function tsDesignWith(td, font, color) {
     return out;
 }
 function textStyleDesign(td, look) {
-    if (!look || (!look.font && !look.color)) return td;
-    return tsDesignWith(td, look.font, look.isMT ? null : look.color);
+    if (!look || (!look.font && !look.color && !look.gradient)) return td;
+    return tsDesignWith(td, look.font, look.isMT ? null : look.color, look.isMT ? null : look.gradient);
 }
 // The text boxes with the look on them: MultiText layers get font / style / color (/ bgColor on the emphasis layer),
 // every Text+ after the first gets its own design with the font and fill colour (the first uses textDesign).
@@ -133,8 +156,8 @@ function textStyleBoxList(list, a, look, baseDesign) {
             const c = ((em && em.keepColor) ? null : look.color) || null;
             if (c) out.color = c;
             if (em && em.color) out.bgColor = em.color;
-        } else if (n.kind === 'textplus' && !n.nested && primary && n.id !== primary.id && (look.font || look.color)) {
-            out.design = tsDesignWith(out.design || n.design || baseDesign || null, look.font, look.color);
+        } else if (n.kind === 'textplus' && !n.nested && primary && n.id !== primary.id && (look.font || look.color || look.gradient)) {
+            out.design = tsDesignWith(out.design || n.design || baseDesign || null, look.font, look.color, look.gradient);
         }
         return out;
     });
@@ -175,6 +198,8 @@ function tsSummary() {
     const parts = [];
     if (tsRowSet(textStyle.normal)) parts.push(row(textStyle.normal));
     if (tsRowSet(textStyle.emphasis)) parts.push('emphasis ' + row(textStyle.emphasis));
+    const G = textStyle.gradient;
+    if (G.enabled) parts.push('gradient ' + (G.top || 'text colour') + ' → ' + (G.bottom || G.top || 'same'));
     if (tsHighlightSet()) {
         const h = textStyle.highlight, b = [];
         if (h.auto) b.push('auto');
@@ -269,6 +294,55 @@ function tsRowEl(which, label, hint) {
     row.appendChild(main);
     return row;
 }
+// GRADIENT: on / off, top colour + stop, bottom colour + stop. Empty top = the NORMAL colour, empty bottom = same as top.
+function tsGradientEl() {
+    const g = textStyle.gradient;
+    const row = pbEl('div', 'pb-row ts-row');
+    const main = pbEl('div', 'pb-row-main');
+    const key = pbEl('span', 'ts-key', 'GRADIENT');
+    key.title = 'Text+ presets whose text fill is a gradient (Money Pop Up, $123,456 and the like) get these colours instead of their own, even presets kept by the except tags or left out by the override share.';
+    const wrap = pbEl('div', 'pb-hl');
+    const top = pbEl('div', 'pb-hl-top');
+    const lab = pbEl('label', 'pb-hl-auto');
+    const cb = pbEl('input');
+    cb.type = 'checkbox'; cb.checked = !!g.enabled;
+    cb.addEventListener('change', () => { g.enabled = cb.checked; tsChanged(true); });
+    lab.title = 'Recolour gradient text fills with the colours below';
+    lab.append(cb, pbEl('span', '', 'Recolour gradient fills'));
+    top.appendChild(lab);
+    wrap.appendChild(top);
+    const stopLine = (label, ck, sk, ph, def, tip) => {
+        const line = pbEl('div', 'pb-style-line');
+        line.title = tip;
+        line.appendChild(pbEl('span', 'pb-hl-lab', label));
+        const [sw, hex] = pbColorControls(g[ck], (t, final) => {
+            const h = normHex(t);
+            if (h || !String(t || '').trim()) { g[ck] = h || ''; tsChanged(final); }
+        });
+        hex.placeholder = ph;
+        line.append(sw, hex);
+        const n = pbEl('input', 'pb-hl-num');
+        n.type = 'number'; n.min = '0'; n.max = '1'; n.step = '0.01';
+        n.placeholder = def; n.title = 'Stop position (0 = top, 1 = bottom). Empty = the preset\'s own.';
+        n.value = g[sk] === null ? '' : Number(g[sk]).toFixed(2);
+        n.addEventListener('change', () => {
+            const v = String(n.value).trim();
+            g[sk] = v === '' ? null : tsNum(v, 0, 1, null);
+            n.value = g[sk] === null ? '' : g[sk].toFixed(2);
+            tsChanged(true);
+        });
+        const clr = pbEl('button', 'pb-mini pb-del', '×');
+        clr.title = 'Clear this colour';
+        clr.addEventListener('click', () => { g[ck] = ''; tsChanged(true); renderTextStyleU(true); });
+        line.append(clr, n);
+        return line;
+    };
+    wrap.appendChild(stopLine('Top', 'top', 'topStop', 'text colour', '0', 'Top colour. Empty = the NORMAL colour (else the preset\'s own).'));
+    wrap.appendChild(stopLine('Bottom', 'bottom', 'bottomStop', 'same as top', '1', 'Bottom colour. Empty = same as the top (a plain look).'));
+    main.append(key, wrap);
+    row.appendChild(main);
+    return row;
+}
 // HIGHLIGHT_BOX: auto-balance, "Apply to placed" and the Width / Height / X / Y sliders (double-click resets one).
 function tsHighlightEl() {
     const h = textStyle.highlight;
@@ -339,6 +413,7 @@ function renderTextStyleU(force) {
             host.textContent = '';
             host.appendChild(tsRowEl('normal', 'NORMAL', 'Font and fill colour forced on every text layer of the presets you add. Empty = each preset keeps its own.'));
             host.appendChild(tsRowEl('emphasis', 'EMPHASIS', 'Font and colour of the MultiText key-word layer. The colour goes on the box / pill behind the word (the word keeps the normal colour); presets without a box colour the word itself.'));
+            host.appendChild(tsGradientEl());
             host.appendChild(tsHighlightEl());
             const hint = pbEl('div', 'hint ts-hint', 'Used when you add a preset yourself (Apply / Preview in Resolve). The preview above shows the result. Claude\'s placements follow the Prompt tab\'s TEXT STYLE instead.');
             host.appendChild(hint);

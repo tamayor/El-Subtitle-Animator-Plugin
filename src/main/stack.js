@@ -163,6 +163,7 @@ async function placeStack(TOOLS, args) {
         };
         if (args.maxSize) a.maxSize = args.maxSize;
         if (args.keepPresetStyle) a.keepPresetStyle = true;
+        if (Array.isArray(args.effects) && args.effects.length) a.effects = args.effects;
         if (i < n - 1) a.holdUntil = last.index;
         if (args.trackRange) a.trackRange = args.trackRange;
         if (args.audioTrack) a.audioTrack = args.audioTrack;

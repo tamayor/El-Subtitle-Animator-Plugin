@@ -2,7 +2,7 @@
 // reads, and stopped through Resolve's Playback > Stop menu (or the K key as a fallback; needs macOS Accessibility).
 // Used before anything that depends on the playhead staying put (InsertFusionTitleIntoTimeline inserts AT the playhead).
 
-module.exports = { isPlaying, stopPlayback, ensureStopped };
+module.exports = { ensureStopped, isPlaying, noteFrame, stopPlayback };
 
 const { execFile } = require('child_process');
 const state = require('./state');
@@ -11,11 +11,19 @@ const { dlog } = require('./log');
 const PROC = 'first process whose name is "Resolve" or name contains "DaVinci Resolve"';
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
+// A reading of the playhead (the panel's poll every 200-1200 ms, and a placement before and after its timeline
+// snapshot): the last two are kept, so isPlaying can tell a still timeline without a wait of its own.
+function noteFrame(tlName, frame) {
+    const h = state.playhead, same = !!(h && h.tlName === tlName);
+    state.playhead = { tlName, frame, at: Date.now(), prevFrame: same ? h.frame : null, prevAt: same ? h.at : 0 };
+}
+
 async function isPlaying(tl) {
-    // The panel's poll read the playhead twice in the last moment and it did not move: standing still, no 130 ms wait.
+    // The playhead was read twice in the last moment, at least 150 ms apart, and did not move: standing still, no
+    // 130 ms wait (a playing timeline moves 3+ frames in 150 ms).
     try {
         const h = state.playhead;
-        if (h && h.prevAt && Date.now() - h.at < 1500 && h.at - h.prevAt >= 250 && h.at - h.prevAt <= 2500 && h.frame === h.prevFrame) {
+        if (h && h.prevAt && Date.now() - h.at < 2500 && h.at - h.prevAt >= 150 && h.at - h.prevAt <= 2500 && h.frame === h.prevFrame) {
             if (String(await tl.GetName()) === h.tlName) return false;
         }
     } catch (e) { /* measured below */ }

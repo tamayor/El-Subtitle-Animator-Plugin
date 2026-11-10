@@ -11,6 +11,7 @@ import sys
 import os
 import json
 import traceback
+import time
 
 try:
     import DaVinciResolveScript as dvr
@@ -90,11 +91,27 @@ class STEP(object):
 # Cleared at the start of every request, and whenever a tool is added (op_preview_bg).
 _req_tools = {}   # id(comp) -> [tools]
 _req_attrs = {}   # id(obj) -> (obj, attrs)
+# Across requests: the attributes of a comp's tools, by the tool's position in the tool list, for COMP_ATTRS_TTL
+# seconds. A placement sends set_text / set_boxes and then refresh (and highlight_box, multitext_rows) on the same
+# comp within a second; each read every tool's attributes again (about 100 calls per request). The comp cannot be
+# edited by hand in between (the panel is placing), and the only attribute a request changes, PassThrough, is
+# toggled and put back. Dropped when a tool is added (op_preview_bg) or a request on the item fails.
+COMP_ATTRS_TTL = 3.0
+_comp_key = {}    # id(comp) -> (comp, (item id, comp name)) for the current request
+_req_index = {}   # id(tool) -> ((item id, comp name), position in the tool list) for the current request
+_comp_attrs = {}  # (item id, comp name) -> {"at": time, "n": tool count, "attrs": {position: attrs}}
 
 
 def req_cache_clear():
     _req_tools.clear()
     _req_attrs.clear()
+    _comp_key.clear()
+    _req_index.clear()
+
+
+def comp_attrs_forget(item_id=None):
+    for k in [k for k in _comp_attrs if item_id is None or k[0] == str(item_id)]:
+        _comp_attrs.pop(k, None)
 
 
 def resolve():
@@ -145,6 +162,7 @@ def get_comp(item_id, comp_name=None):
         comp = item.GetFusionCompByIndex(count) if count else None
     if comp is None:
         raise RuntimeError("Could not open that clip's composition")
+    _comp_key[id(comp)] = (comp, (str(item_id), str(comp_name or "")))
     return comp
 
 
@@ -157,6 +175,18 @@ def tool_list(comp):
     tools = comp.GetToolList(False) or {}
     lst = list(tools.values()) if isinstance(tools, dict) else list(tools)
     _req_tools[key] = (comp, lst)
+    ck = _comp_key.get(key)
+    if ck is not None and ck[0] is comp:
+        ckey = ck[1]
+        c = _comp_attrs.get(ckey)
+        if c is not None and (c["n"] != len(lst) or time.time() - c["at"] > COMP_ATTRS_TTL):
+            _comp_attrs.pop(ckey, None)
+            c = None
+        for i, tool in enumerate(lst):
+            _req_index[id(tool)] = (ckey, i, len(lst))
+            if c is not None and i in c["attrs"]:
+                _req_attrs[id(tool)] = (tool, c["attrs"][i])
+                count("attrsReused")
     return list(lst)
 
 
@@ -176,6 +206,12 @@ def attrs(obj):
     # comps and tools keep RegID / Name for their life; the few attributes a request changes (PassThrough) are only
     # ever toggled and put back, so the value read before the toggle stays right
     _req_attrs[key] = (obj, a)
+    ix = _req_index.get(key)
+    if ix is not None:
+        c = _comp_attrs.get(ix[0])
+        if c is None or c["n"] != ix[2]:
+            c = _comp_attrs[ix[0]] = {"at": time.time(), "n": ix[2], "attrs": {}}
+        c["attrs"][ix[1]] = a
     return a
 
 
@@ -1453,7 +1489,7 @@ def op_refresh(a):
     makes the clip show exactly what the comp was built to show."""
     comp = get_comp(a["item"], a.get("comp"))
     touched = 0
-    tools = as_list(comp.GetToolList(False))
+    tools = tool_list(comp)
     has_follower = not FIX.get("retouchText", True)      # off: no text is re-written
     for mod in (tools if not has_follower else []):
         try:
@@ -1878,6 +1914,7 @@ def op_preview_bg(a):
         bg = comp.AddTool("Background", -32768, -32768)
         mg = comp.AddTool("Merge", -32768, -32768)
         req_cache_clear()      # the tool list changed
+        comp_attrs_forget(a["item"])
         if bg is None or mg is None:
             return {"ok": False, "why": "could not add tools"}
         bg.SetInput("TopLeftRed", float(col[0]))
@@ -2630,9 +2667,11 @@ def handle(req):
                 for k in [k for k in _comps if k[0] == str(item)]:
                     _comps.pop(k, None)
                 _seg_seen.pop(str(item), None)
+                comp_attrs_forget(item)
             else:
                 _items.clear()
                 _comps.clear()
+                comp_attrs_forget()
             slow = (time.perf_counter() - t0) > 2.0
             if attempt == 2 or slow or WAKE_RAN[0]:
                 out = {"id": req.get("id"), "ok": False, "error": str(e) or e.__class__.__name__,

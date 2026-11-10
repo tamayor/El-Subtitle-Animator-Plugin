@@ -329,7 +329,9 @@ async function relinkToProjectCopy(project, sfxItem) {
 // projectCopy: true when the subtitle is being applied (see projectSfxCopy); previews import from the library.
 // The "Subtitle Animator" bin's clips by file path, read once per project and kept while the bin's clip count is
 // unchanged (one GetClipList per import instead of a name + path read of every clip, in a bin that only grows).
-const sfxBin = { key: '', folder: null, count: -1, byPath: new Map() };
+// Within one placement the bin is listed once (SFX_BIN_FRESH_MS): a Kinetic preset imports three or four sounds in a row.
+const SFX_BIN_FRESH_MS = 2000;
+const sfxBin = { key: '', folder: null, count: -1, byPath: new Map(), listedAt: 0, verified: new Map() };
 async function importSfx(project, sfxPath, projectCopy) {
     const sp = PERF.span('place.importSfx');
     try { return await importSfxInner(project, sfxPath, projectCopy); }
@@ -352,16 +354,19 @@ async function importSfxInner(project, sfxPath, projectCopy) {
             const names = await Promise.all(subs.map(f => Promise.resolve(f.GetName()).catch(() => '')));
             target = subs[names.indexOf('Subtitle Animator')] || null;
             if (!target) target = await mp.AddSubFolder(root, 'Subtitle Animator');
-            sfxBin.key = pkey; sfxBin.folder = target; sfxBin.count = -1; sfxBin.byPath = new Map();
+            sfxBin.key = pkey; sfxBin.folder = target; sfxBin.count = -1; sfxBin.byPath = new Map(); sfxBin.listedAt = 0; sfxBin.verified = new Map();
         }
     } catch (e) { /* ignore */ }
     const wantPath = path.resolve(sfxPath);
     // A clip is reused only when it is THIS file: matching the name alone picked up stale clips imported from an older
     // data folder (e.g. ~/Documents/Subtitle Animator/sfx/applepay.mp3), which are offline once that folder is gone.
     const refresh = async () => {
+        if (sfxBin.byPath.size && sfxBin.count >= 0 && Date.now() - sfxBin.listedAt < SFX_BIN_FRESH_MS) return;
         const clips = (await target.GetClipList()) || [];
         const arr = Array.isArray(clips) ? clips : Object.values(clips);
+        sfxBin.listedAt = Date.now();
         if (arr.length === sfxBin.count && sfxBin.byPath.size) return;
+        sfxBin.verified = new Map();
         const byPath = new Map();
         for (let i = 0; i < arr.length; i += 40) {
             const part = arr.slice(i, i + 40);
@@ -371,7 +376,12 @@ async function importSfxInner(project, sfxPath, projectCopy) {
         sfxBin.count = arr.length; sfxBin.byPath = byPath;
     };
     const stillSame = async (c) => {
-        try { return path.resolve(String(await c.GetClipProperty('File Path') || '')) === wantPath; } catch (e) { return false; }
+        if (Date.now() - (sfxBin.verified.get(wantPath) || 0) < SFX_BIN_FRESH_MS) return true;
+        try {
+            const same = path.resolve(String(await c.GetClipProperty('File Path') || '')) === wantPath;
+            if (same) sfxBin.verified.set(wantPath, Date.now());
+            return same;
+        } catch (e) { return false; }
     };
     const findSame = async () => {
         if (!target) return null;
@@ -380,7 +390,7 @@ async function importSfxInner(project, sfxPath, projectCopy) {
         if (!hit) return null;
         if (await stillSame(hit)) return hit;
         // the clip was replaced by hand (same count, another clip): read the bin again
-        sfxBin.count = -1;
+        sfxBin.count = -1; sfxBin.listedAt = 0;
         try { await refresh(); } catch (e) { return null; }
         const again = sfxBin.byPath.get(wantPath) || null;
         return (again && await stillSame(again)) ? again : null;
@@ -390,7 +400,7 @@ async function importSfxInner(project, sfxPath, projectCopy) {
     const keep = await mp.GetCurrentFolder();
     if (target) { try { await mp.SetCurrentFolder(target); } catch (e) { /* ignore */ } }
     let items = await mp.ImportMedia([sfxPath]);
-    sfxBin.count = -1;      // the bin changed: read again next time
+    sfxBin.count = -1; sfxBin.listedAt = 0;      // the bin changed: read again next time
     if ((!items || !items.length) && target) {
         const again = await findSame();
         if (again) items = [again];
@@ -1093,7 +1103,7 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
             if (l.link !== false && videoItem) {
                 try { await linkToText(tl, videoItem, [it]); } catch (e) { /* linking is optional */ }
             }
-            out.push({ id, track, start, frames: len, link: l.link !== false });
+            out.push({ id, it, track, start, frames: len, link: l.link !== false });
         } catch (e) { warnings.push('Layered sound "' + path.basename(String(l && l.file || '?')) + '": ' + e.message); }
     }
     if (segSpecs.length && videoId && rf.segs) segSfxAdd(String(videoId), segLinks, segSpecs, rf.empty || {});
@@ -1245,7 +1255,7 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
         const id = String(await it.GetUniqueId());
         if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not
         items.push(it);
-        out.push({ id, track, start: c.start, frames: c.len, link: l.link !== false });
+        out.push({ id, it, track, start: c.start, frames: c.len, link: l.link !== false });
     }
     if (l.link !== false && videoItem && items.length) {
         try { await linkToText(tl, videoItem, items); } catch (e) { /* linking is optional */ }
@@ -1293,8 +1303,10 @@ async function refitRowSfx(tl, project, meta, textItem, itemId, projectCopy) {
 // stays in the registry, so the next sweep removes it (before, all ids were forgotten and a refused one stayed for good).
 // find: findItemById / findAudioItemById (says which kind of track to look on); all ids are looked up in one pass.
 // known: Map id -> item the caller already holds (a preview's own clips); each is checked with one call instead of a
-// walk of the tracks. The check that the clips are really gone is a walk either way.
-async function deleteClipsById(tl, ids, find, known) {
+// walk of the tracks. Each clip's track and start are read from its handle right before the delete (hints: Map id ->
+// { track, start } where it was placed, used when that read fails), so the check that it is really gone lists only
+// its own track (stillThere) instead of reading the id of every clip on every track.
+async function deleteClipsById(tl, ids, find, known, hints) {
     ids = (ids || []).filter(Boolean).map(String);
     if (!ids.length) return [];
     const kind = find === findAudioItemById ? 'audio' : 'video';
@@ -1311,18 +1323,60 @@ async function deleteClipsById(tl, ids, find, known) {
         const missing = left.filter(id => !found.has(id));
         if (missing.length) for (const [id, it] of await findItemsByIds(tl, missing, kind)) found.set(id, it);
         const items = left.map(id => found.get(id)).filter(Boolean);
+        const where = new Map();
+        for (const id of left) {
+            const it = found.get(id);
+            if (!it) continue;
+            try {
+                const [ti, st] = await Promise.all([it.GetTrackTypeAndIndex(), it.GetStart()]);
+                if (ti && ti[1] > 0 && Number.isFinite(Number(st))) { where.set(id, { track: ti[1], start: Number(st) }); continue; }
+            } catch (e) { /* the hint, else a walk */ }
+            const h = hints && hints.get(id);
+            if (h && h.track > 0 && Number.isFinite(Number(h.start))) where.set(id, { track: h.track, start: Number(h.start) });
+        }
         if (items.length) {
             try { await tl.DeleteClips(items, false); } catch (e) { /* checked below */ }
             if (attempt === 0) await new Promise(r => setTimeout(r, 60));
         }
-        const still = await findItemsByIds(tl, left, kind);
+        // an id that was not on the timeline at all is gone already
+        const still = await stillThere(tl, kind, left.filter(id => found.has(id)), where);
         left = left.filter(id => still.has(id));
     }
     for (const id of ids) if (!left.includes(id)) regDel(id);
     if (left.length) dlog('DELETE-LEFT', left);
     return left;
 }
-async function deleteExtraSfx(tl, ids, known) { return deleteClipsById(tl, ids, findAudioItemById, known); }
+// Which of these ids are still on the timeline: for an id with a known place only that track is listed and only the
+// clips starting at that frame have their id read; the others are looked up with a walk. -> Set of ids still there.
+async function stillThere(tl, kind, ids, where) {
+    const out = new Set();
+    if (!ids.length) return out;
+    const sp = PERF.span('tl.stillThere');
+    const byTrack = new Map(), walk = [];
+    for (const id of ids) {
+        const w = where.get(id);
+        if (w) { if (!byTrack.has(w.track)) byTrack.set(w.track, []); byTrack.get(w.track).push({ id, start: w.start }); } else walk.push(id);
+    }
+    for (const [t, want] of byTrack) {
+        try {
+            const its = (await tl.GetItemListInTrack(kind, t)) || [];
+            const arr = Array.isArray(its) ? its : Object.values(its);
+            const starts = new Set(want.map(w => w.start));
+            const cands = [];
+            for (let i = 0; i < arr.length; i += 40) {
+                const part = arr.slice(i, i + 40);
+                const st = await Promise.all(part.map(it => Promise.resolve(it.GetStart()).then(Number).catch(() => NaN)));
+                for (let k = 0; k < part.length; k++) if (starts.has(st[k])) cands.push(part[k]);
+            }
+            const got = await Promise.all(cands.map(it => Promise.resolve(it.GetUniqueId()).then(String).catch(() => null)));
+            for (const w of want) if (got.includes(w.id)) out.add(w.id);
+        } catch (e) { for (const w of want) walk.push(w.id); }
+    }
+    if (walk.length) for (const id of (await findItemsByIds(tl, walk, kind)).keys()) out.add(id);
+    sp.end({ kind, n: ids.length, tracks: byTrack.size, walked: walk.length, still: out.size });
+    return out;
+}
+async function deleteExtraSfx(tl, ids, known, hints) { return deleteClipsById(tl, ids, findAudioItemById, known, hints); }
 
 async function findItemById(tl, id) {
     if (!id) return null;

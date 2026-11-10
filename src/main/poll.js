@@ -7,6 +7,7 @@ module.exports = {
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { checkResolveAlive } = require('./lifecycle');
+const { noteFrame } = require('./playback');
 const { frameToTC, getProject, getSubtitles, tcToFrame, timelineMeta } = require('./resolve');
 const PERF = require('./perf');
 
@@ -55,8 +56,7 @@ async function pollInner(force) {
         else { meta = await timelineMeta(tl, project); pollMeta = { key: tlName, at: Date.now(), meta }; }
         const [subs, tc] = await Promise.all([getSubtitles(tl, force), tl.GetCurrentTimecode()]);
         const frame = tcToFrame(tc, meta);
-        // the last two readings of the playhead: playback.js knows the timeline stands still without its own 130 ms wait
-        { const h = state.playhead; const now0 = Date.now(); state.playhead = { tlName, frame, at: now0, prevFrame: h && h.tlName === tlName ? h.frame : null, prevAt: h && h.tlName === tlName ? h.at : 0 }; }
+        noteFrame(tlName, frame);      // playback.js isPlaying knows a still timeline from the last two readings
 
         // A selected subtitle wins; otherwise the subtitle under the playhead.
         let sub = null, source = 'playhead';

@@ -3,7 +3,7 @@
 
 module.exports = {
     liveAlive, liveClearMarks, liveFinish, liveRemove, liveSetMarks, liveUpdate, loopOn, loopRestore,
-    placeLiveSfx, regAdd, regCount, regDel, sweepTempClips, waitIdle
+    placeLiveSfx, regAdd, regCount, regDel, sessionSounds, sweepTempClips, waitIdle
 };
 
 const fs = require('fs');
@@ -20,7 +20,8 @@ const {
     FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, linkToText, pickTrack,
     placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, trackUsable, typingFramesFor
 } = require('./placement');
-const { getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const { findItemsByIds, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const { snapAdd } = require('./timeline-snapshot');
 const PERF = require('./perf');
 
 
@@ -137,7 +138,8 @@ async function loopRestore() {
     return await clickLoopMenu();
 }
 
-async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId, warnings) {
+// snap: the placement's timeline snapshot (apply.js), so the track is picked from it; without one the audio tracks are read.
+async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, notes, videoItem, videoId, warnings, snap) {
     if (!sfxPath || req.useSfx === false || !fs.existsSync(sfxPath)) return null;
     const tlStart = await tl.GetStartFrame();
     const { mp, item: mpi } = await importSfx(project, sfxPath);
@@ -145,16 +147,53 @@ async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, no
     const textEnd = Math.round(Number(req.end) + (Number(req.tail) || 0));
     const cut = await sfxCutFrames(mpi, meta, sfxCutFor(req, anim, sfxPath, meta, textStart, textEnd));
     const sfxStart = Math.max(tlStart, textStart + Math.round(req.sfxOffset || 0));
-    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, notes, req.place);
+    const track = await pickTrack(tl, 'audio', req.sfxTrack || 0, sfxStart, sfxStart + cut.len, 1, notes, req.place, snap);
     const it = await appendSfxCut(mp, mpi, track, sfxStart, cut);
     if (!it) return null;
+    snapAdd(snap, 'audio', track, { it, name: 'sfx', start: sfxStart, end: sfxStart + cut.len });
     if (cut.fadeFailed && warnings) warnings.push(FADE_WARNING);
     const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim && anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
     try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
     const id = String(await it.GetUniqueId());
     regAdd(id);
     // not linked yet: liveFinish links it (the "Link text + sound" choice) once the preview is kept
-    return { item: it, id, track, linked: false };
+    return { item: it, id, track, start: sfxStart, linked: false };
+}
+
+// The preview's layered sounds, remembered in the session: their ids, which of them are linked to the text, the row
+// (Upper / Emphasis / Lower) each belongs to, and each clip's handle and place (track + start). liveRemove deletes
+// them by handle and checks only their own tracks; liveFinish relinks them by handle. replace: a fresh set.
+function sessionSounds(s, extra, replace) {
+    if (replace || !s.extraItems) { s.extraItems = new Map(); s.extraWhere = new Map(); }
+    if (replace) { s.extraIds = []; s.extraLinkIds = []; s.extraSeg = {}; }
+    s.extraIds = s.extraIds || []; s.extraLinkIds = s.extraLinkIds || []; s.extraSeg = s.extraSeg || {};
+    for (const x of (extra || [])) {
+        const id = String(x.id);
+        s.extraIds.push(id);
+        if (x.link) s.extraLinkIds.push(id);
+        if (x.seg) s.extraSeg[id] = x.seg;
+        if (x.it) s.extraItems.set(id, x.it);
+        if (x.track > 0) s.extraWhere.set(id, { track: x.track, start: x.start });
+    }
+}
+// Forgets these sounds (deleted) in the session.
+function sessionForget(s, ids) {
+    const drop = new Set((ids || []).map(String));
+    s.extraIds = (s.extraIds || []).filter(id => !drop.has(id));
+    s.extraLinkIds = (s.extraLinkIds || []).filter(id => !drop.has(id));
+    for (const id of drop) { if (s.extraSeg) delete s.extraSeg[id]; if (s.extraItems) s.extraItems.delete(id); if (s.extraWhere) s.extraWhere.delete(id); }
+}
+// The session's sound clips by id: the handles kept in the session (one check each), the rest looked up in one pass.
+async function sessionItems(tl, s, ids) {
+    const out = new Map(), miss = [];
+    for (const id0 of (ids || [])) {
+        const id = String(id0), it = s.extraItems && s.extraItems.get(id);
+        let ok = false;
+        if (it) { try { ok = String(await it.GetUniqueId()) === id; } catch (e) { ok = false; } }
+        if (ok) out.set(id, it); else miss.push(id);
+    }
+    if (miss.length) for (const [id, it] of await findItemsByIds(tl, miss, 'audio')) out.set(id, it);
+    return out;
 }
 
 function transformProps(req, meta) {
@@ -210,9 +249,9 @@ async function liveUpdate(event, req) {
                     if (!old) old = await findAudioItemById(tl, state.liveSession.sfxId);
                 }
                 if (old) { const ok = await tl.DeleteClips([old], false); if (ok) regDel(state.liveSession.sfxId); }
-                state.liveSession.sfxId = null; state.liveSession.sfxItem = null;
-                await deleteExtraSfx(tl, state.liveSession.extraIds);
-                state.liveSession.extraIds = [];
+                state.liveSession.sfxId = null; state.liveSession.sfxItem = null; state.liveSession.sfxWhere = null;
+                await deleteExtraSfx(tl, state.liveSession.extraIds, state.liveSession.extraItems, state.liveSession.extraWhere);
+                sessionSounds(state.liveSession, [], true);
             } catch (e) { /* the sweep removes it later */ }
             if (!(req.textTrack > 0)) {
                 try { const t2 = await pickTrack(tl, 'video', 0, textStart, textStart + want, 2, [], req.place); if (t2 >= 2) track = t2; } catch (e) { /* keep the current layer */ }
@@ -221,6 +260,7 @@ async function liveUpdate(event, req) {
         const dur0 = await item.GetDuration();
         if (dur0 > want) await fitDuration(item, want);          // shorter first, so it cannot run into a neighbour
         if (track >= 2 && (moved || (ti && ti[1] !== track))) await item.SetPosition({ trackIndex: track, startFrame: textStart });
+        state.liveSession.itemWhere = { track, start: textStart };
         if ((await item.GetDuration()) !== want) await fitDuration(item, want);
         // A text or design edit on a clip that stayed where it is only needs the new text in the comp. The full pass
         // (timing sliders, retime, segment fit, waking every effect, then a second wake in "refresh") is for a clip
@@ -232,7 +272,7 @@ async function liveUpdate(event, req) {
             try {
                 if (req.sfxPath) state.liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
                 const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId, warnings);
-                if (r) { state.liveSession.sfxId = r.id; state.liveSession.sfxItem = r.item; sfxMoved = true; }
+                if (r) { state.liveSession.sfxId = r.id; state.liveSession.sfxItem = r.item; state.liveSession.sfxWhere = { track: r.track, start: r.start }; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
             // the layered sounds are placed below, once the new text is in the comp (per-row copies follow its rows)
         }
@@ -259,10 +299,7 @@ async function liveUpdate(event, req) {
                     const layers = layerList(req, anim);
                     const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
                     const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rowFrames);
-                    state.liveSession.extraIds = extra.map(x => x.id);
-                    state.liveSession.extraLinkIds = extra.filter(x => x.link).map(x => x.id);
-                    state.liveSession.extraSeg = {};
-                    for (const x of extra) if (x.seg) state.liveSession.extraSeg[x.id] = x.seg;
+                    sessionSounds(state.liveSession, extra, true);
                 }
             } catch (e) { warnings.push('Could not move the layered sounds: ' + e.message); }
         } else if (req.useSfx !== false) {
@@ -295,21 +332,16 @@ async function syncRowSounds(tl, project, meta, req, anim, textStart, want, item
     // cleared rows: their sounds go
     const drop = Object.keys(seg).filter(id => !wanted.has(Number(seg[id])));
     if (drop.length) {
-        const left = await deleteExtraSfx(tl, drop);
-        for (const id of drop) if (!left.includes(id)) delete seg[id];
-        segSfxForget(itemId, drop.filter(id => !left.includes(id)));
-        s.extraIds = (s.extraIds || []).filter(id => !drop.includes(id) || left.includes(id));
-        s.extraLinkIds = (s.extraLinkIds || []).filter(id => s.extraIds.includes(id));
+        const left = await deleteExtraSfx(tl, drop, s.extraItems, s.extraWhere);
+        const gone = drop.filter(id => !left.includes(id));
+        segSfxForget(itemId, gone);
+        sessionForget(s, gone);
     }
     // rows that just got text: their sounds come in
     const add = segLayers.filter(l => { const n = Math.max(1, Math.round(Number(l.seg) || 1)); return wanted.has(n) && !have.has(n); });
     if (add.length) {
         const extra = await placeExtraSfx(tl, project, meta, add, textStart, textStart + want, [], null, itemId, warnings, req.place, false, rf);
-        for (const x of extra) {
-            s.extraIds = (s.extraIds || []).concat(x.id);
-            if (x.link) s.extraLinkIds = (s.extraLinkIds || []).concat(x.id);
-            if (x.seg) seg[x.id] = x.seg;
-        }
+        sessionSounds(s, extra, false);
     }
     segSfxSetEmpty(itemId, rf.empty || {});
 }
@@ -381,10 +413,12 @@ async function liveRemove(marks) {
         if (tl && s) {
             // Sounds first, each checked: a sound Resolve refused to delete stays in the registry for the next sweep.
             const sounds = [s.sfxId, ...(s.extraIds || [])].filter(Boolean);
-            const known = new Map();
+            const known = new Map(s.extraItems || []), where = new Map(s.extraWhere || []);
             if (s.sfxId && s.sfxItem) known.set(String(s.sfxId), s.sfxItem);
-            const leftSounds = await deleteExtraSfx(tl, sounds, known);
-            const leftText = await deleteClipsById(tl, [s.itemId], findItemById, s.item ? new Map([[String(s.itemId), s.item]]) : null);
+            if (s.sfxId && s.sfxWhere) where.set(String(s.sfxId), s.sfxWhere);
+            const leftSounds = await deleteExtraSfx(tl, sounds, known, where);
+            const leftText = await deleteClipsById(tl, [s.itemId], findItemById, s.item ? new Map([[String(s.itemId), s.item]]) : null,
+                s.itemWhere ? new Map([[String(s.itemId), s.itemWhere]]) : null);
             // 'restore' = Remove button / panel closed: always sweep, so a sound a preview move placed after the
             // session was read (or one Resolve refused to delete) does not outlive the preview.
             if (leftSounds.length || leftText.length || mode === 'restore') {
@@ -412,7 +446,7 @@ async function liveFinish(event, req) {
         const project = await getProject();
         const tl = project && await project.GetCurrentTimeline();
         if (!tl) throw new Error('Open a timeline in Resolve');
-        const item = await findItemById(tl, s.itemId);
+        const item = await liveItem(tl);
         if (!item) { state.liveSession = null; throw new Error('The preview clip is no longer on the timeline'); }
         const meta = await timelineMeta(tl);
         const tlStart = await tl.GetStartFrame();
@@ -479,17 +513,14 @@ async function liveFinish(event, req) {
         // layered sounds: the ones from the preview stay; if the preview had none, they are placed now
         try {
             if (s.extraIds && s.extraIds.length) {
+                const its = await sessionItems(tl, s, s.extraIds);
                 for (const id of s.extraIds) {
                     regDel(id);
-                    const it = await findAudioItemById(tl, id);
+                    const it = its.get(String(id));
                     if (it) await relinkToProjectCopy(project, it);
                 }
                 // all in one call, on top of the main sound's link: one call per sound would keep only the last one linked
-                const linkIts = [];
-                for (const id of (s.extraLinkIds || [])) {
-                    const it = await findAudioItemById(tl, id);
-                    if (it) linkIts.push(it);
-                }
+                const linkIts = (s.extraLinkIds || []).map(id => its.get(String(id))).filter(Boolean);
                 try { await linkToText(tl, item, linkIts); } catch (e) { /* linking is optional */ }
             }
             else if (req.useSfx !== false) {

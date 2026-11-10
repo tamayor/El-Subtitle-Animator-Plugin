@@ -17,14 +17,14 @@ const { settleLater } = require('./settle');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const {
-    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regCount, regDel, sweepTempClips, waitIdle
+    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regCount, regDel, sessionSounds, sweepTempClips, waitIdle
 } = require('./live-preview');
-const { ensureStopped } = require('./playback');
+const { ensureStopped, noteFrame } = require('./playback');
 const {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
     layerList, moveTitleSafe, pickTrack, placeExtraSfx, rowFramesFor, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, titleKindFor, typingFramesFor
 } = require('./placement');
-const { frameToTC, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
+const { frameToTC, getProject, setSubtitlesEnabled, tcToFrame, timelineMeta } = require('./resolve');
 const { snapAdd, takeSnapshot } = require('./timeline-snapshot');
 const PERF = require('./perf');
 
@@ -77,13 +77,19 @@ async function applyInner(req, warnings, sp) {
 
         const trackNotes = [];
         const titleKind = titleKindFor(path.join(ANIM_DIR, anim.file));      // MultiText presets are created as MultiText clips
-        if (req.live) await ensureStopped(tl);      // a playing (looping) timeline moves the playhead under the insert
+        // The playhead is noted before and after the snapshot: with the two readings apart and equal, the playback check
+        // before the insert (playback.js isPlaying) knows the timeline stands still without a wait of its own.
+        const tlName = String(await tl.GetName());
+        noteFrame(tlName, tcToFrame(origTC, meta));
         if (req.live && state.liveSession) await liveRemove('keep');      // first, so a leftover preview clip cannot change which layer is picked
+        sp.mark('prep');
         // One read of the timeline's clips for this whole placement (timeline-snapshot.js): the cut guard, every track
         // pick (text and each sound) and the temp-clip sweep work from it instead of walking the timeline again each.
         // Taken after the running preview's clips are removed, so it shows the timeline as it is now.
         const snap = await takeSnapshot(tl, { kinds: ['video', 'audio'], withIds: regHasEntries() });
+        try { noteFrame(tlName, tcToFrame(await tl.GetCurrentTimecode(), meta)); } catch (e) { /* measured by isPlaying then */ }
         sp.mark('snapshot');
+        if (req.live) await ensureStopped(tl);      // a playing (looping) timeline moves the playhead under the insert
         const cutBefore = await cutSnapshot(tl, snap);
         const vTrack = await pickTrack(tl, 'video', req.textTrack || 0, textStart, textStart + want, 2, trackNotes, req.place, snap);
         sp.mark('pickTrackV');
@@ -375,26 +381,27 @@ async function applyInner(req, warnings, sp) {
         }
 
         if (live) {
-            let liveSfxId = null, liveSfxItem = null;
+            let liveSfxId = null, liveSfxItem = null, liveSfxWhere = null;
             try {
-                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings);
-                if (r) { liveSfxId = r.id; liveSfxItem = r.item; sfxTrack = r.track; }
+                const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings, snap);
+                if (r) { liveSfxId = r.id; liveSfxItem = r.item; liveSfxWhere = { track: r.track, start: r.start }; sfxTrack = r.track; }
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
             // unlinked while previewing, so a click on the Text+ selects only it and the Inspector shows its settings
-            let extraIds = [], extraLinkIds = [], extraSeg = {};
+            // the session also keeps each clip's handle and place, so ending the preview deletes by handle (live-preview.js sessionSounds)
+            const sess = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxItem: liveSfxItem, sfxWhere: liveSfxWhere, sfxPath, item,
+                itemWhere: { track: vTrack, start: textStart } };
+            sessionSounds(sess, [], true);
             try {
                 if (req.useSfx !== false) {
                     // per-row sounds (Kinetic Cloud) repeat in the preview too, so a looped play sounds like the final clip
                     const layers = layerList(req, anim);
                     const rowFrames = await rowFramesFor(itemId, compName, layers, warnings);
-                    const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, trackNotes, null, itemId, warnings, req.place, false, rowFrames);
-                    extraIds = extra.map(x => x.id);
-                    extraLinkIds = extra.filter(x => x.link).map(x => x.id);
-                    for (const x of extra) if (x.seg) extraSeg[x.id] = x.seg;      // row sounds (Upper / Emphasis / Lower)
+                    const extra = await placeExtraSfx(tl, project, meta, layers, textStart, textStart + want, trackNotes, null, itemId, warnings, req.place, false, rowFrames, snap);
+                    sessionSounds(sess, extra, true);      // ids, linked ones, row sounds (Upper / Emphasis / Lower), handles
                 }
             } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
-            state.liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxItem: liveSfxItem, sfxPath, item, extraIds, extraLinkIds, extraSeg };
+            state.liveSession = sess;
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }

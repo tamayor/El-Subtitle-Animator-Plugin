@@ -131,10 +131,11 @@ async function applyInner(req, warnings, sp) {
         let presetTitle = fs.existsSync(compPath) ? presetTitleFor(compPath, presetTitleNames(lib.animations).get(anim.id)) : null;
         sp.mark('template');
         let item = await directPlaceTitle(tl, project, vTrack, textStart, want, titleKind, presetTitle, snap);
-        let insertedId = null, finalLen = null;
+        let insertedId = null, finalLen = null, insertedAt = Date.now();
         if (item) {
             try { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } catch (e) { /* ignore */ }
             finalLen = want;
+            insertedAt = Date.now();
             PERF.record('place.insertDirect', 0);
         } else {
             // Fallback: Resolve can only insert a title at the playhead on V1, so it is parked at the end and moved up.
@@ -147,6 +148,7 @@ async function applyInner(req, warnings, sp) {
             }
             if (ins.error) { try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } throw new Error(ins.error); }
             item = ins.item;
+            insertedAt = Date.now();
             try { if (item) { insertedId = String(await item.GetUniqueId()); regAdd(insertedId); } } catch (e) { /* ignore */ }
             if (!item) {
                 await tl.SetCurrentTimecode(origTC);
@@ -339,7 +341,10 @@ async function applyInner(req, warnings, sp) {
         const recentWake = fixes.wakeOnInsert && (Date.now() - setTextAt) < 200;
         if (fixes.refreshAfterPlace && !(fixes.refreshIfRecentWake && recentWake)) {
             try {
-                await new Promise(r => setTimeout(r, 120));
+                // the refresh waits until the comp is at least 120 ms old; the text, transform and sounds placed since
+                // the insert usually took longer than that already, so there is nothing left to wait
+                const left = 120 - (Date.now() - insertedAt);
+                if (left > 0) await new Promise(r => setTimeout(r, left));
                 await bridgeCall('refresh', { item: itemId, comp: compName });
             } catch (e) { /* the clip is placed; this is only a safety refresh */ }
         }
@@ -370,10 +375,10 @@ async function applyInner(req, warnings, sp) {
         }
 
         if (live) {
-            let liveSfxId = null;
+            let liveSfxId = null, liveSfxItem = null;
             try {
                 const r = await placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, trackNotes, item, itemId, warnings);
-                if (r) { liveSfxId = r.id; sfxTrack = r.track; }
+                if (r) { liveSfxId = r.id; liveSfxItem = r.item; sfxTrack = r.track; }
                 else if (req.useSfx !== false && sfxPath) warnings.push('The sound effect could not be placed.');
             } catch (e) { warnings.push('Could not place the sound: ' + e.message); }
             // unlinked while previewing, so a click on the Text+ selects only it and the Inspector shows its settings
@@ -389,7 +394,7 @@ async function applyInner(req, warnings, sp) {
                     for (const x of extra) if (x.seg) extraSeg[x.id] = x.seg;      // row sounds (Upper / Emphasis / Lower)
                 }
             } catch (e) { warnings.push('Could not place the layered sounds: ' + e.message); }
-            state.liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxPath, item, extraIds, extraLinkIds, extraSeg };
+            state.liveSession = { itemId, compName, compPath, animId: anim.id, origTC, sfxId: liveSfxId, sfxItem: liveSfxItem, sfxPath, item, extraIds, extraLinkIds, extraSeg };
             try { await item.SetClipColor('Chocolate'); } catch (e) { /* the colour only marks the preview */ }
             await liveSetMarks(tl, item);
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }

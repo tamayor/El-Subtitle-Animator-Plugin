@@ -1281,13 +1281,24 @@ async function refitRowSfx(tl, project, meta, textItem, itemId, projectCopy) {
 // Deletes the given sound clips and forgets only the ones that are really gone. One that Resolve refused to delete
 // stays in the registry, so the next sweep removes it (before, all ids were forgotten and a refused one stayed for good).
 // find: findItemById / findAudioItemById (says which kind of track to look on); all ids are looked up in one pass.
-async function deleteClipsById(tl, ids, find) {
+// known: Map id -> item the caller already holds (a preview's own clips); each is checked with one call instead of a
+// walk of the tracks. The check that the clips are really gone is a walk either way.
+async function deleteClipsById(tl, ids, find, known) {
     ids = (ids || []).filter(Boolean).map(String);
     if (!ids.length) return [];
     const kind = find === findAudioItemById ? 'audio' : 'video';
     let left = ids;
     for (let attempt = 0; attempt < 2 && left.length; attempt++) {
-        const found = await findItemsByIds(tl, left, kind);
+        let found = new Map();
+        if (attempt === 0 && known && known.size) {
+            for (const id of left) {
+                const it = known.get(id);
+                if (!it) continue;
+                try { if (String(await it.GetUniqueId()) === id) found.set(id, it); } catch (e) { /* stale */ }
+            }
+        }
+        const missing = left.filter(id => !found.has(id));
+        if (missing.length) for (const [id, it] of await findItemsByIds(tl, missing, kind)) found.set(id, it);
         const items = left.map(id => found.get(id)).filter(Boolean);
         if (items.length) {
             try { await tl.DeleteClips(items, false); } catch (e) { /* checked below */ }
@@ -1300,7 +1311,7 @@ async function deleteClipsById(tl, ids, find) {
     if (left.length) dlog('DELETE-LEFT', left);
     return left;
 }
-async function deleteExtraSfx(tl, ids) { return deleteClipsById(tl, ids, findAudioItemById); }
+async function deleteExtraSfx(tl, ids, known) { return deleteClipsById(tl, ids, findAudioItemById, known); }
 
 async function findItemById(tl, id) {
     if (!id) return null;

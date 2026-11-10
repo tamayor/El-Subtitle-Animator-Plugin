@@ -203,9 +203,14 @@ async function liveUpdate(event, req) {
             await liveClearMarks(tl);
             // the old sound goes first: a linked sound would otherwise be dragged along onto whatever is at the new place
             try {
-                const old = state.liveSession.sfxId ? await findAudioItemById(tl, state.liveSession.sfxId) : null;
+                let old = null;
+                if (state.liveSession.sfxId) {
+                    const h = state.liveSession.sfxItem;
+                    try { if (h && String(await h.GetUniqueId()) === String(state.liveSession.sfxId)) old = h; } catch (e) { old = null; }
+                    if (!old) old = await findAudioItemById(tl, state.liveSession.sfxId);
+                }
                 if (old) { const ok = await tl.DeleteClips([old], false); if (ok) regDel(state.liveSession.sfxId); }
-                state.liveSession.sfxId = null;
+                state.liveSession.sfxId = null; state.liveSession.sfxItem = null;
                 await deleteExtraSfx(tl, state.liveSession.extraIds);
                 state.liveSession.extraIds = [];
             } catch (e) { /* the sweep removes it later */ }
@@ -227,7 +232,7 @@ async function liveUpdate(event, req) {
             try {
                 if (req.sfxPath) state.liveSession.sfxPath = req.sfxPath;      // the sound is cut for THIS caption's length (Estimate / Fixed)
                 const r = await placeLiveSfx(tl, project, meta, state.liveSession.sfxPath, req, anim, textStart, [], item, state.liveSession.itemId, warnings);
-                if (r) { state.liveSession.sfxId = r.id; sfxMoved = true; }
+                if (r) { state.liveSession.sfxId = r.id; state.liveSession.sfxItem = r.item; sfxMoved = true; }
             } catch (e) { warnings.push('Could not move the sound: ' + e.message); }
             // the layered sounds are placed below, once the new text is in the comp (per-row copies follow its rows)
         }
@@ -376,8 +381,10 @@ async function liveRemove(marks) {
         if (tl && s) {
             // Sounds first, each checked: a sound Resolve refused to delete stays in the registry for the next sweep.
             const sounds = [s.sfxId, ...(s.extraIds || [])].filter(Boolean);
-            const leftSounds = await deleteExtraSfx(tl, sounds);
-            const leftText = await deleteClipsById(tl, [s.itemId], findItemById);
+            const known = new Map();
+            if (s.sfxId && s.sfxItem) known.set(String(s.sfxId), s.sfxItem);
+            const leftSounds = await deleteExtraSfx(tl, sounds, known);
+            const leftText = await deleteClipsById(tl, [s.itemId], findItemById, s.item ? new Map([[String(s.itemId), s.item]]) : null);
             // 'restore' = Remove button / panel closed: always sweep, so a sound a preview move placed after the
             // session was read (or one Resolve refused to delete) does not outlive the preview.
             if (leftSounds.length || leftText.length || mode === 'restore') {
@@ -423,7 +430,9 @@ async function liveFinish(event, req) {
         const trackNotes = [];
         if (s.sfxId) {
             // the sound is already on the timeline from the preview (maybe moved or trimmed by hand): keep it as it is
-            const sfxItem = await findAudioItemById(tl, s.sfxId);
+            let sfxItem = null;
+            try { if (s.sfxItem && String(await s.sfxItem.GetUniqueId()) === String(s.sfxId)) sfxItem = s.sfxItem; } catch (e) { sfxItem = null; }
+            if (!sfxItem) sfxItem = await findAudioItemById(tl, s.sfxId);
             regDel(s.sfxId);
             if (sfxItem) {
                 await relinkToProjectCopy(project, sfxItem);      // placed from the library while previewing

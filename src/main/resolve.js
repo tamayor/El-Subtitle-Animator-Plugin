@@ -340,6 +340,7 @@ async function setSubtitlesEnabled(tl, range, enabled) {
                 for (const o of out) { const s = c.list.find(x => x.track === o.track && x.start === o.start); if (s) s.enabled = !!enabled; }
                 c.sig = subSignature(c.list);
                 c.version = (c.version || 1) + 1;
+                c.patchedAt = Date.now();
             } else c.at = 0;
         } catch (e) { c.at = 0; }
     }
@@ -370,13 +371,18 @@ async function findItemsByIds(tl, ids, kind) {
 }
 
 // The panel's subtitle list for the current timeline.
+// force: the panel wants the list as it is right now (after an Apply, to jump to the next active subtitle). A list
+// read or patched less than SUB_FRESH_MS ago already is that (setSubtitlesEnabled patches the cache), so it is not
+// read again; only an older list is re-read. The panel's Re-read button goes through poll(true) instead.
+const SUB_FRESH_MS = 1500;
 async function listSubtitles(event, force) {
     try {
         const project = await getProject();
         if (!project) return { ok: false, error: 'Open a project in Resolve' };
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, error: 'Open a timeline in Resolve' };
-        const subs = await getSubtitles(tl, !!force);
+        const fresh = state.subCache.key === (await tl.GetName()) && Date.now() - Math.max(state.subCache.at || 0, state.subCache.patchedAt || 0) < SUB_FRESH_MS;
+        const subs = await getSubtitles(tl, !!force && !fresh);
         return { ok: true, subtitles: subs, version: state.subCache.version || 1 };
     } catch (err) {
         return { ok: false, error: String(err && err.message || err) };

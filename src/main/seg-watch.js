@@ -119,7 +119,7 @@ async function sweep() {
     if (Date.now() - (state.segSweepHot || 0) < SWEEP_SETTLE_MS) return;
     sweepBusy = true;
     const sp = PERF.span('segwatch.sweep');
-    let checked = 0, sent = 0;
+    let checked = 0, sent = 0, keyed = 0, pathKeyed = 0, pathExprs = 0;
     try {
         const { tl, tlName } = await currentTimeline(2000);
         if (!tl) return;
@@ -150,6 +150,7 @@ async function sweep() {
                 const v = res[x.id];
                 if (!v || v.error) continue;               // gone or busy: tried again next sweep
                 if (v.segments === false) notSegment.add(x.id);
+                keyed += Number(v.keyed) || 0; pathKeyed += Number(v.pathKeyed) || 0; pathExprs += Number(v.pathExprs) || 0;
                 seen.set(x.id, x.key);
             }
         }
@@ -158,7 +159,7 @@ async function sweep() {
         /* Resolve busy, another page or no timeline: next sweep */
     } finally {
         sweepBusy = false;
-        sp.end({ checked, sent });
+        sp.end(sent ? { checked, sent, keyed, pathKeyed, pathExprs } : { checked, sent });
     }
 }
 

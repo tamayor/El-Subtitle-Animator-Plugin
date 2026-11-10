@@ -2410,8 +2410,16 @@ def op_seg_watch(a):
         if tpl is None:
             return {"segments": False}
         last = None
+    first = last is None
     keyed = rekey_if_changed(comp, tpl, last, item)
-    return {"segments": True, "keyed": keyed}
+    out = {"segments": True, "keyed": keyed}
+    if first:       # first look at this clip: are any slide paths still expressions, and how many are keyed
+        try:
+            out["pathExprs"] = seg_path_exprs(comp)
+            out["pathKeyed"] = sum(1 for t in tool_list(comp) if attrs(t).get("TOOLS_RegID") == "PolyPath" and (t.GetData(ANIM_DATA) or {}).get("seg"))
+        except Exception:
+            pass
+    return out
 
 
 def op_seg_sweep(a):
@@ -2465,17 +2473,30 @@ def rekey_if_changed(comp, tpl, last, item):
     bridge saw before (None on first look: then the state saved on the Template decides, so a clip already keyed for
     its current start is not rewritten)."""
     cur = seg_state(comp, tpl)
+    first = last is None
     if last is None:
         try:
             last = tpl.GetData(SEG_KEYED_DATA)    # a JSON string (a list would come back as a Lua-style dict)
         except Exception:
             last = None
     keyed = 0
-    if json.dumps(cur) != (last if isinstance(last, str) else json.dumps(last)):
+    if json.dumps(cur) != (last if isinstance(last, str) else json.dumps(last)) or (first and seg_path_exprs(comp)):
         keyed = key_followers(comp)     # saves the new state on the Template
     if item is not None:
         _seg_seen[item] = (comp, tpl, cur)
     return keyed
+
+
+def seg_path_exprs(comp):
+    """How many slide paths still run their Seg expression (a Group Slide Emphasize clip placed before key_seg_paths)."""
+    n = 0
+    for tool in tool_list(comp):
+        try:
+            if attrs(tool).get("TOOLS_RegID") == "PolyPath" and seg_path_spec(tool.Displacement.GetExpression() or ""):
+                n += 1
+        except Exception:
+            pass
+    return n
 
 # ---------------------------------------------------------------- Kinetic Cloud / Lines: row pop-ins as keyframes
 # Their Pop<k> followers animate each row's letters with Lua expressions (tools/gen-kinetic-cloud.py / -lines.py). A

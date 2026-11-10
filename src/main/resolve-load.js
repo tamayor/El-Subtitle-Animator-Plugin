@@ -7,25 +7,41 @@
 // While busy() is true those readers wait; the poll itself slows to BUSY_POLL_MS. User actions (place, toggles) still run.
 
 const BUSY_PER_CALL_MS = 15;      // ms per call at or above which a sample counts as busy (idle ~0.1-1 ms, busy ~40)
-const SAMPLES = 4;                // the last few poll samples
-const HOLD_MS = 4000;             // stays busy this long after the last busy sample
+const FAST_PER_CALL_MS = 5;       // a sample this fast ends the busy state
+const SAMPLES = 4;                // the last few samples
+const STALE_MS = 60000;           // no sample for this long: assume it recovered (never stay muted for good)
+const PROBE_EVERY_MS = 5000;      // while busy, a background reader may send one timed test call this often
 const BUSY_POLL_MS = 1500;        // the poll's pace while busy (normally every 200 ms)
 
 let samples = [];
-let busyUntil = 0;
+let busy = false, lastSampleAt = 0, lastProbeAt = 0;
 
-// ms = how long `calls` Resolve calls took together
+// ms = how long `calls` Resolve calls took together. Busy starts when the median of the last samples is slow and lasts
+// until a clearly fast answer: it does not run out on a timer (with the panel in the background the poll stops, and a
+// timed-out flag let seg-watch flood a still-busy Resolve again - perf log 2026-11-10 23:00).
 function noteResolveLatency(ms, calls) {
     const per = Number(ms) / Math.max(1, calls || 1);
     if (!Number.isFinite(per)) return;
+    lastSampleAt = Date.now();
     samples.push(per);
     if (samples.length > SAMPLES) samples = samples.slice(-SAMPLES);
     const sorted = samples.slice().sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
-    if (median >= BUSY_PER_CALL_MS) busyUntil = Date.now() + HOLD_MS;
-    else if (per < BUSY_PER_CALL_MS / 3) busyUntil = Math.min(busyUntil, Date.now());      // a clearly fast answer ends it
+    if (per < FAST_PER_CALL_MS) { busy = false; samples = [per]; }
+    else if (median >= BUSY_PER_CALL_MS) busy = true;
 }
 
-function resolveBusy() { return Date.now() < busyUntil; }
+function resolveBusy() {
+    if (busy && Date.now() - lastSampleAt > STALE_MS) busy = false;
+    return busy;
+}
 
-module.exports = { noteResolveLatency, resolveBusy, BUSY_POLL_MS };
+// While busy: true at most every PROBE_EVERY_MS, for a reader that then times ONE cheap call (noteResolveLatency) so
+// the busy state can end even when the panel's poll is not running.
+function probeDue() {
+    if (Date.now() - lastProbeAt < PROBE_EVERY_MS) return false;
+    lastProbeAt = Date.now();
+    return true;
+}
+
+module.exports = { noteResolveLatency, resolveBusy, probeDue, BUSY_POLL_MS };

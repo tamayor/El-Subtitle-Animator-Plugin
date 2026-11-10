@@ -17,7 +17,7 @@ const { bridgeCall } = require('./fusion-bridge');
 const { getFixes } = require('./fusion-fixes');
 const { currentTimeline, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
-const { resolveBusy } = require('./resolve-load');
+const { noteResolveLatency, probeDue, resolveBusy } = require('./resolve-load');
 
 const EVERY_MS = 700;
 // clips whose letters / rows are keyed by the bridge: the segment MultiText presets and Kinetic Cloud / Lines (their
@@ -35,7 +35,18 @@ const notSegment = new Set();      // clip ids that hold no segment preset (neve
 let busy = false;
 
 async function tick() {
-    if (busy || state.applying || state.isQuitting || !state.hasSeenResolve || resolveBusy()) return;
+    if (busy || state.applying || state.isQuitting || !state.hasSeenResolve) return;
+    if (resolveBusy()) {
+        // Resolve answering one call per frame: no reading, only a timed test call now and then (resolve-load.js)
+        if (probeDue()) {
+            busy = true;
+            try {
+                const { tl } = await currentTimeline(60000);
+                if (tl) { const t0 = Date.now(); await tl.GetName(); noteResolveLatency(Date.now() - t0, 1); }
+            } catch (e) { /* next probe */ } finally { busy = false; }
+        }
+        return;
+    }
     if (getFixes().inspectorTimingWatch === false) return;
     if (Date.now() - lastTickAt < FOCUSED_MS - 50 && panelFocused()) return;
     lastTickAt = Date.now();
@@ -53,7 +64,9 @@ async function tick() {
             sel = (Array.isArray(all) ? all : Object.values(all)).slice(0, MAX_SEL);
         }
         if (!sel.length) return;
+        const tn = Date.now();
         const names = await Promise.all(sel.map(c => Promise.resolve(c.GetName()).then(String).catch(() => '')));
+        noteResolveLatency(Date.now() - tn, 1);      // answered together: about one call's time
         const keyed = sel.filter((c, k) => KEYED_CLIP.test(names[k]));
         if (!keyed.length) return;
         const ids = await Promise.all(keyed.map(c => Promise.resolve(c.GetUniqueId()).then(String).catch(() => '')));

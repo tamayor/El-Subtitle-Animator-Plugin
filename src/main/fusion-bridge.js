@@ -26,9 +26,10 @@ const PERF = require('./perf');
 const LANES = 3;
 const LANE_OF = {
     live_frame: 0, controls_get: 0, controls_set: 0, mt_rows_get: 0, mt_rows_set: 0, timing_get: 0, timing_set: 0, seg_watch: 0, ping: 0, config: 0, fonts: 0, probe_render: 0,
+    fx_get: 0, fx_set: 0, fx_param: 0, fx_strength: 0,      // effect preset toggles: the user is waiting on them
     capture: 2, seg_sweep: 2
 };
-const COALESCE = new Set(['seg_watch', 'controls_get', 'timing_get', 'row_times', 'ping', 'fonts', 'tools']);
+const COALESCE = new Set(['fx_get', 'seg_watch', 'controls_get', 'timing_get', 'row_times', 'ping', 'fonts', 'tools']);
 const RENDER_OPS = new Set(['capture', 'live_frame']);
 const MAX_WAIT_CAP_MS = 60000;
 

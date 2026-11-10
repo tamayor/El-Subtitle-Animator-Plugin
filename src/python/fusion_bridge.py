@@ -3124,18 +3124,36 @@ def op_row_times(a):
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
 FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
-FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+FX_NAMES = {"Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "Stop Motion"}
+# Stop Motion is Resolve's own OFX effect (a Fusion time-remap loses the clip's Zoom / Pan / Tilt on held frames); it is
+# processed after the Fusion effects, so it holds the glitch / wiggle too. Its settings cannot be scripted.
+FX_OFX = {"StopMotion": "Resolve FX/Resolve FX Temporal/Stop Motion"}
 FX_ORDER = ["Glitch", "Wiggle", "StopMotion"]
 # the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
-FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
+FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace"}
 
 
 def fx_strength_tool(effect, key):
+    if key not in FX_STRENGTH_TOOL:
+        return None
     try:
         comp = effect.GetFusionComp()
         return comp.FindTool(FX_STRENGTH_TOOL[key]) if comp is not None else None
     except Exception:
         return None
+
+
+# extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours and opacity
+FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity"]}
+
+
+def fx_get_params(effect, key):
+    t = fx_strength_tool(effect, key)
+    out = {}
+    for pid in FX_PARAMS.get(key, []):
+        v = get_in(t, pid) if t is not None else None
+        out[pid] = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    return out
 
 
 def fx_get_strength(effect, key):
@@ -3146,7 +3164,7 @@ def fx_get_strength(effect, key):
 
 def fx_targets(a):
     """The clips an effect request is for: the given item ids, else the clips selected on the timeline (video
-    track items only), else the top video clip under the playhead."""
+    track items only). No selection = no clips (the clip under the playhead was often an overlay, not the one meant)."""
     tl = timeline()
     ids = [str(i) for i in (a.get("items") or []) if i]
     if ids:
@@ -3160,21 +3178,37 @@ def fx_targets(a):
         except Exception:
             pass
         out.append(it)
-    if not out:
-        cur = tl.GetCurrentVideoItem()
-        if cur is not None:
-            out.append(cur)
     return out
+
+
+def fx_nudge_inspector():
+    """Resolve's Inspector keeps showing an effect removed by a script until something redraws it: the playhead
+    steps one frame and back (cheap, and the user's position is kept)."""
+    try:
+        tl = timeline()
+        tc = tl.GetCurrentTimecode()
+        sep = ";" if ";" in tc else ":"
+        parts = [int(x) for x in tc.replace(";", ":").split(":")]
+        fps = int(round(float(tl.GetSetting("timelineFrameRate") or 25)))
+        total = ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * fps + parts[3] + 1
+        f = total % fps
+        sec = total // fps
+        nxt = "%02d:%02d:%02d%s%02d" % (sec // 3600, (sec // 60) % 60, sec % 60, sep, f)
+        tl.SetCurrentTimecode(nxt)
+        tl.SetCurrentTimecode(tc)
+    except Exception:
+        pass
 
 
 def fx_on_item(it):
     """{effect id: Effect} of our effects on a clip."""
     have = {}
-    for e in it.GetEffects("fusion") or []:
-        name = (e.GetInfo() or {}).get("name")
-        for k, n in FX_NAMES.items():
-            if name == n:
-                have[k] = e
+    for cat in ("fusion", "ofx"):
+        for e in it.GetEffects(cat) or []:
+            info = e.GetInfo() or {}
+            for k, n in FX_NAMES.items():
+                if info.get("name") == n and (cat == "ofx") == (k in FX_OFX):
+                    have[k] = e
     return have
 
 
@@ -3184,7 +3218,8 @@ def fx_state(items):
         have = fx_on_item(it)
         out.append({"id": str(it.GetUniqueId()), "name": it.GetName(),
                     "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
-                    "strength": {k: fx_get_strength(e, k) for k, e in have.items()}})
+                    "strength": {k: fx_get_strength(e, k) for k, e in have.items() if k in FX_STRENGTH_TOOL},
+                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS}})
     return out
 
 
@@ -3214,6 +3249,30 @@ def op_fx_strength(a):
     return {"set": done, "clips": fx_state(items)}
 
 
+def op_fx_param(a):
+    """{effect, values: {Strength / BlinkIn / ColorARed / Opacity ...: number}, items?}: sets those settings of one
+    effect on the selected (or given) clips that have it."""
+    key = str(a.get("effect") or "")
+    if key not in FX_NAMES:
+        raise RuntimeError("Unknown effect " + key)
+    allowed = set(["Strength"] + FX_PARAMS.get(key, []))
+    vals = {str(k): float(v) for k, v in (a.get("values") or {}).items() if str(k) in allowed}
+    items = fx_targets(a)
+    done = 0
+    for it in items:
+        e = fx_on_item(it).get(key)
+        t = fx_strength_tool(e, key) if e is not None else None
+        if t is None:
+            continue
+        for k, v in vals.items():
+            try:
+                t.SetInput(k, v)
+            except Exception:
+                pass
+        done += 1
+    return {"set": done, "clips": fx_state(items)}
+
+
 def op_fx_set(a):
     """{effect, on (true / false / null = flip, judged on the first clip), items?}: adds or removes one effect preset
     on the selected (or given) clips, keeping our effects in FX_ORDER after any of the clip's other effects."""
@@ -3227,16 +3286,26 @@ def op_fx_set(a):
     if on is None:
         on = key not in fx_on_item(items[0])
     failed = []
+    removed = False
     for it in items:
         have = fx_on_item(it)
         if on:
             e = have.get(key)
             if e is None:
-                e = it.AddEffect("fusion", FX_PREFIX + FX_NAMES[key])
+                e = it.AddEffect("ofx", FX_OFX[key]) if key in FX_OFX else it.AddEffect("fusion", FX_PREFIX + FX_NAMES[key])
                 if e is None:
                     failed.append(it.GetName())
                     continue
                 have[key] = e
+                init = dict((a.get("params") or {}))
+                if init:
+                    t = fx_strength_tool(e, key)
+                    for pk, pv in init.items():
+                        if t is not None and pk in FX_PARAMS.get(key, []):
+                            try:
+                                t.SetInput(str(pk), float(pv))
+                            except Exception:
+                                pass
                 if a.get("strength") is not None:
                     t = fx_strength_tool(e, key)
                     if t is not None:
@@ -3248,7 +3317,7 @@ def op_fx_set(a):
                 e.SetIsEnabled(True)
             # stacking order: ours go last, glitch -> wiggle -> stop motion (stop motion holds the finished look)
             total = len(it.GetEffects("fusion") or [])
-            mine = [k for k in FX_ORDER if k in have]
+            mine = [k for k in FX_ORDER if k in have and k not in FX_OFX]
             for n, k in enumerate(mine):
                 try:
                     have[k].SetIndex(total - len(mine) + n + 1)
@@ -3257,11 +3326,15 @@ def op_fx_set(a):
         elif key in have:
             if not it.DeleteEffects([have[key]]):
                 failed.append(it.GetName())
+            else:
+                removed = True
+    if removed:
+        fx_nudge_inspector()
     return {"on": bool(on), "failed": failed, "clips": fx_state(items)}
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the

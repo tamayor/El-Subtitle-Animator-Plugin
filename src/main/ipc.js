@@ -28,7 +28,7 @@ const { dlog } = require('./log');
 const { liveFrame, parkUntilFocus, poll, seek } = require('./poll');
 const { captureFromSelection, makePreview, previewData, scanClip } = require('./previews');
 const { listSubtitles } = require('./resolve');
-const { fxGet, fxList, fxSet, fxSetTags, fxStrength } = require('./effect-presets');
+const { fxGet, fxList, fxParam, fxSet, fxSetTags, fxStrength } = require('./effect-presets');
 const {
     addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
@@ -56,6 +56,7 @@ const SAFE_HANDLERS = {
     'fx:set': fxSet,
     'fx:setTags': fxSetTags,
     'fx:strength': fxStrength,
+    'fx:param': fxParam,
     'controls:get': clipControls,
     'controls:set': setClipControls,
     'controls:rows': clipRows,

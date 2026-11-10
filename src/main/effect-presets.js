@@ -13,12 +13,15 @@ const CATEGORY = 'Subtitle Animator';
 const EFFECTS = [
     { id: 'Glitch', name: 'Glitch', tags: ['glitch', 'rgb', 'jitter'], tip: 'The picture jumps sideways in bursts with a red / cyan split' },
     { id: 'Wiggle', name: 'Wiggle', tags: ['wiggle', 'boil', 'hand-drawn'], tip: 'Letters and edges boil and wobble (pairs well with Stop Motion)' },
-    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'Every frame is held a few times for a choppy, hand-made look' }
+    // Resolve's own ResolveFX Stop Motion (OFX on the clip, not a Fusion template): a Fusion TimeStretcher in an effect gets
+    // held frames WITHOUT the clip's Edit sizing (Zoom / Pan / Tilt), so punched-in clips jumped between zoomed and raw.
+    // Scripts cannot set OFX parameters, so its Frame Repeat is set in Resolve's Inspector (no Strength slider here).
+    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look. Set its Frame Repeat in Resolve\'s Inspector (Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion' }
 ];
 const ORDER = EFFECTS.map(e => e.id);
 const DEFAULT_STRENGTH = 25;
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
-const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace', StopMotion: 'StopMotionTime' };
+const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace' };
 
 function effectsDir() {
     const tail = ['Fusion', 'Templates', 'Edit', 'Effects', CATEGORY];
@@ -82,7 +85,7 @@ function wiggle() {
         ['WiggleNoise', 'SeetheRate', 'Speed', 0.3]
     ], [
         tool('WiggleNoise', 'FastNoise', [
-            'UseFrameFormatSettings = Input { Value = 1, }', 'Width = Input { Value = 1920, }', 'Height = Input { Value = 1080, }',
+            'UseFrameFormatSettings = Input { Value = 0, }', 'Width = Input { Value = 270, }', 'Height = Input { Value = 480, }',      // a quarter-size map: the displacement is smooth anyway, and full size cost ~8 ms a frame
             'Detail = Input { Value = 1.31, }', 'Contrast = Input { Value = 0.026, }', 'XScale = Input { Value = 20, }',
             'Type = Input { Value = 1, }', 'SeetheRate = Input { Value = 0.3, }'
         ], 0, -60),
@@ -93,22 +96,55 @@ function wiggle() {
     ]);
 }
 
-// Glitch: Strength scales both how far it jumps / splits and how often it bursts (25 = about 1 in 6 two-frame blocks,
-// 50 and up = 1 in 3). 0 = nothing.
+// Glitch: the whole picture jumps sideways in bursts, with two tinted copies (Colour A to the right, Colour B to the left)
+// blended in with Lighten, so the colours show as fringes on edges - on text and on a video alike, without washing the
+// picture. Strength scales how far / how often it jumps (25 = about 1 in 6 two-frame blocks, 50+ = 1 in 3); 0 = none.
+// Opacity = how strong the coloured fringes are. Entry > Blink at Start (BlinkIn, on by default): the first
+// BLINK_FRAMES frames flicker on / off with a forced burst. Simple expressions only (Lua ones cost ~25 ms a frame).
+const BLINK_FRAMES = 8;
+const GLITCH_DEFAULTS = { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85 };
 function glitch() {
-    const A = '(GlitchOut.Strength/50)';
-    const BURST = 'iif(' + hash(1) + '>1-0.35*min(1,GlitchOut.Strength/50),1,0)';
-    const SPLIT = '(0.004+0.012*' + BURST + ')*' + A;
-    return group('ELSAGlitch', ['GlitchJitter', 'Input'], 'GlitchOut', [['GlitchOut', 'Strength', 'Strength', DEFAULT_STRENGTH]], [
-        tool('GlitchJitter', 'Transform', [
-            expr('Center', '{ 0.5, 0.5 }', 'Point(0.5+' + BURST + '*(' + hash(2) + '-0.5)*0.08*' + A + ', 0.5+iif(' + hash(1) + '>0.9,(' + hash(3) + '-0.5)*0.02,0)*' + A + ')')
-        ], 0, 0),
-        tool('GlitchRedShift', 'Transform', [inp('Input', 'GlitchJitter'), expr('Center', '{ 0.5, 0.5 }', 'Point(0.5+' + SPLIT + ', 0.5)')], 110, -50),
-        tool('GlitchRed', 'ColorGain', [inp('Input', 'GlitchRedShift'), 'GainGreen = Input { Value = 0, }', 'GainBlue = Input { Value = 0, }'], 220, -50),
-        tool('GlitchCyanShift', 'Transform', [inp('Input', 'GlitchJitter'), expr('Center', '{ 0.5, 0.5 }', 'Point(0.5-' + SPLIT + ', 0.5)')], 110, 50),
-        tool('GlitchCyan', 'ColorGain', [inp('Input', 'GlitchCyanShift'), 'GainRed = Input { Value = 0, }'], 220, 50),
-        tool('GlitchSplit', 'Merge', [inp('Background', 'GlitchRed'), inp('Foreground', 'GlitchCyan'), 'ApplyMode = Input { Value = FuID { "Screen" }, }', 'PerformDepthMerge = Input { Value = 0, }'], 330, 0),
-        tool('GlitchOut', 'Merge', [inp('Background', 'GlitchSplit'), inp('Foreground', 'GlitchJitter'), 'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }', 'PerformDepthMerge = Input { Value = 0, }'], 440, 0, strengthCtl())
+    const S = 'GlitchOut.Strength';
+    const rel = '(time-comp.RenderStart)';
+    const blink = 'iif(GlitchOut.BlinkIn>0.5,1,0)*iif(' + S + '>0,1,0)*iif(' + rel + '<' + BLINK_FRAMES + ',1,0)*iif(' + rel + '>=0,1,0)';
+    const burst = 'max(GlitchOut.Blink, iif(' + hash(1) + '>1-0.35*min(1,' + S + '/50),1,0))';
+    const amt = 'iif(GlitchOut.Blink>0.5, max(' + S + '/50,0.6), ' + S + '/50)';
+    const show = 'iif(GlitchOut.Blink>0.5, iif(' + rel + '==0,0,iif(' + rel + '==2,0,iif(' + rel + '==4,0,1))), 1)';
+    const jitter = 'Point(0.5+GlitchOut.Burst*(' + hash(2) + '-0.5)*0.08*GlitchOut.Amt, 0.5+GlitchOut.Burst*iif(' + hash(1) + '>0.9,(' + hash(3) + '-0.5)*0.02,0)*GlitchOut.Amt)';
+    const split = (sign) => 'Point(0.5' + sign + '(0.004+0.012*GlitchOut.Burst)*GlitchOut.Amt, 0.5)';
+    const hidden = (id) => id + ' = { LINKS_Name = "' + id + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", IC_Visible = false, INP_Passive = true, INP_External = false, ICS_ControlPage = "Controls", }';
+    const color = (id, label, group, rgb) => ['Red', 'Green', 'Blue'].map((c, k) =>
+        id + c + ' = { ' + (k === 0 ? 'LINKS_Name = "' + label + '", ' : '') + 'LINKID_DataType = "Number", INPID_InputControl = "ColorControl", ' +
+        'IC_ControlGroup = ' + group + ', IC_ControlID = ' + k + ', INP_Default = ' + rgb[k] + ', INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Controls", }').join(', ');
+    const D = GLITCH_DEFAULTS;
+    const user = '\t\t\t\t\tUserControls = ordered() { ' + numCtl('Strength', 'Strength', DEFAULT_STRENGTH, 0, 100, true) + ', ' +
+        'BlinkIn = { LINKS_Name = "Blink at Start", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, ICS_ControlPage = "Controls", INPS_StatusText = "Entry: the first frames flicker on and off with a glitch burst", }, ' +
+        color('ColorA', 'Colour A', 1, D.colorA) + ', ' + color('ColorB', 'Colour B', 2, D.colorB) + ', ' +
+        numCtl('Opacity', 'Opacity', D.opacity, 0, 100, true) + ', ' +
+        hidden('Blink') + ', ' + hidden('Burst') + ', ' + hidden('Amt') + ', ' + hidden('Show') + ', },\n';
+    const tint = (name, src, id, x, y) => tool(name, 'ColorGain', [inp('Input', src),
+        expr('GainRed', 1, 'GlitchOut.' + id + 'Red'), expr('GainGreen', 1, 'GlitchOut.' + id + 'Green'), expr('GainBlue', 1, 'GlitchOut.' + id + 'Blue')], x, y);
+    const ghost = (name, bg, fg, sign, x, extra) => tool(name, 'Merge', [inp('Background', bg), inp('Foreground', fg),
+        expr('Center', '{ 0.5, 0.5 }', split(sign)), 'ApplyMode = Input { Value = FuID { "Lighten" }, }',
+        expr('Blend', D.opacity / 100, 'GlitchOut.Opacity/100'), 'PerformDepthMerge = Input { Value = 0, }'].concat(extra || []), x, 0, name === 'GlitchOut' ? user : '');
+    return group('ELSAGlitch', ['GlitchJitter', 'Input'], 'GlitchOut', [
+        ['GlitchOut', 'Strength', 'Strength', DEFAULT_STRENGTH],
+        ['GlitchOut', 'BlinkIn', 'Blink at Start', 1],
+        ['GlitchOut', 'ColorARed', 'Colour A', D.colorA[0]], ['GlitchOut', 'ColorAGreen', 'Colour A Green', D.colorA[1]], ['GlitchOut', 'ColorABlue', 'Colour A Blue', D.colorA[2]],
+        ['GlitchOut', 'ColorBRed', 'Colour B', D.colorB[0]], ['GlitchOut', 'ColorBGreen', 'Colour B Green', D.colorB[1]], ['GlitchOut', 'ColorBBlue', 'Colour B Blue', D.colorB[2]],
+        ['GlitchOut', 'Opacity', 'Opacity', D.opacity]
+    ], [
+        tool('GlitchJitter', 'Transform', [expr('Center', '{ 0.5, 0.5 }', jitter), expr('Size', 1, 'GlitchOut.Show')], 0, 0),
+        tint('GlitchTintA', 'GlitchJitter', 'ColorA', 110, -50),
+        tint('GlitchTintB', 'GlitchJitter', 'ColorB', 110, 50),
+        ghost('GlitchGhostA', 'GlitchJitter', 'GlitchTintA', '+', 220),
+        ghost('GlitchOut', 'GlitchGhostA', 'GlitchTintB', '-', 330, [
+            'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }', 'BlinkIn = Input { Value = 1, }',
+            'ColorARed = Input { Value = ' + D.colorA[0] + ', }', 'ColorAGreen = Input { Value = ' + D.colorA[1] + ', }', 'ColorABlue = Input { Value = ' + D.colorA[2] + ', }',
+            'ColorBRed = Input { Value = ' + D.colorB[0] + ', }', 'ColorBGreen = Input { Value = ' + D.colorB[1] + ', }', 'ColorBBlue = Input { Value = ' + D.colorB[2] + ', }',
+            'Opacity = Input { Value = ' + D.opacity + ', }',
+            expr('Blink', 0, blink), expr('Burst', 0, burst), expr('Amt', 0.5, amt), expr('Show', 1, show)
+        ])
     ]);
 }
 
@@ -119,7 +155,10 @@ function installEffects() {
     const dir = effectsDir();
     fs.mkdirSync(dir, { recursive: true });
     const out = [];
+    // the old Fusion Stop Motion template (zoom jump on punched-in clips) is no longer offered
+    try { fs.rmSync(path.join(dir, 'ELSA Stop Motion.setting'), { force: true }); } catch (err) { /* ignore */ }
     for (const e of EFFECTS) {
+        if (e.ofx) continue;      // a built-in Resolve effect: nothing to install
         const file = path.join(dir, fileName(e.id));
         const body = MAKERS[e.id]();
         let cur = null;
@@ -130,7 +169,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: DEFAULT_STRENGTH })); }
+function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.ofx ? null : DEFAULT_STRENGTH, noStrength: !!e.ofx, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;
@@ -147,12 +186,12 @@ async function fxGet() {
     return await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
 }
 // Adds (on = true), removes (false) or flips (null) one effect preset on the selected clips.
-async function fxSet(event, effectId, on, strength) {
+async function fxSet(event, effectId, on, strength, params) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
     ensureInstalled();
-    return await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null }, 15000);
+    return await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params) }, 15000);
 }
 
 // Sets one effect's Strength (0..100) on the selected clips that have it.
@@ -163,6 +202,19 @@ async function fxStrength(event, effectId, value) {
     const v = Math.max(0, Math.min(100, Math.round(Number(value))));
     if (!Number.isFinite(v)) return { error: 'Bad strength' };
     return await require('./fusion-bridge').bridgeCall('fx_strength', { effect: effectId, value: v }, 8000);
+}
+
+function cleanParams(v) {
+    const out = {};
+    for (const [k, x] of Object.entries(v && typeof v === 'object' ? v : {})) if (/^[A-Za-z]\w*$/.test(k) && Number.isFinite(Number(x))) out[k] = Number(x);
+    return out;
+}
+// Sets other settings of one effect (Glitch: BlinkIn, ColorA* / ColorB*, Opacity) on the selected clips that have it.
+async function fxParam(event, effectId, values) {
+    const state = require('./state');
+    if (state.applying) return { busy: true };
+    if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
+    return await require('./fusion-bridge').bridgeCall('fx_param', { effect: effectId, values: cleanParams(values) }, 8000);
 }
 
 // The user's tags on an effect preset (the same tags as text presets), kept in library.json effectTags.
@@ -177,4 +229,4 @@ function fxSetTags(event, effectId, tags) {
     return { lib: libForUI() };
 }
 
-module.exports = { EFFECTS, ORDER, CATEGORY, effectsDir, fileName, installEffects, effectsForUI, fxList, fxGet, fxSet, fxSetTags, fxStrength, STRENGTH_TOOL, DEFAULT_STRENGTH, _makers: MAKERS };
+module.exports = { EFFECTS, ORDER, CATEGORY, effectsDir, fileName, installEffects, effectsForUI, fxList, fxGet, fxSet, fxSetTags, fxStrength, fxParam, STRENGTH_TOOL, DEFAULT_STRENGTH, _makers: MAKERS };

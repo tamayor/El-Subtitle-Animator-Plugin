@@ -43,10 +43,10 @@ async function clipFacts(item) {
 // the timeline, serially, every 2 s); the answer for one (frame, selection) is shared by the timing bar and the Clip
 // controls, which poll 300 ms and 700 ms apart, for CAND_MS.
 // Every TRACKS_MS the tracks are listed (one call per track) and only a track whose clip count changed has its
-// clips' start / end read again; all of them are read every TRACKS_FULL_MS (TRACKS_MS while this plugin changed
-// something in the last 90 s, state.segSweepHot: a freshly placed or re-timed clip). A clip trimmed by hand is seen
-// by its start / end a little later, or at once when it is selected (the selection is read every time).
-const TRACKS_MS = 5000, TRACKS_FULL_MS = 20000, HOT_FOR_MS = 90000, CAND_MS = 600;
+// clips' start / end read again (a placement changes its track's count); all of them are read every TRACKS_FULL_MS.
+// A clip trimmed by hand is seen by its start / end a little later, or at once when it is selected (the selection is
+// read every time). Nothing is re-read while a placement runs (the old list serves).
+const TRACKS_MS = 5000, TRACKS_FULL_MS = 20000, CAND_MS = 600;
 let candMemo = { key: '', at: 0, list: null };
 // -> [{ item, start, end, comps }] for one track's items, 40 at a time
 async function trackFacts(arr) {
@@ -79,10 +79,9 @@ async function candidates(tl, frame, tlName) {
         const facts = await Promise.all(vid.filter((c, k) => comps[k] > 0).map(c => clipFacts(c).catch(() => null)));
         for (const f of facts) if (f) out.push(Object.assign(f, { selected: true }));
     } catch (e) { /* no selection API: playhead only */ }
-    if (tracks.key !== tlName || Date.now() - tracks.at > TRACKS_MS) {
+    if (tracks.key !== tlName || (Date.now() - tracks.at > TRACKS_MS && !state.applying)) {
         const now = Date.now();
-        const hot = now - (state.segSweepHot || 0) < HOT_FOR_MS;
-        const full = tracks.key !== tlName || now - (tracks.fullAt || 0) > (hot ? TRACKS_MS : TRACKS_FULL_MS);
+        const full = tracks.key !== tlName || now - (tracks.fullAt || 0) > TRACKS_FULL_MS;
         const byTrack = new Map(), reread = [];
         const n = (await tl.GetTrackCount('video')) || 0;
         for (let t = n; t >= 1; t--) {

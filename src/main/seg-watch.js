@@ -72,7 +72,7 @@ async function tick() {
 // preview: markSegSweepHot), otherwise every SWEEP_MS. Every run compares each MultiText clip's start | end with the
 // last look (a trim changes no clip count, so counts alone would miss it); the clips are read 40 at a time.
 // The first sweep after the panel opens checks every MultiText clip once. Off with inspectorTimingWatch too.
-const SWEEP_HOT_MS = 6000, SWEEP_MS = 30000, HOT_FOR_MS = 90000;
+const SWEEP_HOT_MS = 6000, SWEEP_MS = 30000, HOT_FOR_MS = 90000, SWEEP_SETTLE_MS = 4000;
 const SWEEP_BATCH = 6;
 const seen = new Map();     // clip id -> "start|end" at the last check
 let sweepBusy = false, sweepTl = null, lastSweepAt = 0;
@@ -84,6 +84,8 @@ async function sweep() {
     if (getFixes().inspectorTimingWatch === false) return;
     const hot = Date.now() - (state.segSweepHot || 0) < HOT_FOR_MS;
     if (Date.now() - lastSweepAt < (hot ? SWEEP_HOT_MS : SWEEP_MS)) return;
+    // placements a few seconds apart: the sweep (a read of every clip's name) waits until that run is over
+    if (Date.now() - (state.segSweepHot || 0) < SWEEP_SETTLE_MS) return;
     sweepBusy = true;
     const sp = PERF.span('segwatch.sweep');
     let checked = 0, sent = 0;

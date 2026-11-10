@@ -17,7 +17,7 @@ const { settleLater } = require('./settle');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const {
-    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regCount, regDel, sessionSounds, sweepTempClips, waitIdle
+    liveClearMarks, liveRemove, liveSetMarks, placeLiveSfx, regAdd, regCountOthers, regDel, sessionSounds, sweepTempClips, waitIdle
 } = require('./live-preview');
 const { ensureStopped, noteFrame } = require('./playback');
 const {
@@ -87,7 +87,7 @@ async function applyInner(req, warnings, sp) {
         // One read of the timeline's clips for this whole placement (timeline-snapshot.js): the cut guard, every track
         // pick (text and each sound) and the temp-clip sweep work from it instead of walking the timeline again each.
         // Taken after the running preview's clips are removed, so it shows the timeline as it is now.
-        const snap = await takeSnapshot(tl, { kinds: ['video', 'audio'], withIds: regHasEntries() });
+        const snap = await takeSnapshot(tl, { kinds: ['video', 'audio'], withIds: regHasEntries(), withEnabled: !(req.place && req.place.disabledClip) });
         try { noteFrame(tlName, tcToFrame(await tl.GetCurrentTimecode(), meta)); } catch (e) { /* measured by isPlaying then */ }
         sp.mark('snapshot');
         if (req.live) await ensureStopped(tl);      // a playing (looping) timeline moves the playhead under the insert
@@ -430,6 +430,7 @@ async function applyInner(req, warnings, sp) {
 }
 
 // Does the temp-clip registry hold anything (then the snapshot reads the clips' ids for the sweep)?
+// Something to sweep: a registered temporary clip that is not the running preview's own (those stay).
 function regHasEntries() {
-    try { return regCount() > 0; } catch (e) { return true; }
+    try { return regCountOthers() > 0; } catch (e) { return true; }
 }

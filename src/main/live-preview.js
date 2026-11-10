@@ -3,7 +3,7 @@
 
 module.exports = {
     liveAlive, liveClearMarks, liveFinish, liveRemove, liveSetMarks, liveUpdate, loopOn, loopRestore,
-    placeLiveSfx, regAdd, regCount, regDel, sessionSounds, sweepTempClips, waitIdle
+    placeLiveSfx, regAdd, regCount, regCountOthers, regDel, sessionSounds, sweepTempClips, waitIdle
 };
 
 const fs = require('fs');
@@ -608,6 +608,13 @@ function regWrite(a, later) {
 }
 function regFlush() { try { fs.writeFileSync(CLIP_REG, JSON.stringify((reg || []).map(id => regMiss.get(id) ? id + '|' + regMiss.get(id) : id))); } catch (e) { /* best effort */ } }
 function regCount() { return regRead().length; }
+// Registered ids other than the running preview's clip and sounds (the sweep leaves those alone).
+function regCountOthers() {
+    const s = state.liveSession;
+    if (!s) return regCount();
+    const own = new Set([String(s.itemId), s.sfxId ? String(s.sfxId) : null, ...(s.extraIds || []).map(String)].filter(Boolean));
+    return regRead().filter(id => !own.has(id)).length;
+}
 function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(String(id))) { a.push(String(id)); regWrite(a); } }
 function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id)), true); }
 // snap: a timeline snapshot taken by the caller (timeline-snapshot.js) with the items' ids, so the sweep does not

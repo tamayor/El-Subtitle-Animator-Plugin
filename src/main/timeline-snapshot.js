@@ -17,6 +17,9 @@ const CHUNK = 40;
 
 // opts: { kinds: ['video', 'audio'], withIds: false, withEnabled: true }
 // -> { at, withIds, tracks: { video: [{ t, locked, enabled, items: [{ it, name, start, end, enabled, id }] }], audio: [...] } }
+// Per clip only what the placement uses is read: its name on V1 only (the cut guard leaves titles out of its keys; a
+// sound is never a title), its on/off state on V2 and up only (withEnabled; the track picks skip clips that are off),
+// its id when withIds. Everything else is start and end: two calls per clip instead of four.
 async function takeSnapshot(tl, opts) {
     const o = Object.assign({ kinds: ['video', 'audio'], withIds: false, withEnabled: true }, opts || {});
     const sp = PERF.span('tl.snapshot');
@@ -32,8 +35,9 @@ async function takeSnapshot(tl, opts) {
             const its = (await tl.GetItemListInTrack(kind, t)) || [];
             const arr = Array.isArray(its) ? its : Object.values(its);
             const out = [];
+            const ro = { withName: kind === 'video' && t === 1, withEnabled: o.withEnabled && kind === 'video' && t >= 2, withIds: o.withIds };
             for (let i = 0; i < arr.length; i += CHUNK) {
-                out.push(...await Promise.all(arr.slice(i, i + CHUNK).map(it => readItem(it, o))));
+                out.push(...await Promise.all(arr.slice(i, i + CHUNK).map(it => readItem(it, ro))));
             }
             items += out.length;
             list.push({ t, locked, enabled, items: out.filter(Boolean) });
@@ -47,7 +51,7 @@ async function takeSnapshot(tl, opts) {
 async function readItem(it, o) {
     try {
         const [name, start, end, enabled, id] = await Promise.all([
-            Promise.resolve(it.GetName()).then(String).catch(() => ''),
+            o.withName ? Promise.resolve(it.GetName()).then(String).catch(() => '') : '',
             it.GetStart(), it.GetEnd(),
             o.withEnabled ? Promise.resolve(it.GetClipEnabled()).then(v => v !== false).catch(() => true) : true,
             o.withIds ? Promise.resolve(it.GetUniqueId()).then(String).catch(() => null) : null

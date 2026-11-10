@@ -1376,8 +1376,10 @@ async function deleteClipsById(tl, ids, find, known, hints) {
             if (h && h.track > 0 && Number.isFinite(Number(h.start))) where.set(id, { track: h.track, start: Number(h.start) });
         }
         if (items.length) {
-            try { await tl.DeleteClips(items, false); } catch (e) { /* checked below */ }
-            if (attempt === 0) await new Promise(r => setTimeout(r, 60));
+            let ok = false;
+            try { ok = (await tl.DeleteClips(items, false)) !== false; } catch (e) { ok = false; }
+            // a delete Resolve did not confirm is given a moment before the check (a confirmed one is final)
+            if (!ok && attempt === 0) await new Promise(r => setTimeout(r, 60));
         }
         // an id that was not on the timeline at all is gone already
         const still = await stillThere(tl, kind, left.filter(id => found.has(id)), where);

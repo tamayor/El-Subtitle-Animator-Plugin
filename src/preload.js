@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('sa', {
     setClipTiming: (itemId, ranges, wake) => ipcRenderer.invoke('timing:set', itemId, ranges, !!wake),
     fxList: () => ipcRenderer.invoke('fx:list'),
     fxGet: () => ipcRenderer.invoke('fx:get'),
-    fxSet: (effectId, on, strength, params) => ipcRenderer.invoke('fx:set', effectId, on, strength, params),
+    fxSet: (effectId, on, strength, params, hold) => ipcRenderer.invoke('fx:set', effectId, on, strength, params, hold),
     fxParam: (effectId, values) => ipcRenderer.invoke('fx:param', effectId, values),
     fxStrength: (effectId, value) => ipcRenderer.invoke('fx:strength', effectId, value),
     fxSetTags: (effectId, tags) => ipcRenderer.invoke('fx:setTags', effectId, tags),

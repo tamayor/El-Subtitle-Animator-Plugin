@@ -245,6 +245,8 @@ async function getSubtitles(tl, force, tlName) {
     if (!force && c.key === key) {
         const age = now - c.at;
         if (age < SUB_PROBE_MS) return c.list;
+        // Resolve answering one call per frame: a full read (4 calls x every subtitle) took 41 s and froze both apps
+        if (require('./resolve-load').resolveBusy()) return c.list;
         if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
             if (now - (c.probedAt || 0) < (panelAway() ? SUB_PROBE_AWAY_MS : SUB_PROBE_MS)) return c.list;
             if (subReading) return subReading;

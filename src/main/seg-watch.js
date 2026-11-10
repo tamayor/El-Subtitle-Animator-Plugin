@@ -17,6 +17,7 @@ const { bridgeCall } = require('./fusion-bridge');
 const { getFixes } = require('./fusion-fixes');
 const { currentTimeline, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
+const { resolveBusy } = require('./resolve-load');
 
 const EVERY_MS = 700;
 // clips whose letters / rows are keyed by the bridge: the segment MultiText presets and Kinetic Cloud / Lines (their
@@ -34,7 +35,7 @@ const notSegment = new Set();      // clip ids that hold no segment preset (neve
 let busy = false;
 
 async function tick() {
-    if (busy || state.applying || state.isQuitting || !state.hasSeenResolve) return;
+    if (busy || state.applying || state.isQuitting || !state.hasSeenResolve || resolveBusy()) return;
     if (getFixes().inspectorTimingWatch === false) return;
     if (Date.now() - lastTickAt < FOCUSED_MS - 50 && panelFocused()) return;
     lastTickAt = Date.now();
@@ -115,7 +116,7 @@ let sweepBusy = false, sweepTl = null, lastSweepAt = 0;
 function markSegSweepHot() { state.segSweepHot = Date.now(); }
 
 async function sweep() {
-    if (sweepBusy || busy || state.applying || state.isQuitting || !state.hasSeenResolve) return;
+    if (sweepBusy || busy || state.applying || state.isQuitting || !state.hasSeenResolve || resolveBusy()) return;
     if (getFixes().inspectorTimingWatch === false) return;
     const hot = Date.now() - (state.segSweepHot || 0) < HOT_FOR_MS;
     if (Date.now() - lastSweepAt < (hot ? SWEEP_HOT_MS : SWEEP_MS)) return;

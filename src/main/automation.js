@@ -986,7 +986,9 @@ const TOOLS = {
             require('./effect-presets').installEffects();
             for (const id of ORDER.filter(k => fxWant.includes(k))) {
                 try {
-                    const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id] }, 15000);
+                    // StopMotion's strength = its Frame Repeat (1..10, default 2): glitch / wiggle on the clip hold for it too
+                    const hold = fxWant.includes('StopMotion') ? (fxSpec.StopMotion !== null && fxSpec.StopMotion !== undefined ? fxSpec.StopMotion : 2) : null;
+                    const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id], hold }, 15000);
                     if (r && !(r.failed && r.failed.length)) fxDone.push(id);
                     else notes.push('Effect ' + id + ' could not be added');
                 } catch (e) { notes.push('Effect ' + id + ' could not be added: ' + e.message); }

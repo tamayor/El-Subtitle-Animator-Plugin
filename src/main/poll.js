@@ -10,6 +10,7 @@ const { checkResolveAlive } = require('./lifecycle');
 const { noteFrame } = require('./playback');
 const { frameToTC, getProject, getSubtitles, noteTimeline, tcToFrame, timelineMeta } = require('./resolve');
 const PERF = require('./perf');
+const { BUSY_POLL_MS, noteResolveLatency, resolveBusy } = require('./resolve-load');
 
 let appIdleReason = '';
 function setAppIdle(v, reason) {
@@ -35,10 +36,14 @@ let trackOn = { at: 0, tlName: null, map: new Map() };
 let inflight = null;
 
 // Several polls arriving while one is still being answered (Resolve busy) share that answer instead of stacking up.
+let lastPollAt = 0;
 function poll(event, force) {
     if (state.applying && state.lastPoll) return state.lastPoll;
     if (state.appIdle && state.lastPoll && !force) return state.lastPoll;
     if (inflight && !force) return inflight;
+    // Resolve answering one call per frame (resolve-load.js): the panel asks far less often until it recovers
+    if (!force && state.lastPoll && resolveBusy() && Date.now() - lastPollAt < BUSY_POLL_MS) return state.lastPoll;
+    lastPollAt = Date.now();
     inflight = pollInner(force).finally(() => { inflight = null; });
     return inflight;
 }
@@ -48,9 +53,11 @@ async function pollInner(force) {
     try {
         const project = await getProject();
         if (!project) return { ok: false, reason: 'Open a project in Resolve' };
+        const t0 = Date.now();
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, reason: 'Open a timeline in Resolve' };
         const tlName = await tl.GetName();
+        noteResolveLatency(Date.now() - t0, 2);
         noteTimeline(project, tl, tlName);      // the timing bar, Clip controls and seg-watch reuse it (resolve.js currentTimeline)
         let meta;
         if (!force && pollMeta.key === tlName && Date.now() - pollMeta.at < 3000) meta = pollMeta.meta;
@@ -62,7 +69,7 @@ async function pollInner(force) {
         // A selected subtitle wins; otherwise the subtitle under the playhead.
         let sub = null, source = 'playhead';
         const now = Date.now();
-        if (!force && selCache.tlName === tlName && now - selCache.at < SEL_EVERY_MS) {
+        if (!force && selCache.tlName === tlName && now - selCache.at < (resolveBusy() ? 3000 : SEL_EVERY_MS)) {
             if (selCache.sub) { sub = selCache.sub; source = 'selection'; }
         } else {
             try {

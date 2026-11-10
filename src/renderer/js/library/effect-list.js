@@ -115,7 +115,7 @@ function fxGlitchOptions(e, st) {
     return d;
 }
 
-function fxStrengthLabel(v) { return v <= 0 ? 'Off' : String(Math.round(v)); }
+function fxStrengthLabel(v, e) { return e && e.repeat ? Math.round(v) + ' fr' : (v <= 0 ? 'Off' : String(Math.round(v))); }
 
 function fxTagsOf(e) {
     const t = (state.lib && state.lib.effectTags) || {};
@@ -172,37 +172,41 @@ function renderEffects() {
         const sub = document.createElement('div');
         sub.className = 'sub'; sub.textContent = st === 'on' ? 'On' : (st === 'some' ? 'Some' : '');
         c.append(sw, nm, sub);
-        if (e.noStrength) {
+        if (e.noStrength || e.repeat) {
             const note = document.createElement('div');
             note.className = 'fx-note';
-            note.textContent = 'DaVinci\'s Stop Motion: set Frame Repeat in Resolve\'s Inspector → Effects';
+            note.textContent = e.repeat
+                ? 'Glitch / Wiggle hold for this many frames too. Set the same Frame Repeat in Resolve\'s Inspector → Effects → Stop Motion'
+                : 'DaVinci\'s Stop Motion: set Frame Repeat in Resolve\'s Inspector → Effects';
             c.appendChild(note);
         }
         // Strength: 0 = no effect, default = a light, visible look
         const row = document.createElement('label');
         if (e.noStrength) row.style.display = 'none';
         row.className = 'fx-strength';
-        row.title = 'Strength: 0 = no effect, ' + (e.defaultStrength || 25) + ' = default (light), 100 = strongest' +
+        row.title = (e.repeat
+            ? 'Frame Repeat: each picture (and the glitch / wiggle on it) is held this many frames. ' + (e.defaultStrength || 2) + ' = default'
+            : 'Strength: 0 = no effect, ' + (e.defaultStrength || 25) + ' = default (light), 100 = strongest') +
             (st === 'none' ? '\nUsed when you add it' : '');
-        const cap = document.createElement('span'); cap.className = 'fx-strength-cap'; cap.textContent = 'Strength';
+        const cap = document.createElement('span'); cap.className = 'fx-strength-cap'; cap.textContent = e.repeat ? 'Frame Repeat' : 'Strength';
         const rng = document.createElement('input');
-        rng.type = 'range'; rng.min = '0'; rng.max = '100'; rng.step = '1';
+        rng.type = 'range'; rng.min = e.repeat ? '1' : '0'; rng.max = e.repeat ? '10' : '100'; rng.step = '1';
         const val = document.createElement('span'); val.className = 'fx-strength-val';
         const v0 = fxStrengthShown(e);
-        rng.value = String(v0); val.textContent = fxStrengthLabel(v0);
+        rng.value = String(v0); val.textContent = fxStrengthLabel(v0, e);
         for (const ev of ['click', 'mousedown', 'pointerdown']) row.addEventListener(ev, (x) => x.stopPropagation());
         rng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
         for (const ev of ['pointerup', 'pointercancel', 'blur']) rng.addEventListener(ev, () => { fxUI.sliding = false; });
         rng.addEventListener('input', () => {
             const v = Number(rng.value);
-            val.textContent = fxStrengthLabel(v);
+            val.textContent = fxStrengthLabel(v, e);
             fxRememberStrength(e, v);
             if (st !== 'none') fxSendStrength(e, v);
         });
         rng.addEventListener('change', () => { fxUI.sliding = false; if (st !== 'none') fxSendStrength(e, Number(rng.value), true); });
         rng.addEventListener('dblclick', () => {
             const d = Number(e.defaultStrength) || 25;
-            rng.value = String(d); val.textContent = fxStrengthLabel(d); fxRememberStrength(e, d);
+            rng.value = String(d); val.textContent = fxStrengthLabel(d, e); fxRememberStrength(e, d);
             if (st !== 'none') fxSendStrength(e, d, true);
         });
         row.append(cap, rng, val);
@@ -229,7 +233,10 @@ async function fxToggle(e) {
     fxUI.pending[e.id] = true;
     renderEffects();
     let r = null;
-    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && e.glitch ? fxNextParams(e) : null); } catch (err) { r = { error: String(err && err.message || err) }; }
+    // the Stop Motion Frame Repeat the clip's glitch / wiggle hold for (the bridge uses it only while Stop Motion is on)
+    const sm = fxUI.effects.find(x => x.repeat);
+    const hold = sm ? fxStrengthShown(sm) : null;
+    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && e.glitch ? fxNextParams(e) : null, hold); } catch (err) { r = { error: String(err && err.message || err) }; }
     delete fxUI.pending[e.id];
     if (!r || r.busy || r.error) {
         fxUI.clips = before;

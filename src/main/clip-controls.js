@@ -72,7 +72,7 @@ function presetIdFor(clipName) {
 }
 
 async function clipControls() {
-    if (state.applying) return { ok: false, busy: true };
+    if (state.applying || require('./resolve-load').resolveBusy()) return { ok: false, busy: true };
     try {
         const c = await currentFusionClip();
         if (!c) return { ok: true, none: true };

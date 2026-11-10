@@ -22,6 +22,7 @@ let tracks = { key: null, at: 0, list: [] };
 async function readInfo(itemId, force) {
     const c = cache.get(itemId);
     if (c && !force && Date.now() - c.at < READ_EVERY) return c.info;
+    if (c && !force && require('./resolve-load').resolveBusy()) return c.info;      // Resolve busy: the last reading
     let info = null;
     try {
         const r = await bridgeCall('timing_get', { item: itemId }, 6000);
@@ -65,6 +66,8 @@ async function candidates(tl, frame, tlName) {
     const selKey = (ls && Date.now() - ls.at < 1500) ? ls.items.length + ':' + ls.at : 'q';
     const key = tlName + ':' + frame + ':' + selKey;
     if (candMemo.list && candMemo.key === key && Date.now() - candMemo.at < CAND_MS) return candMemo.list;
+    // Resolve answering one call per frame (resolve-load.js): keep the last list rather than re-walk the tracks
+    if (candMemo.list && require('./resolve-load').resolveBusy()) return candMemo.list;
     const sp = PERF.span('timing.candidates');
     const out = [];
     try {

@@ -3162,6 +3162,52 @@ def fx_get_strength(effect, key):
     return round(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+# Stop Motion (Resolve's OFX) holds the clip's picture, but Resolve runs it BEFORE the clip's Fusion effects, so the
+# glitch / wiggle kept moving on every frame over a held picture ("not mixing"). Glitch and Wiggle have a Hold input
+# (frames their own clock steps by): while Stop Motion is on the clip it is set to Stop Motion's Frame Repeat, so the
+# whole look moves on the same beat; without Stop Motion it is 1 (every frame). The OFX's own Frame Repeat cannot be
+# scripted: the panel's Stop Motion "Frame Repeat" slider sets our Hold and tells the user to match it in the Inspector.
+FX_HOLD_DEFAULT = 2
+
+
+def fx_clamp_hold(v):
+    try:
+        return int(max(1, min(10, round(float(v)))))
+    except Exception:
+        return FX_HOLD_DEFAULT
+
+
+def fx_get_hold(have):
+    """The Hold set on this clip's glitch / wiggle (None when neither has one)."""
+    for k in ("Glitch", "Wiggle"):
+        if k in have:
+            t = fx_strength_tool(have[k], k)
+            v = get_in(t, "Hold") if t is not None else None
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return int(round(float(v)))
+    return None
+
+
+def fx_sync_hold(have, hold):
+    """Sets Hold on the clip's glitch / wiggle: hold frames while Stop Motion is on and enabled, else 1."""
+    sm = have.get("StopMotion")
+    try:
+        on = sm is not None and bool(sm.GetIsEnabled())
+    except Exception:
+        on = sm is not None
+    n = fx_clamp_hold(hold) if on else 1
+    for k in ("Glitch", "Wiggle"):
+        if k in have:
+            t = fx_strength_tool(have[k], k)
+            if t is None:
+                continue
+            try:
+                if get_in(t, "Hold") != n:
+                    t.SetInput("Hold", n)
+            except Exception:
+                pass
+
+
 def fx_targets(a):
     """The clips an effect request is for: the given item ids, else the clips selected on the timeline (video
     track items only). No selection = no clips (the clip under the playhead was often an overlay, not the one meant)."""
@@ -3218,7 +3264,8 @@ def fx_state(items):
         have = fx_on_item(it)
         out.append({"id": str(it.GetUniqueId()), "name": it.GetName(),
                     "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
-                    "strength": {k: fx_get_strength(e, k) for k, e in have.items() if k in FX_STRENGTH_TOOL},
+                    "strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
+                                     ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
                     "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS}})
     return out
 
@@ -3236,6 +3283,13 @@ def op_fx_strength(a):
     v = max(0.0, min(100.0, float(a.get("value"))))
     items = fx_targets(a)
     done = 0
+    if key == "StopMotion":      # its "strength" is the Frame Repeat our glitch / wiggle hold for
+        for it in items:
+            have = fx_on_item(it)
+            if "StopMotion" in have:
+                fx_sync_hold(have, v)
+                done += 1
+        return {"set": done, "clips": fx_state(items)}
     for it in items:
         e = fx_on_item(it).get(key)
         t = fx_strength_tool(e, key) if e is not None else None
@@ -3287,8 +3341,14 @@ def op_fx_set(a):
         on = key not in fx_on_item(items[0])
     failed = []
     removed = False
+    hold_in = a.get("hold")
+    if hold_in is None and key == "StopMotion":
+        hold_in = a.get("strength")
     for it in items:
         have = fx_on_item(it)
+        hold = hold_in if hold_in is not None else (fx_get_hold(have) or FX_HOLD_DEFAULT)
+        if hold is not None and fx_clamp_hold(hold) <= 1 and hold_in is None:
+            hold = FX_HOLD_DEFAULT
         if on:
             e = have.get(key)
             if e is None:
@@ -3306,7 +3366,7 @@ def op_fx_set(a):
                                 t.SetInput(str(pk), float(pv))
                             except Exception:
                                 pass
-                if a.get("strength") is not None:
+                if a.get("strength") is not None and key in FX_STRENGTH_TOOL:
                     t = fx_strength_tool(e, key)
                     if t is not None:
                         try:
@@ -3328,6 +3388,8 @@ def op_fx_set(a):
                 failed.append(it.GetName())
             else:
                 removed = True
+                del have[key]
+        fx_sync_hold(have, hold)
     if removed:
         fx_nudge_inspector()
     return {"on": bool(on), "failed": failed, "clips": fx_state(items)}

@@ -16,10 +16,11 @@ const EFFECTS = [
     // Resolve's own ResolveFX Stop Motion (OFX on the clip, not a Fusion template): a Fusion TimeStretcher in an effect gets
     // held frames WITHOUT the clip's Edit sizing (Zoom / Pan / Tilt), so punched-in clips jumped between zoomed and raw.
     // Scripts cannot set OFX parameters, so its Frame Repeat is set in Resolve's Inspector (no Strength slider here).
-    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look. Set its Frame Repeat in Resolve\'s Inspector (Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion' }
+    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look. Glitch and Wiggle on the same clip hold for the same Frame Repeat (set the same number in Resolve\'s Inspector > Effects > Stop Motion)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true }
 ];
 const ORDER = EFFECTS.map(e => e.id);
 const DEFAULT_STRENGTH = 25;
+const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
 const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace' };
 
@@ -56,8 +57,15 @@ const numCtl = (id, label, def, min, max, integer) =>
     (integer ? 'INP_Integer = true, ' : '') + 'INP_Default = ' + def + ', INP_MinAllowed = 0, INP_MaxAllowed = 100, ' +
     'INP_MinScale = ' + min + ', INP_MaxScale = ' + max + ', ICS_ControlPage = "Controls", }';
 
-// a 0..1 hash of the current 2-frame block, seeded by k (simple expressions have no random)
-function hash(k) { const v = 'sin(floor(time/2)*12.9898+' + k + ')*43758.5453'; return '(' + v + '-floor(' + v + '))'; }
+// a 0..1 hash of the current glitch block (GlitchOut.Blk frames: 2, or Stop Motion's hold), seeded by k (simple
+// expressions have no random)
+function hash(k) { const v = 'sin(floor((time-comp.RenderStart)/GlitchOut.Blk)*12.9898+' + k + ')*43758.5453'; return '(' + v + '-floor(' + v + '))'; }
+
+// Hold (frames, 1..10): the effect's own clock steps by this many frames. 1 = moves every frame. The bridge sets it to
+// Stop Motion's Frame Repeat while Stop Motion is on the clip (fx_sync_hold), so wiggle / glitch hold with the picture.
+// Hidden in Resolve's Inspector (the panel's Stop Motion slider sets it).
+const holdCtl = () => 'Hold = { LINKS_Name = "Hold", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, ' +
+    'INP_Default = 1, INP_MinAllowed = 1, INP_MaxAllowed = 10, IC_Visible = false, ICS_ControlPage = "Controls", }';
 
 // Every effect has one Strength slider, 0..100: 0 = no effect, DEFAULT_STRENGTH = a light, clearly visible look.
 // It is a user control on the effect's main tool (STRENGTH_TOOL) and is published in Resolve's Inspector; the panel
@@ -82,17 +90,22 @@ function wiggle() {
     return group('ELSAWiggle', ['WiggleDisplace', 'Input'], 'WiggleDisplace', [
         ['WiggleDisplace', 'Strength', 'Strength', DEFAULT_STRENGTH],
         ['WiggleNoise', 'XScale', 'Size', 20],
-        ['WiggleNoise', 'SeetheRate', 'Speed', 0.3]
+        ['WiggleDisplace', 'Speed', 'Speed', 0.3]
     ], [
         tool('WiggleNoise', 'FastNoise', [
             'UseFrameFormatSettings = Input { Value = 0, }', 'Width = Input { Value = 270, }', 'Height = Input { Value = 480, }',      // a quarter-size map: the displacement is smooth anyway, and full size cost ~8 ms a frame
             'Detail = Input { Value = 1.31, }', 'Contrast = Input { Value = 0.026, }', 'XScale = Input { Value = 20, }',
-            'Type = Input { Value = 1, }', 'SeetheRate = Input { Value = 0.3, }'
+            // the seethe phase follows the stepped clock (Hold) instead of SeetheRate's every-frame motion
+            'Type = Input { Value = 1, }', 'SeetheRate = Input { Value = 0, }',
+            expr('Seethe', 0, 'WiggleDisplace.Speed*floor((time-comp.RenderStart)/WiggleDisplace.Hold)*WiggleDisplace.Hold')
         ], 0, -60),
         tool('WiggleDisplace', 'Displace', [
             inp('Foreground', 'WiggleNoise'), 'Offset = Input { Value = -0.5, }', 'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }',
-            expr('RefractionStrength', 1.25, 'WiggleDisplace.Strength/20'), 'LightChannel = Input { Value = 5, }'
-        ], 110, 0, strengthCtl())
+            expr('RefractionStrength', 1.25, 'WiggleDisplace.Strength/20'), 'LightChannel = Input { Value = 5, }',
+            'Speed = Input { Value = 0.3, }', 'Hold = Input { Value = 1, }'
+        ], 110, 0, '\t\t\t\t\tUserControls = ordered() { ' + numCtl('Strength', 'Strength', DEFAULT_STRENGTH, 0, 100, true) + ', ' +
+            'Speed = { LINKS_Name = "Speed", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = 0.3, INP_MinScale = 0, INP_MaxScale = 2, ICS_ControlPage = "Controls", }, ' +
+            holdCtl() + ', },\n')
     ]);
 }
 
@@ -121,7 +134,7 @@ function glitch() {
         'BlinkIn = { LINKS_Name = "Blink at Start", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, ICS_ControlPage = "Controls", INPS_StatusText = "Entry: the first frames flicker on and off with a glitch burst", }, ' +
         color('ColorA', 'Colour A', 1, D.colorA) + ', ' + color('ColorB', 'Colour B', 2, D.colorB) + ', ' +
         numCtl('Opacity', 'Opacity', D.opacity, 0, 100, true) + ', ' +
-        hidden('Blink') + ', ' + hidden('Burst') + ', ' + hidden('Amt') + ', ' + hidden('Show') + ', },\n';
+        hidden('Blink') + ', ' + hidden('Burst') + ', ' + hidden('Amt') + ', ' + hidden('Show') + ', ' + hidden('Blk') + ', ' + holdCtl() + ', },\n';
     const tint = (name, src, id, x, y) => tool(name, 'ColorGain', [inp('Input', src),
         expr('GainRed', 1, 'GlitchOut.' + id + 'Red'), expr('GainGreen', 1, 'GlitchOut.' + id + 'Green'), expr('GainBlue', 1, 'GlitchOut.' + id + 'Blue')], x, y);
     const ghost = (name, bg, fg, sign, x, extra) => tool(name, 'Merge', [inp('Background', bg), inp('Foreground', fg),
@@ -142,7 +155,8 @@ function glitch() {
             'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }', 'BlinkIn = Input { Value = 1, }',
             'ColorARed = Input { Value = ' + D.colorA[0] + ', }', 'ColorAGreen = Input { Value = ' + D.colorA[1] + ', }', 'ColorABlue = Input { Value = ' + D.colorA[2] + ', }',
             'ColorBRed = Input { Value = ' + D.colorB[0] + ', }', 'ColorBGreen = Input { Value = ' + D.colorB[1] + ', }', 'ColorBBlue = Input { Value = ' + D.colorB[2] + ', }',
-            'Opacity = Input { Value = ' + D.opacity + ', }',
+            'Opacity = Input { Value = ' + D.opacity + ', }', 'Hold = Input { Value = 1, }',
+            expr('Blk', 2, 'iif(GlitchOut.Hold>1,GlitchOut.Hold,2)'),
             expr('Blink', 0, blink), expr('Burst', 0, burst), expr('Amt', 0.5, amt), expr('Show', 1, show)
         ])
     ]);
@@ -169,7 +183,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.ofx ? null : DEFAULT_STRENGTH, noStrength: !!e.ofx, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined })); }
+function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: !!e.ofx && !e.repeat, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;
@@ -181,17 +195,17 @@ function fxList() { ensureInstalled(); return { effects: effectsForUI() }; }
 // The effect presets on the selected clips (or the clip under the playhead): { clips: [{ id, name, effects }] }
 async function fxGet() {
     const state = require('./state');
-    if (state.applying) return { busy: true };
+    if (state.applying || require('./resolve-load').resolveBusy()) return { busy: true };
     ensureInstalled();
     return await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
 }
 // Adds (on = true), removes (false) or flips (null) one effect preset on the selected clips.
-async function fxSet(event, effectId, on, strength, params) {
+async function fxSet(event, effectId, on, strength, params, hold) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
     ensureInstalled();
-    return await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params) }, 15000);
+    return await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params), hold: Number.isFinite(Number(hold)) && hold !== null ? Math.max(1, Math.min(10, Math.round(Number(hold)))) : null }, 15000);
 }
 
 // Sets one effect's Strength (0..100) on the selected clips that have it.
@@ -199,7 +213,7 @@ async function fxStrength(event, effectId, value) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
-    const v = Math.max(0, Math.min(100, Math.round(Number(value))));
+    const v = Math.max(effectId === 'StopMotion' ? 1 : 0, Math.min(effectId === 'StopMotion' ? 10 : 100, Math.round(Number(value))));
     if (!Number.isFinite(v)) return { error: 'Bad strength' };
     return await require('./fusion-bridge').bridgeCall('fx_strength', { effect: effectId, value: v }, 8000);
 }

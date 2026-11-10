@@ -2243,11 +2243,140 @@ def key_followers_inner(comp):
                 fol.SetData(ANIM_DATA, specs)
             except Exception:
                 pass
+    try:
+        keyed += key_seg_paths(comp, tpl, rs)
+    except Exception:
+        pass
     if keyed:
         try:
             tpl.SetData(SEG_KEYED_DATA, json.dumps(seg_state(comp, tpl)))
         except Exception:
             pass
+    return keyed
+
+
+# Group Slide Emphasize: each row's follower takes its WordOffset from a PolyPath whose Displacement is a Lua expression
+# of time and the Template's Seg<n>Start / End (one of them with a 24-step bezier solve). The follower asks the path
+# once per LETTER at that letter's delayed time, every frame, so that expression ran once per letter per frame (the
+# same lag as the letter expressions above). key_seg_paths writes the same curve as keyframes on the Displacement and
+# re-keys it with the letters (seg_state: RenderStart + Seg values). The preset file keeps the expression as fallback.
+SEG_PATH_RE = None
+
+
+def seg_path_spec(expr):
+    """Flat {seg, a, b, v0, v1[, x1, x2, y0, y1, y2, y3]} from a generated Seg curve expression, or None."""
+    import re
+    global SEG_PATH_RE
+    n = r"(-?[\d.]+(?:e-?\d+)?)"
+    if SEG_PATH_RE is None:
+        SEG_PATH_RE = (
+            re.compile(r": local S = tonumber\(Template\.Seg(\d+)Start\) or " + n + r"\nlocal E = tonumber\(Template\.Seg\1End\) or " + n
+                       + r"\nlocal x = " + n + r" \+ \(time - comp\.RenderStart - S\) \* " + n + r" / math\.max\(0\.001, E - S\)"
+                       + r"\nif x <= " + n + r" then return " + n + r" end\nif x >= " + n + r" then return " + n + r" end\n(.*)\nreturn y\s*$", re.S),
+            re.compile(r"local y = " + n + r" \+ \(" + n + r" - " + n + r"\) \* \(x - " + n + r"\) / " + n + r"$"),
+            re.compile(r"local function bz\(a, b, c, d, u\) local v = 1 - u return v\*v\*v\*a \+ 3\*v\*v\*u\*b \+ 3\*v\*u\*u\*c \+ u\*u\*u\*d end"
+                       + r"\nlocal lo, hi = 0, 1\nfor i = 1, 24 do local m = \(lo \+ hi\) / 2 if bz\(" + n + ", " + n + ", " + n + ", " + n
+                       + r", m\) < x then lo = m else hi = m end end\nlocal y = bz\(" + n + ", " + n + ", " + n + ", " + n + r", \(lo \+ hi\) / 2\)$"))
+    head, lin, bez = SEG_PATH_RE
+    m = head.match(expr or "")
+    if not m:
+        return None
+    a, b = float(m.group(6)), float(m.group(8))
+    if not b > a:
+        return None
+    spec = {"seg": int(m.group(1)), "a": a, "b": b, "v0": float(m.group(7)), "v1": float(m.group(9))}
+    body = m.group(10).strip()
+    ml = lin.match(body)
+    if ml:
+        spec.update({"y0": float(ml.group(1)), "y1": float(ml.group(2))})
+        return spec
+    mb = bez.match(body)
+    if mb:
+        g = [float(mb.group(i)) for i in range(1, 9)]
+        spec.update({"x1": g[1], "x2": g[2], "y0": g[4], "c1": g[5], "c2": g[6], "y1": g[7], "bz": 1})
+        return spec
+    return None
+
+
+def seg_path_value(spec, p):
+    """The expression's value at p = 0..1 of the row's range."""
+    a, b = float(spec["a"]), float(spec["b"])
+    if p <= 0:
+        return float(spec["v0"])
+    if p >= 1:
+        return float(spec["v1"])
+    y0, y1 = float(spec["y0"]), float(spec["y1"])
+    if not spec.get("bz"):
+        return y0 + (y1 - y0) * p
+    x = a + (b - a) * p
+
+    def bz(q0, q1, q2, q3, u):
+        v = 1 - u
+        return v * v * v * q0 + 3 * v * v * u * q1 + 3 * v * u * u * q2 + u * u * u * q3
+    lo, hi = 0.0, 1.0
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        if bz(a, float(spec["x1"]), float(spec["x2"]), b, mid) < x:
+            lo = mid
+        else:
+            hi = mid
+    return bz(y0, float(spec["c1"]), float(spec["c2"]), y1, (lo + hi) / 2)
+
+
+def key_seg_paths(comp, tpl, rs):
+    keyed = 0
+    for tool in tool_list(comp):
+        if attrs(tool).get("TOOLS_RegID") != "PolyPath":
+            continue
+        try:
+            expr = tool.Displacement.GetExpression()
+        except Exception:
+            expr = None
+        spec = seg_path_spec(expr) if expr and "time" in expr else None
+        if spec:
+            try:
+                tool.SetData(ANIM_DATA, spec)
+            except Exception:
+                pass
+        else:
+            if expr:
+                continue                     # some other expression: it stays
+            try:
+                spec = dict(tool.GetData(ANIM_DATA) or {})
+            except Exception:
+                spec = None
+            if not spec or "seg" not in spec:
+                continue
+        try:
+            s = num(get_in(tpl, "Seg%d" % int(spec["seg"]) + "Start"), 0)
+            e = num(get_in(tpl, "Seg%d" % int(spec["seg"]) + "End"), s)
+            d = max(0.001, e - s)
+            if expr:
+                tool.Displacement.SetExpression(None)
+            sp = anim_spline(tool, "Displacement", "smooth")
+            if sp is None:
+                if expr:
+                    tool.Displacement.SetExpression(expr)      # never leave the row without its slide
+                continue
+            lo, hi = rs + s, rs + s + d
+            ts = sorted(set([float(j) for j in range(int(d) + 1)] + [d]))
+            keys = {lo + t: {1: seg_path_value(spec, t / d), "Flags": {"Linear": True}} for t in ts}
+            try:
+                old = [float(k) for k in (sp.GetKeyFrames() or {}).keys()]
+            except Exception:
+                old = []
+            for k in old:      # as in key_followers: stray keys are first given the held value, then deleted
+                if k not in keys:
+                    keys[k] = {1: seg_path_value(spec, (k - lo) / d), "Flags": {"Linear": True}}
+            sp.SetKeyFrames(keys, True)
+            try:
+                sp.DeleteKeyFrames(-1e6, lo - 0.5)
+                sp.DeleteKeyFrames(hi + 0.5, 1e6)
+            except Exception:
+                pass
+            keyed += 1
+        except Exception:
+            continue
     return keyed
 
 

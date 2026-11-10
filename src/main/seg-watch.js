@@ -15,7 +15,7 @@ module.exports = {
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { getFixes } = require('./fusion-fixes');
-const { getProject } = require('./resolve');
+const { currentTimeline, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
 
 const EVERY_MS = 700;
@@ -23,12 +23,21 @@ const EVERY_MS = 700;
 // rows' pop-in keys follow Animation Start / Frames, Frames Per Row, the text's row count and the clip's start)
 const KEYED_CLIP = /^(MultiText|Text\+ Kinetic (Cloud|Lines))/;
 const MAX_SEL = 4;
+// While the panel itself has the focus nobody is dragging a slider in Resolve's Inspector (and the panel's own timing
+// bar re-keys what it changes), so the look comes every FOCUSED_MS instead of every EVERY_MS.
+const FOCUSED_MS = 2100;
+let lastTickAt = 0;
+function panelFocused() {
+    try { return !!(state.mainWindow && !state.mainWindow.isDestroyed() && state.mainWindow.isFocused()); } catch (e) { return false; }
+}
 const notSegment = new Set();      // clip ids that hold no segment preset (never asked again this session)
 let busy = false;
 
 async function tick() {
     if (busy || state.applying || state.isQuitting || !state.hasSeenResolve) return;
     if (getFixes().inspectorTimingWatch === false) return;
+    if (Date.now() - lastTickAt < FOCUSED_MS - 50 && panelFocused()) return;
+    lastTickAt = Date.now();
     busy = true;
     const sp = PERF.span('segwatch.tick');
     try {
@@ -37,8 +46,7 @@ async function tick() {
         const ls = state.lastSelection;
         if (ls && Date.now() - ls.at < EVERY_MS) sel = ls.items.slice(0, MAX_SEL);
         if (!sel) {
-            const project = await getProject();
-            const tl = project && await project.GetCurrentTimeline();
+            const { tl } = await currentTimeline(EVERY_MS);
             if (!tl) return;
             const all = (await tl.GetSelectedClips()) || [];
             sel = (Array.isArray(all) ? all : Object.values(all)).slice(0, MAX_SEL);
@@ -75,6 +83,29 @@ async function tick() {
 const SWEEP_HOT_MS = 6000, SWEEP_MS = 30000, HOT_FOR_MS = 90000, SWEEP_SETTLE_MS = 4000;
 const SWEEP_BATCH = 6;
 const seen = new Map();     // clip id -> "start|end" at the last check
+// A clip's name never changes and reading every clip's name was the panel's biggest single cost (35,000 calls in ten
+// minutes), so each track remembers where its keyed clips sit: { count, at, keyed: [{ pos, id }] }. While the track's
+// clip count is the same, only those positions are read (id, start, end); an id that is not where it was, a changed
+// count, or NAMES_FULL_MS since the last full look reads the whole track's names again.
+const NAMES_FULL_MS = 60000;
+let trackKeyed = new Map();
+async function keyedFacts(t, list) {
+    const mem = trackKeyed.get(t);
+    if (mem && mem.count === list.length && Date.now() - mem.at < NAMES_FULL_MS) {
+        const facts = await Promise.all(mem.keyed.map(k => Promise.all([list[k.pos].GetUniqueId(), list[k.pos].GetStart(), list[k.pos].GetEnd()]).catch(() => null)));
+        if (facts.every((f, i) => f && String(f[0]) === mem.keyed[i].id)) return facts;
+    }
+    const keyed = [], out = [];
+    for (let i = 0; i < list.length; i += 40) {
+        const part = list.slice(i, i + 40);
+        const names = await Promise.all(part.map(it => Promise.resolve(it.GetName()).catch(() => '')));
+        const pos = part.map((it, k) => i + k).filter((p, k) => KEYED_CLIP.test(String(names[k] || '')));
+        const facts = await Promise.all(pos.map(p => Promise.all([list[p].GetUniqueId(), list[p].GetStart(), list[p].GetEnd()]).catch(() => null)));
+        for (let k = 0; k < pos.length; k++) if (facts[k]) { keyed.push({ pos: pos[k], id: String(facts[k][0]) }); out.push(facts[k]); }
+    }
+    trackKeyed.set(t, { count: list.length, at: Date.now(), keyed });
+    return out;
+}
 let sweepBusy = false, sweepTl = null, lastSweepAt = 0;
 
 function markSegSweepHot() { state.segSweepHot = Date.now(); }
@@ -90,35 +121,23 @@ async function sweep() {
     const sp = PERF.span('segwatch.sweep');
     let checked = 0, sent = 0;
     try {
-        const project = await getProject();
-        const tl = project && await project.GetCurrentTimeline();
+        const { tl, tlName } = await currentTimeline(2000);
         if (!tl) return;
-        const tlName = String(await tl.GetName());
-        if (tlName !== sweepTl) { seen.clear(); sweepTl = tlName; }
-        const n = (await tl.GetTrackCount('video')) || 0;
-        const lists = [];
-        for (let t = 1; t <= n; t++) {
-            if (state.applying) return;
-            const items = (await tl.GetItemListInTrack('video', t)) || [];
-            lists.push(Array.isArray(items) ? items : Object.values(items));
-        }
+        if (tlName !== sweepTl) { seen.clear(); trackKeyed = new Map(); sweepTl = tlName; }
+        const lists = await videoTrackLists(tl, tlName, 3000);
+        if (state.applying) return;
         lastSweepAt = Date.now();
         const todo = [];
-        for (const list of lists) {
+        for (let t = 0; t < lists.length; t++) {
             if (state.applying) return;
-            for (let i = 0; i < list.length; i += 40) {
-                const part = list.slice(i, i + 40);
-                const names = await Promise.all(part.map(it => Promise.resolve(it.GetName()).catch(() => '')));
-                const mt = part.filter((it, k) => KEYED_CLIP.test(String(names[k] || '')));
-                const facts = await Promise.all(mt.map(it => Promise.all([it.GetUniqueId(), it.GetStart(), it.GetEnd()]).catch(() => null)));
-                checked += part.length;
-                for (const f of facts) {
-                    if (!f) continue;
-                    const id = String(f[0]);
-                    if (notSegment.has(id)) continue;
-                    const key = f[1] + '|' + f[2];
-                    if (seen.get(id) !== key) todo.push({ id, key });
-                }
+            const facts = await keyedFacts(t, lists[t]);
+            checked += facts.length;
+            for (const f of facts) {
+                if (!f) continue;
+                const id = String(f[0]);
+                if (notSegment.has(id)) continue;
+                const key = f[1] + '|' + f[2];
+                if (seen.get(id) !== key) todo.push({ id, key });
             }
         }
         for (let k = 0; k < todo.length; k += SWEEP_BATCH) {

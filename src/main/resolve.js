@@ -2,7 +2,8 @@
 // and timeline item lookups by id.
 
 module.exports = {
-    findItemsByIds, frameToTC, getProject, getSubtitles, listSubtitles, setSubtitlesEnabled, tcToFrame, timelineMeta
+    currentTimeline, findItemsByIds, frameToTC, getProject, getSubtitles, listSubtitles, noteTimeline, setSubtitlesEnabled, tcToFrame, timelineMeta,
+    videoTrackLists
 };
 
 const WorkflowIntegration = require('./workflow-integration');
@@ -102,10 +103,51 @@ async function probePromiseApi() {
 }
 setTimeout(() => { probePromiseApi().catch(() => { /* logged */ }); }, 5000).unref();
 
+// The project manager is one object for the whole Resolve session, so its handle is asked for once per connection
+// (it was a third of every getProject, thousands of times in ten minutes).
+let pmCache = { obj: null, pm: null, wrapped: false };
 async function getProject() {
     const resolve = await getResolve();
-    const pm = await resolve.GetProjectManager();
-    return pm ? await pm.GetCurrentProject() : null;
+    const wrapped = PERF.perfEnabled();
+    if (!pmCache.pm || pmCache.obj !== state.resolveObj || pmCache.wrapped !== wrapped) {
+        pmCache = { obj: state.resolveObj, pm: await resolve.GetProjectManager(), wrapped };
+    }
+    const pm = pmCache.pm;
+    if (!pm) return null;
+    try { return await pm.GetCurrentProject(); }
+    catch (e) { pmCache.pm = null; throw e; }
+}
+
+// The current project / timeline / timeline name for the panel's background readers (timing bar, Clip controls,
+// seg-watch): the answer the poll (or one of them) got less than maxAge ms ago is shared instead of three more calls
+// each. Anything that changes the timeline asks Resolve itself (getProject), never this.
+let tlNow = { at: 0, obj: null, project: null, tl: null, tlName: '' };
+function noteTimeline(project, tl, tlName) { tlNow = { at: Date.now(), obj: state.resolveObj, project, tl, tlName: String(tlName || '') }; }
+async function currentTimeline(maxAge) {
+    if (tlNow.tl && tlNow.obj === state.resolveObj && Date.now() - tlNow.at < (maxAge || 700)) return tlNow;
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) { tlNow = { at: 0, obj: null, project: null, tl: null, tlName: '' }; return { project, tl: null, tlName: '' }; }
+    noteTimeline(project, tl, await tl.GetName());
+    return tlNow;
+}
+
+// The clips of every video track ([[item...], ...], track 1 first), shared by the readers that only look (seg-watch's
+// sweep, the timing bar's clip list): one of them lists, the other reuses a list younger than maxAge. A change this
+// plugin made (state.segSweepHot: a placement, a timing change) makes the list old at once.
+let vidLists = { key: '', at: 0, lists: null };
+async function videoTrackLists(tl, tlName, maxAge) {
+    const v = vidLists;
+    if (v.lists && v.key === tlName && Date.now() - v.at < maxAge && v.at > (state.segSweepHot || 0)) return v.lists;
+    const at = Date.now();
+    const n = (await tl.GetTrackCount('video')) || 0;
+    const lists = [];
+    for (let t = 1; t <= n; t++) {
+        const its = (await tl.GetItemListInTrack('video', t)) || [];
+        lists.push(Array.isArray(its) ? its : Object.values(its));
+    }
+    vidLists = { key: tlName, at, lists };
+    return lists;
 }
 
 // ------------------------------------------------------------------ timecode <-> frames
@@ -175,7 +217,9 @@ function frameToTC(frame, meta) {
 // while the user works in Resolve, SUB_NAMES_AWAY_MS) every clip's text is read (one call per clip): an edited text
 // shows up. The full read (four calls per clip; a moved subtitle shows up) runs when either check differs, and in any
 // case every SUB_FULL_MS. Concurrent callers share one read.
-const SUB_PROBE_MS = 3000, SUB_NAMES_MS = 6000, SUB_NAMES_AWAY_MS = 15000, SUB_FULL_MS = 30000;
+// The full read blocks the poll for its length (0.8 s on 200 subtitles, seconds when Resolve is busy), so it comes
+// every SUB_FULL_MS, and every SUB_FULL_AWAY_MS while the user works in Resolve (the panel's Re-read button forces one).
+const SUB_PROBE_MS = 3000, SUB_NAMES_MS = 6000, SUB_NAMES_AWAY_MS = 15000, SUB_FULL_MS = 60000, SUB_FULL_AWAY_MS = 120000;
 let subReading = null;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
@@ -193,13 +237,13 @@ function panelAway() {
 function subSignature(list) {
     return list.map(s => s.track + ':' + s.start + ':' + s.end + ':' + (s.enabled === false ? 0 : 1) + ':' + s.color + ':' + s.text).join('\n');
 }
-async function getSubtitles(tl, force) {
-    const key = await tl.GetName();
+async function getSubtitles(tl, force, tlName) {
+    const key = tlName || await tl.GetName();
     const c = state.subCache, now = Date.now();
     if (!force && c.key === key) {
         const age = now - c.at;
         if (age < SUB_PROBE_MS) return c.list;
-        if (age < SUB_FULL_MS) {
+        if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
             if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
             if (subReading) return subReading;
             const sp = PERF.span('sub.probe');

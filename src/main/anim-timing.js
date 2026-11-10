@@ -9,7 +9,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming };
 
 const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
-const { getProject, tcToFrame, timelineMeta } = require('./resolve');
+const { currentTimeline, getProject, tcToFrame, timelineMeta, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
 const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx, refitRowSfx } = require('./placement');
 
@@ -83,10 +83,10 @@ async function candidates(tl, frame, tlName) {
         const now = Date.now();
         const full = tracks.key !== tlName || now - (tracks.fullAt || 0) > TRACKS_FULL_MS;
         const byTrack = new Map(), reread = [];
-        const n = (await tl.GetTrackCount('video')) || 0;
+        const lists = await videoTrackLists(tl, tlName, 3000);      // shared with seg-watch's sweep
+        const n = lists.length;
         for (let t = n; t >= 1; t--) {
-            const its = (await tl.GetItemListInTrack('video', t)) || [];
-            const arr = Array.isArray(its) ? its : Object.values(its);
+            const arr = lists[t - 1];
             const old = tracks.byTrack && tracks.byTrack.get(t);
             if (!full && old && old.length === arr.length) { byTrack.set(t, old); continue; }
             byTrack.set(t, await trackFacts(arr));
@@ -100,8 +100,15 @@ async function candidates(tl, frame, tlName) {
     const under = tracks.list.filter(x => frame >= x.start && frame < x.end);
     // the comp count of a clip is read once per list (it does not change while the clip sits there)
     const counts = await Promise.all(under.map(x => x.comps !== null ? x.comps : Promise.resolve(x.item.GetFusionCompCount()).then(v => { x.comps = Number(v) || 0; return x.comps; }).catch(() => 0)));
+    // a clip's id and name do not change while it sits in the list: read once, then only its start / end
     for (let k = 0; k < under.length; k++) {
-        if (counts[k] > 0) { try { out.push(await clipFacts(under[k].item)); } catch (e) { /* gone */ } }
+        if (!(counts[k] > 0)) continue;
+        const x = under[k];
+        try {
+            if (!x.facts) x.facts = await clipFacts(x.item);
+            else { const [s, e] = await Promise.all([x.item.GetStart(), x.item.GetEnd()]); x.facts.start = Number(s); x.facts.end = Number(e); }
+            out.push(Object.assign({}, x.facts));
+        } catch (e) { x.facts = null; /* gone */ }
     }
     candMemo = { key, at: Date.now(), list: out };
     sp.end({ n: out.length });
@@ -111,10 +118,8 @@ async function candidates(tl, frame, tlName) {
 // The Fusion clip the user is working on, picked like the timing bar's: the selected video clip, else the top clip
 // under the playhead. -> { itemId, name, start, end, selected } or null. Used by the Clip controls (clip-controls.js).
 async function currentFusionClip() {
-    const project = await getProject();
-    const tl = project && await project.GetCurrentTimeline();
+    const { project, tl, tlName } = await currentTimeline(700);
     if (!tl) return null;
-    const tlName = await tl.GetName();
     if (meta.key !== tlName || Date.now() - meta.at > 5000) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
     const frame = tcToFrame(await tl.GetCurrentTimecode(), meta.meta);
     const list = await candidates(tl, frame, tlName);
@@ -171,10 +176,8 @@ async function syncPlacedRowSounds(itemId, info) {
 async function clipTiming(event, opts) {
     if (state.applying) return { ok: false, busy: true };
     try {
-        const project = await getProject();
-        const tl = project && await project.GetCurrentTimeline();
+        const { project, tl, tlName } = await currentTimeline(700);
         if (!tl) return { ok: false, reason: 'Open a timeline in Resolve' };
-        const tlName = await tl.GetName();
         if (meta.key !== tlName || Date.now() - meta.at > 5000) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
         const frame = tcToFrame(await tl.GetCurrentTimecode(), meta.meta);
         const force = !!(opts && opts.force);
@@ -306,5 +309,17 @@ async function moveSegSounds(itemId, list) {
         if (ok) moved++; else failed++;
     }
     if (gone.length) segSfxForget(itemId, gone);
+    // A linked sound moved on its own is now out of sync with its text clip (Resolve's red "-00:10" badge on both).
+    // Linking the same group again takes the new positions as the sync point. An unlinked clip (live preview) stays so.
+    if (moved && typeof tl.SetClipsLinked === 'function' && typeof text.GetLinkedItems === 'function') {
+        try {
+            let have = (await text.GetLinkedItems()) || [];
+            if (!Array.isArray(have)) have = Object.values(have);
+            if (have.length) {
+                await tl.SetClipsLinked([text, ...have], false);
+                await tl.SetClipsLinked([text, ...have], true);
+            }
+        } catch (e) { /* the sounds are in place; only the badge stays */ }
+    }
     return { moved, failed };
 }

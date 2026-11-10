@@ -8,7 +8,7 @@ const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { checkResolveAlive } = require('./lifecycle');
 const { noteFrame } = require('./playback');
-const { frameToTC, getProject, getSubtitles, tcToFrame, timelineMeta } = require('./resolve');
+const { frameToTC, getProject, getSubtitles, noteTimeline, tcToFrame, timelineMeta } = require('./resolve');
 const PERF = require('./perf');
 
 let appIdleReason = '';
@@ -51,10 +51,11 @@ async function pollInner(force) {
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, reason: 'Open a timeline in Resolve' };
         const tlName = await tl.GetName();
+        noteTimeline(project, tl, tlName);      // the timing bar, Clip controls and seg-watch reuse it (resolve.js currentTimeline)
         let meta;
         if (!force && pollMeta.key === tlName && Date.now() - pollMeta.at < 3000) meta = pollMeta.meta;
         else { meta = await timelineMeta(tl, project); pollMeta = { key: tlName, at: Date.now(), meta }; }
-        const [subs, tc] = await Promise.all([getSubtitles(tl, force), tl.GetCurrentTimecode()]);
+        const [subs, tc] = await Promise.all([getSubtitles(tl, force, tlName), tl.GetCurrentTimecode()]);
         const frame = tcToFrame(tc, meta);
         noteFrame(tlName, frame);      // playback.js isPlaying knows a still timeline from the last two readings
 

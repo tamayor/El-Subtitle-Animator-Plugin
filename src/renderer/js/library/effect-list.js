@@ -158,6 +158,130 @@ function fxEaseSvg(i, w, h) {
     return svg;
 }
 
+// ---- Transform Start / End: a bar from the clip's first to its last frame with a start head (hollow) and an end head
+// (solid), the move between them (drag it to shift the move), and Resolve's playhead (red, from the timing bar's poll,
+// anim-timing.js tmState.frame). Heads snap to the playhead; End on the last frame is stored as 0 ("the last frame"),
+// so a trimmed clip keeps the move to its end. Keys: arrows 1 frame (Shift 5), Alt moves both, S / E pick, P = playhead.
+const FXR_SNAP_PX = 10, FXR_HEAD_PX = 10;
+function fxPlayheadIn(clip) {
+    const f = typeof tmState !== 'undefined' ? tmState.frame : undefined;
+    if (!clip || !Number.isFinite(f) || !Number.isFinite(Number(clip.start))) return null;
+    const rel = f - Number(clip.start);
+    return rel >= 0 && rel < Number(clip.frames) ? rel : null;
+}
+function fxFrameRange(e, st, p, clip, last) {
+    const r = { s: Math.max(0, Math.min(last - 1, Math.round(Number(p.InF)) || 0)), e: 0 };
+    const out = Math.round(Number(p.OutF)) || 0;
+    r.e = Math.max(r.s + 1, Math.min(last, out > 0 ? out : last));
+    let active = 'e', drag = null, sendT = null;
+    const box = document.createElement('div'); box.className = 'fxr';
+    const bar = document.createElement('div'); bar.className = 'fxr-bar'; bar.tabIndex = 0;
+    bar.title = 'Drag a head to set where the move starts or ends, drag between them to shift it. Snaps to the playhead (P). Double-click: the whole clip';
+    const mk = (cls, parent) => { const x = document.createElement('div'); x.className = cls; (parent || bar).appendChild(x); return x; };
+    mk('fxr-track');
+    const range = mk('fxr-range');
+    const ph = mk('fxr-ph hidden');
+    const phLab = document.createElement('span'); ph.appendChild(phLab);
+    const hs = mk('fxr-knob fxr-start'), he = mk('fxr-knob fxr-end');
+    const read = document.createElement('div'); read.className = 'fxr-read';
+    box.append(bar, read);
+    const pct = (f) => (Math.max(0, Math.min(1, f / last)) * 100) + '%';
+    const paint = () => {
+        range.style.left = pct(r.s); range.style.width = ((r.e - r.s) / last * 100) + '%';
+        hs.style.left = pct(r.s); he.style.left = pct(r.e);
+        hs.classList.toggle('on', active !== 'e'); he.classList.toggle('on', active !== 's');
+        const at = fxPlayheadIn(clip);
+        ph.classList.toggle('hidden', at === null);
+        if (at !== null) { ph.style.left = pct(at); phLab.textContent = String(at); }
+        read.innerHTML = 'Start <b>' + r.s + '</b> · End <b>' + r.e + '</b>' + (r.e >= last ? ' (last)' : '') + ' <span class="fxr-len">/ ' + last + ' f</span>';
+    };
+    const glide = () => { bar.classList.add('glide'); clearTimeout(bar._g); bar._g = setTimeout(() => bar.classList.remove('glide'), 220); };
+    const send = (now) => {
+        clearTimeout(sendT);
+        const v = { InF: r.s, OutF: r.e >= last ? 0 : r.e };
+        if (now) fxSendParams(e, st, v, true); else sendT = setTimeout(() => fxSendParams(e, st, v, false), 60);
+    };
+    const apply = (part, v) => {
+        v = Math.round(v);
+        if (part === 'm') { const d = r.e - r.s; r.s = Math.max(0, Math.min(last - d, v)); r.e = r.s + d; }
+        else if (part === 's') r.s = Math.max(0, Math.min(r.e - 1, v));
+        else r.e = Math.max(r.s + 1, Math.min(last, v));
+    };
+    const frameAt = (x, part, grab) => {
+        const b = bar.getBoundingClientRect();
+        const px = Math.max(0, Math.min(b.width, x - b.left));
+        let f = Math.round(px / b.width * last) - (part === 'm' ? grab : 0);
+        const at = fxPlayheadIn(clip);
+        let snap = false;
+        if (at !== null) {
+            const toPx = (q) => q / last * b.width;
+            const edges = part === 'm' ? [[0, f], [r.e - r.s, f + r.e - r.s]] : [[0, f]];
+            let best = FXR_SNAP_PX + 1;
+            for (const [off, q] of edges) { const d = Math.abs(toPx(q) - toPx(at)); if (d <= FXR_SNAP_PX && d < best) { best = d; f = at - off; snap = true; } }
+        }
+        return { f, snap };
+    };
+    for (const ev of ['click', 'mousedown']) bar.addEventListener(ev, (x) => x.stopPropagation());
+    bar.addEventListener('pointerdown', (x) => {
+        if (x.button !== 0) return;
+        x.stopPropagation();
+        bar.setPointerCapture(x.pointerId); bar.focus();
+        fxUI.sliding = true;
+        const b = bar.getBoundingClientRect(), px = x.clientX - b.left, toPx = (q) => q / last * b.width;
+        const dS = Math.abs(px - toPx(r.s)), dE = Math.abs(px - toPx(r.e));
+        let part;
+        if (Math.min(dS, dE) <= FXR_HEAD_PX) part = dS < dE || (dS === dE && px < toPx(r.s)) ? 's' : 'e';
+        else if (px > toPx(r.s) && px < toPx(r.e)) part = 'm';
+        else part = dS < dE ? 's' : 'e';
+        drag = { part, grab: part === 'm' ? Math.round(px / b.width * last) - r.s : 0, snap: false };
+        active = part;
+        bar.classList.add('dragging');
+        if (part !== 'm') { const q = frameAt(x.clientX, part, 0); drag.snap = q.snap; apply(part, q.f); glide(); send(false); }
+        paint();
+    });
+    bar.addEventListener('pointermove', (x) => {
+        if (!drag) return;
+        const q = frameAt(x.clientX, drag.part, drag.grab);
+        if (q.snap !== drag.snap) glide();
+        drag.snap = q.snap;
+        ph.classList.toggle('hot', q.snap);
+        const before = r.s + ':' + r.e;
+        apply(drag.part, q.f);
+        if (r.s + ':' + r.e !== before) { paint(); send(false); }
+    });
+    const end = (x) => {
+        if (!drag) return;
+        try { bar.releasePointerCapture(x.pointerId); } catch (err) { /* ignore */ }
+        drag = null; fxUI.sliding = false;
+        bar.classList.remove('dragging'); ph.classList.remove('hot');
+        glide(); paint(); send(true);
+    };
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+    bar.addEventListener('dblclick', () => { r.s = 0; r.e = last; glide(); paint(); send(true); });
+    bar.addEventListener('keydown', (x) => {
+        const step = x.shiftKey ? 5 : 1;
+        let part = x.altKey ? 'm' : (active === 's' ? 's' : 'e');
+        const base = part === 'e' ? r.e : r.s;
+        let v = null;
+        if (x.key === 'ArrowLeft') v = base - step;
+        else if (x.key === 'ArrowRight') v = base + step;
+        else if (x.key === 'Home') v = 0;
+        else if (x.key === 'End') v = part === 'm' ? last - (r.e - r.s) : last;
+        else if (x.key === 's' || x.key === 'S') { active = 's'; paint(); return; }
+        else if (x.key === 'e' || x.key === 'E') { active = 'e'; paint(); return; }
+        else if (x.key === 'p' || x.key === 'P') { v = fxPlayheadIn(clip); if (part === 'm') part = 's'; }
+        if (v === null || v === undefined) return;
+        x.preventDefault(); x.stopPropagation();
+        apply(part, v); glide(); paint(); send(true);
+    });
+    // the playhead follows Resolve while the bar is on screen
+    const tick = () => { if (!box.isConnected) return; if (!drag) { const at = fxPlayheadIn(clip); ph.classList.toggle('hidden', at === null); if (at !== null) { ph.style.left = pct(at); phLab.textContent = String(at); } } setTimeout(tick, 150); };
+    paint();
+    setTimeout(tick, 150);
+    return box;
+}
+
 // ---- Transform: Zoom % / Left-Right % / Up-Down % (where it ends), easing curve, Reverse, Length
 function fxTransformOptions(e, st) {
     const p = fxParamsShown(e);
@@ -243,8 +367,11 @@ function fxTransformOptions(e, st) {
         w.append(document.createTextNode(label), num);
         return w;
     };
-    rr.append(frameBox('Start', 'InF', 'Clip frame the move starts on (0 = the first frame)'),
-        frameBox('End', 'OutF', 'Clip frame the move ends on (the last frame by default)' + (last !== null ? '; last frame = ' + last : '')));
+    // a clip with the effect selected: Start / End as a range bar like the Animation timing bar (playhead included);
+    // no clip yet: the number boxes, remembered for the next add
+    if (last !== null && last > 0) rr.appendChild(fxFrameRange(e, st, p, clip, last));
+    else rr.append(frameBox('Start', 'InF', 'Clip frame the move starts on (0 = the first frame)'),
+        frameBox('End', 'OutF', 'Clip frame the move ends on (the last frame by default)'));
     // reverse
     const rv = document.createElement('div'); rv.className = 'fx-opt-row';
     const rl = document.createElement('label'); rl.className = 'fx-check'; rl.title = 'Start at the values above and end neutral (zoom out / move back)';

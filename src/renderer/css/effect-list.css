@@ -97,3 +97,35 @@
 .fx-ease-tile.on { border-color: var(--accent); color: var(--text); }
 .fx-ease-tile.on .fx-ease-curve { stroke: var(--accent); }
 .fx-card .sub.fx-twice { color: var(--bad); font-weight: 600; }
+
+/* Transform Start / End range bar (fxFrameRange in js/library/effect-list.js), styled like the Animation timing bar
+   (css/anim-timing.css): hollow start head, solid end head, the move between them, the red playhead. */
+.fx-card .fxr { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 12px; }
+.fx-card .fxr-bar { --fxr-ease: cubic-bezier(0.65, 0, 0.35, 1); position: relative; height: 24px; margin: 0 7px;
+    cursor: ew-resize; touch-action: none; outline: none; user-select: none; }
+.fx-card .fxr-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: 6px; }
+.fx-card .fxr-track { position: absolute; left: 0; right: 0; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px;
+    background: var(--card-inner); border: 1px solid var(--line); }
+.fx-card .fxr-range { position: absolute; top: 50%; height: 10px; margin-top: -5px; border-radius: 4px; pointer-events: none;
+    background: linear-gradient(90deg, var(--matcha-tint), var(--matcha)); }
+.fx-card .fxr-bar:hover .fxr-range, .fx-card .fxr-bar.dragging .fxr-range { box-shadow: 0 0 0 1px var(--matcha-border); }
+.fx-card .fxr-knob { position: absolute; top: 50%; width: 12px; height: 20px; margin: -10px 0 0 -6px; border-radius: 4px;
+    background: var(--matcha); border: 2px solid var(--matcha-ink); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    pointer-events: none; transition: transform 0.15s var(--fxr-ease); }
+.fx-card .fxr-knob.fxr-start { background: var(--card); border-color: var(--matcha); }
+.fx-card .fxr-knob.on { transform: scale(1.12); box-shadow: 0 0 0 2px var(--matcha-tint), 0 1px 4px rgba(0, 0, 0, 0.45); }
+.fx-card .fxr-bar.glide .fxr-knob { transition: left 0.2s var(--fxr-ease), transform 0.15s var(--fxr-ease); }
+.fx-card .fxr-bar.glide .fxr-range { transition: left 0.2s var(--fxr-ease), width 0.2s var(--fxr-ease); }
+.fx-card .fxr-ph { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 2px solid var(--strawberry);
+    pointer-events: none; transition: left 0.2s var(--fxr-ease); }
+.fx-card .fxr-ph span { position: absolute; bottom: 100%; left: 0; transform: translateX(-50%); padding: 0 4px; border-radius: 4px;
+    background: var(--strawberry); color: var(--strawberry-ink); font-size: 9.5px; font-weight: 600; line-height: 13px;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fx-card .fxr-ph.hot { filter: drop-shadow(0 0 4px var(--strawberry)); }
+.fx-card .fxr-ph.hidden { display: none; }
+.fx-card .fxr-read { margin: 0 7px; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fx-card .fxr-read b { color: var(--matcha); font-weight: 600; }
+.fx-card .fxr-read .fxr-len { opacity: 0.7; }
+@media (prefers-reduced-motion: reduce) {
+    .fx-card .fxr-bar.glide .fxr-knob, .fx-card .fxr-bar.glide .fxr-range, .fx-card .fxr-ph, .fx-card .fxr-knob { transition: none; }
+}

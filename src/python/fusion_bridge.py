@@ -3155,7 +3155,14 @@ def fx_hold_tool(effect, key):
 
 
 def fx_clip_is_sized(it):
-    """True when the clip has Edit sizing a Fusion time-remap would drop on held frames."""
+    """True when the clip has Edit sizing a Fusion time-remap would drop on held frames. Only media clips (video
+    punch-ins): titles / generators have no Media Pool item, and placed text presets are positioned with Edit Tilt /
+    Zoom, which must NOT send them to the OFX (it did nothing on them; dragging ELSA Stop Motion on worked)."""
+    try:
+        if it.GetMediaPoolItem() is None:
+            return False
+    except Exception:
+        pass
     try:
         p = it.GetProperty() or {}
     except Exception:
@@ -3194,6 +3201,98 @@ def fx_param_tool(effect, key):
         return comp.FindTool(FX_PARAM_TOOL[key]) if comp is not None else None
     except Exception:
         return None
+
+
+# ELSA Transform's template moves with expressions (Prog / E / Size / Center), which works when the effect is dragged on
+# by hand but cost ~55 ms a frame on a 1080x1920 clip (measured 2026-11-10: none 8, expressions 83, keyed 28 ms/frame).
+# Clips the panel manages get the move baked: expressions removed, Size and Center keyed every frame from the same
+# formulas (Hold steps included). The bake's signature sits in XfMove's Comments; fx_get re-bakes when it no longer
+# matches (settings changed by hand, clip trimmed while End Frame = 0 follows the clip's end).
+def _ease(i, u):
+    c1 = 1.70158
+    c2, c3 = c1 * 1.525, c1 + 1
+    if i == 1: return u * u
+    if i == 2: return 1 - (1 - u) ** 2
+    if i == 3: return 2 * u * u if u < 0.5 else 1 - (2 - 2 * u) ** 2 / 2
+    if i == 4: return u ** 4
+    if i == 5: return 1 - (1 - u) ** 4
+    if i == 6: return 8 * u ** 4 if u < 0.5 else 1 - (2 - 2 * u) ** 4 / 2
+    if i == 7: return 0.0 if u <= 0 else 2 ** (10 * u - 10)
+    if i == 8: return 1.0 if u >= 1 else 1 - 2 ** (-10 * u)
+    if i == 9:
+        if u <= 0: return 0.0
+        if u >= 1: return 1.0
+        return 2 ** (20 * u - 10) / 2 if u < 0.5 else (2 - 2 ** (10 - 20 * u)) / 2
+    if i == 10: return c3 * u ** 3 - c1 * u ** 2
+    if i == 11: return 1 + c3 * (u - 1) ** 3 + c1 * (u - 1) ** 2
+    if i == 12:
+        return ((2 * u) ** 2 * ((c2 + 1) * 2 * u - c2) / 2 if u < 0.5
+                else ((2 * u - 2) ** 2 * ((c2 + 1) * (2 * u - 2) + c2) + 2) / 2)
+    return u
+
+
+def _fx_modifier(tool, inp, reg):
+    """The modifier of type `reg` (BezierSpline / XYPath) driving tool.inp, or None."""
+    try:
+        o = getattr(tool, inp).GetConnectedOutput()
+        m = o.GetTool() if o else None
+        return m if m is not None and (m.GetAttrs() or {}).get("TOOLS_RegID") == reg else None
+    except Exception:
+        return None
+
+
+def fx_bake_transform(effect, force=False):
+    """Keys ELSA Transform's Size / Center for the clip (see above). Returns True when it (re)baked."""
+    try:
+        comp = effect.GetFusionComp()
+        t = comp.FindTool("XfMove") if comp is not None else None
+        if t is None:
+            return False
+        ca = comp.GetAttrs() or {}
+        rs, re_ = int(ca.get("COMPN_RenderStart") or 0), int(ca.get("COMPN_RenderEnd") or 0)
+        v = {}
+        for k in ("ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF", "Hold"):
+            x = get_in(t, k)
+            v[k] = float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else 0.0
+        sig = "elsa-bake " + " ".join("%s=%g" % (k, v[k]) for k in sorted(v)) + " rs=%d re=%d" % (rs, re_)
+        if not force and str(get_in(t, "Comments") or "") == sig:
+            return False
+        hold = max(1, int(round(v["Hold"] or 1)))
+        out = v["OutF"] if v["OutF"] > 0 else (re_ - rs)
+        ease = int(round(v["Ease"]))
+        size, cx, cy = {}, {}, {}
+        for f in range(rs, re_ + 1):
+            tt = ((f - rs) // hold) * hold
+            prog = min(1.0, max(0.0, (tt - v["InF"]) / max(1.0, out - v["InF"])))
+            e = _ease(ease, 1 - prog if v["Reverse"] > 0.5 else prog)
+            size[f] = {1: 1 + (v["ZoomPct"] / 100 - 1) * e}
+            cx[f] = {1: 0.5 + v["MoveX"] / 100 * e}
+            cy[f] = {1: 0.5 + v["MoveY"] / 100 * e}
+        for n in ("Prog", "E", "Size", "Center"):
+            try:
+                getattr(t, n).SetExpression(None)
+            except Exception:
+                pass
+        # reuse the splines of an earlier bake (SetKeyFrames replace = True swaps all their keys)
+        sp = _fx_modifier(t, "Size", "BezierSpline")
+        if sp is None:
+            sp = comp.BezierSpline()
+            t.Size = sp
+        sp.SetKeyFrames(size, True)
+        xy = _fx_modifier(t, "Center", "XYPath")
+        if xy is None:
+            xy = comp.XYPath()
+            t.Center = xy
+        for inp, keys in (("X", cx), ("Y", cy)):
+            s = _fx_modifier(xy, inp, "BezierSpline")
+            if s is None:
+                s = comp.BezierSpline()
+                setattr(xy, inp, s)
+            s.SetKeyFrames(keys, True)
+        t.SetInput("Comments", sig)
+        return True
+    except Exception:
+        return False
 
 
 def fx_get_params(effect, key):
@@ -3366,16 +3465,27 @@ def fx_clip_frames(it):
         return None
 
 
+def fx_clip_start(it):
+    """The clip's first timeline frame (the panel puts the playhead on the Transform Start / End bar with it)."""
+    try:
+        return int(it.GetStart())
+    except Exception:
+        return None
+
+
 def fx_state(items):
     out = []
     for it in items:
         have = fx_on_item(it)
+        if "Transform" in have and not fx_is_ofx(have["Transform"]):
+            fx_bake_transform(have["Transform"])      # no-op while its signature still matches
         out.append({"id": str(it.GetUniqueId()), "name": it.GetName(),
                     "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
                     "strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
                                      ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
                     "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
                     "frames": fx_clip_frames(it) if "Transform" in have else None,
+                    "start": fx_clip_start(it) if "Transform" in have else None,
                     "inNodes": sorted(fx_in_nodes(it)),
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
     return out

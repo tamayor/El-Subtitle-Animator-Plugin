@@ -401,6 +401,8 @@ async function tmTick() {
         tmState.busy = true;
         try {
             const r = await window.sa.clipTiming({});
+            // the timeline frame under the playhead, for any clip (the Transform effect's Start / End bar, effect-list.js)
+            if (r && r.ok && Number.isFinite(Number(r.frame))) tmState.frame = Number(r.frame);
             if (!tmState.dragging && r && r.ok) {
                 if (r.none) tmState.info = null;
                 else if (r.noSlider) tmState.info = { noSlider: true, itemId: r.itemId, name: r.name };

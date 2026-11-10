@@ -763,8 +763,8 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
     const titleName = title || (kind === 'multitext' ? 'MultiText' : 'Text+');
     // While the timeline plays (e.g. looping a preview) the playhead leaves the end again before the insert lands,
     // so the title would be ripple-inserted in the middle of the timeline. Playback is stopped first.
-    if (!(await ensureStopped(tl))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
-    if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
+    if (!(await PERF.timed('place.insert.stop', () => ensureStopped(tl)))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
+    if (!(await PERF.timed('place.insert.park', () => parkPlayhead(tl, endFrame, meta)))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
     // Resolve 21.2 THROWS ("Expected valid string type title name") instead of returning null for a template it has
     // not scanned yet - e.g. a preset's template written a moment ago on its first use. Retry once after a short wait,
     // then return no item so the caller's fallback (plain Text+ / MultiText) runs instead of the whole apply failing.
@@ -795,7 +795,7 @@ async function insertTitleAtEnd(tl, meta, endFrame, kind, title) {
                 if (!(await ensureStopped(tl))) return { error: 'The timeline is playing in Resolve. Stop playback (K), then select the preset again.' };
                 if (!(await parkPlayhead(tl, endFrame, meta))) return { error: 'The playhead was moved while the ' + titleName + ' was being added, so nothing was inserted. Try again.' };
             }
-            try { item = await tl.InsertFusionTitleIntoTimeline(titleName); }
+            try { item = await PERF.timed('place.insert.insert', () => tl.InsertFusionTitleIntoTimeline(titleName)); }
             catch (e) {
                 dlog('TITLE-INSERT-THREW', titleName, String(e && e.message || e));
                 PERF.record('place.insertThrew', 0, { title: titleName, attempt });
@@ -1259,8 +1259,8 @@ async function refitRowSfx(tl, project, meta, textItem, itemId, projectCopy) {
     const swaps = [], keep = [];
     for (const set of rec.rows) {
         if (JSON.stringify(set.frames || []) === JSON.stringify(frames)) { keep.push(set); continue; }
-        const there = [];
-        for (const id of set.ids || []) { try { if (await findAudioItemById(tl, id)) there.push(id); } catch (e) { /* gone */ } }
+        let there = [];
+        try { const found = await findItemsByIds(tl, set.ids || [], 'audio'); there = (set.ids || []).filter(id => found.has(String(id))); } catch (e) { there = []; }
         if (!there.length) continue;                       // removed by hand: stays removed
         const left = await deleteExtraSfx(tl, there);
         if (left.length) { failed++; keep.push(set); continue; }

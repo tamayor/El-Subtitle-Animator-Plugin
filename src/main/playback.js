@@ -5,12 +5,20 @@
 module.exports = { isPlaying, stopPlayback, ensureStopped };
 
 const { execFile } = require('child_process');
+const state = require('./state');
 const { dlog } = require('./log');
 
 const PROC = 'first process whose name is "Resolve" or name contains "DaVinci Resolve"';
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function isPlaying(tl) {
+    // The panel's poll read the playhead twice in the last moment and it did not move: standing still, no 130 ms wait.
+    try {
+        const h = state.playhead;
+        if (h && h.prevAt && Date.now() - h.at < 1500 && h.at - h.prevAt >= 250 && h.at - h.prevAt <= 2500 && h.frame === h.prevFrame) {
+            if (String(await tl.GetName()) === h.tlName) return false;
+        }
+    } catch (e) { /* measured below */ }
     try {
         const a = await tl.GetCurrentTimecode();
         await wait(130);

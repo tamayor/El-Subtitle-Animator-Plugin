@@ -164,6 +164,8 @@ class Helper {
             if (Number.isFinite(msg.perf.ms)) PERF.record('bridge.py.' + job.op, msg.perf.ms);
             const c = msg.perf.counters;
             if (c && typeof c === 'object') for (const k of Object.keys(c)) if (Number.isFinite(c[k]) && c[k]) PERF.record('bridge.' + job.op + '#' + k, c[k]);
+            const st = msg.perf.steps;
+            if (st && typeof st === 'object') for (const k of Object.keys(st)) if (Number.isFinite(st[k])) PERF.record('bridge.py.' + job.op + '.' + k, st[k]);
         }
         if (msg.ok) this.settle(job, msg.result, null);
         else this.settle(job, null, new Error(msg.error || 'Fusion helper error'));

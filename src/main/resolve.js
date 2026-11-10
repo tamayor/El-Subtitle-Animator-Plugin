@@ -174,7 +174,7 @@ function frameToTC(frame, meta) {
 // SUB_FULL_AWAY_MS). In between, from SUB_PROBE_MS on, only the number of clips on each subtitle track is checked (one
 // call per track): a subtitle added, deleted or split shows up at once, while a long timeline is not re-read every
 // couple of seconds while nothing changed. A text edit or a moved subtitle is picked up by the next full read.
-const SUB_PROBE_MS = 2000, SUB_FULL_MS = 6000, SUB_FULL_AWAY_MS = 15000;
+const SUB_PROBE_MS = 3000, SUB_FULL_MS = 6000, SUB_FULL_AWAY_MS = 15000;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
 const SUB_READ_COLOR = false, SUB_READ_DURATION = false;
@@ -305,7 +305,18 @@ async function setSubtitlesEnabled(tl, range, enabled) {
             }
         }
     }
-    if (out.length) state.subCache.at = 0;
+    // The cached list is patched instead of thrown away (a full re-read is 4 calls per subtitle): the flipped clips
+    // get their new state and the version moves on, so the panel asks for the list once.
+    if (out.length) {
+        const c = state.subCache;
+        try {
+            if (c.key === (await tl.GetName()) && Array.isArray(c.list)) {
+                for (const o of out) { const s = c.list.find(x => x.track === o.track && x.start === o.start); if (s) s.enabled = !!enabled; }
+                c.sig = subSignature(c.list);
+                c.version = (c.version || 1) + 1;
+            } else c.at = 0;
+        } catch (e) { c.at = 0; }
+    }
     sp.end({ changed: out.length, viaCache });
     return out;
 }

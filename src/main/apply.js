@@ -152,11 +152,11 @@ async function applyInner(req, warnings, sp) {
                 await tl.SetCurrentTimecode(origTC);
                 throw new Error('Resolve would not insert a ' + (titleKind === 'multitext' ? 'MultiText' : 'Text+') + ' title. Open the Edit page and try again.');
             }
-            if (!(await fitDuration(item, want))) {
+            if (!(await PERF.timed('place.insert.fit', () => fitDuration(item, want)))) {
                 warnings.push('The clip could not be trimmed to the subtitle length (it is ' + (await item.GetDuration()) + ' frames).');
             }
             finalLen = await item.GetDuration();
-            const mv = await moveTitleSafe(tl, item, vTrack, textStart, tlEnd);
+            const mv = await PERF.timed('place.insert.move', () => moveTitleSafe(tl, item, vTrack, textStart, tlEnd));
             try { await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ }
             if (!mv.ok) {
                 if (!mv.leftOnTrack) regDel(insertedId);
@@ -331,6 +331,10 @@ async function applyInner(req, warnings, sp) {
         //    otherwise stay blank on a freshly imported comp).
         //    Fusion fix refreshIfRecentWake (off by default = today's behaviour): skip this refresh when the insert
         //    wake (set_text / set_boxes) ran less than 200 ms ago, i.e. when nothing else was placed in between.
+        // The cut guard's "after" is a real re-read of V1 and the audio tracks (that is its point). Every clip of this
+        // placement is on the timeline by now, so it is read while the Fusion helper does the refresh / highlight /
+        // rows work below (the helper is another process: the two overlap).
+        const cutAfterP = cutSnapshot(tl);
         const fixes = getFixes();
         const recentWake = fixes.wakeOnInsert && (Date.now() - setTextAt) < 200;
         if (fixes.refreshAfterPlace && !(fixes.refreshIfRecentWake && recentWake)) {
@@ -391,8 +395,7 @@ async function applyInner(req, warnings, sp) {
             if (!req.keepPlayhead) { try { await tl.SetCurrentTimecode(frameToTC(textStart, meta)); } catch (e) { /* ignore */ } }
             else { try { if ((await tl.GetCurrentTimecode()) !== origTC) await tl.SetCurrentTimecode(origTC); } catch (e) { /* ignore */ } }      // the preview goes where the playhead is; the playhead stays
         }
-        // the cut guard's "after" is a real re-read (that is its point): V1 and the audio tracks, 40 clips at a time
-        { const w = cutCheck(live ? 'apply-live' : 'apply', cutBefore, await cutSnapshot(tl)); if (w) warnings.push(w); }
+        { const w = cutCheck(live ? 'apply-live' : 'apply', cutBefore, await cutAfterP); if (w) warnings.push(w); }
         sp.mark('cutCheck');
         // 6. The animation is on the timeline: turn its subtitle clip(s) off so the plain subtitle does not show
         //    under it. Only for a real placement (a preview keeps the subtitle on); req.disableSubtitle = { start, end }.
@@ -402,7 +405,8 @@ async function applyInner(req, warnings, sp) {
             catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
             sp.mark('disableSubs');
         }
-        state.subCache.at = 0;
+        // (the subtitle list is not re-read here: nothing of this placement is a subtitle clip, and setSubtitlesEnabled
+        // patches the cached entries it switched)
         return { ok: true, live, itemId, subtitlesDisabled, videoTrack: vTrack, audioTrack: sfxTrack, extraSfxIds, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };

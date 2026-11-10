@@ -44,6 +44,24 @@ def count(k, n=1):
     COUNTERS[k] = COUNTERS.get(k, 0) + n
 
 
+# Per-request step timings (ms) for the long operations, reported next to the counters: with STEP("keys"): ...
+STEPS = {}
+
+
+class STEP(object):
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        import time
+        self.t0 = time.perf_counter()
+
+    def __exit__(self, *a):
+        import time
+        STEPS[self.name] = STEPS.get(self.name, 0.0) + (time.perf_counter() - self.t0) * 1000.0
+        return False
+
+
 # Within one request a comp's tool list and each tool's attributes are read once (set_text / set_boxes used to walk
 # the list and read every tool's attributes 6-8 times: typing frames, retime, segment fit, keyframes, wake, scan).
 # Cleared at the start of every request, and whenever a tool is added (op_preview_bg).
@@ -562,12 +580,17 @@ def op_set_text(a):
         except Exception:
             pass
         return found
-    set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
-    init_retime(comp, a.get("clipFrames"))
-    fit_segments(comp, a.get("clipFrames"))
-    key_followers(comp)
+    with STEP("typing"):
+        set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+    with STEP("retime"):
+        init_retime(comp, a.get("clipFrames"))
+    with STEP("segments"):
+        fit_segments(comp, a.get("clipFrames"))
+    with STEP("keys"):
+        key_followers(comp)
     if FIX.get("wakeOnInsert", True):
-        wake_effects(comp)
+        with STEP("wake"):
+            wake_effects(comp)
     return found
 
 
@@ -727,11 +750,16 @@ def size_multitext(tool, f=1.0, max_size=None, line_spacing=None):
     max_size: f is lowered so the biggest layer's Size is at most this. line_spacing: each layer's Line Spacing,
     and the gaps between layers grow or shrink by the same ratio (new / the layers' current spacing).
     Inputs driven by a modifier (animated) are left alone and named in "skipped"."""
-    layers = [n for n in range(1, 65) if get_in(tool, "Text%d.Size" % n) is not None]
+    layers, sizes = [], []
+    for n in range(1, 65):              # the layers are numbered without gaps: the first missing Size ends the scan
+        v = get_in(tool, "Text%d.Size" % n)
+        if v is None:
+            break
+        layers.append(n)
+        sizes.append(float(v))
     res = {"skipped": [], "capped": False}
     if not layers:
         return res
-    sizes = [float(get_in(tool, "Text%d.Size" % n)) for n in layers]
     if max_size and max(sizes) * f > float(max_size):
         f = float(max_size) / max(sizes)
         res["capped"] = True
@@ -1243,6 +1271,8 @@ def op_set_boxes(a):
     comp = get_comp(a["item"], a.get("comp"))
     all_tools = tool_list(comp)
     missing, fixed, design_done, first_text = [], [], False, True
+    import time
+    t_text = time.perf_counter()
     for b in a.get("boxes") or []:
         name = b.get("tool")
         tool = comp.FindTool(name) if name else None
@@ -1316,9 +1346,11 @@ def op_set_boxes(a):
             elif not design_done and a.get("textDesign"):
                 apply_text_design(tool, a["textDesign"])
                 design_done = True
+    STEPS["text"] = STEPS.get("text", 0.0) + (time.perf_counter() - t_text) * 1000.0
     unscaled, capped = [], False
     mt = a.get("multitext")
     if isinstance(mt, dict):
+        t_size = time.perf_counter()
         done = set()
         for b in a.get("boxes") or []:
             name = b.get("tool")
@@ -1330,15 +1362,23 @@ def op_set_boxes(a):
                 r = size_multitext(tool, float(mt.get("textSize") or 1.0), mt.get("maxSize"), mt.get("lineSpacing"))
                 unscaled += r["skipped"]
                 capped = capped or r["capped"]
+        STEPS["size"] = STEPS.get("size", 0.0) + (time.perf_counter() - t_size) * 1000.0
     if a.get("light"):      # a text edit on a clip already placed: no timing / retime / wake / scan pass (see liveUpdate)
         return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": []}
-    set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
-    init_retime(comp, a.get("clipFrames"))
-    fit_segments(comp, a.get("clipFrames"))
-    key_followers(comp)
+    with STEP("typing"):
+        set_typing_frames(comp, a.get("typingFrames"), a.get("clipFrames"))
+    with STEP("retime"):
+        init_retime(comp, a.get("clipFrames"))
+    with STEP("segments"):
+        fit_segments(comp, a.get("clipFrames"))
+    with STEP("keys"):
+        key_followers(comp)
     if FIX.get("wakeOnInsert", True):
-        wake_effects(comp)
-    return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": op_scan(a)["nodes"]}
+        with STEP("wake"):
+            wake_effects(comp)
+    with STEP("scan"):
+        nodes = op_scan(a)["nodes"]
+    return {"missing": missing, "fixedPosition": fixed, "unscaled": unscaled, "capped": capped, "nodes": nodes}
 
 
 _audio_items = {}   # audio item id -> TimelineItem (link_clips)
@@ -2523,6 +2563,7 @@ def handle(req):
     t_start = time.perf_counter()
     for k in COUNTERS:
         COUNTERS[k] = 0
+    STEPS.clear()
     WAKE_RAN[0] = False
     out = None
     attempts = (2,) if op in NO_RETRY else (1, 2)
@@ -2552,7 +2593,8 @@ def handle(req):
                        "trace": traceback.format_exc()[-600:]}
                 break
     req_cache_clear()
-    out["perf"] = {"ms": round((time.perf_counter() - t_start) * 1000.0, 2), "counters": {k: v for k, v in COUNTERS.items() if v}}
+    out["perf"] = {"ms": round((time.perf_counter() - t_start) * 1000.0, 2), "counters": {k: v for k, v in COUNTERS.items() if v},
+                   "steps": {k: round(v, 1) for k, v in STEPS.items()}}
     return out
 
 

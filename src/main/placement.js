@@ -1216,7 +1216,7 @@ function segSfxForget(videoId, ids) {
     if (!r.sounds.length && !r.layers.length && !(r.rows || []).length) delete o[k]; else o[k] = r;
     segSfxWrite(o);
 }
-const loneRow = (rowFrames) => !!(rowFrames && !Array.isArray(rowFrames) && rowFrames.only);
+function loneRow(rowFrames) { return !!(rowFrames && !Array.isArray(rowFrames) && rowFrames.only); }
 // The clip-relative row start frames for the 'rows' layers (null when no layer repeats per row or the comp has no
 // rows). Call it AFTER the text is written to the comp: the rows are counted from the Pop<k> texts.
 // With layers aligned to a MultiText row ('seg'), it returns { rows, segs, empty, only } instead (only = the one row with text when the others are empty: then only that row's sound is placed, see loneRow) (empty = { <n>: true } for

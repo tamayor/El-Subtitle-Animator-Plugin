@@ -265,6 +265,10 @@ function fxTagsOf(e) {
     return Array.isArray(t[e.id]) ? t[e.id] : [];
 }
 
+// target clips that already have this effect as a node in their own Fusion graph (dragged in by hand): the panel does
+// not add it on top (it would run twice)
+function fxInNodes(id) { return fxUI.clips.filter(c => Array.isArray(c.inNodes) && c.inNodes.includes(id)); }
+
 // "Glitch" on all of the target clips / some of them / none
 function fxStateOf(id) {
     const n = fxUI.clips.length;
@@ -313,7 +317,13 @@ function renderEffects() {
         const nm = document.createElement('div');
         nm.className = 'nm'; nm.textContent = e.name;
         const sub = document.createElement('div');
-        sub.className = 'sub'; sub.textContent = st === 'on' ? 'On' : (st === 'some' ? 'Some' : '');
+        const nodeClips = fxInNodes(e.id);
+        sub.className = 'sub';
+        // dragged in as a node AND switched on here (the node went in after): it runs twice - click the card to remove this one
+        const twice = nodeClips.some(x => x.effects && x.effects[e.id]);
+        sub.textContent = twice ? 'Twice!' : (st === 'on' ? 'On' : (st === 'some' ? 'Some' : (nodeClips.length ? 'In nodes' : '')));
+        if (twice) { sub.classList.add('fx-twice'); c.title += '\nAlso a node in the clip\'s Fusion graph, so it runs twice: click to remove the panel one'; }
+        if (nodeClips.length) c.title += '\nAlready a node in the Fusion graph of: ' + nodeClips.map(x => x.name).join(', ') + ' (not added again there)';
         c.append(sw, nm, sub);
         if (e.noStrength || e.repeat) {
             const note = document.createElement('div');
@@ -374,6 +384,11 @@ async function fxToggle(e) {
     if (!fxUI.clips.length) await fxRefresh(true);
     if (!fxUI.clips.length) { setStatus('Select a clip on the timeline first.', 'bad'); return; }
     const want = fxStateOf(e.id) !== 'on';
+    // every target clip already has it as a node in its own graph: nothing to add (it would run twice)
+    if (want && fxInNodes(e.id).length === fxUI.clips.length) {
+        setStatus(e.name + ' is already a node in ' + (fxUI.clips.length === 1 ? 'this clip\'s' : 'these clips\'') + ' Fusion graph - not added again.', 'bad');
+        return;
+    }
     const before = fxUI.clips;
     fxUI.clips = before.map(c => Object.assign({}, c, { effects: Object.assign({}, c.effects || {}, { [e.id]: want }) }));
     if (!want) for (const c of fxUI.clips) delete c.effects[e.id];
@@ -392,6 +407,7 @@ async function fxToggle(e) {
         if (Array.isArray(r.clips)) { fxUI.clips = r.clips; fxUI.sig = JSON.stringify(r.clips); }
         const n = fxUI.clips.length;
         if (r.failed && r.failed.length) setStatus(e.name + ' could not be changed on ' + r.failed.join(', '), 'bad');
+        else if (r.inNodes && r.inNodes.length) setStatus(e.name + ' skipped on ' + r.inNodes.join(', ') + ': already a node in its Fusion graph.', 'bad');
         else setStatus(e.name + (r.on ? ' added to ' : ' removed from ') + n + ' clip' + (n === 1 ? '' : 's') + '.', 'ok');
     }
     renderEffects();

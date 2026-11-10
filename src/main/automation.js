@@ -992,7 +992,8 @@ const TOOLS = {
                     // StopMotion's strength = its Frame Repeat (1..10, default 2): glitch / wiggle on the clip hold for it too
                     const hold = fxWant.includes('StopMotion') ? (fxSpec.StopMotion !== null && fxSpec.StopMotion !== undefined ? fxSpec.StopMotion : 2) : null;
                     const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id], hold, params: fxParams[id] || null }, 15000);
-                    if (r && !(r.failed && r.failed.length)) fxDone.push(id);
+                    if (r && r.inNodes && r.inNodes.length) notes.push('Effect ' + id + ' not added: already a node in the clip\'s Fusion graph');
+                    else if (r && !(r.failed && r.failed.length)) fxDone.push(id);
                     else notes.push('Effect ' + id + ' could not be added');
                 } catch (e) { notes.push('Effect ' + id + ' could not be added: ' + e.message); }
             }

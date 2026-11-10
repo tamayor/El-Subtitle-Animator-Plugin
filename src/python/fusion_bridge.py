@@ -3294,6 +3294,57 @@ def fx_nudge_inspector():
         pass
 
 
+# An effect can also be dragged by hand into a clip's own node graph (Fusion page > Effects > Templates > Edit > Effects >
+# Subtitle Animator), where the panel does not manage it. Adding the same effect from the panel on top would run it twice,
+# so fx_set skips a clip whose own comp already holds that effect's node, and fx_state reports it (inNodes).
+# Matched by node name: the macro's group (ELSAWiggle, ELSAWiggle1 ...) or its main tool. Names only (GetToolList +
+# GetAttrs, as the other bridge reads do), never input values, and cached FX_NODES_TTL per clip.
+FX_NODE_NAMES = {"Transform": ("ELSATransform", "XfMove"), "Glitch": ("ELSAGlitch", "GlitchOut"),
+                 "Wiggle": ("ELSAWiggle", "WiggleDisplace"), "StopMotion": ("ELSAStopMotion", "StopMotionTime")}
+FX_NODES_TTL = 10.0
+_fx_nodes = {}
+
+
+def _fx_node_key(name):
+    base = name.rstrip("0123456789") if name else ""
+    for k, names in FX_NODE_NAMES.items():
+        if base in names:
+            return k
+    return None
+
+
+def fx_in_nodes(it, fresh=False):
+    """The effect ids found as nodes in the clip's own Fusion comps (not its Edit-page effects)."""
+    try:
+        iid = str(it.GetUniqueId())
+    except Exception:
+        return set()
+    hit = _fx_nodes.get(iid)
+    if hit is not None and not fresh and time.time() - hit[0] < FX_NODES_TTL:
+        return hit[1]
+    found = set()
+    try:
+        names = it.GetFusionCompNameList() or []
+        names = list(names.values()) if isinstance(names, dict) else list(names)
+        for n in names:
+            comp = it.GetFusionCompByName(n)
+            if comp is None:
+                continue
+            for tool in tool_list(comp):
+                try:
+                    k = _fx_node_key(str(attrs(tool).get("TOOLS_Name") or ""))
+                except Exception:
+                    k = None
+                if k:
+                    found.add(k)
+    except Exception:
+        pass
+    _fx_nodes[iid] = (time.time(), found)
+    if len(_fx_nodes) > 300:
+        _fx_nodes.pop(next(iter(_fx_nodes)))
+    return found
+
+
 def fx_on_item(it):
     """{effect id: Effect} of our effects on a clip."""
     have = {}
@@ -3325,6 +3376,7 @@ def fx_state(items):
                                      ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
                     "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
                     "frames": fx_clip_frames(it) if "Transform" in have else None,
+                    "inNodes": sorted(fx_in_nodes(it)),
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
     return out
 
@@ -3403,6 +3455,7 @@ def op_fx_set(a):
     if on is None:
         on = key not in fx_on_item(items[0])
     failed = []
+    in_nodes = []      # clips that already have this effect as a node in their own graph: not added a second time
     removed = False
     hold_in = a.get("hold")
     if hold_in is None and key == "StopMotion":
@@ -3414,6 +3467,9 @@ def op_fx_set(a):
             hold = FX_HOLD_DEFAULT
         if on:
             e = have.get(key)
+            if e is None and key in fx_in_nodes(it, fresh=True):
+                in_nodes.append(it.GetName())
+                continue
             if e is None:
                 if key in FX_OFX and fx_clip_is_sized(it):
                     e = it.AddEffect("ofx", FX_OFX[key])
@@ -3458,7 +3514,7 @@ def op_fx_set(a):
         fx_sync_hold(have, hold)
     if removed:
         fx_nudge_inspector()
-    return {"on": bool(on), "failed": failed, "clips": fx_state(items)}
+    return {"on": bool(on), "failed": failed, "inNodes": in_nodes, "clips": fx_state(items)}
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,

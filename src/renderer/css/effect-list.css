@@ -96,3 +96,4 @@
 .fx-ease-tile:hover { border-color: var(--line); color: var(--text); }
 .fx-ease-tile.on { border-color: var(--accent); color: var(--text); }
 .fx-ease-tile.on .fx-ease-curve { stroke: var(--accent); }
+.fx-card .sub.fx-twice { color: var(--bad); font-weight: 600; }

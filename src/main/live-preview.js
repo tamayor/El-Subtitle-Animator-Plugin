@@ -387,7 +387,7 @@ async function liveRemove(marks) {
         }
         try { if (tl && tcR && (await tl.GetCurrentTimecode()) !== tcR) await tl.SetCurrentTimecode(tcR); } catch (e) { /* ignore */ }
     } catch (e) { /* the registry sweep removes it next time */ }
-    state.subCache.at = 0;
+    // (no subtitle re-read: a preview never changes the subtitle clips)
     return { ok: true };
 }
 
@@ -497,7 +497,7 @@ async function liveFinish(event, req) {
             try { subtitlesDisabled = await setSubtitlesEnabled(tl, { start: Number(req.start), end: Number(req.end) }, false); }
             catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
         }
-        state.subCache.at = 0;
+        // (setSubtitlesEnabled patched the cached list; nothing else here is a subtitle clip)
         return { ok: true, subtitlesDisabled, videoTrack: ((await item.GetTrackTypeAndIndex()) || [0, 0])[1], audioTrack: sfxTrack, linked: clipsLinked, start: textStart, frames: await item.GetDuration(), warnings, trackNotes };
     } catch (e) {
         return { ok: false, error: String(e && e.message || e), warnings };

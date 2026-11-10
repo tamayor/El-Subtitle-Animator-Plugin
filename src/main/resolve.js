@@ -170,11 +170,13 @@ function frameToTC(frame, meta) {
 
 // ------------------------------------------------------------------ subtitles
 
-// The full read (four calls per subtitle) is made at most every SUB_FULL_MS (longer while the user works in Resolve,
-// SUB_FULL_AWAY_MS). In between, from SUB_PROBE_MS on, only the number of clips on each subtitle track is checked (one
-// call per track): a subtitle added, deleted or split shows up at once, while a long timeline is not re-read every
-// couple of seconds while nothing changed. A text edit or a moved subtitle is picked up by the next full read.
-const SUB_PROBE_MS = 3000, SUB_FULL_MS = 6000, SUB_FULL_AWAY_MS = 15000;
+// Three levels of re-reading, cheapest first. From SUB_PROBE_MS on, only the number of clips on each subtitle track
+// is checked (one call per track): a subtitle added, deleted or split shows up at once. From SUB_NAMES_MS on (longer
+// while the user works in Resolve, SUB_NAMES_AWAY_MS) every clip's text is read (one call per clip): an edited text
+// shows up. The full read (four calls per clip; a moved subtitle shows up) runs when either check differs, and in any
+// case every SUB_FULL_MS. Concurrent callers share one read.
+const SUB_PROBE_MS = 3000, SUB_NAMES_MS = 6000, SUB_NAMES_AWAY_MS = 15000, SUB_FULL_MS = 30000;
+let subReading = null;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
 const SUB_READ_COLOR = false, SUB_READ_DURATION = false;
@@ -197,16 +199,39 @@ async function getSubtitles(tl, force) {
     if (!force && c.key === key) {
         const age = now - c.at;
         if (age < SUB_PROBE_MS) return c.list;
-        if (age < (panelAway() ? SUB_FULL_AWAY_MS : SUB_FULL_MS)) {
+        if (age < SUB_FULL_MS) {
             if (now - (c.probedAt || 0) < SUB_PROBE_MS) return c.list;
+            if (subReading) return subReading;
             const sp = PERF.span('sub.probe');
             const tracks = (await tl.GetTrackCount('subtitle')) || 0;
             const counts = await subtitleCounts(tl, tracks);
-            sp.end();
             c.probedAt = Date.now();
-            if (counts === c.counts) return c.list;
+            let same = counts === c.counts;
+            // the texts, one call per clip, once the list is SUB_NAMES_MS old (a probe alone cannot see an edit)
+            if (same && now - (c.namedAt || c.at) >= (panelAway() ? SUB_NAMES_AWAY_MS : SUB_NAMES_MS)) {
+                const names = await subtitleNames(tl, tracks);
+                c.namedAt = Date.now();
+                same = names === c.names;
+            }
+            sp.end({ same });
+            if (same) return c.list;
         }
     }
+    if (subReading) return subReading;
+    subReading = readSubtitles(tl, key).finally(() => { subReading = null; });
+    return subReading;
+}
+async function subtitleNames(tl, tracks) {
+    const out = [];
+    for (let t = 1; t <= tracks; t++) {
+        const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
+        const arr = Array.isArray(its) ? its : Object.values(its);
+        for (let i = 0; i < arr.length; i += CHUNK) out.push(...await Promise.all(arr.slice(i, i + CHUNK).map(it => Promise.resolve(it.GetName()).catch(() => ''))));
+    }
+    return out.join('\n');
+}
+async function readSubtitles(tl, key) {
+    const c = state.subCache;
     const sp = PERF.span('sub.full');
     const list = [];
     const items = [];      // the Resolve handles, kept next to the list so setSubtitlesEnabled can act on them without a new walk
@@ -244,13 +269,14 @@ async function getSubtitles(tl, force) {
             }
         } catch (e) { /* colours stay empty */ }
     }
+    const namesInTrackOrder = list.map(s => s.text).join('\n');      // as subtitleNames reads them (track by track)
     list.sort((a, b) => a.start - b.start);
     // The handles stay out of the list (it is sent to the panel and the MCP script), in a parallel array.
     for (const s of list) { items.push(s.it); delete s.it; }
     list.forEach((item, i) => { item.index = i + 1; });
     const sig = subSignature(list);
     const version = (c.key === key && c.sig === sig) ? (c.version || 1) : ((c.version || 0) + 1);
-    state.subCache = { key, at: Date.now(), probedAt: Date.now(), list, items, counts: await subtitleCounts(tl, tracks), sig, version };
+    state.subCache = { key, at: Date.now(), probedAt: Date.now(), namedAt: Date.now(), list, items, counts: await subtitleCounts(tl, tracks), names: namesInTrackOrder, sig, version };
     sp.end({ n: list.length, tracks });
     return list;
 }

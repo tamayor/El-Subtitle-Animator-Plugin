@@ -1231,12 +1231,20 @@ def op_multitext_rows(a):
     without them."""
     comp = get_comp(a["item"], a.get("comp"))
     tpl = None
-    for t in tool_list(comp):
-        if attrs(t).get("TOOLS_RegID") == "MultiText" and get_in(t, "RowGap") is not None:
-            tpl = t
-            break
+    with STEP("find"):
+        for t in tool_list(comp):
+            if attrs(t).get("TOOLS_RegID") == "MultiText" and get_in(t, "RowGap") is not None:
+                tpl = t
+                break
     if tpl is None:
         return {"hasControls": False}
+    with STEP("set"):
+        rows_set(a, tpl, comp)
+    with STEP("read"):
+        return rows_read(tpl)
+
+
+def rows_set(a, tpl, comp):
     comp.Lock()
     try:
         if a.get("gap") is not None:
@@ -1273,6 +1281,9 @@ def op_multitext_rows(a):
                         tpl.SetInput(pre + ax.upper(), max(-2.0, min(2.0, float(v[ax]))))
     finally:
         comp.Unlock()
+
+
+def rows_read(tpl):
     jv = int(num(get_in(tpl, "RowsJustify"), 0))
     names = {v: k for k, v in ROW_JUSTIFY.items() if k != "centre"}
     out = {"hasControls": True, "tool": attrs(tpl).get("TOOLS_Name"), "gap": get_in(tpl, "RowGap"),

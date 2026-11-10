@@ -51,7 +51,7 @@ const fxRgb = (hex) => [1, 3, 5].map(i => parseInt(String(hex).slice(i, i + 2), 
 // changes go to the selected clips that have the effect (debounced), and are remembered for the next add
 function fxSendParams(e, st, values, now) {
     fxRememberParams(e, Object.assign(fxNextParams(e), values));
-    if (st === 'none') return;
+    if (fxStateOf(e.id) === 'none') return;      // the live state (cards are updated in place, not rebuilt)
     clearTimeout(fxUI.paramTimer);
     const go = async () => {
         let r = null;
@@ -73,8 +73,12 @@ function fxGlitchOptions(e, st) {
     d.appendChild(sum);
     const hold = (el) => {
         for (const ev of ['click', 'mousedown', 'pointerdown']) el.addEventListener(ev, (x) => x.stopPropagation());
-        el.addEventListener('focus', () => { fxUI.sliding = true; });
-        el.addEventListener('blur', () => { fxUI.sliding = false; });
+        // only while typing / picking a colour: a slider, button or checkbox keeps the focus after use, and the card
+        // must still follow the selected clips (sliders hold the rebuild with pointerdown / pointerup)
+        if (el.tagName === 'INPUT' && ['number', 'text', 'color'].includes(el.type)) {
+            el.addEventListener('focus', () => { fxUI.sliding = true; });
+            el.addEventListener('blur', () => { fxUI.sliding = false; });
+        }
     };
     // Entry
     const entry = document.createElement('div'); entry.className = 'fx-opt-head'; entry.textContent = 'Entry';
@@ -170,6 +174,16 @@ function fxPlayheadIn(clip) {
     return rel >= 0 && rel < Number(clip.frames) ? rel : null;
 }
 function fxFrameRange(e, st, p, clip, last) {
+    if (!last) {
+        const box = document.createElement('div'); box.className = 'fxr fxr-off';
+        box.title = 'Select a clip on the timeline to set where the move starts and ends';
+        const bar = document.createElement('div'); bar.className = 'fxr-bar';
+        for (const c of ['fxr-track', 'fxr-range', 'fxr-knob fxr-start', 'fxr-knob fxr-end']) { const x = document.createElement('div'); x.className = c; bar.appendChild(x); }
+        bar.children[1].style.cssText = 'left:0;width:100%'; bar.children[2].style.left = '0%'; bar.children[3].style.left = '100%';
+        const read = document.createElement('div'); read.className = 'fxr-read'; read.textContent = 'Start / End: select a clip';
+        box.append(bar, read);
+        return box;
+    }
     const r = { s: Math.max(0, Math.min(last - 1, Math.round(Number(p.InF)) || 0)), e: 0 };
     const out = Math.round(Number(p.OutF)) || 0;
     r.e = Math.max(r.s + 1, Math.min(last, out > 0 ? out : last));
@@ -294,8 +308,12 @@ function fxTransformOptions(e, st) {
     d.appendChild(sum);
     const hold = (el) => {
         for (const ev of ['click', 'mousedown', 'pointerdown']) el.addEventListener(ev, (x) => x.stopPropagation());
-        el.addEventListener('focus', () => { fxUI.sliding = true; });
-        el.addEventListener('blur', () => { fxUI.sliding = false; });
+        // only while typing / picking a colour: a slider, button or checkbox keeps the focus after use, and the card
+        // must still follow the selected clips (sliders hold the rebuild with pointerdown / pointerup)
+        if (el.tagName === 'INPUT' && ['number', 'text', 'color'].includes(el.type)) {
+            el.addEventListener('focus', () => { fxUI.sliding = true; });
+            el.addEventListener('blur', () => { fxUI.sliding = false; });
+        }
     };
     const slider = (key, label, min, max, fmt, title) => {
         const row = document.createElement('label'); row.className = 'fx-strength'; row.title = title;
@@ -346,32 +364,14 @@ function fxTransformOptions(e, st) {
     er.append(ec, btn);
     // Start / End: clip frames the move runs between (Start 0 = the first frame, End = the last frame by default; the
     // effect stores End 0 for "the last frame", so it follows a trimmed clip)
-    const clip = fxUI.clips.find(c => c.effects && c.effects[e.id] && Number(c.frames) > 0);
+    // the clip with the effect, else the first selected clip (the bar sets the values used when adding it)
+    const clip = fxUI.clips.find(c => c.effects && c.effects[e.id] && Number(c.frames) > 0) || fxUI.clips.find(c => Number(c.frames) > 1);
     const last = clip ? Number(clip.frames) - 1 : null;
     const rr = document.createElement('div'); rr.className = 'fx-opt-row';
-    const frameBox = (label, key, title) => {
-        const w = document.createElement('label'); w.className = 'fx-check'; w.title = title;
-        const num = document.createElement('input'); num.type = 'number'; num.min = '0'; num.step = '1'; num.className = 'fx-num';
-        if (last !== null) num.max = String(last);
-        const v = Math.round(Number(p[key])) || 0;
-        num.value = String(key === 'OutF' && v <= 0 && last !== null ? last : v);
-        hold(num);
-        num.addEventListener('change', () => {
-            fxUI.sliding = false;
-            let x = Math.max(0, Math.round(Number(num.value) || 0));
-            if (last !== null) x = Math.min(x, last);
-            num.value = String(x);
-            // End on the clip's last frame is kept as 0 (= "last frame"), so trimming the clip keeps the move to its end
-            fxSendParams(e, st, { [key]: key === 'OutF' && last !== null && x >= last ? 0 : x }, true);
-        });
-        w.append(document.createTextNode(label), num);
-        return w;
-    };
     // a clip with the effect selected: Start / End as a range bar like the Animation timing bar (playhead included);
     // no clip yet: the number boxes, remembered for the next add
-    if (last !== null && last > 0) rr.appendChild(fxFrameRange(e, st, p, clip, last));
-    else rr.append(frameBox('Start', 'InF', 'Clip frame the move starts on (0 = the first frame)'),
-        frameBox('End', 'OutF', 'Clip frame the move ends on (the last frame by default)'));
+    // no clip selected: the same bar, greyed, until one is
+    rr.appendChild(last !== null && last > 0 ? fxFrameRange(e, st, p, clip, last) : fxFrameRange(e, st, p, null, 0));
     // reverse
     const rv = document.createElement('div'); rv.className = 'fx-opt-row';
     const rl = document.createElement('label'); rl.className = 'fx-check'; rl.title = 'Start at the values above and end neutral (zoom out / move back)';
@@ -404,9 +404,12 @@ function fxStateOf(id) {
     return on === n ? 'on' : (on ? 'some' : 'none');
 }
 
+// The cards are built once per shown list (search / tags / effects) and then updated in place, like the Clip controls:
+// the switch, status, notes and Strength follow the selected clips; an Options block is rebuilt only when what it shows
+// changed (its own values, or the clip it is for), keeping its open / closed state.
 function renderEffects() {
     const grid = $('fxGrid');
-    if (!grid || fxUI.sliding) return;      // never rebuild under a slider being dragged
+    if (!grid || fxUI.sliding) return;      // never touch a slider being dragged
     renderTagFilter('fx', 'fxFilter');
     const q = fxUI.search.trim().toLowerCase();
     const shown = fxUI.effects.filter(e => {
@@ -419,88 +422,132 @@ function renderEffects() {
     const target = $('fxTarget');
     if (target) {
         const names = fxUI.clips.map(c => c.name || 'clip');
-        target.textContent = names.length
+        const t = names.length
             ? 'Applies to: ' + (names.length > 3 ? names.slice(0, 3).join(', ') + ' +' + (names.length - 3) : names.join(', '))
             : 'Select a clip on the timeline (video, title or text preset)';
+        if (target.textContent !== t) target.textContent = t;
     }
-    grid.textContent = '';
-    if (!shown.length) {
-        const d = document.createElement('div');
-        d.className = 'empty';
-        d.textContent = n ? (q ? 'No effect presets matching "' + fxUI.search.trim() + '".' : 'No effect presets have the selected tags.') : 'Loading effects…';
-        grid.appendChild(d);
-        return;
-    }
-    for (const e of shown) {
-        const st = fxStateOf(e.id);
-        const c = document.createElement('div');
-        c.className = 'card fx-card' + (st === 'on' ? ' fx-on' : (st === 'some' ? ' fx-some' : '')) + (fxUI.pending[e.id] ? ' fx-pending' : '');
-        c.dataset.id = e.id;
-        c.title = e.tip + (st === 'on' ? '\nClick to remove it from the selected clip(s)' : '\nClick to add it to the selected clip(s)');
-        const sw = document.createElement('span');
-        sw.className = 'fx-switch';
-        sw.setAttribute('role', 'switch');
-        sw.setAttribute('aria-checked', st === 'on' ? 'true' : (st === 'some' ? 'mixed' : 'false'));
-        const nm = document.createElement('div');
-        nm.className = 'nm'; nm.textContent = e.name;
-        const sub = document.createElement('div');
-        const nodeClips = fxInNodes(e.id);
-        sub.className = 'sub';
-        // dragged in as a node AND switched on here (the node went in after): it runs twice - click the card to remove this one
-        const twice = nodeClips.some(x => x.effects && x.effects[e.id]);
-        sub.textContent = twice ? 'Twice!' : (st === 'on' ? 'On' : (st === 'some' ? 'Some' : (nodeClips.length ? 'In nodes' : '')));
-        if (twice) { sub.classList.add('fx-twice'); c.title += '\nAlso a node in the clip\'s Fusion graph, so it runs twice: click to remove the panel one'; }
-        if (nodeClips.length) c.title += '\nAlready a node in the Fusion graph of: ' + nodeClips.map(x => x.name).join(', ') + ' (not added again there)';
-        c.append(sw, nm, sub);
-        if (e.noStrength || e.repeat) {
-            const note = document.createElement('div');
-            note.className = 'fx-note';
-            // zoomed / panned clips get DaVinci's OFX Stop Motion, whose Frame Repeat only Resolve's Inspector can set
-            const ofx = fxUI.clips.some(x => x.stopMotionKind === 'ofx');
-            note.textContent = e.repeat
-                ? (ofx ? 'A zoomed / panned clip uses DaVinci\'s Stop Motion: set the same Frame Repeat in Resolve\'s Inspector → Effects'
-                    : 'Holds the finished look, glitch / wiggle included')
-                : 'DaVinci\'s Stop Motion: set Frame Repeat in Resolve\'s Inspector → Effects';
-            c.appendChild(note);
+    const layout = shown.map(e => e.id + ':' + fxTagsOf(e).join('.')).join(',') + '|' + (shown.length ? '' : q + '|' + n);
+    if (grid.dataset.layout !== layout || !grid.querySelector('.fx-card') !== !shown.length) {
+        grid.dataset.layout = layout;
+        grid.textContent = '';
+        if (!shown.length) {
+            const d = document.createElement('div');
+            d.className = 'empty';
+            d.textContent = n ? (q ? 'No effect presets matching "' + fxUI.search.trim() + '".' : 'No effect presets have the selected tags.') : 'Loading effects…';
+            grid.appendChild(d);
+            return;
         }
-        // Strength: 0 = no effect, default = a light, visible look
-        const row = document.createElement('label');
-        if (e.noStrength) row.style.display = 'none';
-        row.className = 'fx-strength';
-        row.title = (e.repeat
-            ? 'Frame Repeat: each picture (and the glitch / wiggle on it) is held this many frames. ' + (e.defaultStrength || 2) + ' = default'
-            : 'Strength: 0 = no effect, ' + (e.defaultStrength || 25) + ' = default (light), 100 = strongest') +
-            (st === 'none' ? '\nUsed when you add it' : '');
-        const cap = document.createElement('span'); cap.className = 'fx-strength-cap'; cap.textContent = e.repeat ? 'Frame Repeat' : 'Strength';
-        const rng = document.createElement('input');
-        rng.type = 'range'; rng.min = e.repeat ? '1' : '0'; rng.max = e.repeat ? '10' : '100'; rng.step = '1';
-        const val = document.createElement('span'); val.className = 'fx-strength-val';
+        for (const e of shown) grid.appendChild(fxBuildCard(e));
+    }
+    for (const c of grid.querySelectorAll('.fx-card')) {
+        const e = fxUI.effects.find(x => x.id === c.dataset.id);
+        if (e) fxFillCard(c, e);
+    }
+}
+
+// The parts of a card that never change; the rest is set by fxFillCard.
+function fxBuildCard(e) {
+    const c = document.createElement('div');
+    c.className = 'card fx-card';
+    c.dataset.id = e.id;
+    const sw = document.createElement('span');
+    sw.className = 'fx-switch';
+    sw.setAttribute('role', 'switch');
+    const nm = document.createElement('div');
+    nm.className = 'nm'; nm.textContent = e.name;
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    c.append(sw, nm, sub);
+    let note = null;
+    if ((e.noStrength || e.repeat) && !e.transform) {
+        note = document.createElement('div');
+        note.className = 'fx-note';
+        c.appendChild(note);
+    }
+    // Strength: 0 = no effect, default = a light, visible look
+    const row = document.createElement('label');
+    if (e.noStrength) row.style.display = 'none';
+    row.className = 'fx-strength';
+    const cap = document.createElement('span'); cap.className = 'fx-strength-cap'; cap.textContent = e.repeat ? 'Frame Repeat' : 'Strength';
+    const rng = document.createElement('input');
+    rng.type = 'range'; rng.min = e.repeat ? '1' : '0'; rng.max = e.repeat ? '10' : '100'; rng.step = '1';
+    const val = document.createElement('span'); val.className = 'fx-strength-val';
+    const live = () => fxStateOf(e.id) !== 'none';
+    for (const ev of ['click', 'mousedown', 'pointerdown']) row.addEventListener(ev, (x) => x.stopPropagation());
+    rng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
+    for (const ev of ['pointerup', 'pointercancel', 'blur']) rng.addEventListener(ev, () => { fxUI.sliding = false; });
+    rng.addEventListener('input', () => {
+        const v = Number(rng.value);
+        val.textContent = fxStrengthLabel(v, e);
+        fxRememberStrength(e, v);
+        if (live()) fxSendStrength(e, v);
+    });
+    rng.addEventListener('change', () => { fxUI.sliding = false; if (live()) fxSendStrength(e, Number(rng.value), true); });
+    rng.addEventListener('dblclick', () => {
+        const d = Number(e.defaultStrength) || 25;
+        rng.value = String(d); val.textContent = fxStrengthLabel(d, e); fxRememberStrength(e, d);
+        if (live()) fxSendStrength(e, d, true);
+    });
+    row.append(cap, rng, val);
+    c.appendChild(row);
+    const optsAt = document.createElement('div');
+    optsAt.className = 'fx-opts-slot';
+    optsAt.style.display = 'contents';
+    c.appendChild(optsAt);
+    const dots = tagDotsEl({ tags: fxTagsOf(e) });
+    if (dots) c.appendChild(dots);
+    c.addEventListener('click', () => fxToggle(e));
+    c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); fxTagMenu(c, e); });
+    c._fx = { sw, sub, note, row, rng, val, optsAt, optsSig: null };
+    return c;
+}
+
+const fxPut = (el, prop, v) => { if (el[prop] !== v) el[prop] = v; };
+function fxFillCard(c, e) {
+    const f = c._fx;
+    const st = fxStateOf(e.id);
+    const cls = 'card fx-card' + (st === 'on' ? ' fx-on' : (st === 'some' ? ' fx-some' : '')) + (fxUI.pending[e.id] ? ' fx-pending' : '');
+    fxPut(c, 'className', cls);
+    const nodeClips = fxInNodes(e.id);
+    // dragged in as a node AND switched on here (the node went in after): it runs twice - click the card to remove this one
+    const twice = nodeClips.some(x => x.effects && x.effects[e.id]);
+    let title = e.tip + (st === 'on' ? '\nClick to remove it from the selected clip(s)' : '\nClick to add it to the selected clip(s)');
+    if (twice) title += '\nAlso a node in the clip\'s Fusion graph, so it runs twice: click to remove the panel one';
+    if (nodeClips.length) title += '\nAlready a node in the Fusion graph of: ' + nodeClips.map(x => x.name).join(', ') + ' (not added again there)';
+    fxPut(c, 'title', title);
+    const aria = st === 'on' ? 'true' : (st === 'some' ? 'mixed' : 'false');
+    if (f.sw.getAttribute('aria-checked') !== aria) f.sw.setAttribute('aria-checked', aria);
+    fxPut(f.sub, 'textContent', twice ? 'Twice!' : (st === 'on' ? 'On' : (st === 'some' ? 'Some' : (nodeClips.length ? 'In nodes' : ''))));
+    f.sub.classList.toggle('fx-twice', twice);
+    if (f.note) {
+        // zoomed / panned clips get DaVinci's OFX Stop Motion, whose Frame Repeat only Resolve's Inspector can set
+        const ofx = fxUI.clips.some(x => x.stopMotionKind === 'ofx');
+        fxPut(f.note, 'textContent', e.repeat
+            ? (ofx ? 'A zoomed / panned clip uses DaVinci\'s Stop Motion: set the same Frame Repeat in Resolve\'s Inspector → Effects'
+                : 'Holds the finished look, glitch / wiggle included')
+            : 'DaVinci\'s Stop Motion: set Frame Repeat in Resolve\'s Inspector → Effects');
+    }
+    fxPut(f.row, 'title', (e.repeat
+        ? 'Frame Repeat: each picture (and the glitch / wiggle on it) is held this many frames. ' + (e.defaultStrength || 2) + ' = default'
+        : 'Strength: 0 = no effect, ' + (e.defaultStrength || 25) + ' = default (light), 100 = strongest') +
+        (st === 'none' ? '\nUsed when you add it' : ''));
+    if (!f.rng.matches(':active')) {      // (a slider keeps the focus after use: only a press holds it)
         const v0 = fxStrengthShown(e);
-        rng.value = String(v0); val.textContent = fxStrengthLabel(v0, e);
-        for (const ev of ['click', 'mousedown', 'pointerdown']) row.addEventListener(ev, (x) => x.stopPropagation());
-        rng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
-        for (const ev of ['pointerup', 'pointercancel', 'blur']) rng.addEventListener(ev, () => { fxUI.sliding = false; });
-        rng.addEventListener('input', () => {
-            const v = Number(rng.value);
-            val.textContent = fxStrengthLabel(v, e);
-            fxRememberStrength(e, v);
-            if (st !== 'none') fxSendStrength(e, v);
-        });
-        rng.addEventListener('change', () => { fxUI.sliding = false; if (st !== 'none') fxSendStrength(e, Number(rng.value), true); });
-        rng.addEventListener('dblclick', () => {
-            const d = Number(e.defaultStrength) || 25;
-            rng.value = String(d); val.textContent = fxStrengthLabel(d, e); fxRememberStrength(e, d);
-            if (st !== 'none') fxSendStrength(e, d, true);
-        });
-        row.append(cap, rng, val);
-        c.appendChild(row);
-        if (e.glitch) c.appendChild(fxGlitchOptions(e, st));
-        if (e.transform) c.appendChild(fxTransformOptions(e, st));
-        const dots = tagDotsEl({ tags: fxTagsOf(e) });
-        if (dots) c.appendChild(dots);
-        c.addEventListener('click', () => fxToggle(e));
-        c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); fxTagMenu(c, e); });
-        grid.appendChild(c);
+        fxPut(f.rng, 'value', String(v0));
+        fxPut(f.val, 'textContent', fxStrengthLabel(v0, e));
+    }
+    // Options: rebuilt only when what they show changed, and never while one of their fields is being typed in
+    if (e.glitch || e.transform) {
+        const clip = e.transform ? (fxUI.clips.find(x => x.effects && x.effects[e.id] && Number(x.frames) > 0) || fxUI.clips.find(x => Number(x.frames) > 1)) : null;
+        const sig = JSON.stringify([fxParamsShown(e), clip ? [clip.id, clip.frames, clip.start] : null]);
+        const ae = document.activeElement;
+        const typing = !!ae && f.optsAt.contains(ae) && ae.tagName === 'INPUT' && ['number', 'text', 'color'].includes(ae.type);
+        if (sig !== f.optsSig && !typing) {
+            f.optsSig = sig;
+            f.optsAt.textContent = '';
+            f.optsAt.appendChild(e.glitch ? fxGlitchOptions(e, st) : fxTransformOptions(e, st));
+        }
     }
 }
 
@@ -593,12 +640,20 @@ async function fxRefresh(force) {
     fxUI.clips = r.clips;
     renderEffects();
 }
+// The toggles follow the clips selected in Resolve (what is on them, added here or dragged in from Resolve's Effects),
+// also while Resolve has the focus - that is where clips get selected. Paced like the Clip controls: 700 ms while the
+// selection or its effects change, 1500 ms once nothing has changed for 3 s (fxGet backs off when Resolve is busy).
+const fxPace = { sig: '', changedAt: 0 };
 function fxPoll() {
     clearTimeout(fxUI.timer);
+    const calm = Date.now() - fxPace.changedAt > 3000;
     fxUI.timer = setTimeout(async () => {
-        if (!document.hidden && state.tab === 'apply' && document.hasFocus()) await fxRefresh();
+        if (!document.hidden && state.tab === 'apply' && !state.idle) {
+            await fxRefresh();
+            if (fxUI.sig !== fxPace.sig) { fxPace.sig = fxUI.sig; fxPace.changedAt = Date.now(); }
+        }
         fxPoll();
-    }, 700);
+    }, calm ? 1500 : 700);
 }
 
 async function initEffects() {

@@ -129,3 +129,5 @@
 @media (prefers-reduced-motion: reduce) {
     .fx-card .fxr-bar.glide .fxr-knob, .fx-card .fxr-bar.glide .fxr-range, .fx-card .fxr-ph, .fx-card .fxr-knob { transition: none; }
 }
+.fx-card .fxr-off { opacity: 0.45; }
+.fx-card .fxr-off .fxr-bar { cursor: default; }

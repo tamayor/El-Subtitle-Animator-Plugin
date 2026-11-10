@@ -3473,19 +3473,45 @@ def fx_clip_start(it):
         return None
 
 
-def fx_state(items):
+# fx_get runs every 0.7-1.5 s while the Use tab shows. Its reads that rarely change (Strength / Frame Repeat / Glitch and
+# Transform settings: ~25 GetInputs per clip, and the Transform bake check) are reused per clip for FX_READ_TTL /
+# FX_BAKE_TTL while the clip's effects, start and length stay the same. The write ops pass fresh=True (read now).
+FX_READ_TTL = 3.0
+FX_BAKE_TTL = 10.0
+_fx_reads = {}      # clip id -> (time, key, {strength, params})
+_fx_bakes = {}      # clip id -> (time, start / length)
+
+
+def fx_state(items, fresh=False):
     out = []
+    now = time.time()
     for it in items:
         have = fx_on_item(it)
-        if "Transform" in have and not fx_is_ofx(have["Transform"]):
-            fx_bake_transform(have["Transform"])      # no-op while its signature still matches
-        out.append({"id": str(it.GetUniqueId()), "name": it.GetName(),
-                    "effects": {k: bool(e.GetIsEnabled()) for k, e in have.items()},
-                    "strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
-                                     ([("StopMotion", fx_get_hold(have))] if "StopMotion" in have and fx_get_hold(have) else [])),
-                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
-                    "frames": fx_clip_frames(it) if "Transform" in have else None,
-                    "start": fx_clip_start(it) if "Transform" in have else None,
+        iid = str(it.GetUniqueId())
+        frames, start = fx_clip_frames(it), fx_clip_start(it)
+        enabled = {k: bool(e.GetIsEnabled()) for k, e in have.items()}
+        tr = have.get("Transform")
+        if tr is not None and not fx_is_ofx(tr):
+            b = _fx_bakes.get(iid)
+            if fresh or b is None or b[1] != (start, frames) or now - b[0] > FX_BAKE_TTL:
+                fx_bake_transform(tr)      # no-op while its signature still matches
+                _fx_bakes[iid] = (now, (start, frames))
+        key = repr(sorted(enabled.items()))
+        r = _fx_reads.get(iid)
+        if fresh or r is None or r[1] != key or now - r[0] > FX_READ_TTL:
+            hold = fx_get_hold(have) if "StopMotion" in have else None
+            vals = {"strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
+                                     ([("StopMotion", hold)] if hold else [])),
+                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS}}
+            _fx_reads[iid] = (now, key, vals)
+        else:
+            vals = r[2]
+        for cache in (_fx_reads, _fx_bakes):
+            if len(cache) > 300:
+                cache.pop(next(iter(cache)))
+        out.append({"id": iid, "name": it.GetName(), "effects": enabled,
+                    "strength": vals["strength"], "params": vals["params"],
+                    "frames": frames, "start": start,
                     "inNodes": sorted(fx_in_nodes(it)),
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
     return out
@@ -3510,7 +3536,7 @@ def op_fx_strength(a):
             if "StopMotion" in have:
                 fx_sync_hold(have, v)
                 done += 1
-        return {"set": done, "clips": fx_state(items)}
+        return {"set": done, "clips": fx_state(items, fresh=True)}
     for it in items:
         e = fx_on_item(it).get(key)
         t = fx_strength_tool(e, key) if e is not None else None
@@ -3521,7 +3547,7 @@ def op_fx_strength(a):
             done += 1
         except Exception:
             pass
-    return {"set": done, "clips": fx_state(items)}
+    return {"set": done, "clips": fx_state(items, fresh=True)}
 
 
 def op_fx_param(a):
@@ -3549,7 +3575,7 @@ def op_fx_param(a):
             except Exception:
                 pass
         done += 1
-    return {"set": done, "clips": fx_state(items)}
+    return {"set": done, "clips": fx_state(items, fresh=True)}
 
 
 def op_fx_set(a):
@@ -3624,7 +3650,7 @@ def op_fx_set(a):
         fx_sync_hold(have, hold)
     if removed:
         fx_nudge_inspector()
-    return {"on": bool(on), "failed": failed, "inNodes": in_nodes, "clips": fx_state(items)}
+    return {"on": bool(on), "failed": failed, "inNodes": in_nodes, "clips": fx_state(items, fresh=True)}
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,

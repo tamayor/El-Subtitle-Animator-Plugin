@@ -625,8 +625,9 @@ const TOOLS = {
         return {
             fps: meta.fps, total: subs.length, clipColors: colors,
             clipColorsFrom: subs.some(s => s.colorFrom) ? 'saved project file (Resolve\'s API returns no subtitle colours): save the project in Resolve to pick up colour changes' : undefined,
-            subtitles: subs.filter(s => s.index >= from && s.index <= to && colorOk(s)).map(s => ({
-                index: s.index, text: s.text, start: s.start, end: s.end, frames: s.duration,
+            active: subs.filter(s => s.enabled !== false).length,
+            subtitles: subs.filter(s => s.index >= from && s.index <= to && colorOk(s) && (!args.activeOnly || s.enabled !== false)).map(s => ({
+                index: s.index, text: s.text, start: s.start, end: s.end, frames: s.duration, enabled: s.enabled !== false,
                 tc: frameToTC(s.start, meta), words: String(s.text || '').split(/\s+/).filter(Boolean).length,
                 color: s.color || undefined,
                 placed: done.has(s.index) ? done.get(s.index).preset : undefined
@@ -930,7 +931,14 @@ const TOOLS = {
         const rec = { itemId: res.itemId, audioId: state.lastPlacedAudioId, extraAudioIds: res.extraSfxIds || [], subtitle: sub.index, presetId: a.id, preset: a.name, track: 'V' + res.videoTrack, holdUntil: held || undefined, subtitlesDisabled: res.subtitlesDisabled || [] };
         placed.push(rec);
         dlog('[automation] placed', a.name, 'on subtitle', sub.index, 'V' + res.videoTrack);
+        // the real Inspector values, read by the helper (sizes / fonts only): callers must not script the comp themselves
+        let inspector;
+        if (!args._measure) {
+            try { inspector = ((await bridgeCall('read_style', { item: res.itemId, comp: null }, 8000)) || {}).tools; }
+            catch (e) { inspector = undefined; }
+        }
         return {
+            inspector,
             placed: true, itemId: res.itemId, preset: a.name, subtitle: sub.index, text, parts: parts || undefined,
             videoTrack: 'V' + res.videoTrack, audioTrack: res.audioTrack ? 'A' + res.audioTrack : null,
             subtitleClipsDisabled: (res.subtitlesDisabled || []).map(s => s.text),
@@ -957,6 +965,30 @@ const TOOLS = {
     },
 
     async list_placed() { return placed.slice(); },
+
+    // Size / font / style / line spacing of placed clips, as the Inspector has them. One clip at a time through the
+    // helper, which never reads a text input: an ad-hoc script doing GetInput("StyledText") over several comps has
+    // frozen Resolve more than once (a follower-driven Text+ deadlocks the main thread).
+    async inspect_placed(args) {
+        args = args || {};
+        await waitFree(10000);
+        let ids = Array.isArray(args.itemIds) && args.itemIds.length ? args.itemIds.map(String) : null;
+        if (!ids && Array.isArray(args.subtitles) && args.subtitles.length) {
+            const want = new Set(args.subtitles.map(Number));
+            ids = placed.filter(p => want.has(p.subtitle)).map(p => p.itemId);
+        }
+        if (!ids) ids = placed.map(p => p.itemId);
+        ids = ids.slice(-40);
+        const out = [];
+        for (const id of ids) {
+            const p = placed.find(x => x.itemId === id);
+            const row = { itemId: id, subtitle: p ? p.subtitle : undefined, preset: p ? p.preset : undefined };
+            try { row.tools = ((await bridgeCall('read_style', { item: id, comp: null }, 8000)) || {}).tools || []; }
+            catch (e) { row.error = e.message; }
+            out.push(row);
+        }
+        return { clips: out };
+    },
 
     // Re-applies the highlight box values to every highlight clip already on the current timeline (or the given
     // itemIds / frame range): the panel's "Apply to placed" button and the adjust_highlights MCP tool.

@@ -2620,6 +2620,45 @@ def op_tools(a):
     return {"tools": [[attrs(t).get("TOOLS_Name"), attrs(t).get("TOOLS_RegID")] for t in tool_list(comp)]}
 
 
+def op_read_style(a):
+    """The Inspector values of one clip's text tools: Size / Font / Style / LineSpacing only. Never a text input
+    (StyledText) and never a mirror Text+ (a highlight box fed by a Follower): a script GetInput of a
+    follower-driven text deadlocks Resolve's main thread. This is the read-back automation uses after a place."""
+    comp = get_comp(a["item"], a.get("comp"))
+    out = []
+
+    def num(v):
+        try:
+            return round(float(v), 4)
+        except Exception:
+            return None
+
+    def txt(v):
+        return v if isinstance(v, str) else None
+
+    for tool in tool_list(comp):
+        at = attrs(tool)
+        rid, name = at.get("TOOLS_RegID"), at.get("TOOLS_Name")
+        if rid == "TextPlus":
+            if is_mirror(tool):
+                continue
+            out.append({"tool": name, "kind": "textplus", "size": num(get_in(tool, "Size")), "font": txt(get_in(tool, "Font")),
+                        "style": txt(get_in(tool, "Style")), "lineSpacing": num(get_in(tool, "LineSpacing"))})
+        elif rid == "MultiText":
+            layers = []
+            try:
+                order = get_in(tool, "TextOrder")
+                if isinstance(order, dict):
+                    layers = sorted(set(int(float(v)) for k, v in order.items() if not str(k).startswith("__")))
+            except Exception:
+                layers = []
+            for n in layers[:16]:
+                out.append({"tool": name, "kind": "multitext", "layer": n, "name": txt(get_in(tool, "TextName%d" % n)),
+                            "size": num(get_in(tool, "Text%d.Size" % n)), "font": txt(get_in(tool, "Text%d.Font" % n)),
+                            "style": txt(get_in(tool, "Text%d.Style" % n)), "lineSpacing": num(get_in(tool, "Text%d.LineSpacing" % n))})
+    return {"tools": out}
+
+
 # Inputs never copied between two clips of the same preset: the clip's own range / format, and the MultiText
 # bookkeeping tables (the same in both clips, and not plain values).
 COPY_SKIP = {"GlobalIn", "GlobalOut", "Width", "Height", "PixelAspect", "UseFrameFormatSettings", "Depth",
@@ -2717,7 +2756,7 @@ def op_row_times(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "probe_render": op_probe_render}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "probe_render": op_probe_render, "read_style": op_read_style}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the

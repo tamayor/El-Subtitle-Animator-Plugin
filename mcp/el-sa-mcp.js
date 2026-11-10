@@ -26,6 +26,7 @@ Workflow for editing a video:
 5. When rules.position.avoidFaces is true, call get_frame for the subtitle and look at it. Choose x/y (0..1, top-left origin = where the text's centre goes) so the text sits on empty space and never over a face, eyes or mouth, and stays inside the safe area. Check get_tracks if layer placement matters.
 6. Call place for each subtitle (once placed, its subtitle clip is disabled so it does not show under the animation; remove_placed re-enables it). Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
 7. Report what you placed, where, and any warnings.
+Keeping Resolve responsive: send place / place_stack / get_frame / remove_placed calls ONE AT A TIME (wait for each result; never several in one batch). Never read or change a placed clip's Fusion composition with a Resolve script (GetFusionCompByIndex, GetToolList, GetInput, SetInput): a script read of a follower-driven text freezes Resolve for good. The sizes and fonts actually applied are in place's "inspector" result and in inspect_placed; enabled subtitles are in list_subtitles (enabled / activeOnly).
 Show the user your plan before placing more than about 10 clips.
 
 Chopping an .srt file (no Resolve needed): read_srt returns the blocks and the chopping rules. Follow those rules, then call chop_srt with your corrected phrases. It cuts any phrase over the words/characters limits (SUBTITLE TRIMMING in the Prompt tab), works out the in-between timestamps and writes the new .srt.`;
@@ -213,7 +214,7 @@ const TOOLS = [
             all: { type: 'boolean', description: 'List every preset, ignoring the rules' }
         })
     },
-    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, clip colour (the colour the user set on the subtitle clip in Resolve, if any), and whether one was already placed this session. clipColors counts the colours used. Pass color (e.g. "Orange") to list only subtitles with that clip colour, or "any" for every coloured one. Pass refresh: true to re-read the subtitles from Resolve right now (otherwise the panel\'s list, refreshed every few seconds, is used).', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' }, refresh: { type: 'boolean' }, color: { type: 'string', description: 'Only subtitles whose clip colour is this Resolve colour name (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate), or "any" for all coloured ones' } }) },
+    { name: 'list_subtitles', description: 'The timeline\'s subtitles: index, text, frames, timecode, word count, clip colour (the colour the user set on the subtitle clip in Resolve, if any), and whether one was already placed this session. clipColors counts the colours used. Pass color (e.g. "Orange") to list only subtitles with that clip colour, or "any" for every coloured one. Pass refresh: true to re-read the subtitles from Resolve right now (otherwise the panel\'s list, refreshed every few seconds, is used).', inputSchema: S({ from: { type: 'integer' }, to: { type: 'integer' }, refresh: { type: 'boolean' }, activeOnly: { type: 'boolean', description: 'Only subtitles whose clip is still enabled (a placed animation disables its subtitle). Each row also carries enabled; use this instead of a Resolve script.' }, color: { type: 'string', description: 'Only subtitles whose clip colour is this Resolve colour name (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate), or "any" for all coloured ones' } }) },
     {
         name: 'get_frame',
         description: 'Image of the composited timeline frame at a subtitle (middle by default) or at a frame. Use it to find faces and empty space before choosing x/y, and to check a placed clip.',
@@ -319,6 +320,11 @@ const TOOLS = [
         })
     },
     { name: 'list_placed', description: 'Clips placed through this tool during the current panel session.', inputSchema: S() },
+    {
+        name: 'inspect_placed',
+        description: 'The real Inspector values (Size, Font, Style, LineSpacing per Text+ / MultiText layer) of clips placed this session: all of them, or the given itemIds / subtitle numbers. place already returns the same values as "inspector". ALWAYS use this for a size / font read-back: never read a placed clip\'s Fusion comp with a Resolve script (GetFusionCompByIndex / GetToolList / GetInput), which can freeze Resolve.',
+        inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } }, subtitles: { type: 'array', items: { type: 'integer' } } })
+    },
     { name: 'remove_placed', description: 'Remove a clip placed through this tool (and its sound) from the timeline.', inputSchema: S({ itemId: { type: 'string' } }, ['itemId']) },
     {
         name: 'repair_inspector',

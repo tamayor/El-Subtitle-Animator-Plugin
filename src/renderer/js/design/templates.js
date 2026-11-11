@@ -530,8 +530,6 @@ const SAVE_BAR_HTML = (S) => `
     </div>
 </div>`;
 
-const ADJUST_HTML = ALIGN_HTML;
-
 const PREVIEW_HTML = (S) => `
 <div id="stageMsg${S}" class="stagemsg"></div>
 ${S === 'C' ? `<div class="row actions"><button id="prevCapC" class="ghost" title="Takes new preview frames from the Text+ selected on your timeline">Update preview</button></div>` : ''}`;

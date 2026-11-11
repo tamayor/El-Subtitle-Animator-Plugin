@@ -621,7 +621,7 @@
         return keyedImage(imgs[idx]);
     }
 
-    let last = 0, lastStage = 0;
+    let last = 0;
     function loop(ts) {
         // Always schedule the next frame first, so one drawing error can never freeze the previews.
         requestAnimationFrame(loop);

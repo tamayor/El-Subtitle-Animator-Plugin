@@ -30,13 +30,6 @@ function previewMatchesText(a, text) {
     if (!want) return true;   // no subtitle: any real render is fine
     return !!(a && a.preview && typeof a.preview.text === 'string' && normSub(a.preview.text) === want);
 }
-function previewMatchesDesign(a, m) {
-    if (!a || !a.preview) return false;
-    const dirty = !!((m && m.designDirty) || a.designDirty || designTouched.has(a.id));
-    const stored = a.preview.designKey;
-    if (!dirty && (stored === undefined || stored === null)) return true;   // older renders: the preset as saved
-    return stored === designKeyOf((m && m.textDesign) || a.textDesign);
-}
 function stageRendering(S, a) {
     if (S === 'U' && state.use && a && state.use.id === a.id && state.use.rendering) return true;
     return !!(a && window.SAThumbs && SAThumbs.isBusy && SAThumbs.isBusy(a.id));

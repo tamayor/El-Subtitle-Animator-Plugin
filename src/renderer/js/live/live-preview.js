@@ -48,17 +48,6 @@ function exitLiveSession() {
     refreshLiveBar();
     liveCard('Previews and plays directly on DaVinci Resolve\'s timeline at the playhead.');
 }
-// "Set <preset>" with no preview running: previews the selected preset on the playhead's subtitle and applies it at once.
-async function setPresetNow() {
-    if (state.livePrev || state.busy) return;
-    await startLivePreview();
-    for (let i = 0; i < 80 && state.livePrev; i++) {
-        if (state.livePrev.hasClip && !state.livePrev.busy) break;
-        await new Promise(r => setTimeout(r, 250));
-    }
-    if (state.livePrev && state.livePrev.hasClip) await endLivePreview(true);
-    else if (state.livePrev) setStatus('Move the playhead onto a subtitle; the preview appears there. Then press Set again.', '');
-}
 function liveCard(msg) {
     const s = document.querySelector('#stageLiveU .stage-live-txt span');
     if (s) s.textContent = msg;

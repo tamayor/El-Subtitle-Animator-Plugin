@@ -43,7 +43,9 @@ function textStyleSave() {
 
 // ---------------------------------------------------------------- what applies to a preset
 const tsRowSet = (r) => !!(r.font || r.color);
-function tsHighlightSet() { const h = textStyle.highlight; return !!(h.auto || h.width !== 1 || h.height !== 1 || h.x !== 0 || h.y !== 0); }
+// The HIGHLIGHT_BOX row was removed from the Use tab drawer (2026-11-12): saved box values no longer apply here.
+// The Prompt tab's HIGHLIGHT_BOX row (Claude's placements) is unaffected.
+function tsHighlightSet() { return false; }
 // Part of the Use tab render key: the preview re-renders when a row that can show in it changes (the highlight box
 // is applied on the timeline only, so it is left out).
 function textStylePreviewKey() {
@@ -271,66 +273,6 @@ function tsRowEl(which, label, hint) {
     row.appendChild(main);
     return row;
 }
-// HIGHLIGHT_BOX: auto-balance, "Apply to placed" and the Width / Height / X / Y sliders (double-click resets one).
-function tsHighlightEl() {
-    const h = textStyle.highlight;
-    const row = pbEl('div', 'pb-row ts-row');
-    const main = pbEl('div', 'pb-row-main');
-    const key = pbEl('span', 'ts-key', 'HIGHLIGHT_BOX');
-    key.title = 'The box / pill behind the emphasised word of a MultiText preset: auto = even padding on every side; width / height multiply the box; x / y nudge it (Inspector Offset units). Applied right after the clip is placed.';
-    const wrap = pbEl('div', 'pb-hl');
-    const top = pbEl('div', 'pb-hl-top');
-    const lab = pbEl('label', 'pb-hl-auto');
-    const cb = pbEl('input');
-    cb.type = 'checkbox'; cb.checked = !!h.auto;
-    cb.addEventListener('change', () => { h.auto = cb.checked; tsChanged(true); });
-    lab.title = 'Measure each placed box and the word, then even out the space around the word (pills get extra side room for their round ends).';
-    lab.append(cb, pbEl('span', '', 'Auto-balance spacing'));
-    const apply = pbEl('button', 'pb-mini pb-hl-apply', 'Apply to placed');
-    apply.title = 'Re-apply these values to every highlight clip on the current timeline';
-    apply.addEventListener('click', async () => {
-        if (!window.sa || !window.sa.adjustHighlights) { setStatus('Restart the panel to use Apply to placed.', 'bad'); return; }
-        apply.disabled = true;
-        setStatus('Adjusting highlight boxes…');
-        try {
-            const r = await window.sa.adjustHighlights({ highlight: Object.assign({}, h), save: false });
-            if (!r || r.ok === false) throw new Error((r && r.error) || 'failed');
-            const res = r.result || r;
-            const notes = [];
-            for (const c of res.results || []) { if (c.error) notes.push(c.error); for (const x of (c.highlights || [])) if (x.error || x.note) notes.push(x.error || x.note); }
-            setStatus(res.clips ? 'Adjusted ' + res.clips + ' highlight clip' + (res.clips === 1 ? '' : 's') + '.' + (notes.length ? ' ' + [...new Set(notes)].join(' · ') : '') : 'No highlight clips on this timeline.', notes.length ? 'bad' : 'ok');
-        } catch (e) {
-            setStatus('Highlight boxes not adjusted: ' + (e.message || e), 'bad');
-        } finally { apply.disabled = false; }
-    });
-    top.append(lab, apply);
-    wrap.appendChild(top);
-    for (const sp of PB_HL_SLIDERS) {
-        const line = pbEl('div', 'pb-hl-line');
-        line.title = sp.title;
-        const rg = pbEl('input', 'pb-hl-slider');
-        rg.type = 'range'; rg.min = String(sp.min); rg.max = String(sp.max); rg.step = String(sp.step); rg.value = String(h[sp.k]);
-        const n = pbEl('input', 'pb-hl-num');
-        n.type = 'number'; n.step = String(sp.step); n.value = Number(h[sp.k]).toFixed(sp.dp);
-        const set = (v, from, final) => {
-            v = Number(v);
-            if (!Number.isFinite(v)) return;
-            h[sp.k] = v;
-            if (from !== rg) rg.value = String(v);
-            if (from !== n) n.value = v.toFixed(sp.dp);
-            tsChanged(final);
-        };
-        rg.addEventListener('input', () => set(rg.value, rg, false));
-        rg.addEventListener('change', () => set(rg.value, rg, true));
-        rg.addEventListener('dblclick', () => set(sp.def, null, true));
-        n.addEventListener('change', () => set(n.value, n, true));
-        line.append(pbEl('span', 'pb-hl-lab', sp.label), rg, n);
-        wrap.appendChild(line);
-    }
-    main.append(key, wrap);
-    row.appendChild(main);
-    return row;
-}
 // Builds the drawer (once, and again when its tags or a chip / clear button change) and refreshes the summary.
 function renderTextStyleU(force) {
     const host = $('styleBodyU');
@@ -341,7 +283,6 @@ function renderTextStyleU(force) {
             host.textContent = '';
             host.appendChild(tsRowEl('normal', 'NORMAL', 'Font and fill colour forced on every text layer of the presets you add. Empty = each preset keeps its own.'));
             host.appendChild(tsRowEl('emphasis', 'EMPHASIS', 'Font and colour of the MultiText key-word layer. The colour goes on the box / pill behind the word (the word keeps the normal colour); presets without a box colour the word itself.'));
-            host.appendChild(tsHighlightEl());
             const hint = pbEl('div', 'hint ts-hint', 'Used when you add a preset yourself (Apply / Preview in Resolve). The preview above shows the result. Claude\'s placements follow the Prompt tab\'s TEXT STYLE instead.');
             host.appendChild(hint);
             tsUI.built = 'yes';

@@ -288,7 +288,9 @@ uc = ''.join([
     'AnimNatural = { LINKS_Name = "Natural Frames", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", IC_Visible = false, INP_Passive = true, INP_External = false, ICS_ControlPage = "Text", }, ',
 ] + [slider(*s_) for s_ in SLIDERS])
 slider_inputs = '\n'.join(f'\t\t\t\t{id_} = Input {{ Value = {d}, }},' for id_, _, d, *_ in SLIDERS)
-r, g, b = (round(v, 4) for v in YELLOW)
+# 2026-11-12: rows white, accent (emphasis) words strawberry #f07b8e - the app palette
+r, g, b = 1, 1, 1
+ar, ag, ab = 0.941, 0.482, 0.557
 
 tools = [f'''		Template = TextPlus {{
 			CtrlWZoom = false,
@@ -308,9 +310,9 @@ tools = [f'''		Template = TextPlus {{
 				Softness1 = Input {{ Value = 1, }},
 				Name2 = Input {{ Value = "Accent", }},
 				Enabled2 = Input {{ Value = 0, }},
-				Red2 = Input {{ Value = {r}, }},
-				Green2 = Input {{ Value = {g}, }},
-				Blue2 = Input {{ Value = {b}, }},
+				Red2 = Input {{ Value = {ar}, }},
+				Green2 = Input {{ Value = {ag}, }},
+				Blue2 = Input {{ Value = {ab}, }},
 				StyledText = Input {{ Value = "but the thing is\\nNOT EVERYONE\\ncan do it", }},
 				Font = Input {{ Value = "Poppins", }},
 				Style = Input {{ Value = "{EMPH_STYLE}", }},

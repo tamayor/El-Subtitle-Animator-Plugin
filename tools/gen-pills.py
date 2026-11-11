@@ -26,8 +26,8 @@ for ch in ("Red", "Green", "Blue"):
     assert base.count(old) == 1, old
     base = base.replace(old, '%s1 = Input { Value = 1, Expression = "Template.Highlight%s", },' % (ch, ch))
 
-UC_COLOR = ('HighlightRed = { LINKS_Name = "Highlight Color", LINKID_DataType = "Number", INPID_InputControl = "ColorControl", IC_ControlGroup = 1, IC_ControlID = 0, INP_Default = 0.133, INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Text", INP_External = false, }, '
-            'HighlightGreen = { LINKID_DataType = "Number", INPID_InputControl = "ColorControl", IC_ControlGroup = 1, IC_ControlID = 1, INP_Default = 0.765, INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Text", INP_External = false, }, '
+UC_COLOR = ('HighlightRed = { LINKS_Name = "Highlight Color", LINKID_DataType = "Number", INPID_InputControl = "ColorControl", IC_ControlGroup = 1, IC_ControlID = 0, INP_Default = 0.941, INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Text", INP_External = false, }, '
+            'HighlightGreen = { LINKID_DataType = "Number", INPID_InputControl = "ColorControl", IC_ControlGroup = 1, IC_ControlID = 1, INP_Default = 0.482, INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Text", INP_External = false, }, '
             'HighlightBlue = { LINKID_DataType = "Number", INPID_InputControl = "ColorControl", IC_ControlGroup = 1, IC_ControlID = 2, INP_Default = 0.557, INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Text", INP_External = false, }, ')
 UC_TEXT = 'PillTextColor = { LINKS_Name = "Text In Pill Colour", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = %d, ICS_ControlPage = "Text", INP_External = false, }, '
 
@@ -64,7 +64,7 @@ VARIANTS = {
     # name: (fill opacity, text in pill colour, extra elements)
     "Pill Soft": (0.16, 1, [element(3, 2, False, (1, 1, 1), 0.94, 0.02, 7)]),
     "Pill Outline": (0.16, 1, [element(3, 2, False, (1, 1, 1), 0.94, 0.02, 7),
-                               element(2, 3, True, (0.133, 0.765, 0.557), 1, 0.05, 10)]),
+                               element(2, 3, True, (0.941, 0.482, 0.557), 1, 0.05, 10)]),
     "Pill Solid": (1.0, 0, []),
 }
 
@@ -72,8 +72,8 @@ for name, (fill, textcol, extra) in VARIANTS.items():
     s = base
     a = "HighlightOpacity = Input { Value = 0.42, },"
     assert s.count(a) == 1
-    s = s.replace(a, "HighlightOpacity = Input { Value = %s, },\n\t\t\t\tHighlightRed = Input { Value = 0.133, },\n"
-                     "\t\t\t\tHighlightGreen = Input { Value = 0.765, },\n\t\t\t\tHighlightBlue = Input { Value = 0.557, },\n"
+    s = s.replace(a, "HighlightOpacity = Input { Value = %s, },\n\t\t\t\tHighlightRed = Input { Value = 0.941, },\n"
+                     "\t\t\t\tHighlightGreen = Input { Value = 0.482, },\n\t\t\t\tHighlightBlue = Input { Value = 0.557, },\n"
                      "\t\t\t\tPillTextColor = Input { Value = %d, }," % (fill, textcol))
     b = "INP_Default = 0.42, INP_MinScale = 0, INP_MaxScale = 1,"
     assert s.count(b) == 1

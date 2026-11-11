@@ -12,6 +12,9 @@ const CATEGORY = 'Subtitle Animator';
 // id -> what the panel shows; order = the stacking order on a clip (first is applied first)
 const EFFECTS = [
     { id: 'Transform', name: 'Transform', tags: ['transform', 'zoom', 'move', 'push in', 'pan'], tip: 'Zooms and moves the picture over the clip, with an easing curve (on top of the clip\'s own Edit transform). Inside Fusion, so Stop Motion holds it too', transform: true },
+    // Track Subject: the clip follows a subject in the footage under it. The panel tracks the subject (subject-track.js)
+    // and keys XfTrack's Center / Pivot / Size from it (bridge fx_bake_track); the template itself does nothing.
+    { id: 'Track', name: 'Track Subject', tags: ['track', 'follow', 'attach', 'subject', 'motion'], tip: 'Attaches the clip to a subject in the footage under it: draw a box around the subject and the clip moves (and optionally scales) with it', track: true },
     { id: 'Glitch', name: 'Glitch', tags: ['glitch', 'rgb', 'jitter'], tip: 'The picture jumps sideways in bursts with a red / cyan split' },
     { id: 'Wiggle', name: 'Wiggle', tags: ['wiggle', 'boil', 'hand-drawn'], tip: 'Letters and edges boil and wobble (pairs well with Stop Motion)' },
     // A Fusion effect (ELSA Stop Motion, a TimeStretcher last before the output), so it holds the glitch / wiggle with the
@@ -233,7 +236,20 @@ function transform() {
     ]);
 }
 
-const MAKERS = { Transform: transform, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch };
+// Track Subject: one Transform (XfTrack) whose Center / Pivot / Size the bridge keys from the tracked subject
+// (fx_bake_track). Follow X / Y / Scale and Smoothing are hidden inputs the panel sets; the raw track is kept on the
+// tool (SetData), so changing them re-keys without tracking again.
+const TRACK_DEFAULTS = { FollowX: 1, FollowY: 1, FollowScale: 0, FollowRot: 0, Smooth: 20 };
+function track() {
+    const T = 'XfTrack', D = TRACK_DEFAULTS;
+    const hid = (id, def) => id + ' = { LINKS_Name = "' + id + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = ' + def + ', IC_Visible = false, ICS_ControlPage = "Controls", }';
+    const user = '\t\t\t\t\tUserControls = ordered() { ' + Object.keys(D).map(k => hid(k, D[k])).join(', ') + ', },\n';
+    return group('ELSATrack', [T, 'Input'], T, [], [
+        tool(T, 'Transform', Object.keys(D).map(k => k + ' = Input { Value = ' + D[k] + ', }'), 0, 0, user)
+    ]);
+}
+
+const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch };
 
 // Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
 function installEffects() {
@@ -252,7 +268,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined })); }
+function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;

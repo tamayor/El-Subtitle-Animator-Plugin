@@ -29,6 +29,7 @@ const { liveFrame, parkUntilFocus, poll, seek } = require('./poll');
 const { captureFromSelection, makePreview, previewData, scanClip } = require('./previews');
 const { listSubtitles } = require('./resolve');
 const { fxGet, fxList, fxParam, fxSet, fxSetTags, fxStrength } = require('./effect-presets');
+const { trackCancel, trackEngine, trackInstall, trackRun, trackSettings, trackSource } = require('./subject-track');
 const {
     addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
@@ -57,6 +58,12 @@ const SAFE_HANDLERS = {
     'fx:setTags': fxSetTags,
     'fx:strength': fxStrength,
     'fx:param': fxParam,
+    'track:engine': trackEngine,
+    'track:install': trackInstall,
+    'track:source': trackSource,
+    'track:run': trackRun,
+    'track:cancel': trackCancel,
+    'track:settings': trackSettings,
     'controls:get': clipControls,
     'controls:set': setClipControls,
     'controls:rows': clipRows,

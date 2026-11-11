@@ -3124,7 +3124,7 @@ def op_row_times(a):
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
 FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
-FX_NAMES = {"Transform": "ELSA Transform", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+FX_NAMES = {"Transform": "ELSA Transform", "Track": "ELSA Track Subject", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
 # Stop Motion is a Fusion effect (a TimeStretcher, the LAST effect before the clip's output), so the frames it holds
 # already carry the glitch / wiggle: the look holds as one. Resolve's own OFX Stop Motion sits outside Fusion and ran
 # before our effects (the glitch / wiggle kept moving over a held picture). The OFX is only the fallback for clips with
@@ -3132,7 +3132,7 @@ FX_NAMES = {"Transform": "ELSA Transform", "Glitch": "ELSA Glitch", "Wiggle": "E
 # punched-in clip jumped. The OFX's settings cannot be scripted.
 FX_OFX = {"StopMotion": "Resolve FX/Resolve FX Temporal/Stop Motion"}
 FX_OFX_NAMES = {"StopMotion": "Stop Motion"}
-FX_ORDER = ["Transform", "Glitch", "Wiggle", "StopMotion"]
+FX_ORDER = ["Transform", "Track", "Glitch", "Wiggle", "StopMotion"]
 # the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
 FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace"}
 # the tool holding each effect's Hold (frames its clock steps by; Stop Motion's Frame Repeat)
@@ -3188,9 +3188,10 @@ def fx_strength_tool(effect, key):
 
 # extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours and opacity
 FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity"],
-             "Transform": ["ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF"]}
+             "Transform": ["ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF"],
+             "Track": ["FollowX", "FollowY", "FollowScale", "FollowRot", "Smooth"]}
 # the tool inside an effect holding its FX_PARAMS (Glitch: its Strength tool)
-FX_PARAM_TOOL = {"Glitch": "GlitchOut", "Transform": "XfMove"}
+FX_PARAM_TOOL = {"Glitch": "GlitchOut", "Transform": "XfMove", "Track": "XfTrack"}
 
 
 def fx_param_tool(effect, key):
@@ -3295,8 +3296,330 @@ def fx_bake_transform(effect, force=False):
         return False
 
 
+# ---------------------------------------------------------------- Track Subject (src/main/subject-track.js)
+# The clip follows a subject in the footage under it. The panel draws a box on the footage, the frames are exported here
+# (op_track_frames: the footage clip's own ExportFrame = timeline space with its Edit sizing, without the clips above),
+# tracked by src/python/subject_tracker.py in the app's OpenCV venv, and keyed into ELSA Track Subject's XfTrack by
+# fx_bake_track. The raw track (timeline frames -> subject box, 0..1 of the timeline picture) is kept on XfTrack
+# (SetData TRACK_DATA), so Follow X / Y / Scale and Smoothing re-key without tracking again.
+TRACK_DATA = "ELSA_Track"
+
+
+def track_footage_under(tl, target, frame=None):
+    """The topmost enabled video clip on a lower track overlapping the target (the one under `frame` first)."""
+    try:
+        tt = target.GetTrackTypeAndIndex()
+        tidx = int(tt[1])
+    except Exception:
+        tidx = tl.GetTrackCount("video") + 1
+    s0, e0 = int(target.GetStart()), int(target.GetEnd())
+    best = None
+    for t in range(tidx - 1, 0, -1):
+        try:
+            if not tl.GetIsTrackEnabled("video", t):
+                continue
+        except Exception:
+            pass
+        for it in tl.GetItemListInTrack("video", t) or []:
+            try:
+                s, e = int(it.GetStart()), int(it.GetEnd())
+                if e <= s0 or s >= e0 or it.GetMediaPoolItem() is None:
+                    continue
+                if hasattr(it, "GetClipEnabled") and not it.GetClipEnabled():
+                    continue
+            except Exception:
+                continue
+            if frame is None or s <= frame < e:
+                return it
+            if best is None:
+                best = it
+        if best is not None:
+            return best
+    return best
+
+
+def op_track_source(a):
+    """{items?, frame?} -> the selected clip (target), the footage under it and that footage's picture at the anchor
+    frame (the playhead when it is over both, else the first frame they share) for the panel to draw the box on."""
+    tl = timeline()
+    items = fx_targets(a)
+    if not items:
+        raise RuntimeError("Select the clip to attach on the timeline first")
+    target = items[0]
+    frame = a.get("frame")
+    frame = int(frame) if frame is not None else None
+    sub = track_footage_under(tl, target, frame)
+    if sub is None:
+        raise RuntimeError("There is no video under this clip to track. Put the clip on a track above the footage.")
+    lo = max(int(target.GetStart()), int(sub.GetStart()))
+    hi = min(int(target.GetEnd()), int(sub.GetEnd())) - 1
+    anchor = frame if frame is not None and lo <= frame <= hi else lo
+    max_dim = int(a.get("maxDim") or 720)
+    r = sub.ExportFrame(anchor - int(sub.GetStart()), {"outputType": "encodedString", "encodedImageFormat": "jpg", "maxDimension": max_dim})
+    if not r or not r.get("success"):
+        raise RuntimeError((r or {}).get("error") or "Resolve could not export the footage frame")
+    def info(it):
+        try:
+            tr = int(it.GetTrackTypeAndIndex()[1])
+        except Exception:
+            tr = None
+        return {"id": str(it.GetUniqueId()), "name": it.GetName(), "start": int(it.GetStart()), "frames": int(it.GetDuration()), "track": tr}
+    warn = []
+    p = sub.GetProperty() or {}
+    try:
+        if abs(float(p.get("RotationAngle") or 0)) > 1e-3:
+            warn.append("The footage is rotated in the Edit page: tracking still works, but check the result.")
+    except Exception:
+        pass
+    have = fx_on_item(target).get("Track")
+    old = track_read(have) if have is not None else None
+    # Re-track: the box where the last track found the subject on this frame (0..1, top-left), so it opens ready
+    tracked_box = None
+    if old:
+        r_ = old["track"].get(str(anchor))
+        if r_ is None and old["track"]:
+            near = min(old["track"], key=lambda k: abs(int(k) - anchor))
+            r_ = old["track"][near] if abs(int(near) - anchor) <= 2 else None
+        if r_:
+            tracked_box = [r_[0] - r_[2] / 2, r_[1] - r_[3] / 2, r_[2], r_[3]]
+    return {"target": info(target), "subject": info(sub), "range": [lo, hi], "anchor": anchor,
+            "data": r["data"], "imgW": r.get("width"), "imgH": r.get("height"),
+            "width": int(tl.GetSetting("timelineResolutionWidth") or 1920), "height": int(tl.GetSetting("timelineResolutionHeight") or 1080),
+            "fps": float(tl.GetSetting("timelineFrameRate") or 25), "warnings": warn, "previous": {"anchor": old.get("anchor"), "box": old.get("box"), "trackedBox": tracked_box} if old else None}
+
+
+def op_track_frames(a):
+    """{subject, from, to (timeline frames, inclusive), outDir, maxDim, cancelPath?}: exports the footage frames as
+    outDir/f<frame>.jpg for the tracker."""
+    sub = find_item(str(a["subject"]))
+    out_dir = a["outDir"]
+    os.makedirs(out_dir, exist_ok=True)
+    s0 = int(sub.GetStart())
+    max_dim = int(a.get("maxDim") or 640)
+    cancel = a.get("cancelPath")
+    n = 0
+    for f in range(int(a["from"]), int(a["to"]) + 1):
+        if cancel and os.path.exists(cancel):
+            raise Cancelled("cancelled")
+        fp = os.path.join(out_dir, "f%d.jpg" % f)
+        r = sub.ExportFrame(f - s0, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+        if not r or not r.get("success"):
+            raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
+        n += 1
+    return {"count": n}
+
+
+def track_read(effect):
+    """The raw track stored on the effect: {anchor, box, track: {frame: [cx, cy, w, h, ok]}} or None."""
+    try:
+        comp = effect.GetFusionComp()
+        t = comp.FindTool("XfTrack") if comp is not None else None
+        raw = t.GetData(TRACK_DATA) if t is not None else None
+        d = json.loads(raw) if raw else None
+        return d if isinstance(d, dict) and isinstance(d.get("track"), dict) else None
+    except Exception:
+        return None
+
+
+TRACK_DEFAULTS = (("FollowX", 1.0), ("FollowY", 1.0), ("FollowScale", 0.0), ("FollowRot", 0.0), ("Smooth", 20.0))
+
+
+def track_set_values(t, vals):
+    """Sets Follow X / Y / Scale / Rotation / Smooth on XfTrack and keeps them in the stored track too: an effect added
+    before an option existed has no input for it (Rotation came later), the stored copy still works."""
+    vals = {str(k): float(x) for k, x in (vals or {}).items() if str(k) in dict(TRACK_DEFAULTS)}
+    if not vals:
+        return
+    for k, x in vals.items():
+        try:
+            t.SetInput(k, x)
+        except Exception:
+            pass
+    try:
+        raw = t.GetData(TRACK_DATA)
+        d = json.loads(raw) if raw else None
+        if isinstance(d, dict):
+            d.setdefault("values", {}).update(vals)
+            t.SetData(TRACK_DATA, json.dumps(d))
+    except Exception:
+        pass
+
+
+def track_values(t, d):
+    """The settings: the stored copy first (always written), else the input, else the default."""
+    stored = (d or {}).get("values") or {}
+    v = {}
+    for k, dflt in TRACK_DEFAULTS:
+        x = stored.get(k)
+        if not isinstance(x, (int, float)) or isinstance(x, bool):
+            x = get_in(t, k)
+        v[k] = float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else dflt
+    return v
+
+
+def _smooth(vals, sigma):
+    if sigma <= 0.05 or len(vals) < 3:
+        return list(vals)
+    import math
+    r = int(math.ceil(sigma * 3))
+    k = [math.exp(-(i * i) / (2 * sigma * sigma)) for i in range(-r, r + 1)]
+    n = len(vals)
+    out = []
+    for i in range(n):
+        acc = wsum = 0.0
+        for j, w in enumerate(k):
+            x = min(n - 1, max(0, i + j - r))      # the ends hold their value
+            acc += vals[x] * w
+            wsum += w
+        out.append(acc / wsum)
+    return out
+
+
+def fx_bake_track(effect, it, force=False, check_only=False):
+    """Keys XfTrack from the stored track for the clip `it`. Returns True when it (re)baked.
+    Fusion Transform: out = (p - Pivot) * Size + Pivot + (Center - 0.5). A Fusion effect on a timeline clip works on
+    the clip AFTER its Edit sizing (Zoom / Pan / Tilt), in timeline space (measured 2026-11-11 on a Text+ and on a
+    zoomed, panned still), so the track (0..1 of the timeline picture) is used as it is: Center - 0.5 = how far the
+    subject moved since the anchor frame, Pivot = the subject on the anchor frame (scale grows around it). Along an
+    axis that does not follow, the pivot is the clip's own centre (0.5 + its Pan / Tilt), so scaling never shifts it."""
+    d = track_read(effect)
+    if not d:
+        return False
+    comp = effect.GetFusionComp()
+    t = comp.FindTool("XfTrack") if comp is not None else None
+    if t is None:
+        return False
+    tl = timeline()
+    W = float(tl.GetSetting("timelineResolutionWidth") or 1920)
+    H = float(tl.GetSetting("timelineResolutionHeight") or 1080)
+    v = track_values(t, d)
+    p = it.GetProperty() or {}
+    def num(k, dflt):
+        try:
+            return float(p.get(k, dflt))
+        except Exception:
+            return dflt
+    tx, ty = num("Pan", 0.0) / W, num("Tilt", 0.0) / H
+    ca = comp.GetAttrs() or {}
+    rs = int(ca.get("COMPN_RenderStart") or 0)
+    start, dur = int(it.GetStart()), int(it.GetDuration())
+    trk = {int(k): v_ for k, v_ in d["track"].items()}
+    keys = sorted(trk)
+    if not keys:
+        return False
+    sig = ("elsa-track3 %s n=%d k=%d-%d s=%d d=%d rs=%d t=%g,%g" %
+           (" ".join("%s=%g" % (k, v[k]) for k in sorted(v)), len(keys), keys[0], keys[-1], start, dur, rs, tx, ty))
+    if check_only:
+        return str(get_in(t, "Comments") or "") != sig      # stale: the clip moved / was trimmed since it was keyed
+    if not force and str(get_in(t, "Comments") or "") == sig:
+        return False
+    # one value per clip frame: frames the footage does not cover hold the nearest tracked one
+    def at(f):
+        f = min(keys[-1], max(keys[0], f))
+        while f not in trk:
+            f += 1
+        return trk[f]
+    rows = [at(start + i) for i in range(dur)]
+    sigma = max(0.0, v["Smooth"]) / 100.0 * 6.0
+    cx = _smooth([r[0] for r in rows], sigma)
+    cy = _smooth([1.0 - r[1] for r in rows], sigma)      # Fusion: y up from the bottom
+    # the tracker's box size is much noisier than its position, and real distance changes are slow: scale is smoothed
+    # harder (at least 3 frames)
+    sc = _smooth([max(1e-6, r[2] * r[3]) ** 0.5 for r in rows], max(3.0, sigma * 4.0))
+    # in-picture rotation (degrees, clockwise on screen; older tracks have none): smoothed like the scale
+    rot = _smooth([float(r[5]) if len(r) > 5 else 0.0 for r in rows], max(2.0, sigma * 2.0))
+    i0 = min(dur - 1, max(0, int(d.get("anchor", keys[0])) - start))
+    sx0, sy0, s0 = cx[i0], cy[i0], sc[i0]
+    # scale pivots on the subject along the axes that follow it; along a locked axis on the clip's own centre, so
+    # scaling never pushes it sideways (a caption with Follow X off stays where it is horizontally)
+    px = sx0 if v["FollowX"] >= 0.5 else 0.5 + tx
+    py = sy0 if v["FollowY"] >= 0.5 else 0.5 + ty
+    ckx, cky, size, ang = {}, {}, {}, {}
+    for i in range(dur):
+        f = rs + i
+        ckx[f] = {1: 0.5 + (cx[i] - sx0 if v["FollowX"] >= 0.5 else 0.0)}
+        cky[f] = {1: 0.5 + (cy[i] - sy0 if v["FollowY"] >= 0.5 else 0.0)}
+        size[f] = {1: min(2.0, max(0.5, sc[i] / s0)) if v["FollowScale"] >= 0.5 and s0 > 0 else 1.0}
+        ang[f] = {1: -(rot[i] - rot[i0]) if v["FollowRot"] >= 0.5 else 0.0}      # Fusion Angle: counter-clockwise
+    with LOCKED(comp):
+        t.SetInput("Pivot", {1: px, 2: py})
+        sa = _fx_modifier(t, "Angle", "BezierSpline")
+        if sa is None:
+            sa = comp.BezierSpline()
+            t.Angle = sa
+        sa.SetKeyFrames(ang, True)
+        sp = _fx_modifier(t, "Size", "BezierSpline")
+        if sp is None:
+            sp = comp.BezierSpline()
+            t.Size = sp
+        sp.SetKeyFrames(size, True)
+        xy = _fx_modifier(t, "Center", "XYPath")
+        if xy is None:
+            xy = comp.XYPath()
+            t.Center = xy
+        for inp, ks in (("X", ckx), ("Y", cky)):
+            s_ = _fx_modifier(xy, inp, "BezierSpline")
+            if s_ is None:
+                s_ = comp.BezierSpline()
+                setattr(xy, inp, s_)
+            s_.SetKeyFrames(ks, True)
+        t.SetInput("Comments", sig)
+    return True
+
+
+def track_summary(effect, it=None):
+    """For the panel. Never writes: a tracked clip that moved or was trimmed is reported stale and re-keyed only when
+    the user asks (Update) - re-keying from the background poll while Resolve played / rendered preceded a crash
+    (2026-11-11, signal 11 in a Fusion task)."""
+    d = track_read(effect)
+    if not d:
+        return {"tracked": False}
+    vals = list(d["track"].values())
+    stale = False
+    if it is not None:
+        try:
+            stale = bool(fx_bake_track(effect, it, check_only=True))
+        except Exception:
+            stale = False
+    return {"tracked": True, "frames": len(vals), "lost": sum(1 for r in vals if not r[4]), "anchor": d.get("anchor"), "stale": stale}
+
+
+def op_fx_bake_track(a):
+    """{item, track?: {frame: [cx, cy, w, h, ok]}, anchor?, box?, values?: {FollowX ...}}: stores a new track (when
+    given) on the clip's ELSA Track Subject (added when missing), sets its settings and keys it."""
+    it = find_item(str(a["item"]))
+    have = fx_on_item(it)
+    e = have.get("Track")
+    if e is None:
+        e = it.AddEffect("fusion", FX_PREFIX + FX_NAMES["Track"])
+        if e is None:
+            raise RuntimeError("Resolve could not add Track Subject to " + it.GetName())
+        have["Track"] = e
+        total = len(it.GetEffects("fusion") or [])
+        mine = [k for k in FX_ORDER if k in have and not fx_is_ofx(have[k])]
+        for n, k in enumerate(mine):
+            try:
+                have[k].SetIndex(total - len(mine) + n + 1)
+            except Exception:
+                pass
+    elif not e.GetIsEnabled():
+        e.SetIsEnabled(True)
+    t = fx_param_tool(e, "Track")
+    if t is None:
+        raise RuntimeError("Track Subject's settings could not be opened")
+    if a.get("track"):
+        old = track_read(e) or {}
+        t.SetData(TRACK_DATA, json.dumps({"anchor": int(a.get("anchor") or 0), "box": a.get("box"), "track": a["track"],
+                                          "values": old.get("values") or {}}))
+    track_set_values(t, a.get("values"))
+    baked = fx_bake_track(e, it, force=True)
+    return {"baked": baked, "clips": fx_state([it], fresh=True)}
+
+
 def fx_get_params(effect, key):
     t = fx_param_tool(effect, key)
+    if key == "Track" and t is not None:
+        return track_values(t, track_read(effect))
     out = {}
     for pid in FX_PARAMS.get(key, []):
         v = get_in(t, pid) if t is not None else None
@@ -3398,7 +3721,7 @@ def fx_nudge_inspector():
 # so fx_set skips a clip whose own comp already holds that effect's node, and fx_state reports it (inNodes).
 # Matched by node name: the macro's group (ELSAWiggle, ELSAWiggle1 ...) or its main tool. Names only (GetToolList +
 # GetAttrs, as the other bridge reads do), never input values, and cached FX_NODES_TTL per clip.
-FX_NODE_NAMES = {"Transform": ("ELSATransform", "XfMove"), "Glitch": ("ELSAGlitch", "GlitchOut"),
+FX_NODE_NAMES = {"Transform": ("ELSATransform", "XfMove"), "Track": ("ELSATrack", "XfTrack"), "Glitch": ("ELSAGlitch", "GlitchOut"),
                  "Wiggle": ("ELSAWiggle", "WiggleDisplace"), "StopMotion": ("ELSAStopMotion", "StopMotionTime")}
 FX_NODES_TTL = 10.0
 _fx_nodes = {}
@@ -3502,7 +3825,8 @@ def fx_state(items, fresh=False):
             hold = fx_get_hold(have) if "StopMotion" in have else None
             vals = {"strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
                                      ([("StopMotion", hold)] if hold else [])),
-                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS}}
+                    "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
+                    "track": track_summary(have["Track"], it) if "Track" in have else None}
             _fx_reads[iid] = (now, key, vals)
         else:
             vals = r[2]
@@ -3510,7 +3834,7 @@ def fx_state(items, fresh=False):
             if len(cache) > 300:
                 cache.pop(next(iter(cache)))
         out.append({"id": iid, "name": it.GetName(), "effects": enabled,
-                    "strength": vals["strength"], "params": vals["params"],
+                    "strength": vals["strength"], "params": vals["params"], "track": vals.get("track"),
                     "frames": frames, "start": start,
                     "inNodes": sorted(fx_in_nodes(it)),
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
@@ -3572,6 +3896,13 @@ def op_fx_param(a):
             try:
                 if t is not None:
                     t.SetInput(k, v)
+            except Exception:
+                pass
+        if key == "Track":
+            try:
+                if tp is not None:
+                    track_set_values(tp, vals)
+                fx_bake_track(e, it, force=True)
             except Exception:
                 pass
         done += 1
@@ -3654,13 +3985,13 @@ def op_fx_set(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the
 # renders (they already took their time, the panel retries itself), not the watchers (the next tick comes anyway), and
 # never once a wake has run (a second attempt would wake - re-render - the whole comp again).
-NO_RETRY = {"capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
+NO_RETRY = {"track_frames", "capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
 
 
 def handle(req):

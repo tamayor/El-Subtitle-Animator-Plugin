@@ -20,9 +20,9 @@ const PERF = require('./perf');
 const { noteResolveLatency, probeDue, resolveBusy } = require('./resolve-load');
 
 const EVERY_MS = 700;
-// clips whose letters / rows are keyed by the bridge: the segment MultiText presets and Kinetic Cloud / Lines (their
-// rows' pop-in keys follow Animation Start / Frames, Frames Per Row, the text's row count and the clip's start)
-const KEYED_CLIP = /^(MultiText|Text\+ Kinetic (Cloud|Lines))/;
+// clips whose letters / rows are keyed by the bridge: the segment MultiText presets, Kinetic Cloud / Lines and Justified
+// Pop (their rows are baked from the Template: text, layout, colours, timing and the clip's start; bake_rows)
+const KEYED_CLIP = /^(MultiText|Text\+ (Kinetic (Cloud|Lines)|Justified Pop))/;
 const MAX_SEL = 4;
 // While the panel itself has the focus nobody is dragging a slider in Resolve's Inspector (and the panel's own timing
 // bar re-keys what it changes), so the look comes every FOCUSED_MS instead of every EVERY_MS.

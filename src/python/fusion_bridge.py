@@ -10,6 +10,7 @@
 import sys
 import os
 import json
+import math
 import traceback
 import time
 
@@ -626,6 +627,8 @@ def op_set_text(a):
         for mod in all_tools:
             if attrs(mod).get("TOOLS_RegID") in ("StyledTextFollower", "Follower"):
                 try:
+                    if mod.GetData(BAKE_DATA):
+                        continue        # a baked Kinetic row: its text comes from the Template (bake_rows)
                     mod.SetInput("Text", a["text"])
                     has_follower = True
                 except Exception:
@@ -690,7 +693,10 @@ def is_mirror(tool):
             return True
         # or its text comes through a follower whose own text is that expression
         d = is_driven(tool, "StyledText")
-        return bool(d is not None and attrs(d).get("TOOLS_RegID") in FOLLOWERS and d.Text.GetExpression())
+        if d is not None and attrs(d).get("TOOLS_RegID") in FOLLOWERS and d.Text.GetExpression():
+            return True
+        # or it is a Kinetic / Justified Pop row whose expressions were baked (bake_rows): still the Template's copy
+        return bool(tool.GetData(BAKE_DATA))
     except Exception:
         return False
 
@@ -1289,9 +1295,10 @@ def op_controls_set(a):
                 continue
     finally:
         comp.Unlock()
-    if any(i.startswith("Highlight") or i.startswith("Seg") for i in ids):
+    if any(i.startswith("Highlight") or i.startswith("Seg") for i in ids) or kinetic_template(comp)[0] is not None:
         try:
-            rekey_comp(comp, a.get("item"))     # the box sweep's keys carry Box Width
+            rekey_comp(comp, a.get("item"))     # the box sweep's keys carry Box Width; Kinetic / Justified Pop rows
+                                                # are baked from the Template's sliders (bake_rows)
         except Exception:
             pass
     glass_after(a)
@@ -2713,10 +2720,14 @@ KINETIC_OPACITY_TAIL = {"cloud": "return math.min(1, p * 3)", "lines": "return f
 
 
 def kinetic_template(comp):
-    """(Template, "cloud" | "lines") for a Kinetic Cloud / Lines comp, else (None, None)."""
+    """(Template, "cloud" | "lines" | "justpop") for a Kinetic Cloud / Lines / Justified Pop comp, else (None, None)."""
     try:
         tpl = comp.FindTool("Template")
-        if tpl is None or get_in(tpl, "StepFrames") is None or comp.FindTool("Pop1") is None:
+        if tpl is None or get_in(tpl, "StepFrames") is None:
+            return None, None
+        if comp.FindTool("Pop1") is None:
+            if get_in(tpl, "RowRatio") is not None and comp.FindTool("E1") is not None:
+                return tpl, "justpop"
             return None, None
         if get_in(tpl, "SlideFrames") is not None:
             return tpl, "lines"
@@ -2730,13 +2741,21 @@ def kinetic_template(comp):
 def kinetic_state(comp, tpl, kind):
     """Everything the row keys depend on: RenderStart, Animation Start / Frames, the natural length (row count, Frames
     Per Row, Pull Back / Slide Frames, Zoom), Frames Per Row and the pop length."""
+    a = attrs(comp)
     try:
-        rs = float(attrs(comp).get("COMPN_RenderStart") or 0)
+        rs = float(a.get("COMPN_RenderStart") or 0)
     except Exception:
         rs = 0.0
+    bake = bake_inputs(tpl, kind)     # the rows' layout, colours and motion sliders (bake_rows); last in the state
+    if kind == "justpop":
+        try:
+            re_ = float(a.get("COMPN_RenderEnd") or rs)
+        except Exception:
+            re_ = rs
+        return (kind, rs, re_, bake)
     width = max(1.0, num(get_in(tpl, "SlideFrames"), 12)) if kind == "lines" else 8.0
     return (kind, rs, max(0, int(num(get_in(tpl, "AnimStart"), 0) // 1)), int(num(get_in(tpl, "AnimFrames"), 0) // 1),
-            num(get_in(tpl, "AnimNatural"), 1), num(get_in(tpl, "StepFrames"), 7 if kind == "cloud" else 5), width)
+            num(get_in(tpl, "AnimNatural"), 1), num(get_in(tpl, "StepFrames"), 7 if kind == "cloud" else 5), width, bake)
 
 
 def kinetic_value(kind, inp, k, p):
@@ -2777,7 +2796,15 @@ def key_kinetic_inner(comp):
     if tpl is None:
         return 0
     st = kinetic_state(comp, tpl, kind)
-    _, rs, AS, AF, NAT, STEP, W = st
+    if kind == "justpop":       # no followers: its words pop by Size (bake_rows)
+        keyed = bake_rows(comp, tpl, kind, st)
+        if keyed:
+            try:
+                tpl.SetData(SEG_KEYED_DATA, json.dumps(st))
+            except Exception:
+                pass
+        return keyed
+    _, rs, AS, AF, NAT, STEP, W = st[:7]
     NAT = max(1.0, NAT)
     D = max(1.0, AF - AS)
 
@@ -2859,12 +2886,375 @@ def key_kinetic_inner(comp):
                 fol.SetData(KINETIC_DATA, kind)
             except Exception:
                 pass
+    try:
+        keyed += bake_rows(comp, tpl, kind, st)
+    except Exception:
+        pass
     if keyed:
         try:
             tpl.SetData(SEG_KEYED_DATA, json.dumps(st))
         except Exception:
             pass
     return keyed
+
+
+# ---------------------------------------------------------------- Kinetic Cloud / Lines, Justified Pop: rows baked
+# Each row (Kinetic) or word (Justified Pop) is its own Text+ whose text, Size, Center, colour (Cloud: AngleZ; Justified
+# Pop rows: Style) were Lua expressions of the Template. Fusion caches no expression results, so ~170 of them ran on
+# every frame of a Justified Pop clip, and every one of its 21 full-frame Text+ went through the Merge chain even when
+# the line had 5 words: very slow playback. bake_rows writes the same values instead: plain values for what does not
+# move, linear keys (one per frame where it moves, straight runs dropped) for Size / Center / AngleZ, and puts the
+# Merge of each empty slot in pass-through. The layout comes from Template.Comments (the generators' cached layout:
+# row count, then "accent<TAB>size<TAB>x<TAB>y<TAB>text" per row); only the Template is read, never a row (reading a
+# follower-fed Text+ froze Resolve). The Template keeps its expressions; what the bake used is part of kinetic_state,
+# so a text / colour / slider / trim change re-bakes through the same paths as the follower keys (placement, timing
+# bar, seg-watch / sweep, text edits, Clip controls). Font and the emphasis Style stay plain links to the Template.
+BAKE_DATA = "ElsaRowBake"         # CustomData on baked row Text+ / followers: they are not text boxes (is_mirror)
+BAKE_COMMON = ("Comments", "Center", "Red1", "Green1", "Blue1", "Red2", "Green2", "Blue2")
+BAKE_EXTRA = {
+    "justpop": ("Style", "PopFrames", "StepFrames", "Spread", "AnimFrames", "AnimStart", "Pop", "Bounce"),
+    "lines": ("SlideDist", "Pattern", "Settle"),
+    "cloud": ("Tilt", "PullFrames", "Zoom", "CamTilt", "Width", "Height"),
+}
+JP_SLOTS = ["U%d" % k for k in range(1, 9)] + ["E%d" % k for k in range(1, 6)] + ["L%d" % k for k in range(1, 9)]
+JP_EMPH_STYLE, JP_ROW_STYLE = "ExtraBold", "SemiBold"     # tools/gen-justified-pop.py EMPH_STYLE / ROW_STYLE
+
+
+def bake_inputs(tpl, kind):
+    """[[id, value]] of the Template inputs bake_rows uses (JSON-safe: Center as [x, y])."""
+    out = []
+    for i in BAKE_COMMON + BAKE_EXTRA.get(kind, ()):
+        v = get_in(tpl, i)
+        if i == "Center":
+            v = as_pt(v) or [0.5, 0.5]
+        elif not isinstance(v, (int, float, str)) and v is not None:
+            v = str(v)
+        out.append([i, v])
+    return out
+
+
+def bake_layout(txt):
+    """Template.Comments -> [(accent, size, x, y, text)], or None when it is not a layout."""
+    lines = str(txt or "").split("\n")
+    try:
+        n = int(lines[0])
+    except Exception:
+        return None
+    rows = []
+    for ln in lines[1:]:
+        parts = ln.split("\t", 4)
+        if len(parts) != 5:
+            continue
+        try:
+            rows.append((parts[0] == "1", float(parts[1]), float(parts[2]), float(parts[3]), parts[4]))
+        except Exception:
+            continue
+    return rows if len(rows) == n else None
+
+
+def bake_prune(frames, vals, eps=1e-7):
+    """Drops the samples a straight line between their neighbours already gives (keys are linear)."""
+    n = len(vals)
+    if n <= 2:
+        return list(zip(frames, vals))
+    keep = [0]
+    for i in range(1, n - 1):
+        if abs(vals[i - 1] - 2 * vals[i] + vals[i + 1]) > eps * (1 + abs(vals[i])):
+            keep.append(i)
+    keep.append(n - 1)
+    return [(frames[i], vals[i]) for i in keep]
+
+
+def bake_keys(sp, pts):
+    """Writes [(frame, value)] as the spline's only keys (linear). Keys from an earlier bake are first given the new
+    curve's value (DeleteKeyFrames always leaves one key) and then deleted."""
+    keys = {float(f): {1: float(v), "Flags": {"Linear": True}} for f, v in pts}
+    lo, hi = min(keys), max(keys)
+    try:
+        old = [float(x) for x in (sp.GetKeyFrames() or {}).keys()]
+    except Exception:
+        old = []
+    xs = sorted(keys)
+    stray = []
+    for x in old:
+        if x in keys:
+            continue
+        if x < lo:
+            v = keys[lo][1]
+        elif x > hi:
+            v = keys[hi][1]
+        else:
+            j = next(k for k in range(1, len(xs)) if xs[k] >= x)
+            a, b = xs[j - 1], xs[j]
+            v = keys[a][1] + (keys[b][1] - keys[a][1]) * (x - a) / max(1e-9, b - a)
+            stray.append((a, b))
+        keys[x] = {1: v, "Flags": {"Linear": True}}
+    sp.SetKeyFrames(keys, True)
+    try:
+        sp.DeleteKeyFrames(-1e6, lo - 1e-3)
+        sp.DeleteKeyFrames(hi + 1e-3, 1e6)
+        for a, b in sorted(set(stray)):
+            sp.DeleteKeyFrames(a + 1e-3, b - 1e-3)
+    except Exception:
+        pass
+
+
+def bake_clear(tool, inp):
+    try:
+        if getattr(tool, inp).GetExpression():
+            getattr(tool, inp).SetExpression(None)
+    except Exception:
+        pass
+
+
+def bake_value(tool, inp, v):
+    """A plain value (text, number or [x, y])."""
+    bake_clear(tool, inp)
+    if isinstance(v, (list, tuple)):
+        v = {1: float(v[0]), 2: float(v[1]), 3: 0.0}
+    tool.SetInput(inp, v)
+
+
+def bake_curve(tool, inp, frames, vals):
+    """A number per frame: a plain value when it never changes (and no keys yet), else linear keys."""
+    bake_clear(tool, inp)
+    if max(vals) - min(vals) < 1e-9 and is_driven(tool, inp) is None:
+        tool.SetInput(inp, float(vals[0]))
+        return
+    sp = anim_spline(tool, inp, "value")
+    if sp is None:
+        tool.SetInput(inp, float(vals[-1]))
+        return
+    bake_keys(sp, bake_prune(frames, vals))
+
+
+def bake_point(tool, inp, frames, xs, ys):
+    """A point per frame: a plain value when it never moves (and no path yet), else an XY path with linear keys."""
+    bake_clear(tool, inp)
+    drv = is_driven(tool, inp)
+    if drv is None and max(xs) - min(xs) < 1e-9 and max(ys) - min(ys) < 1e-9:
+        tool.SetInput(inp, {1: float(xs[0]), 2: float(ys[0]), 3: 0.0})
+        return
+    if drv is None:
+        if not tool.AddModifier(inp, "XYPath"):
+            tool.SetInput(inp, {1: float(xs[-1]), 2: float(ys[-1]), 3: 0.0})
+            return
+        drv = is_driven(tool, inp)
+    if drv is None or attrs(drv).get("TOOLS_RegID") != "XYPath":
+        return
+    for axis, vals in (("X", xs), ("Y", ys)):
+        sp = is_driven(drv, axis)
+        if sp is None:
+            if not drv.AddModifier(axis, "BezierSpline"):
+                continue
+            sp = is_driven(drv, axis)
+        if sp is not None:
+            bake_keys(sp, bake_prune(frames, vals))
+
+
+def bake_mark(tool, kind):
+    try:
+        if tool.GetData(BAKE_DATA) != kind:
+            tool.SetData(BAKE_DATA, kind)
+    except Exception:
+        pass
+
+
+def bake_merge(comp, slot, empty):
+    """The Merge that lays slot `slot` (1-based) over the ones before it: pass-through when the slot is empty."""
+    if slot < 2:
+        return
+    m = comp.FindTool("Merge%d" % (slot - 1))
+    if m is None:
+        return
+    try:
+        if bool((m.GetAttrs() or {}).get("TOOLB_PassThrough")) != bool(empty):
+            m.SetAttrs({"TOOLB_PassThrough": bool(empty)})
+        # attrs() caches what it read: wake_effects must see the new state, or it would toggle the Merge back on
+        attrs(m)["TOOLB_PassThrough"] = bool(empty)
+    except Exception:
+        pass
+
+
+def remap_tt(t, rs, AS, AF, NAT):
+    """The generators' REMAP: comp time -> the preset's own time (Animation Start / Frames retiming)."""
+    rel = t - rs - AS
+    if rel <= 0:
+        return 0.0
+    if AF <= 0:
+        return rel
+    D = max(1, AF - AS)
+    return rel * NAT / D if rel < D else NAT + rel - D
+
+
+def bake_rows(comp, tpl, kind, st):
+    """Bakes the row / word Text+ of a Kinetic Cloud / Lines or Justified Pop clip from its Template (see above).
+    Returns the number of tools written (0 = not such a comp, or its layout could not be read)."""
+    B = dict(st[-1])
+    rows = bake_layout(B.get("Comments"))
+    if not rows:
+        return 0
+    cen = B.get("Center") or [0.5, 0.5]
+    TX, TY = float(cen[0]), float(cen[1])
+
+    def col(acc):
+        n = "2" if acc else "1"
+        return [num(B.get(c + n), 1.0) for c in ("Red", "Green", "Blue")]
+
+    a = attrs(comp)
+    try:
+        rs = float(a.get("COMPN_RenderStart") or 0)
+        re_ = float(a.get("COMPN_RenderEnd") or rs)
+    except Exception:
+        return 0
+    frames = list(range(int(math.floor(rs)), int(math.ceil(re_)) + 1))
+    done = 0
+    if kind == "justpop":
+        L = max(1.0, re_ - rs + 1)
+        NW = sum(1 for r in rows if r[4] != "")
+        POP = max(1.0, num(B.get("PopFrames"), 6))
+        STEP = num(B.get("StepFrames"), 8)
+        SPREAD = num(B.get("Spread"), 0.7)
+        if SPREAD > 0 and NW > 1:
+            STEP = min(STEP, (L * SPREAD - POP) / (NW - 1))
+        STEP = max(1.0, STEP)
+        NAT = max(1, int(math.ceil((max(1, NW) - 1) * STEP + POP + 1)))
+        AF = int(math.floor(num(B.get("AnimFrames"), 0)))
+        AS = max(0, int(math.floor(num(B.get("AnimStart"), 0))))
+        pop = num(B.get("Pop"), 1) >= 0.5
+        Bk = 1.70158 * num(B.get("Bounce"), 1)
+        style = str(B.get("Style") or "")
+        row_style = JP_ROW_STYLE if style in (JP_EMPH_STYLE, "Black", "Bold", "Heavy") else style
+        tts = [remap_tt(t, rs, AS, AF, NAT) for t in frames]
+        ordn = 0
+        for k, name in enumerate(JP_SLOTS, 1):
+            tool = comp.FindTool(name)
+            if tool is None or k > len(rows):
+                continue
+            acc, sz, cx, cy, text = rows[k - 1]
+            try:
+                bake_value(tool, "StyledText", text)
+                bake_value(tool, "Center", [TX + cx, TY + cy])
+                for ch, v in zip(("Red1", "Green1", "Blue1"), col(acc)):
+                    bake_value(tool, ch, v)
+                if not name.startswith("E"):
+                    bake_value(tool, "Style", row_style)
+                if text == "":
+                    bake_curve(tool, "Size", frames, [0.0])
+                else:
+                    ordn += 1
+                    vals = []
+                    for tt in tts:
+                        p = (tt - (ordn - 1) * STEP) / POP
+                        if p <= 0:
+                            vals.append(0.0)
+                        elif not pop or p >= 1:
+                            vals.append(sz)
+                        else:
+                            q = p - 1
+                            vals.append(sz * (1 + (Bk + 1) * q * q * q + Bk * q * q))
+                    bake_curve(tool, "Size", frames, vals)
+                bake_mark(tool, kind)
+                done += 1
+            except Exception:
+                continue
+            bake_merge(comp, k, text == "")
+        return done
+
+    _, _, AS, AF, NAT, STEP = st[:6]
+    NAT = max(1.0, NAT)
+    cnt = len(rows)
+    tts = [remap_tt(t, rs, AS, AF, NAT) for t in frames]
+    if kind == "lines":
+        SLIDE = max(1.0, st[6])
+        DIST = num(B.get("SlideDist"), 0.16)
+        PAT = int(math.floor(num(B.get("Pattern"), 0)))
+        OVS = num(B.get("Settle"), 0)
+
+        def dirof(k):
+            if PAT == 2:
+                return -1
+            if PAT == 3:
+                return 1
+            d = -1 if k % 2 == 1 else 1
+            return -d if PAT == 1 else d
+
+        def ease(p):
+            q = 1 - p
+            e = 1 - q * q * q
+            if OVS > 0:
+                e += OVS * math.sin(p * math.pi) * q * 4
+            return e
+    else:
+        asp = num(B.get("Width"), 1080) / max(1.0, num(B.get("Height"), 1920))
+        pat = [-1, 0.6, -0.4, 1, -0.8, 0.3, -1, 0.7, -0.5, 0.9, -0.6, 0.4]
+        tilt = num(B.get("Tilt"), 0)
+        POPF = 8
+        PULL = num(B.get("PullFrames"), 12)
+        Z = num(B.get("Zoom"), 1.4)
+        CT = num(B.get("CamTilt"), 0)
+
+        def sm(p):
+            p = max(0.0, min(1.0, p))
+            return p * p * (3 - 2 * p)
+
+        cams = []
+        for tt in tts:
+            px, py, z, ca = 0.0, 0.0, 1.0, 0.0
+            if cnt > 0 and Z > 1.001:
+                f = max(1.0, tt / STEP + 1)
+                fi = min(int(math.floor(f)), cnt)
+                fj = min(fi + 1, cnt)
+                fr = sm(f - fi)
+                fy = rows[fi - 1][3] * (1 - fr) + rows[fj - 1][3] * fr
+                fx = rows[fi - 1][2] * (1 - fr) + rows[fj - 1][2] * fr
+                pull = sm((tt - ((cnt - 1) * STEP + POPF * 0.6)) / PULL) if PULL else (1.0 if tt - ((cnt - 1) * STEP + POPF * 0.6) > 0 else 0.0)
+                px, py = fx * (1 - pull), fy * (1 - pull)
+                z = Z * (1 - pull) + pull
+                ca = CT * math.sin(f * 1.9) * (1 - pull)
+            cams.append((px, py, z, ca))
+    for k in range(1, 65):
+        tool = comp.FindTool("Row%d" % k)
+        if tool is None:
+            break
+        fol = comp.FindTool("Pop%d" % k)
+        acc, sz, cx, cy, text = rows[k - 1] if k <= cnt else (False, 0.01, 0.0, 0.0, "")
+        try:
+            if fol is not None and attrs(fol).get("TOOLS_RegID") in FOLLOWERS:
+                bake_value(fol, "Text", text)
+                bake_mark(fol, kind)
+            for ch, v in zip(("Red1", "Green1", "Blue1"), col(acc)):
+                bake_value(tool, ch, v)
+            if kind == "lines":
+                bake_curve(tool, "Size", frames, [sz if k <= cnt else 0.01])
+                if k > cnt:
+                    bake_point(tool, "Center", frames, [TX], [TY])
+                else:
+                    d = dirof(k)
+                    xs = [TX + d * DIST * (1 - ease(max(0.0, min(1.0, (tt - (k - 1) * STEP) / SLIDE)))) for tt in tts]
+                    bake_point(tool, "Center", frames, xs, [TY + cy] * len(frames))
+            elif k > cnt:
+                bake_curve(tool, "Size", frames, [0.01])
+                bake_point(tool, "Center", frames, [TX], [TY])
+                bake_curve(tool, "AngleZ", frames, [0.0])
+            else:
+                xs, ys, ss, ang = [], [], [], []
+                for px, py, z, ca in cams:
+                    dx, dy = (cx - px) * z, (cy - py) * z
+                    r = math.radians(ca)
+                    xs.append(TX + (dx * math.cos(r) - dy * math.sin(r)) / asp)
+                    ys.append(TY + dx * math.sin(r) + dy * math.cos(r))
+                    ss.append(sz * z)
+                    ang.append(tilt * pat[k - 1] + ca)
+                bake_point(tool, "Center", frames, xs, ys)
+                bake_curve(tool, "Size", frames, ss)
+                bake_curve(tool, "AngleZ", frames, ang)
+            bake_mark(tool, kind)
+            done += 1
+        except Exception:
+            continue
+        bake_merge(comp, k, k > cnt or text == "")
+    return done
 
 
 def segment_text_empty(mt, n):

@@ -9,6 +9,7 @@
 
 import sys
 import os
+import re
 import json
 import math
 import traceback
@@ -78,11 +79,9 @@ class STEP(object):
         self.name = name
 
     def __enter__(self):
-        import time
         self.t0 = time.perf_counter()
 
     def __exit__(self, *a):
-        import time
         STEPS[self.name] = STEPS.get(self.name, 0.0) + (time.perf_counter() - self.t0) * 1000.0
         return False
 
@@ -1030,7 +1029,6 @@ def hl_set(tool, orig, w, h, dx, dy, ctrl=None):
             except Exception:
                 pass
         return
-    import re
     tname = attrs(tool).get("TOOLS_Name") or ""
     for n, e in orig.items():
         for k, m in (("SizeX", w), ("SizeY", h)):
@@ -1142,7 +1140,6 @@ def hl_center(b):
 
 
 def hl_adjust(comp, tool, W, H, X, Y, auto):
-    import math
     orig = hl_original(tool)
     ctrl = hl_controls(comp)
     hl_set(tool, orig, 1.0, 1.0, 0.0, 0.0, ctrl)
@@ -1415,7 +1412,6 @@ def op_set_boxes(a):
     comp = get_comp(a["item"], a.get("comp"))
     all_tools = tool_list(comp)
     missing, fixed, design_done, first_text = [], [], False, True
-    import time
     t_text = time.perf_counter()
     for b in a.get("boxes") or []:
         name = b.get("tool")
@@ -2171,7 +2167,6 @@ def anim_value(kind, p):
 
 def anim_spec(inp_id, expr):
     """{seg, k, kind} parsed from one of the generated per-letter expressions, or None (anything else stays)."""
-    import re
     kind = FOLLOWER_ANIM.get(inp_id)
     if not kind or not expr or "time" not in expr:
         return None
@@ -2325,7 +2320,6 @@ SEG_PATH_RE = None
 
 def seg_path_spec(expr):
     """Flat {seg, a, b, v0, v1[, x1, x2, y0, y1, y2, y3]} from a generated Seg curve expression, or None."""
-    import re
     global SEG_PATH_RE
     n = r"(-?[\d.]+(?:e-?\d+)?)"
     if SEG_PATH_RE is None:
@@ -2451,7 +2445,6 @@ BOX_SWEEP_RE = None
 
 def box_sweep_spec(expr):
     """{kind: sweep, seg, k, src, scale} from the generated box-sweep expression, or None (anything else stays)."""
-    import re
     global BOX_SWEEP_RE
     if BOX_SWEEP_RE is None:
         n = r"([\d.]+)"
@@ -3991,7 +3984,6 @@ def track_values(t, d):
 def _smooth(vals, sigma):
     if sigma <= 0.05 or len(vals) < 3:
         return list(vals)
-    import math
     r = int(math.ceil(sigma * 3))
     k = [math.exp(-(i * i) / (2 * sigma * sigma)) for i in range(-r, r + 1)]
     n = len(vals)
@@ -4901,7 +4893,6 @@ NO_RETRY = {"track_frames", "capture", "live_frame", "probe_render", "seg_watch"
 
 
 def handle(req):
-    import time
     fn = OPS.get(req.get("op"))
     if not fn:
         return {"id": req.get("id"), "ok": False, "error": "Unknown operation"}

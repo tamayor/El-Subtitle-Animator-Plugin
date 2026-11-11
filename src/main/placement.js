@@ -18,6 +18,7 @@ const os = require('os');
 const state = require('./state');
 const { ANIM_DIR, APP_DATA_DIR, DATA_DIR } = require('./config');
 const { isEditedSfxName, sfxFilePath } = require('./sfx');
+const { applyLevel, clampToWindow, levelVolume, peakOf, variations } = require('./sfx-level');
 const { blockEnd, derived, detectNodes, expandAllTools, presetText } = require('./fusion-setting');
 const { regAdd, regDel } = require('./live-preview');
 const { dlog } = require('./log');
@@ -1139,8 +1140,9 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
             const fps = Math.round((meta && meta.fps) || 25);
             const fade = Math.max(0, Math.min(len, (l.fade === null || l.fade === undefined) ? fps : Math.round(Number(l.fade) || 0)));
             if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
-            const vol = Number(l.volume) || 0;
-            try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+            // peak window (sfx-level.js): the cut's real peak lands between -20 and -15 dBFS
+            const vol = await levelVolume(p, Number(l.volume) || 0, trimIn, len, fps);
+            await applyLevel(it, vol, 0);
             const id = String(await it.GetUniqueId());
             if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not (the sweep would delete it)
             if (l.link !== false && videoItem) {
@@ -1288,6 +1290,9 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
     const first = cuts[0].start, last = cuts[cuts.length - 1];
     const track = await pickTrack(tl, 'audio', Math.round(Number(l.track)) || 0, first, last.start + last.len, 1, notes, place, snap);
     const items = [];
+    // every copy: the cut's peak inside the window, plus a slight pitch / volume change so the run is not monotonous
+    const vary = cuts.length > 1 && l.vary !== false ? variations() : null;
+    const peaks = new Map();
     for (const c of cuts) {
         const placed = await mp.AppendToTimeline([{ mediaPoolItem: mpi, mediaType: 2, trackIndex: track, recordFrame: c.start, startFrame: trimIn, endFrame: trimIn + c.len }]);
         if (!placed || !placed.length) { warnings.push('Layered sound "' + path.basename(l.file) + '" could not be placed at frame ' + (c.start - textStart) + '.'); continue; }
@@ -1295,8 +1300,9 @@ async function placeRowSfx(tl, project, meta, l, rows, textStart, textEnd, tlSta
         snapAdd(snap, 'audio', track, { it, name: path.basename(l.file), start: c.start, end: c.start + c.len });
         const fade = Math.max(0, Math.min(c.len, (l.fade === null || l.fade === undefined) ? Math.min(c.len, Math.round(fps / 5)) : Math.round(Number(l.fade) || 0)));
         if (fade > 0) { try { if (typeof it.SetFades === 'function') await it.SetFades({ FadeIn: 0, FadeOut: fade }); } catch (e) { /* the fade is a convenience */ } }
-        const vol = Number(l.volume) || 0;
-        try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+        if (!peaks.has(c.len)) peaks.set(c.len, await peakOf(p, trimIn, c.len, fps));
+        const v = vary ? vary.next() : { cents: 0, db: 0 };
+        await applyLevel(it, clampToWindow((Number(l.volume) || 0) + v.db, peaks.get(c.len)), v.cents);
         const id = String(await it.GetUniqueId());
         if (!projectCopy) regAdd(id);      // a preview's sound is temporary; a placed one is not
         items.push(it);

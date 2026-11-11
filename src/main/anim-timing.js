@@ -257,7 +257,7 @@ async function setClipTiming(event, itemId, ranges, wake) {
     let sounds = null;
     if (wake) { try { sounds = await moveSegSounds(String(itemId), list); } catch (e) { sounds = { error: e.message }; } }
     // ... and the per-row copies of a 'Repeat per row' sound (Kinetic Cloud) re-space with the animation's speed
-    if (wake && list.some(r => r.key === 'anim')) {
+    if (wake && list.some(r => r.key === 'anim' || r.key === 'typing')) {      // typing: one keystroke per word follows the words
         let rs = null;
         try { rs = await refitRowSounds(String(itemId)); } catch (e) { rs = { error: e.message }; }
         if (rs) sounds = sounds ? { moved: (sounds.moved || 0) + (rs.moved || 0), failed: (sounds.failed || 0) + (rs.failed || 0), error: sounds.error || rs.error, rows: rs.moved || 0 }

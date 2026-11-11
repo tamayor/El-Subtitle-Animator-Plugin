@@ -127,13 +127,15 @@ function wiggle() {
 // Opacity = how strong the coloured fringes are. Entry > Blink at Start (BlinkIn, on by default): the first
 // BLINK_FRAMES frames flicker on / off with a forced burst. Simple expressions only (Lua ones cost ~25 ms a frame).
 const BLINK_FRAMES = 8;
-const GLITCH_DEFAULTS = { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85 };
+// Duration (Dur, frames from the clip's start; 0 = the whole clip): after it the glitch stops (no jumps, no fringes).
+const GLITCH_DEFAULTS = { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85, duration: 0 };
 function glitch() {
     const S = 'GlitchOut.Strength';
     const rel = '(time-comp.RenderStart)';
-    const blink = 'iif(GlitchOut.BlinkIn>0.5,1,0)*iif(' + S + '>0,1,0)*iif(' + rel + '<' + BLINK_FRAMES + ',1,0)*iif(' + rel + '>=0,1,0)';
-    const burst = 'max(GlitchOut.Blink, iif(' + hash(1) + '>1-0.35*min(1,' + S + '/50),1,0))';
-    const amt = 'iif(GlitchOut.Blink>0.5, max(' + S + '/50,0.6), ' + S + '/50)';
+    const on = 'iif(GlitchOut.Dur>0.5,iif(' + rel + '<GlitchOut.Dur,1,0),1)';
+    const blink = '(' + on + ')*iif(GlitchOut.BlinkIn>0.5,1,0)*iif(' + S + '>0,1,0)*iif(' + rel + '<' + BLINK_FRAMES + ',1,0)*iif(' + rel + '>=0,1,0)';
+    const burst = '(' + on + ')*max(GlitchOut.Blink, iif(' + hash(1) + '>1-0.35*min(1,' + S + '/50),1,0))';
+    const amt = '(' + on + ')*iif(GlitchOut.Blink>0.5, max(' + S + '/50,0.6), ' + S + '/50)';
     const show = 'iif(GlitchOut.Blink>0.5, iif(' + rel + '==0,0,iif(' + rel + '==2,0,iif(' + rel + '==4,0,1))), 1)';
     const jitter = 'Point(0.5+GlitchOut.Burst*(' + hash(2) + '-0.5)*0.08*GlitchOut.Amt, 0.5+GlitchOut.Burst*iif(' + hash(1) + '>0.9,(' + hash(3) + '-0.5)*0.02,0)*GlitchOut.Amt)';
     const split = (sign) => 'Point(0.5' + sign + '(0.004+0.012*GlitchOut.Burst)*GlitchOut.Amt, 0.5)';
@@ -146,6 +148,7 @@ function glitch() {
         'BlinkIn = { LINKS_Name = "Blink at Start", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, ICS_ControlPage = "Controls", INPS_StatusText = "Entry: the first frames flicker on and off with a glitch burst", }, ' +
         color('ColorA', 'Colour A', 1, D.colorA) + ', ' + color('ColorB', 'Colour B', 2, D.colorB) + ', ' +
         numCtl('Opacity', 'Opacity', D.opacity, 0, 100, true) + ', ' +
+        'Dur = { LINKS_Name = "Duration", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, INP_Default = ' + D.duration + ', INP_MinScale = 0, INP_MaxScale = 120, INP_MinAllowed = 0, INP_MaxAllowed = 100000, ICS_ControlPage = "Controls", INPS_StatusText = "Frames the glitch lasts from the clip start (0 = the whole clip)", }, ' +
         hidden('Blink') + ', ' + hidden('Burst') + ', ' + hidden('Amt') + ', ' + hidden('Show') + ', ' + hidden('Blk') + ', ' + holdCtl() + ', },\n';
     const tint = (name, src, id, x, y) => tool(name, 'ColorGain', [inp('Input', src),
         expr('GainRed', 1, 'GlitchOut.' + id + 'Red'), expr('GainGreen', 1, 'GlitchOut.' + id + 'Green'), expr('GainBlue', 1, 'GlitchOut.' + id + 'Blue')], x, y);
@@ -157,7 +160,8 @@ function glitch() {
         ['GlitchOut', 'BlinkIn', 'Blink at Start', 1],
         ['GlitchOut', 'ColorARed', 'Colour A', D.colorA[0], 1], ['GlitchOut', 'ColorAGreen', 'Colour A Green', D.colorA[1], 1], ['GlitchOut', 'ColorABlue', 'Colour A Blue', D.colorA[2], 1],
         ['GlitchOut', 'ColorBRed', 'Colour B', D.colorB[0], 2], ['GlitchOut', 'ColorBGreen', 'Colour B Green', D.colorB[1], 2], ['GlitchOut', 'ColorBBlue', 'Colour B Blue', D.colorB[2], 2],
-        ['GlitchOut', 'Opacity', 'Opacity', D.opacity]
+        ['GlitchOut', 'Opacity', 'Opacity', D.opacity],
+        ['GlitchOut', 'Dur', 'Duration', D.duration]
     ], [
         tool('GlitchJitter', 'Transform', [expr('Center', '{ 0.5, 0.5 }', jitter), expr('Size', 1, 'GlitchOut.Show')], 0, 0),
         tint('GlitchTintA', 'GlitchJitter', 'ColorA', 110, -50),
@@ -167,7 +171,7 @@ function glitch() {
             'Strength = Input { Value = ' + DEFAULT_STRENGTH + ', }', 'BlinkIn = Input { Value = 1, }',
             'ColorARed = Input { Value = ' + D.colorA[0] + ', }', 'ColorAGreen = Input { Value = ' + D.colorA[1] + ', }', 'ColorABlue = Input { Value = ' + D.colorA[2] + ', }',
             'ColorBRed = Input { Value = ' + D.colorB[0] + ', }', 'ColorBGreen = Input { Value = ' + D.colorB[1] + ', }', 'ColorBBlue = Input { Value = ' + D.colorB[2] + ', }',
-            'Opacity = Input { Value = ' + D.opacity + ', }', 'Hold = Input { Value = 1, }',
+            'Opacity = Input { Value = ' + D.opacity + ', }', 'Dur = Input { Value = ' + D.duration + ', }', 'Hold = Input { Value = 1, }',
             expr('Blk', 2, 'iif(GlitchOut.Hold>1,GlitchOut.Hold,2)'),
             expr('Blink', 0, blink), expr('Burst', 0, burst), expr('Amt', 0.5, amt), expr('Show', 1, show)
         ])
@@ -261,7 +265,7 @@ function track() {
 // blur sizes are 0, so the clip passes through. Simple expressions only (Lua ones cost ~25 ms a frame in effects).
 // Lead = frames from this clip's first frame to the caption's first frame; S2 / Dur = the pill's grow-in (as the
 // caption's Highlight: starts 3 frames after Emphasis Start, over Dur frames); Len = the caption's length.
-const GLASS_DEFAULTS = { Frost: 22, Bend: 0.06, Vib: 1.3, Bright: 0.05 };
+const GLASS_DEFAULTS = { Frost: 22, Bend: 0.1, Vib: 1.3, Bright: 0.05 };
 function glass() {
     const G = 'GlassShape';
     const rel = '(time-comp.RenderStart-' + G + '.Lead)';
@@ -288,11 +292,22 @@ function glass() {
             'Red1 = Input { Value = 1, }', 'Green1 = Input { Value = 1, }', 'Blue1 = Input { Value = 1, }'
         ]), 0, -120, user),
         tool('GlassXf', 'Transform', [inp('Input', G), 'Center = Input { Value = { 0.5, 0.5 }, }', 'Size = Input { Value = 1, }', 'Angle = Input { Value = 0, }'], 0, -60),
-        tool('GlassEdge', 'Blur', [inp('Input', 'GlassXf'), expr('XBlurSize', 30, '30*' + G + '.On')], 110, -60),
-        tool('GlassDisplace', 'Displace', [inp('Foreground', 'GlassEdge'), 'Offset = Input { Value = -0.5, }',
-            expr('RefractionStrength', 0, G + '.Bend*' + G + '.On'), 'LightChannel = Input { Value = 5, }',
-            'Center = Input { Value = { 0.5, 0.5 }, }'].concat(mask), 110, 0),
-        tool('GlassBlur', 'Blur', [inp('Input', 'GlassDisplace'), expr('XBlurSize', D.Frost, G + '.Frost*' + G + '.On')].concat(mask), 220, 0),
+        // float from here on: blurring the 8-bit Text+ mask stepped the lens normals into streaks
+        tool('GlassF', 'ChangeDepth', [inp('Input', 'GlassXf'), 'Depth = Input { Value = 4, }'], 110, -120),
+        // the lens: the pill's soft edge as a height map -> normals -> XY Displace (bends only at the rim; Fusion's
+        // Radial Displace swirls instead)
+        tool('GlassInner', 'Blur', [inp('Input', 'GlassF'), expr('XBlurSize', 60, '60*' + G + '.On')], 220, -120),
+        tool('GlassNormal', 'CreateBumpMap', [inp('Input', 'GlassInner'), 'SourceChannel = Input { Value = FuID { "Alpha" }, }',
+            'HeightScale = Input { Value = 100, }', 'TextureDepth = Input { Value = 4, }'], 330, -120),
+        // the frost covers the core only, so the rim stays clear enough to show the bend
+        tool('GlassCore', 'ErodeDilate', [inp('Input', 'GlassF'), 'XAmount = Input { Value = -0.006, }'], 220, -60),
+        tool('GlassCoreSoft', 'Blur', [inp('Input', 'GlassCore'), 'XBlurSize = Input { Value = 12, }'], 330, -60),
+        tool('GlassDisplace', 'Displace', [inp('Foreground', 'GlassNormal'), 'Type = Input { Value = 1, }',
+            'XChannel = Input { Value = 0, }', 'YChannel = Input { Value = 1, }',
+            'XOffset = Input { Value = -0.5, }', 'YOffset = Input { Value = -0.5, }',
+            expr('XRefraction', 0, G + '.Bend*' + G + '.On'), expr('YRefraction', 0, G + '.Bend*' + G + '.On')].concat(mask), 110, 0),
+        tool('GlassBlur', 'Blur', [inp('Input', 'GlassDisplace'), expr('XBlurSize', D.Frost, G + '.Frost*' + G + '.On'),
+            'EffectMask = Input { SourceOp = "GlassCoreSoft", Source = "Output", }'], 220, 0),
         tool('GlassOut', 'BrightnessContrast', [inp('Input', 'GlassBlur'), expr('Brightness', 0, G + '.Bright*' + G + '.On'),
             expr('Saturation', 1, '1+(' + G + '.Vib-1)*' + G + '.On')].concat(mask), 330, 0)
     ]);
@@ -339,7 +354,168 @@ async function fxSet(event, effectId, on, strength, params, hold) {
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
     ensureInstalled();
-    return await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params), hold: Number.isFinite(Number(hold)) && hold !== null ? Math.max(1, Math.min(10, Math.round(Number(hold)))) : null }, 15000);
+    const before = EFFECT_SFX_DEFAULTS[effectId] ? await fxClipsWith(effectId) : null;
+    const r = await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params), hold: Number.isFinite(Number(hold)) && hold !== null ? Math.max(1, Math.min(10, Math.round(Number(hold)))) : null }, 15000);
+    if (before && r && Array.isArray(r.clips)) {
+        try { r.sounds = await syncEffectSfx(effectId, r.clips, before, params); } catch (e) { r.sounds = { error: e.message }; }
+    }
+    return r;
+}
+
+// ------------------------------------------------------------------ an effect's own sound (Glitch)
+// Turning Glitch on for a clip also puts a glitch sound on the timeline at the clip's start (its "Blink at Start"
+// burst) and lasting as long as the clip (the glitch's length), linked to the clip; turning it off removes it again. The sound is library.json effectSfx.Glitch
+// ({ file, volume, len (frames), enabled }), else EFFECT_SFX_DEFAULTS; its level follows the peak window
+// (sfx-level.js). _app/effect-sounds.json = { <effect>: { <clip id>: [sound clip ids] } }.
+const EFFECT_SFX_DEFAULTS = {
+    // heard only while the picture glitches: cuts of a 20 s texture (tools/trim-sfx.py glitch_bed), one per burst
+    Glitch: { file: 'kave_msri-glitch-bed-312910b.wav', volume: -6, follow: 'bursts', bedSeconds: 20 }
+};
+function effectSfxSpec(effectId) {
+    let lib = null;
+    try { lib = require('./library').loadLib(); } catch (e) { lib = null; }
+    const own = lib && lib.effectSfx && lib.effectSfx[effectId];
+    const spec = Object.assign({}, EFFECT_SFX_DEFAULTS[effectId] || {}, own || {});
+    return spec.enabled === false || !spec.file ? null : spec;
+}
+const FX_SFX_FILE = () => path.join(require('./config').APP_DATA_DIR, 'effect-sounds.json');
+function fxSfxRead() { try { return JSON.parse(fs.readFileSync(FX_SFX_FILE(), 'utf8')) || {}; } catch (e) { return {}; } }
+function fxSfxWrite(o) { try { fs.mkdirSync(path.dirname(FX_SFX_FILE()), { recursive: true }); fs.writeFileSync(FX_SFX_FILE(), JSON.stringify(o)); } catch (e) { /* ignore */ } }
+// ids of the selected clips that already have the effect (so only newly glitched clips get a sound)
+async function fxClipsWith(effectId) {
+    try {
+        const g = await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
+        return new Set(((g && g.clips) || []).filter(c => c.effects && c.effects[effectId]).map(c => String(c.id)));
+    } catch (e) { return new Set(); }
+}
+async function syncEffectSfx(effectId, clips, before, params) {
+    const state = require('./state');
+    const { getProject, timelineMeta } = require('./resolve');
+    const P = require('./placement');
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const reg = fxSfxRead();
+    const mine = reg[effectId] = reg[effectId] || {};
+    const added = clips.filter(c => c.effects && c.effects[effectId] && !before.has(String(c.id)));
+    const removed = clips.filter(c => !(c.effects && c.effects[effectId]) && mine[String(c.id)]);
+    let placed = 0, deleted = 0;
+    const warnings = [], ids = [];
+    state.applying = true;
+    try {
+        for (const c of removed) {
+            const ids = mine[String(c.id)] || [];
+            const left = ids.length ? await P.deleteExtraSfx(tl, ids) : [];
+            deleted += ids.length - left.length;
+            if (left.length) mine[String(c.id)] = left; else delete mine[String(c.id)];
+        }
+        const spec = added.length ? effectSfxSpec(effectId) : null;
+        if (spec) {
+            const meta = await timelineMeta(tl, project);
+            for (const c of added) {
+                const got = await placeEffectSounds(tl, project, meta, effectId, String(c.id), spec, warnings);
+                if (got.length) { mine[String(c.id)] = (mine[String(c.id)] || []).concat(got); placed += got.length; ids.push(...got); }
+            }
+        }
+    } finally {
+        state.applying = false;
+        fxSfxWrite(reg);
+    }
+    return { placed, deleted, warnings, ids };
+}
+
+// The sound clips for one clip's effect -> their ids. Glitch (follow 'bursts'): one cut of the glitch texture for each
+// run of frames where the picture really glitches (bridge glitch_bursts reads the effect's own Burst value per frame:
+// Blink at Start, Strength, Hold and Duration included), so the sound is heard exactly while the glitch shows. Each
+// cut starts at a different place in the texture with a slight pitch change, so no two bursts sound the same.
+// Other effects: one sound from the clip start, 'clip' = as long as the clip, or a number of frames.
+async function placeEffectSounds(tl, project, meta, effectId, clipId, spec, warnings) {
+    const P = require('./placement');
+    const item = await P.findItemById(tl, clipId);
+    if (!item) return [];
+    const start = Number(await item.GetStart()), end = Number(await item.GetEnd());
+    // the effect's sound goes on the audio track of the text preset's own sound (its linked audio), so a caption's
+    // sounds stay on one layer; where that track is busy at those frames, the lowest free track is used instead
+    const track = await presetAudioTrack(item);
+    const base = { file: spec.file, enabled: true, volume: Number(spec.volume) || 0, align: 'start', link: true, track };
+    const out = [];
+    if ((spec.follow || (effectId === 'Glitch' ? 'bursts' : '')) === 'bursts') {
+        let runs = [];
+        try { runs = ((await require('./fusion-bridge').bridgeCall('glitch_bursts', { item: clipId }, 15000)) || {}).runs || []; }
+        catch (e) { warnings.push('Glitch timing could not be read: ' + e.message); return []; }
+        const vary = require('./sfx-level').variations();
+        const fps = Math.round((meta && meta.fps) || 30);
+        const room = Math.max(1, Math.round((Number(spec.bedSeconds) || 20) * fps) - fps);
+        for (let i = 0; i < runs.length; i++) {
+            const [a, b] = runs[i];
+            const len = Math.max(1, b - a);
+            const layer = Object.assign({}, base, { id: 'fx' + effectId + i, offset: a, lenMode: 'fixed', len,
+                trimIn: i === 0 && a === 0 ? 0 : (i * 37 + 13) % Math.max(1, room - len), fade: Math.min(2, Math.floor(len / 2)) });
+            const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, false, null, null);
+            for (const x of got) {
+                const v = vary.next();
+                if (i > 0 && v.cents) { try { await x.it.SetProperties({ AudioPitchEnabled: true, AudioPitchSemiTones: 0, AudioPitchCents: v.cents }); } catch (e) { /* pitch is a convenience */ } }
+                out.push(x.id);
+            }
+        }
+        return out;
+    }
+    const layer = Object.assign({}, base, { id: 'fx' + effectId, offset: 0, trimIn: Number(spec.trimIn) || 0,
+        len: spec.len === 'clip' ? 0 : Math.max(1, Math.round(Number(spec.len) || 0)), lenMode: spec.len === 'clip' ? 'clip' : 'fixed', fade: spec.fade });
+    const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, false, null, null);
+    return got.map(x => x.id);
+}
+// The audio track of the clip's own sound: its linked audio clips (the lowest track among them), else 0 (auto).
+// The effect's own earlier sounds are skipped, so a re-sync does not follow itself onto another track.
+async function presetAudioTrack(item) {
+    const reg = fxSfxRead();
+    const ours = new Set(Object.values(reg).flatMap(m => Object.values(m || {}).flat()).map(String));
+    let best = 0;
+    try {
+        let linked = (await item.GetLinkedItems()) || [];
+        if (!Array.isArray(linked)) linked = Object.values(linked);
+        for (const x of linked) {
+            try {
+                if (ours.has(String(await x.GetUniqueId()))) continue;
+                const ti = await x.GetTrackTypeAndIndex();
+                const kind = ti && (Array.isArray(ti) ? ti[0] : ti[1]), n = ti && Number(Array.isArray(ti) ? ti[1] : ti[2]);
+                if (kind === 'audio' && n > 0 && (!best || n < best)) best = n;
+            } catch (e) { /* next */ }
+        }
+    } catch (e) { best = 0; }
+    return best;
+}
+// A setting that moves the bursts changed (Strength, Blink at Start, Duration, Hold): the selected glitched clips'
+// sounds are placed again from the new burst timing.
+async function resyncEffectSfx(effectId) {
+    if (!EFFECT_SFX_DEFAULTS[effectId]) return null;
+    const state = require('./state');
+    const { getProject, timelineMeta } = require('./resolve');
+    const P = require('./placement');
+    const spec = effectSfxSpec(effectId);
+    const reg = fxSfxRead();
+    const mine = reg[effectId] = reg[effectId] || {};
+    const sel = Array.from(await fxClipsWith(effectId)).filter(id => mine[id]);
+    if (!spec || !sel.length) return null;
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const warnings = [];
+    let placed = 0;
+    state.applying = true;
+    try {
+        const meta = await timelineMeta(tl, project);
+        for (const id of sel) {
+            const left = await P.deleteExtraSfx(tl, mine[id] || []);
+            const got = await placeEffectSounds(tl, project, meta, effectId, id, spec, warnings);
+            mine[id] = left.concat(got);
+            placed += got.length;
+        }
+    } finally {
+        state.applying = false;
+        fxSfxWrite(reg);
+    }
+    return { placed, clips: sel.length, warnings };
 }
 
 // Sets one effect's Strength (0..100) on the selected clips that have it.
@@ -349,7 +525,9 @@ async function fxStrength(event, effectId, value) {
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
     const v = Math.max(effectId === 'StopMotion' ? 1 : 0, Math.min(effectId === 'StopMotion' ? 10 : 100, Math.round(Number(value))));
     if (!Number.isFinite(v)) return { error: 'Bad strength' };
-    return await require('./fusion-bridge').bridgeCall('fx_strength', { effect: effectId, value: v }, 8000);
+    const r = await require('./fusion-bridge').bridgeCall('fx_strength', { effect: effectId, value: v }, 8000);
+    if (r && EFFECT_SFX_DEFAULTS[effectId]) { try { r.sounds = await resyncEffectSfx(effectId); } catch (e) { r.sounds = { error: e.message }; } }
+    return r;
 }
 
 function cleanParams(v) {
@@ -357,12 +535,14 @@ function cleanParams(v) {
     for (const [k, x] of Object.entries(v && typeof v === 'object' ? v : {})) if (/^[A-Za-z]\w*$/.test(k) && Number.isFinite(Number(x))) out[k] = Number(x);
     return out;
 }
-// Sets other settings of one effect (Glitch: BlinkIn, ColorA* / ColorB*, Opacity) on the selected clips that have it.
+// Sets other settings of one effect (Glitch: BlinkIn, ColorA* / ColorB*, Opacity, Dur) on the selected clips that have it.
 async function fxParam(event, effectId, values) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
-    return await require('./fusion-bridge').bridgeCall('fx_param', { effect: effectId, values: cleanParams(values) }, 8000);
+    const r = await require('./fusion-bridge').bridgeCall('fx_param', { effect: effectId, values: cleanParams(values) }, 8000);
+    if (r && EFFECT_SFX_DEFAULTS[effectId]) { try { r.sounds = await resyncEffectSfx(effectId); } catch (e) { r.sounds = { error: e.message }; } }
+    return r;
 }
 
 // The user's tags on an effect preset (the same tags as text presets), kept in library.json effectTags.
@@ -377,4 +557,4 @@ function fxSetTags(event, effectId, tags) {
     return { lib: libForUI() };
 }
 
-module.exports = { EFFECTS, ORDER, CATEGORY, effectsDir, fileName, installEffects, effectsForUI, fxList, fxGet, fxSet, fxSetTags, fxStrength, fxParam, STRENGTH_TOOL, DEFAULT_STRENGTH, _makers: MAKERS };
+module.exports = { EFFECTS, ORDER, CATEGORY, effectsDir, fileName, installEffects, effectsForUI, fxList, fxGet, fxSet, fxSetTags, syncEffectSfx, resyncEffectSfx, fxStrength, fxParam, STRENGTH_TOOL, DEFAULT_STRENGTH, _makers: MAKERS };

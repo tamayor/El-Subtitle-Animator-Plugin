@@ -17,6 +17,7 @@ const { isTitleClipName } = require('./placement');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
 const { findSelectedFusionItem } = require('./selection');
 const { copySfx } = require('./sfx');
+const { levelVolume } = require('./sfx-level');
 
 async function findLatestTimelineTextItem(tl, meta) {
     try {
@@ -196,10 +197,15 @@ async function syncLiveTransform(event, req) {
                         const aItems = (await tl.GetItemListInTrack('audio', t)) || [];
                         for (const ai of aItems) {
                             if (String(await ai.GetUniqueId()) === String(state.lastPlacedAudioId)) {
-                                await ai.SetProperties({
-                                    AudioVolumeEnabled: true,
-                                    AudioVolume: Number(req.sfxVolume)
-                                });
+                                // peak window (sfx-level.js): the slider moves the level inside -20..-15 dBFS peak
+                                let vol = Number(req.sfxVolume);
+                                try {
+                                    const mpi = await ai.GetMediaPoolItem();
+                                    const file = mpi ? await mpi.GetClipProperty('File Path') : '';
+                                    const fps = Number(await tl.GetSetting('timelineFrameRate')) || 25;
+                                    vol = await levelVolume(String(file || ''), vol, Number(await ai.GetLeftOffset()) || 0, Number(await ai.GetDuration()) || 0, fps);
+                                } catch (e) { /* unmeasured: the slider's value */ }
+                                await ai.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol });
                                 break;
                             }
                         }

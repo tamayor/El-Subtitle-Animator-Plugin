@@ -10,6 +10,7 @@ const fs = require('fs');
 const state = require('./state');
 const { ANIM_DIR, SAMPLE_TEXTS } = require('./config');
 const { presetSfxName, sfxFilePath } = require('./sfx');
+const { applyLevel, levelVolume } = require('./sfx-level');
 const { bridgeCall } = require('./fusion-bridge');
 const { getFixes } = require('./fusion-fixes');
 const { dlog } = require('./log');
@@ -305,14 +306,8 @@ async function applyInner(req, warnings, sp) {
                 const targetVol = (req.sfxVolume !== undefined && req.sfxVolume !== null)
                     ? Number(req.sfxVolume)
                     : (anim.sfxVolume !== undefined && anim.sfxVolume !== null ? Number(anim.sfxVolume) : 0);
-                try {
-                    await sfxItem.SetProperties({
-                        AudioVolumeEnabled: true,
-                        AudioVolume: targetVol
-                    });
-                } catch (e) {
-                    warnings.push('Could not set sound volume: ' + e.message);
-                }
+                // peak window (sfx-level.js): the cut's real peak lands between -20 and -15 dBFS
+                await applyLevel(sfxItem, await levelVolume(sfxPath, targetVol, sfxInfo.cut.trimIn, sfxInfo.cut.len, meta.fps), 0);
                 const sfxId = String(await sfxItem.GetUniqueId());
                 state.lastPlacedAudioId = sfxId;
                 try {
@@ -422,11 +417,13 @@ async function applyInner(req, warnings, sp) {
             sp.mark('disableSubs');
         }
         // 7. Glass Blur captions: the frosted glass is an ELSA Glass effect on the footage under the caption
-        //    (fusion_bridge.glass_sync; a no-op for every other preset). Not for a live preview.
-        if (!live && fs.existsSync(compPath) && /\bGlassFrost\b/.test(fs.readFileSync(compPath, 'utf8'))) {
+        //    (fusion_bridge.glass_sync; a no-op for every other preset). A live preview gets it too (removed with
+        //    the preview: live-preview.js liveRemove).
+        if (fs.existsSync(compPath) && /\bGlassFrost\b/.test(fs.readFileSync(compPath, 'utf8'))) {
             try {
                 require('./effect-presets').installEffects();
                 const g = await bridgeCall('glass_sync', { item: itemId, force: true }, 20000);
+                if (live && state.liveSession && String(state.liveSession.itemId) === String(itemId)) state.liveSession.glass = true;
                 if (g && g.glass === 'synced' && !g.clips) warnings.push('Glass: no footage under the caption, so there is nothing to frost.');
                 if (g && g.failed && g.failed.length) warnings.push('Glass not added on: ' + g.failed.join(', '));
             } catch (e) { warnings.push('Glass not added: ' + e.message); }

@@ -3521,9 +3521,15 @@ def op_row_times(a):
     applied, so one sound can be placed per row. {"frames": []} when the comp is not such a preset."""
     comp = get_comp(a["item"], a.get("comp"))
     tpl = comp.FindTool("Template")
+    if tpl is not None and get_in(tpl, "TypingFrames") is not None and get_in(tpl, "StepFrames") is None:
+        return typing_word_times(comp, tpl)
+    if tpl is not None and get_in(tpl, "StepFrames") is None and comp.FindTool("Follower1") is not None:
+        return follower_word_times(comp, tpl)
     step = get_in(tpl, "StepFrames") if tpl is not None else None
     if not isinstance(step, (int, float)) or step <= 0:
         return {"frames": [], "count": 0}
+    if comp.FindTool("Pop1") is None and kinetic_template(comp)[1] == "justpop":
+        return jp_word_times(comp, tpl)
     rows = 0
     for k in range(1, 65):
         pop = comp.FindTool("Pop%d" % k)
@@ -3547,6 +3553,101 @@ def op_row_times(a):
             f = start + (tt * d / natural if tt < natural else natural + tt - natural)
         out.append(int(round(f)))
     return {"frames": out, "count": rows, "step": float(step), "natural": natural, "animFrames": frames_in}
+
+
+def typing_word_times(comp, tpl):
+    """Word by Word Typing: the clip frame where each word appears, so one keystroke is placed per word. The same
+    maths as the preset's End expression (and retime.js upgradeTyping): words are runs of non-space characters,
+    dur = Typing Frames (0 = clip length minus 1 second, at least 10), word k shows once
+    floor((t - S) * (n - 1) / max(1, dur - S)) + 1 reaches k (S = Typing Start); the first word shows from frame 0.
+    Reads only the plain Template (this preset has no Follower)."""
+    text = str(get_in(tpl, "StyledText") or "")
+    n = len(text.split())
+    if n <= 0:
+        return {"frames": [], "count": 0}
+    ca = comp.GetAttrs() or {}
+    rs, re_ = int(num(ca.get("COMPN_RenderStart"), 0)), int(num(ca.get("COMPN_RenderEnd"), 0))
+    length = max(1, re_ - rs + 1)
+    try:
+        fps = float(comp.GetPrefs("Comp.FrameFormat.Rate") or 30)
+    except Exception:
+        fps = 30.0
+    dur = int(math.floor(num(get_in(tpl, "TypingFrames"), 0)))
+    if dur <= 0:
+        dur = max(10, length - int(math.floor(fps + 0.5)))
+    dur = max(1, min(length - 1, dur))
+    S = max(0, int(math.floor(num(get_in(tpl, "TypingStart"), 0))))
+    D = max(1, dur - S)
+    out = [0]
+    for j in range(2, n + 1):
+        out.append(int(S + math.ceil((j - 1) * D / float(n - 1) - 1e-9)))
+    return {"frames": out, "count": n, "step": D / float(max(1, n - 1)), "natural": dur, "animFrames": dur}
+
+
+def follower_word_times(comp, tpl):
+    """Follower presets that stagger character by character (Word Cascade: Follower1 Order 7, Delay 0.6 frames a
+    character): the clip frame where each word starts, so one sound is placed per word. A word starts with its first
+    character, at Delay x its index (line breaks are not counted, spaces are - the same count as the preset's
+    AnimNatural expression); then the Animation Frames retiming (AnimTime) is applied. Reads the Follower's own Text
+    input only (as op_refresh does), never the follower-driven Text+."""
+    fol = comp.FindTool("Follower1")
+    try:
+        text = fol.GetInput("Text")
+    except Exception:
+        text = None
+    text = str(text or "")
+    delay = num(get_in(fol, "Delay"), 0)
+    starts, prev_space, i = [], True, 0
+    for ch in text:
+        if ch in "\r\n":          # a line break separates words but is not a character of the stagger
+            prev_space = True
+            continue
+        if not ch.isspace() and prev_space:
+            starts.append(i)
+        prev_space = ch.isspace()
+        i += 1
+    if not starts:
+        return {"frames": [], "count": 0}
+    T = int(math.floor(num(get_in(tpl, "AnimFrames"), 0)))
+    N = max(1.0, num(get_in(tpl, "AnimNatural"), 1))
+    out = []
+    for i in starts:
+        tt = i * delay
+        f = tt if T <= 0 else (tt * T / N if tt < N else T + tt - N)
+        out.append(int(round(f)))
+    return {"frames": out, "count": len(out), "step": delay, "natural": N, "animFrames": T}
+
+
+def jp_word_times(comp, tpl):
+    """Justified Pop: the clip frame where each word starts to pop (its words are its "rows" for a per-row sound),
+    with the same step / spread / retiming as bake_rows."""
+    st = kinetic_state(comp, tpl, "justpop")
+    _, rs, re_, bake = st
+    B = dict(bake)
+    rows = bake_layout(B.get("Comments")) or []
+    NW = sum(1 for r in rows if r[4] != "")
+    if not NW:
+        return {"frames": [], "count": 0}
+    L = max(1.0, re_ - rs + 1)
+    POP = max(1.0, num(B.get("PopFrames"), 6))
+    STEP = num(B.get("StepFrames"), 8)
+    SPREAD = num(B.get("Spread"), 0.7)
+    if SPREAD > 0 and NW > 1:
+        STEP = min(STEP, (L * SPREAD - POP) / (NW - 1))
+    STEP = max(1.0, STEP)
+    NAT = max(1, int(math.ceil((NW - 1) * STEP + POP + 1)))
+    AF = int(math.floor(num(B.get("AnimFrames"), 0)))
+    AS = max(0, int(math.floor(num(B.get("AnimStart"), 0))))
+    out = []
+    for k in range(NW):
+        tt = k * STEP          # inverse of remap_tt; the pop shows from the first frame where tt passes this
+        if AF <= 0:
+            rel = tt
+        else:
+            D = max(1, AF - AS)
+            rel = tt * D / NAT if tt < NAT else tt - NAT + D
+        out.append(int(round(AS + rel)))
+    return {"frames": out, "count": NW, "step": STEP, "natural": NAT, "animFrames": AF}
 
 
 # ---------------------------------------------------------------- effect presets (src/main/effect-presets.js)
@@ -3616,8 +3717,8 @@ def fx_strength_tool(effect, key):
         return None
 
 
-# extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours and opacity
-FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity"],
+# extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours, opacity and duration
+FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity", "Dur"],
              "Transform": ["ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF"],
              "Track": ["FollowX", "FollowY", "FollowScale", "FollowRot", "Smooth"]}
 # the tool inside an effect holding its FX_PARAMS (Glitch: its Strength tool)
@@ -4339,6 +4440,43 @@ def op_fx_param(a):
     return {"set": done, "clips": fx_state(items, fresh=True)}
 
 
+def op_glitch_bursts(a):
+    """{item}: the clip frames where the Glitch effect on that clip actually glitches, as runs [[start, end)] (frames
+    from the clip start), so its sound plays only while the picture glitches (effect-presets.js syncEffectSfx).
+    Reads GlitchOut's own Burst input at each frame of the effect comp (the expression the picture uses: Blink at Start,
+    Strength, Hold and Duration included); no Text+ is read."""
+    it = find_any_item(a.get("item"), "video")
+    if not it:
+        return {"runs": [], "why": "clip not found"}
+    e = fx_on_item(it).get("Glitch")
+    if e is None:
+        return {"runs": [], "why": "no Glitch on the clip"}
+    tool = fx_param_tool(e, "Glitch")
+    comp = e.GetFusionComp()
+    if tool is None or comp is None:
+        return {"runs": [], "why": "Glitch comp not readable"}
+    ca = comp.GetAttrs() or {}
+    rs, re_ = int(num(ca.get("COMPN_RenderStart"), 0)), int(num(ca.get("COMPN_RenderEnd"), 0))
+    n = min(max(0, re_ - rs + 1), int(num(a.get("max"), 3000)))
+    runs, cur = [], None
+    for k in range(n):
+        try:
+            b = float(tool.GetInput("Burst", rs + k) or 0)
+        except Exception:
+            b = 0.0
+        if b > 0.5:
+            if cur is None:
+                cur = [k, k + 1]
+            else:
+                cur[1] = k + 1
+        elif cur is not None:
+            runs.append(cur)
+            cur = None
+    if cur is not None:
+        runs.append(cur)
+    return {"runs": runs, "frames": n}
+
+
 def op_fx_set(a):
     """{effect, on (true / false / null = flip, judged on the first clip), items?}: adds or removes one effect preset
     on the selected (or given) clips, keeping our effects in FX_ORDER after any of the clip's other effects."""
@@ -4547,7 +4685,7 @@ def glass_values(it, comp, tpl, tl):
         "center": [round(x, 5), round(y, 5)], "halign": halign,
         "box": [T("HighlightWidth", 1), T("HighlightHeight", 1), T("HighlightX", 0), T("HighlightY", 0)],
         "s2": s2, "dur": dur, "len": int(it.GetDuration()), "start": int(it.GetStart()),
-        "glass": [T("GlassFrost", 22), T("GlassBend", 0.06), T("GlassVibrancy", 1.3), T("GlassBright", 0.05)],
+        "glass": [T("GlassFrost", 22), T("GlassBend", 0.1), T("GlassVibrancy", 1.3), T("GlassBright", 0.05)],
         "xf": [0.5 + pn("Pan", 0) / max(1.0, W), 0.5 + pn("Tilt", 0) / max(1.0, H), zoom, pn("RotationAngle", 0)],
         "lens": [0.5 + (x - 0.5) * zoom + pn("Pan", 0) / max(1.0, W), 0.5 + (y - 0.5) * zoom + pn("Tilt", 0) / max(1.0, H)],
     }
@@ -4752,7 +4890,7 @@ def op_glass_gc(a):
     return {"removed": n, "captions": len(ent)}
 
 
-OPS = {"glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+OPS = {"glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
 
 

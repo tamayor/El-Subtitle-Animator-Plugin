@@ -993,7 +993,14 @@ const TOOLS = {
                     const hold = fxWant.includes('StopMotion') ? (fxSpec.StopMotion !== null && fxSpec.StopMotion !== undefined ? fxSpec.StopMotion : 2) : null;
                     const r = await bridgeCall('fx_set', { effect: id, on: true, items: [res.itemId], strength: fxSpec[id], hold, params: fxParams[id] || null }, 15000);
                     if (r && r.inNodes && r.inNodes.length) notes.push('Effect ' + id + ' not added: already a node in the clip\'s Fusion graph');
-                    else if (r && !(r.failed && r.failed.length)) fxDone.push(id);
+                    else if (r && !(r.failed && r.failed.length)) {
+                        fxDone.push(id);
+                        // the effect's own sound (Glitch), the same as turning it on in the panel
+                        try {
+                            const snd = await require('./effect-presets').syncEffectSfx(id, (r.clips || []).filter(c => String(c.id) === String(res.itemId)), new Set(), fxParams[id] || null);
+                            if (snd && snd.ids && snd.ids.length) { rec.extraAudioIds = (rec.extraAudioIds || []).concat(snd.ids); notes.push('Effect ' + id + ': its sound placed'); }
+                        } catch (e) { notes.push('Effect ' + id + ' sound: ' + e.message); }
+                    }
                     else notes.push('Effect ' + id + ' could not be added');
                 } catch (e) { notes.push('Effect ' + id + ' could not be added: ' + e.message); }
             }

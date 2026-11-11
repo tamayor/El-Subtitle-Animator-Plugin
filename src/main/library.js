@@ -253,9 +253,10 @@ function linkLayersOnce(lib) {
 // to that row's in-animation start. Done once per preset (segSfxSeeded), so a slot the user empties stays empty.
 // Rows other than these three get no default. Sounds missing from sounds/original are skipped.
 const ROW_SOUND_DEFAULTS = {
-    upper: { file: 'tap-tiny-wooden-gamemaster-audio-higher-tone-1-00-00.mp3', volume: -10 },
-    emphasis: { file: 'faith_mulato-shine-193240.mp3', volume: -8 },
-    lower: { file: 'tap-tiny-wooden-gamemaster-audio-higher-tone-1-00-00.mp3', volume: -12 }
+    // 2026-11-11 SFX pass (tools/trim-sfx.py cuts): a soft tap on the side rows, a soft click on the emphasis
+    upper: { file: 'vadim_makes_sound-soft-app-button-tap-sound-2-547872.wav', volume: -10 },
+    emphasis: { file: 'universfield-soft-ui-click-147352.wav', volume: -8 },
+    lower: { file: 'vadim_makes_sound-soft-app-button-tap-sound-2-547872.wav', volume: -12 }
 };
 function seedRowSounds(lib) {
     let changed = false;

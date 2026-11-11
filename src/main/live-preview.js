@@ -12,6 +12,7 @@ const { execFile } = require('child_process');
 const state = require('./state');
 const { CLIP_REG, SAMPLE_TEXTS } = require('./config');
 const { presetSfxName, sfxFilePath } = require('./sfx');
+const { applyLevel, levelVolume } = require('./sfx-level');
 const { bridgeCall } = require('./fusion-bridge');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
@@ -152,8 +153,8 @@ async function placeLiveSfx(tl, project, meta, sfxPath, req, anim, textStart, no
     if (!it) return null;
     snapAdd(snap, 'audio', track, { it, name: 'sfx', start: sfxStart, end: sfxStart + cut.len });
     if (cut.fadeFailed && warnings) warnings.push(FADE_WARNING);
-    const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim && anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
-    try { await it.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { /* volume is a convenience */ }
+    const vol0 = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim && anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+    await applyLevel(it, await levelVolume(sfxPath, vol0, cut.trimIn, cut.len, meta && meta.fps), 0);      // peak window (sfx-level.js)
     const id = String(await it.GetUniqueId());
     regAdd(id);
     // not linked yet: liveFinish links it (the "Link text + sound" choice) once the preview is kept
@@ -331,6 +332,8 @@ async function liveUpdate(event, req) {
         }
         try { await item.SetProperties(transformProps(req, meta)); } catch (e) { warnings.push('Could not set transform: ' + e.message); }
         if (!light) { try { await bridgeCall('refresh', { item: itemId, comp: compName }); } catch (e) { /* safety refresh */ } }
+        // Glass Blur: its frost on the footage follows the new text / place / size (writes only what changed)
+        if (S.glass) { try { await bridgeCall('glass_sync', { item: itemId }, 15000); } catch (e) { /* next edit */ } }
         await liveSetMarks(tl, item);
         try { if ((await tl.GetCurrentTimecode()) !== tc0) await tl.SetCurrentTimecode(tc0); } catch (e) { /* ignore */ }
         return { ok: true, warnings, start: textStart, frames: want, track, moved, sfxMoved };
@@ -439,6 +442,8 @@ async function liveRemove(marks) {
             const known = new Map(s.extraItems || []), where = new Map(s.extraWhere || []);
             if (s.sfxId && s.sfxItem) known.set(String(s.sfxId), s.sfxItem);
             if (s.sfxId && s.sfxWhere) where.set(String(s.sfxId), s.sfxWhere);
+            // a Glass Blur preview's frost comes off the footage first (it is keyed by the caption's id)
+            if (s.glass) { try { await bridgeCall('glass_remove', { item: s.itemId }, 15000); } catch (e) { /* glass_gc later */ } }
             const leftSounds = await deleteExtraSfx(tl, sounds, known, where);
             const leftText = await deleteClipsById(tl, [s.itemId], findItemById, s.item ? new Map([[String(s.itemId), s.item]]) : null,
                 s.itemWhere ? new Map([[String(s.itemId), s.itemWhere]]) : null);
@@ -497,7 +502,13 @@ async function liveFinish(event, req) {
                 state.lastPlacedAudioId = String(s.sfxId);
                 try { const ti2 = await sfxItem.GetTrackTypeAndIndex(); sfxTrack = ti2 ? ti2[1] : null; } catch (e) { /* ignore */ }
                 const wantLink = req.linked !== false;
-                const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+                const vol0 = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+                let vol = vol0;
+                try {      // peak window (sfx-level.js), measured on the part of the sound the clip uses now
+                    const lo = Number(await sfxItem.GetLeftOffset()) || 0, du = Number(await sfxItem.GetDuration()) || 0;
+                    vol = await levelVolume(sfxPath, vol0, lo, du, meta && meta.fps);
+                    await applyLevel(sfxItem, vol, 0);
+                } catch (e) { vol = vol0; }
                 try {
                     let ok = false;
                     if (typeof tl.SetClipsLinked === 'function') ok = await tl.SetClipsLinked([item, sfxItem], wantLink);
@@ -519,8 +530,9 @@ async function liveFinish(event, req) {
                     if (!sfxItem) warnings.push('The sound effect could not be placed.');
                     else {
                         if (cut.fadeFailed) warnings.push(FADE_WARNING);
-                        const vol = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
-                        try { await sfxItem.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol }); } catch (e) { warnings.push('Could not set sound volume: ' + e.message); }
+                        const vol0 = (req.sfxVolume !== undefined && req.sfxVolume !== null) ? Number(req.sfxVolume) : (anim.sfxVolume != null ? Number(anim.sfxVolume) : 0);
+                        const vol = await levelVolume(sfxPath, vol0, cut.trimIn, cut.len, meta && meta.fps);      // peak window (sfx-level.js)
+                        await applyLevel(sfxItem, vol, 0);
                         const sfxId = String(await sfxItem.GetUniqueId());
                         state.lastPlacedAudioId = sfxId;
                         const wantLink = req.linked !== false;

@@ -1,0 +1,134 @@
+/* Compact mode (js/ui/compact.js sets body.compact on small windows): tighter spacing, one-row header with the tabs,
+   flatter cards, a capped and foldable bottom dock, and a status line that fades out. Loaded last so it wins. */
+
+/* ---------- page & header ---------- */
+body.compact { padding: 6px 8px 36px; }
+
+body.compact header {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+}
+body.compact .header-brand { display: none; }
+body.compact header .tabs { flex: 1 1 auto; min-width: 0; margin: 0; padding: 2px; gap: 2px; border-radius: 8px; }
+body.compact .tab { padding: 4px 0; font-size: 12px; border-radius: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.compact .header-bar { flex: none; gap: 2px; }
+
+/* connection: a dot (timeline name in its tooltip) */
+body.compact .header-bar #conn {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    padding: 0;
+    margin: 0 3px;
+    font-size: 0;
+    border-radius: 50%;
+}
+body.compact .header-bar #conn.on { background: var(--matcha); box-shadow: 0 0 0 2px var(--matcha-tint); }
+body.compact .header-bar #conn.off { background: var(--strawberry); box-shadow: 0 0 0 2px var(--strawberry-tint); }
+
+body.compact #pin { width: 24px; height: 24px; flex: none; }
+body.compact #pin svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
+body.compact #autoCollapse { width: 24px; height: 24px; flex: none; }
+body.compact #autoCollapse svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
+body.compact #fusionFixesBtn { padding: 3px 5px; font-size: 11px; }
+body.compact #rescan { width: 24px; height: 24px; padding: 0; font-size: 0; }
+body.compact #rescan::before { content: "\21BB"; font-size: 14px; line-height: 24px; }
+
+/* very narrow: the Fusion button becomes "Fx" */
+@media (max-width: 400px) {
+    body.compact #fusionFixesBtn { font-size: 0; }
+    body.compact #fusionFixesBtn::before { content: "Fx"; font-size: 11px; }
+    body.compact .tab { font-size: 11.5px; }
+}
+
+/* ---------- sections & cards: less padding, inner cards flattened ---------- */
+body.compact section { padding: 8px 9px; margin-bottom: 8px; border-radius: 10px; }
+body.compact .sec-head { padding-bottom: 6px; margin-bottom: 6px; }
+body.compact .row { margin: 4px 0; gap: 6px; }
+body.compact .label { font-size: 10.5px; letter-spacing: 0.6px; }
+body.compact .preset-header-row { gap: 6px; margin-bottom: 4px; }
+body.compact .preset-header-left { gap: 6px; }
+body.compact .preset-search-wrap { max-width: none; min-width: 100px; }
+body.compact .grid { gap: 6px; margin: 6px 0 2px; }
+body.compact .card { padding: 7px 8px; min-height: 0; }
+
+/* (search boxes and the small view selects keep their own padding: icon inset, fixed height) */
+body.compact textarea,
+body.compact input[type=text]:not(.preset-search-wrap input),
+body.compact select:not(.view-select) { padding: 5px 8px; border-radius: 7px; }
+body.compact button { padding: 5px 9px; border-radius: 7px; }
+body.compact button.ghost { padding: 3px 6px; }
+
+/* Effect Preset cards: the card frame goes, a divider separates them, the sliders get the width */
+body.compact .grid.fx-grid { gap: 0; }
+body.compact .grid.fx-grid .card.fx-card {
+    padding: 7px 2px;
+    border: 0;
+    border-top: 1px solid var(--line-soft);
+    border-radius: 0;
+    background: none;
+}
+body.compact .grid.fx-grid .card.fx-card:first-child { border-top: 0; }
+body.compact .grid.fx-grid .card.fx-card.fx-on { box-shadow: inset 2px 0 0 var(--matcha); padding-left: 8px; }
+body.compact .fx-card .fx-opts .fx-strength-cap { min-width: 54px; }
+body.compact .fx-card .fx-strength { gap: 6px; }
+body.compact .fx-target { margin: 0 0 4px; }
+
+/* ---------- upper dock (selected preset + Start) ---------- */
+body.compact .use-dock { margin-bottom: 8px; border-radius: 10px; }
+body.compact .use-dock-bar.stage-live { padding: 4px 6px; gap: 6px; border-radius: 10px; }
+body.compact .use-dock-name { padding: 2px 8px; font-size: 11.5px; }
+body.compact .use-dock-bar .stage-live-btns button { min-width: 56px; padding: 5px 12px; font-size: 12px; }
+body.compact .use-dock-body:not(.hidden) { padding: 6px 8px 8px; gap: 6px; }
+
+/* ---------- bottom dock & status ---------- */
+body.compact footer { padding: 4px 8px 6px; }
+body.compact .bottom-dock { border-radius: 8px; }
+body.compact .dock-grip { height: 8px; }
+
+.dock-fold { display: none; }
+body.compact .dock-fold {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: auto;
+    padding: 0 4px;
+    font-size: 9.5px;
+    line-height: 1;
+    color: var(--dim);
+    background: none;
+    border: 0;
+    border-radius: 4px;
+}
+body.compact .dock-fold:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+body.compact .bottom-dock.empty .dock-fold { display: none; }
+body.compact .bottom-dock.folded .dock-grip,
+body.compact .bottom-dock.folded .dock-scroll { display: none; }
+body.compact .bottom-dock.folded .dock-bar { height: 20px; padding-top: 3px; padding-bottom: 2px; }
+
+/* status: one line, fades out after a few seconds (helpers.js setStatus adds .faded) */
+body.compact .status { min-height: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.compact #status { transition: opacity 0.3s ease; }
+body.compact #status.faded { opacity: 0; height: 0; }
+body.compact #status:empty { display: none; }
+
+/* ---------- auto-collapse: the window is out of focus and shrunk to the header bar (src/main/window.js COLLAPSED_H = 40) ---------- */
+body.win-collapsed { overflow: hidden; }
+body.win-collapsed header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    height: 40px;
+    margin: 0;
+    padding: 6px 8px;
+    border-bottom: 0;
+    background: var(--bg);
+}
+/* the rest stays laid out (scroll position and sizes are kept), just not shown */
+body.win-collapsed > *:not(header) { visibility: hidden; }
+body.win-collapsed footer { display: none; }

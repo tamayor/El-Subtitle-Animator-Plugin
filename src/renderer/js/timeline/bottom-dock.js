@@ -9,7 +9,25 @@ function dockStoredHeight() {
     try { h = Number(localStorage.getItem('sa.dockHeight')); } catch (e) { h = 0; }
     return h > 0 ? h : DOCK_DEF;
 }
-function dockMaxHeight() { return Math.max(DOCK_MIN, window.innerHeight - 150); }
+// compact mode (small windows): the dock never takes more than 35% of the window
+function dockMaxHeight() {
+    const compact = document.body.classList.contains('compact');
+    return Math.max(DOCK_MIN, compact ? Math.round(window.innerHeight * 0.35) : window.innerHeight - 150);
+}
+
+// compact mode: the dock folds to its bar (saved as sa.dockFolded)
+function setDockFolded(folded, save) {
+    const dock = $('bottomDock'), btn = $('dockFold');
+    if (!dock) return;
+    dock.classList.toggle('folded', !!folded);
+    if (btn) {
+        btn.textContent = (folded ? '▸' : '▾') + ' Timing & clip';
+        btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+        btn.title = folded ? 'Show the timing bar and clip controls' : 'Fold the dock to this bar';
+    }
+    if (save) { try { localStorage.setItem('sa.dockFolded', folded ? '1' : '0'); } catch (e) { /* ignore */ } }
+    dockPad();
+}
 function setDockHeight(h, save) {
     const scroll = $('dockScroll');
     if (!scroll) return;
@@ -49,6 +67,11 @@ function initBottomDock() {
     const dock = $('bottomDock'), scroll = $('dockScroll'), grip = $('dockGrip');
     if (!dock || !scroll || !grip) return;
     setDockHeight(dockStoredHeight(), false);
+    let folded = false;
+    try { folded = localStorage.getItem('sa.dockFolded') === '1'; } catch (e) { folded = false; }
+    setDockFolded(folded, false);
+    const fold = $('dockFold');
+    if (fold) fold.addEventListener('click', () => setDockFolded(!dock.classList.contains('folded'), true));
     const rt = $('dockRealtime');
     if (rt) {
         rt.addEventListener('change', () => { if (typeof setAutoRender === 'function') setAutoRender(rt.checked); });

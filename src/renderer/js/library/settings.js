@@ -275,12 +275,14 @@ function renderLive() {
     if (!L || !L.ok) {
         conn.textContent = L && L.reason ? L.reason : 'Not connected';
         conn.className = 'pill off';
+        conn.title = conn.textContent;
         $('subMeta').textContent = '–';
         if ($('create')) $('create').disabled = true;
         return;
     }
     conn.textContent = L.timeline;
     conn.className = 'pill on';
+    conn.title = 'Connected: ' + L.timeline;
     const s = L.subtitle;
     const key = s ? s.start + ':' + s.end + ':' + s.text : 'none:' + L.timeline;
     const changed = key !== state.shownKey;

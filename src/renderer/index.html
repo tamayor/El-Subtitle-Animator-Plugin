@@ -35,6 +35,7 @@
     <link rel="stylesheet" href="./css/bottom-dock.css">
     <link rel="stylesheet" href="./css/sliders.css">
     <link rel="stylesheet" href="./css/use-dock.css">
+    <link rel="stylesheet" href="./css/compact.css">
     <!-- Classic (non-module) scripts sharing one global scope. ORDER MATTERS: each file may use what the files
          above it declare at load time; app/boot.js starts the panel and must stay last. -->
     <script src="./js/core/bootstrap.js" defer></script>
@@ -72,6 +73,7 @@
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
     <script src="./js/timeline/bottom-dock.js" defer></script>
+    <script src="./js/ui/compact.js" defer></script>
     <script src="./js/timeline/anim-timing.js" defer></script>
     <script src="./js/timeline/clip-controls.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
@@ -114,6 +116,12 @@
             <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
                 <path
                     d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 1 1-.707-.708l3.182-3.182L2.398 7.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z" />
+            </svg>
+        </button>
+            <button id="autoCollapse" class="icon-btn" title="Auto-collapse: when you click away from the panel it shrinks to this bar; hover it to open it again"
+            aria-label="Auto-collapse" aria-pressed="false">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 3.5l4 3 4-3" /><path d="M4 12.5l4-3 4 3" />
             </svg>
         </button>
             <button id="fusionFixesBtn" class="ghost" title="Fusion fixes: how placed titles are woken so they render (lighter settings lag less)">Fusion</button>
@@ -665,6 +673,7 @@
                 <div id="dockGrip" class="dock-grip" role="separator" aria-orientation="horizontal" tabindex="0"
                     title="Drag to resize · double-click for the default height" aria-label="Resize the dock"></div>
                 <div class="dock-bar">
+                    <button type="button" id="dockFold" class="dock-fold" aria-expanded="true" title="Fold the dock to this bar (small windows)">▾ Timing &amp; clip</button>
                     <label class="dock-switch" title="Real-time render: Resolve renders the preview after every change, including each time the playhead lands on another subtitle. Turn off so the timeline doesn't stutter while you jump around (press Render in the viewer when you want a preview).">
                         <input type="checkbox" id="dockRealtime" checked><i></i><span>Real-time</span>
                     </label>

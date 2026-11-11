@@ -1,7 +1,7 @@
 // The panel window: creation, remembered size / position, always-on-top and layout-mode resizing.
 
 module.exports = {
-    createWindow, fitWidth, setLayoutMode, setOnTop
+    createWindow, fitWidth, setAutoCollapse, setLayoutMode, setOnTop
 };
 
 const fs = require('fs');
@@ -13,6 +13,7 @@ const { libForUI, loadLib, saveLib } = require('./library');
 const { quitPlugin } = require('./lifecycle');
 const { dlog } = require('./log');
 const { setAppIdle } = require('./poll');
+const { isColorPanelOpen } = require('./color-picker');
 
 function applyOnTop(flag) {
     if (!state.mainWindow) return;
@@ -115,6 +116,101 @@ async function setLayoutMode(event, mode) {
     }
 }
 
+// ---------------------------------------------------------------- auto-collapse
+// Switched on from the panel (header button). When the panel loses focus it shrinks to its header bar (COLLAPSED_H of
+// content); hovering the bar opens it to its full size again, and if you then move away without clicking into it, it
+// shrinks again. Clicking into it (focus) keeps it open. It stays open while the cursor is over it, while the Colors panel
+// is open (that is another app, so the panel loses focus) and while minimised / full screen.
+const COLLAPSED_H = 40, MIN_W = 340, MIN_H = 480;
+const COLLAPSE_DELAY = 250, HOVER_DWELL = 150, LEAVE_GRACE = 600, POLL_MS = 120;
+const ac = { enabled: false, collapsed: false, fullH: 0, poll: null, since: 0, blurTimer: null, resizeTimer: null };
+
+function acWin() { const w = state.mainWindow; return w && !w.isDestroyed() ? w : null; }
+function cursorInside(w) {
+    const p = screen.getCursorScreenPoint(), b = w.getBounds();
+    return p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+}
+function acStayOpen(w) {
+    return w.isFocused() || w.isMinimized() || w.isFullScreen() || isColorPanelOpen() || cursorInside(w);
+}
+
+function collapseWin() {
+    const w = acWin();
+    if (!w || !ac.enabled || ac.collapsed) return;
+    const b = w.getBounds();
+    const frame = Math.max(0, b.height - w.getContentSize()[1]);
+    ac.collapsed = true;
+    ac.fullH = b.height;
+    w.webContents.send('win:collapsed', true);            // the panel shows only its header first, then the window shrinks
+    clearTimeout(ac.resizeTimer);
+    ac.resizeTimer = setTimeout(() => {
+        const w2 = acWin();
+        if (!w2 || !ac.collapsed) return;
+        const c = w2.getBounds();
+        w2.setMinimumSize(MIN_W, 1);
+        w2.setBounds({ x: c.x, y: c.y, width: c.width, height: COLLAPSED_H + frame }, false);
+    }, 60);
+    acStartPoll();
+}
+
+function expandWin() {
+    const w = acWin();
+    clearTimeout(ac.resizeTimer);
+    if (!w || !ac.collapsed) return;
+    ac.collapsed = false;
+    const c = w.getBounds();
+    const wa = screen.getDisplayMatching(c).workArea;
+    const h = Math.min(ac.fullH || 860, wa.height);
+    const y = Math.max(wa.y, Math.min(c.y, wa.y + wa.height - h));   // keep the bottom on screen
+    w.setBounds({ x: c.x, y, width: c.width, height: h }, false);
+    w.setMinimumSize(MIN_W, MIN_H);
+    w.webContents.send('win:collapsed', false);
+}
+
+function acStopPoll() { clearInterval(ac.poll); ac.poll = null; }
+function acStartPoll() {
+    if (ac.poll) return;
+    ac.since = Date.now();
+    let last = null;
+    ac.poll = setInterval(() => {
+        const w = acWin();
+        if (!w || !ac.enabled) { acStopPoll(); return; }
+        if (w.isFocused()) { expandWin(); acStopPoll(); return; }
+        const inside = cursorInside(w);
+        if (inside !== last) { last = inside; ac.since = Date.now(); }
+        const held = Date.now() - ac.since;
+        if (ac.collapsed) {
+            if (inside && held >= HOVER_DWELL) expandWin();                       // hover: open
+        } else if (!inside && held >= LEAVE_GRACE && !isColorPanelOpen()) {
+            collapseWin();                                                        // opened by hover, left without a click
+        }
+    }, POLL_MS);
+}
+
+function acOnBlur() {
+    if (!ac.enabled) return;
+    clearTimeout(ac.blurTimer);
+    ac.blurTimer = setTimeout(() => {
+        const w = acWin();
+        if (!w || w.isFocused()) return;
+        if (acStayOpen(w)) acStartPoll();     // still under the cursor / Colors panel: collapse once it is left
+        else collapseWin();
+    }, COLLAPSE_DELAY);
+}
+function acOnFocus() {
+    clearTimeout(ac.blurTimer);
+    acStopPoll();
+    expandWin();
+}
+
+function setAutoCollapse(event, on) {
+    ac.enabled = !!on;
+    const w = acWin();
+    if (!ac.enabled) { clearTimeout(ac.blurTimer); acStopPoll(); expandWin(); }
+    else if (w && !w.isFocused()) acOnBlur();
+    return { ok: true, enabled: ac.enabled, collapsed: ac.collapsed };
+}
+
 let rendererCrashes = [];
 let restoredFromState = false;
 let firstFit = true;
@@ -122,7 +218,7 @@ function loadWinState() {
     try {
         const st = JSON.parse(fs.readFileSync(WIN_STATE_FILE, 'utf8'));
         const ok = ['x', 'y', 'width', 'height'].every(k => Number.isFinite(st[k]));
-        if (!ok || st.width < 380 || st.height < 560) return null;
+        if (!ok || st.width < MIN_W || st.height < MIN_H) return null;
         const disp = screen.getAllDisplays().find(d => {
             const w = d.workArea;
             const ox = Math.min(st.x + st.width, w.x + w.width) - Math.max(st.x, w.x);
@@ -142,6 +238,7 @@ function saveWinState() {
     try {
         if (!state.mainWindow || state.mainWindow.isDestroyed() || state.mainWindow.isMinimized() || state.mainWindow.isFullScreen()) return;
         const b = state.mainWindow.getNormalBounds ? state.mainWindow.getNormalBounds() : state.mainWindow.getBounds();
+        if (ac.collapsed && ac.fullH) b.height = ac.fullH;     // collapsed: remember the full height, not the bar
         const tmp = WIN_STATE_FILE + '.tmp';
         fs.writeFileSync(tmp, JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height }));
         fs.renameSync(tmp, WIN_STATE_FILE);
@@ -155,8 +252,8 @@ function createWindow() {
     state.mainWindow = new BrowserWindow(Object.assign({
         width: 460,
         height: 860 }, saved || {}, {
-        minWidth: 380,
-        minHeight: 560,
+        minWidth: MIN_W,
+        minHeight: MIN_H,
         title: 'El Subtitle Animator',
         backgroundColor: '#131614',
         webPreferences: { preload: PRELOAD_FILE }
@@ -196,8 +293,9 @@ function createWindow() {
     state.mainWindow.on('minimize', () => setAppIdle(true));
     state.mainWindow.on('hide', () => setAppIdle(true));
     state.mainWindow.on('restore', () => { state.parkArmed = false; setAppIdle(false); });
-    state.mainWindow.on('blur', () => { if (state.parkArmed) setAppIdle(true, 'parked'); });
-    state.mainWindow.on('focus', () => { state.parkArmed = false; if (state.appIdle && !state.mainWindow.isMinimized()) setAppIdle(false); });
+    state.mainWindow.on('blur', () => { if (state.parkArmed) setAppIdle(true, 'parked'); acOnBlur(); });
+    state.mainWindow.on('focus', () => { state.parkArmed = false; if (state.appIdle && !state.mainWindow.isMinimized()) setAppIdle(false); acOnFocus(); });
+    state.mainWindow.on('closed', () => { acStopPoll(); clearTimeout(ac.blurTimer); clearTimeout(ac.resizeTimer); });
     state.mainWindow.on('show', () => setAppIdle(state.mainWindow.isMinimized()));
     applyOnTop(loadLib().alwaysOnTop !== false);   // stays above Resolve by default
     state.mainWindow.loadFile(INDEX_HTML);

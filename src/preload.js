@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld('sa', {
     parkUntilFocus: () => ipcRenderer.invoke('win:park'),
     showEmojiPanel: () => ipcRenderer.invoke('win:emojiPanel'),
     setOnTop: (flag) => ipcRenderer.invoke('win:setOnTop', !!flag),
+    setAutoCollapse: (flag) => ipcRenderer.invoke('win:setAutoCollapse', !!flag),
+    onCollapsed: (cb) => ipcRenderer.on('win:collapsed', (e, v) => { try { cb(!!v); } catch (err) { /* ignore */ } }),
     setLayoutMode: (mode) => ipcRenderer.invoke('win:setLayoutMode', mode),
     dlog: (...parts) => ipcRenderer.invoke('dbg:log', ...parts),
     fitWidth: (width, mode) => ipcRenderer.invoke('win:fitWidth', width, mode),

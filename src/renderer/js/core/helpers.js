@@ -5,6 +5,12 @@ function setStatus(msg, kind) {
     const el = $('status');
     el.textContent = msg || '';
     el.className = 'status' + (kind ? ' ' + kind : '');
+    // compact mode: the message fades after a few seconds (errors stay longer); full text in its tooltip
+    el.title = msg || '';
+    clearTimeout(setStatus.fadeTimer);
+    if (msg && document.body.classList.contains('compact')) {
+        setStatus.fadeTimer = setTimeout(() => el.classList.add('faded'), kind === 'bad' ? 10000 : 4000);
+    }
 }
 
 function libEntry(id) { return state.lib.animations.find(a => a.id === id) || null; }

@@ -2,7 +2,7 @@
 // panel, or Windows' own Color dialog (PowerShell + System.Windows.Forms.ColorDialog, with your custom colours).
 
 module.exports = {
-    cancelNativeColor, pickNativeColor, prepareColorScript, startJxaHelper, stopJxaHelper
+    cancelNativeColor, isColorPanelOpen, pickNativeColor, prepareColorScript, startJxaHelper, stopJxaHelper
 };
 
 const path = require('path');
@@ -15,6 +15,7 @@ const { APP_DATA_DIR, ensureDirs } = require('./config');
 // Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
 let colorPanelOpen = false, colorChild = null;
+function isColorPanelOpen() { return colorPanelOpen; }
 function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } try { if (colorViaHelper) { stopJxaHelper(); setTimeout(startJxaHelper, 300); } } catch (e) { /* ignore */ } return true; }
 let colorViaHelper = false;
 // The Colors panel script is compiled once (osacompile) and warmed up when the app starts, so a click only has to run it:

@@ -34,7 +34,7 @@ const {
     addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
 const { syncLiveTransform, updateLatest } = require('./timeline-sync');
-const { fitWidth, setLayoutMode, setOnTop } = require('./window');
+const { fitWidth, setAutoCollapse, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
 const { clipTiming, setClipTiming } = require('./anim-timing');
@@ -119,6 +119,7 @@ const SAFE_HANDLERS = {
     'sfx:addOriginal': addSfxOriginal,
     'sfx:removeOriginal': removeSfxOriginal,
     'win:setOnTop': setOnTop,
+    'win:setAutoCollapse': setAutoCollapse,
     'win:setLayoutMode': setLayoutMode,
     'win:fitWidth': fitWidth,
     // Prompt tab HIGHLIGHT_BOX "Apply to placed": the highlight box values on every highlight clip of the timeline.

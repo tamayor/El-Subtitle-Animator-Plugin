@@ -1,0 +1,413 @@
+{
+  "addon-controls.js": [
+    "hideAddons:function",
+    "parseAddons:function"
+  ],
+  "anim-timing.js": [
+    "clipTiming:function",
+    "currentFusionClip:function",
+    "setClipTiming:function"
+  ],
+  "app-version.js": [
+    "getAppVersion:function",
+    "setAppVersion:function"
+  ],
+  "apply.js": [
+    "apply:function"
+  ],
+  "automation.js": [
+    "adjustHighlights:function",
+    "startAutomation:function",
+    "stopAutomation:function",
+    "swapAudioIds:function"
+  ],
+  "clip-colors-db.js": [
+    "subtitleColorsFromDb:function"
+  ],
+  "clip-controls.js": [
+    "clipControls:function",
+    "clipRows:function",
+    "gradientsOf:function",
+    "setClipControls:function",
+    "setClipGradient:function",
+    "setClipRows:function"
+  ],
+  "color-picker.js": [
+    "cancelNativeColor:function",
+    "isColorPanelOpen:function",
+    "pickNativeColor:function",
+    "prepareColorScript:function",
+    "startJxaHelper:function",
+    "stopJxaHelper:function"
+  ],
+  "config.js": [
+    "ANIM_DIR:string",
+    "ANIM_ORIG_DIR:string",
+    "APP_DATA_DIR:string",
+    "APP_ROOT:string",
+    "BRIDGE_SCRIPT:string",
+    "CANCEL_FLAG:string",
+    "CLIP_REG:string",
+    "DATA_DIR:string",
+    "DEBUG_LOG:string",
+    "DEBUG_ON:boolean",
+    "DRAFT_DIR:string",
+    "FONTS_DIR:string",
+    "INDEX_HTML:string",
+    "INITIAL_PPID:number",
+    "LIB_FILE:string",
+    "MANIFEST_XML:string",
+    "PACKAGE_JSON:string",
+    "PLUGIN_ID:string",
+    "PRELOAD_FILE:string",
+    "PREV_CACHE_DIR:string",
+    "PREV_CACHE_MAX:number",
+    "PREV_DIR:string",
+    "SAMPLE_TEXTS:object",
+    "SFX_CACHE_DIR:string",
+    "SFX_DIR:string",
+    "SFX_ORIG_DIR:string",
+    "WIN_STATE_FILE:string",
+    "WORKFLOW_INTEGRATION_NODE:string",
+    "ensureDirs:function"
+  ],
+  "effect-presets.js": [
+    "CATEGORY:string",
+    "DEFAULT_STRENGTH:number",
+    "EFFECTS:object",
+    "ORDER:object",
+    "STRENGTH_TOOL:object",
+    "_makers:object",
+    "effectsDir:function",
+    "effectsForUI:function",
+    "fileName:function",
+    "fxGet:function",
+    "fxList:function",
+    "fxParam:function",
+    "fxSet:function",
+    "fxSetTags:function",
+    "fxStrength:function",
+    "installEffects:function",
+    "resyncEffectSfx:function",
+    "syncEffectSfx:function"
+  ],
+  "fonts.js": [
+    "copyFontsForSetting:function",
+    "listSystemFonts:function",
+    "syncAllPresetFonts:function",
+    "validFontStyle:function"
+  ],
+  "fusion-bridge.js": [
+    "bridgeCall:function",
+    "bridgeLane:function"
+  ],
+  "fusion-fixes.js": [
+    "FIX_DEFAULTS:object",
+    "bridgeFixes:function",
+    "getFixes:function",
+    "setFixes:function"
+  ],
+  "fusion-setting.js": [
+    "blockEnd:function",
+    "clearDesignCache:function",
+    "copyPreset:function",
+    "derived:function",
+    "designForFusion:function",
+    "detectNodes:function",
+    "expandAllTools:function",
+    "expandToolsInFile:function",
+    "fusionBoxes:function",
+    "nodesWithDesign:function",
+    "parseTextStyle:function",
+    "presetText:function"
+  ],
+  "ipc.js": [
+    "registerIpcHandlers:function"
+  ],
+  "layout.js": [
+    "analyzeLayout:function",
+    "decodePng:function",
+    "defaultLayout:function",
+    "estimateTextBox:function",
+    "findGuide:function",
+    "fitBox:function",
+    "guideRegion:function",
+    "layoutSummary:function",
+    "overlayFrame:function"
+  ],
+  "library-actions.js": [
+    "addAnimationFile:function",
+    "createCombo:function",
+    "draftFromTimeline:function",
+    "pickFile:function",
+    "removeAnimation:function",
+    "reorderAnimations:function",
+    "replaceAnimationFile:function",
+    "revertAnimation:function",
+    "saveAnimationVariant:function",
+    "saveSelectedAsAnimation:function",
+    "saveTags:function",
+    "setAnimationSfx:function",
+    "setDefaultSfx:function",
+    "setUseOrder:function",
+    "updateAnimation:function"
+  ],
+  "library-overwrite.js": [
+    "overwriteAudioFromCurrent:function",
+    "overwriteAudioFromFile:function",
+    "overwriteAudioFromTimeline:function",
+    "overwriteSettingFromCurrent:function",
+    "overwriteSettingFromFile:function",
+    "overwriteSettingFromTimeline:function",
+    "pickFileOrFolder:function",
+    "revertAnimationAudio:function"
+  ],
+  "library.js": [
+    "libForUI:function",
+    "loadLib:function",
+    "newAnimation:function",
+    "saveLib:function",
+    "uniqueName:function"
+  ],
+  "lifecycle.js": [
+    "checkResolveAlive:function",
+    "cleanup:function",
+    "quitPlugin:function",
+    "watchResolve:function"
+  ],
+  "live-preview.js": [
+    "liveAlive:function",
+    "liveClearMarks:function",
+    "liveFinish:function",
+    "liveRemove:function",
+    "liveSetMarks:function",
+    "liveUpdate:function",
+    "loopOn:function",
+    "loopRestore:function",
+    "placeLiveSfx:function",
+    "regAdd:function",
+    "regCount:function",
+    "regCountOthers:function",
+    "regDel:function",
+    "sessionSounds:function",
+    "sweepTempClips:function",
+    "waitIdle:function"
+  ],
+  "log.js": [
+    "dlog:function"
+  ],
+  "perf.js": [
+    "PERF_DEFAULTS:object",
+    "PERF_LOG_FILE:string",
+    "getPerf:function",
+    "perfEnabled:function",
+    "perfFlush:function",
+    "perfReset:function",
+    "perfSummary:function",
+    "record:function",
+    "setPerf:function",
+    "span:function",
+    "timed:function",
+    "wrapResolve:function"
+  ],
+  "placement.js": [
+    "FADE_WARNING:string",
+    "appendSfxCut:function",
+    "cutCheck:function",
+    "cutSnapshot:function",
+    "deleteClipsById:function",
+    "deleteExtraSfx:function",
+    "directPlaceTitle:function",
+    "findAudioItemById:function",
+    "findItemById:function",
+    "fitDuration:function",
+    "importSfx:function",
+    "insertTitleAtEnd:function",
+    "inspectorSafeComp:function",
+    "installAllTemplates:function",
+    "isTitleClipName:function",
+    "layerList:function",
+    "linkToText:function",
+    "loneRow:function",
+    "moveTitleSafe:function",
+    "pickTrack:function",
+    "placeExtraSfx:function",
+    "presetHasRowControls:function",
+    "presetOutputFor:function",
+    "presetTitleFor:function",
+    "presetTitleNames:function",
+    "presetTplState:function",
+    "pruneTemplates:function",
+    "refitRowSfx:function",
+    "relinkToProjectCopy:function",
+    "rowFramesFor:function",
+    "segSfxFor:function",
+    "segSfxForget:function",
+    "segSfxRecord:function",
+    "segSfxSetEmpty:function",
+    "sfxCutFor:function",
+    "sfxCutFrames:function",
+    "startupTemplates:function",
+    "syncTemplates:function",
+    "tailFor:function",
+    "titleKindFor:function",
+    "titlesDir:function",
+    "trackUsable:function",
+    "typingFramesFor:function"
+  ],
+  "playback.js": [
+    "ensureStopped:function",
+    "isPlaying:function",
+    "noteFrame:function",
+    "stopPlayback:function"
+  ],
+  "png-compress.js": [
+    "compressPng:function",
+    "compressPngTree:function",
+    "isUncompressedPng:function"
+  ],
+  "poll.js": [
+    "liveFrame:function",
+    "parkUntilFocus:function",
+    "poll:function",
+    "seek:function",
+    "setAppIdle:function"
+  ],
+  "previews.js": [
+    "captureFromSelection:function",
+    "capturePreview:function",
+    "exportSelectedClip:function",
+    "frameList:function",
+    "makePreview:function",
+    "previewData:function",
+    "prunePreviews:function",
+    "scanClip:function"
+  ],
+  "regroup.js": [
+    "regroup:function",
+    "wordKey:function"
+  ],
+  "repair.js": [
+    "fallbackClips:function",
+    "repairInspector:function"
+  ],
+  "resolve-load.js": [
+    "BUSY_POLL_MS:number",
+    "noteResolveLatency:function",
+    "probeDue:function",
+    "resolveBusy:function"
+  ],
+  "resolve.js": [
+    "currentTimeline:function",
+    "findItemsByIds:function",
+    "frameToTC:function",
+    "getProject:function",
+    "getSubtitles:function",
+    "listSubtitles:function",
+    "noteTimeline:function",
+    "setSubtitlesEnabled:function",
+    "tcToFrame:function",
+    "timelineMeta:function",
+    "videoTrackLists:function"
+  ],
+  "retime.js": [
+    "addRetiming:function",
+    "retimeTerms:function",
+    "upgradeRetiming:function",
+    "upgradeTyping:function"
+  ],
+  "seg-watch.js": [
+    "markSegSweepHot:function",
+    "startSegWatch:function"
+  ],
+  "selection.js": [
+    "findSelectedFusionItem:function"
+  ],
+  "settle.js": [
+    "settleLater:function",
+    "settleNow:function"
+  ],
+  "sfx-level.js": [
+    "PEAK_HI:number",
+    "PEAK_LO:number",
+    "VARY_CENTS:number",
+    "VARY_DB:number",
+    "applyLevel:function",
+    "clampToWindow:function",
+    "levelVolume:function",
+    "measurePeak:function",
+    "peakOf:function",
+    "variations:function"
+  ],
+  "sfx.js": [
+    "addSfxOriginal:function",
+    "copySfx:function",
+    "isEditedSfxName:function",
+    "listSfxOriginals:function",
+    "migrateSfxOriginals:function",
+    "presetSfxName:function",
+    "readSfx:function",
+    "removeSfxOriginal:function",
+    "saveAttachedClip:function",
+    "saveSfxClip:function",
+    "sfxFilePath:function",
+    "useOriginalSfx:function"
+  ],
+  "stack.js": [
+    "measureText:function",
+    "placeStack:function"
+  ],
+  "state.js": [
+    "appIdle:boolean",
+    "applying:boolean",
+    "bridge:object",
+    "bridgeRender:object",
+    "hasSeenResolve:boolean",
+    "isQuitting:boolean",
+    "lastPlacedAudioId:object",
+    "lastPlacedItemId:object",
+    "lastPoll:object",
+    "lastSelection:object",
+    "liveSession:object",
+    "mainWindow:object",
+    "ofxLeft:object",
+    "parkArmed:boolean",
+    "placePrefs:object",
+    "playhead:object",
+    "presetTpl:object",
+    "resolveObj:object",
+    "resolveWatchTimer:object",
+    "segSweepHot:number",
+    "segSweepTimer:object",
+    "segWatchTimer:object",
+    "subCache:object",
+    "titleMpiTries:number",
+    "tplState:object"
+  ],
+  "subject-track.js": [
+    "trackCancel:function",
+    "trackEngine:function",
+    "trackInstall:function",
+    "trackRun:function",
+    "trackSettings:function",
+    "trackSource:function"
+  ],
+  "timeline-snapshot.js": [
+    "snapAdd:function",
+    "snapAddTrack:function",
+    "snapCutKeys:function",
+    "snapTrack:function",
+    "takeSnapshot:function"
+  ],
+  "timeline-sync.js": [
+    "syncLiveTransform:function",
+    "updateLatest:function"
+  ],
+  "window.js": [
+    "createWindow:function",
+    "fitWidth:function",
+    "setAutoCollapse:function",
+    "setLayoutMode:function",
+    "setOnTop:function"
+  ]
+}

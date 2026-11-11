@@ -1,0 +1,26 @@
+{
+	Tools = ordered() {
+		Template = TextPlus {
+			CtrlWZoom = false,
+			Inputs = {
+				GlobalOut = Input { Value = 119, },
+				Width = Input { Value = 1920, },
+				Height = Input { Value = 1080, },
+				Center = Input { Value = { 0.5, 0.25 }, },
+				StyledText = Input { Value = "Hello \"world\"\nline {two}", },
+				Font = Input { Value = "Poppins", },
+				Style = Input { Value = "ExtraBold", },
+				Size = Input { Value = 0.12, },
+			},
+			ViewInfo = OperatorInfo { Pos = { 220, 49.5 } },
+		},
+		Glow1 = SoftGlow {
+			CtrlWShown = false,
+			Inputs = {
+				Input = Input { SourceOp = "Template", Source = "Output", },
+			},
+			ViewInfo = OperatorInfo { Pos = { 330, 49.5 } },
+		}
+	},
+	ActiveTool = "Template"
+}

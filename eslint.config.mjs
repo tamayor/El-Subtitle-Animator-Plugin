@@ -19,7 +19,7 @@ const rules = {
 export default [
     { ignores: ['_archive/**', '_debug/**', 'node_modules/**'] },
     {
-        files: ['main.js', 'src/main/**/*.js', 'src/preload.js', 'tools/**/*.js', 'mcp/**/*.js'],
+        files: ['main.js', 'src/main/**/*.js', 'src/preload.js', 'tools/**/*.js', 'mcp/**/*.js', 'test/**/*.js'],
         languageOptions: { ecmaVersion: 'latest', sourceType: 'commonjs', globals: { ...globals.node } },
         rules,
     },

@@ -421,6 +421,17 @@ async function applyInner(req, warnings, sp) {
             catch (e) { warnings.push('Could not disable the subtitle clip: ' + e.message); }
             sp.mark('disableSubs');
         }
+        // 7. Glass Blur captions: the frosted glass is an ELSA Glass effect on the footage under the caption
+        //    (fusion_bridge.glass_sync; a no-op for every other preset). Not for a live preview.
+        if (!live && fs.existsSync(compPath) && /\bGlassFrost\b/.test(fs.readFileSync(compPath, 'utf8'))) {
+            try {
+                require('./effect-presets').installEffects();
+                const g = await bridgeCall('glass_sync', { item: itemId, force: true }, 20000);
+                if (g && g.glass === 'synced' && !g.clips) warnings.push('Glass: no footage under the caption, so there is nothing to frost.');
+                if (g && g.failed && g.failed.length) warnings.push('Glass not added on: ' + g.failed.join(', '));
+            } catch (e) { warnings.push('Glass not added: ' + e.message); }
+            sp.mark('glass');
+        }
         // (the subtitle list is not re-read here: nothing of this placement is a subtitle clip, and setSubtitlesEnabled
         // patches the cached entries it switched)
         return { ok: true, live, itemId, subtitlesDisabled, videoTrack: vTrack, audioTrack: sfxTrack, extraSfxIds, linked: clipsLinked, start: textStart, frames: finalLen, warnings, trackNotes, liveNodes };

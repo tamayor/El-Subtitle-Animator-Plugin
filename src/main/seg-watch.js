@@ -125,6 +125,8 @@ async function keyedFacts(t, list, budget) {
     return out;
 }
 let sweepBusy = false, sweepTl = null, lastSweepAt = 0;
+const GLASS_GC_MS = 30000;
+let lastGlassGc = 0;
 
 function markSegSweepHot() { state.segSweepHot = Date.now(); }
 
@@ -173,6 +175,12 @@ async function sweep() {
             }
         }
         if (seen.size > 2000) seen.clear();
+        // Glass Blur captions deleted by hand: their ELSA Glass effects come off the footage (fusion_bridge.glass_gc;
+        // reads only when glass.json lists captions for this timeline). At most every GLASS_GC_MS.
+        if (!state.applying && Date.now() - lastGlassGc >= GLASS_GC_MS) {
+            lastGlassGc = Date.now();
+            try { await bridgeCall('glass_gc', {}, 15000); } catch (e) { /* next sweep */ }
+        }
     } catch (e) {
         /* Resolve busy, another page or no timeline: next sweep */
     } finally {

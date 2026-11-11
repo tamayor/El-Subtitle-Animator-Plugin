@@ -1230,6 +1230,7 @@ def op_highlight_box(a):
         rekey_comp(comp, a.get("item"))         # the box sweep's keys carry Box Width
     except Exception:
         pass
+    glass_after(a)
     return {"highlights": res}
 
 
@@ -1293,6 +1294,7 @@ def op_controls_set(a):
             rekey_comp(comp, a.get("item"))     # the box sweep's keys carry Box Width
         except Exception:
             pass
+    glass_after(a)
     return {"values": {i: get_in(tool, i) for i in ids}}
 
 
@@ -1339,6 +1341,7 @@ def op_multitext_rows(a):
         return {"hasControls": False}
     with STEP("set"):
         rows_set(a, tpl, comp)
+    glass_after(a)
     with STEP("read"):
         return rows_read(tpl)
 
@@ -2592,6 +2595,14 @@ def op_seg_watch(a):
     first = last is None
     keyed = rekey_if_changed(comp, tpl, last, item)
     out = {"segments": True, "keyed": keyed}
+    if _glass_kind.get(item) is not False and (a.get("sweep") or time.time() - _glass_seen.get(item, 0) >= 2.0):
+        _glass_seen[item] = time.time()
+        try:
+            gr = glass_sync(item)
+            if gr and gr.get("glass") == "synced":
+                out["glass"] = gr
+        except Exception:
+            pass
     if first:       # first look at this clip: are any slide paths still expressions, and how many are keyed
         try:
             out["pathExprs"] = seg_path_exprs(comp)
@@ -2620,7 +2631,7 @@ def op_seg_sweep(a):
     out = {}
     for item in ids:
         try:
-            out[item] = op_seg_watch({"item": item})
+            out[item] = op_seg_watch({"item": item, "sweep": True})
         except Exception as e:
             out[item] = {"error": str(e)}
     return {"items": out}
@@ -2938,6 +2949,7 @@ def op_mt_rows_set(a):
         rekey_comp(comp, a.get("item"))         # moved rows, and the box sweep's letter count
     except Exception:
         pass
+    glass_after(a)
     return {"set": done, "segLead": lead}
 
 
@@ -3001,6 +3013,7 @@ def op_timing_set(a):
     key_followers(comp)       # segment letters, Kinetic rows (no-op for other presets)
     if a.get("wake"):
         wake_effects(comp)
+    glass_after(a)
     return {"ok": True}
 
 
@@ -4011,7 +4024,345 @@ def op_fx_set(a):
     return {"on": bool(on), "failed": failed, "inNodes": in_nodes, "clips": fx_state(items, fresh=True)}
 
 
-OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+# ---------------------------------------------------------------- Glass Blur (frosted glass behind a caption's pill)
+# A title cannot see the clips under it, so the "Glass Blur (ML)" preset's frost lives in an "ELSA Glass" Fusion effect
+# (src/main/effect-presets.js glass()) on the footage clip(s) under the caption. glass_sync copies the caption's pill
+# into it: the emphasis text (the follower's own Text input, never the follower-driven Text+), font / size from the
+# Template, the row centre computed from the Template's plain Row controls (the same formula as the preset's
+# Text2.Center expression, which is not evaluated here), Box sliders, Emphasis timing and the clip's Edit transform.
+# Each effect is tagged with its caption's id (GlassShape data GLASS_FOR); glass.json remembers which clips carry
+# effects for which caption, so a deleted caption's glass is removed (glass_gc) and a moved one is cleaned up.
+GLASS_NAME = "ELSA Glass"
+GLASS_FOR = "ElsaGlassFor"
+GLASS_STATE = "ElsaGlassState"
+_glass_kind = {}      # caption id -> True (glass preset) / False
+_glass_seen = {}      # caption id -> time of the last check from seg_watch
+
+
+def glass_reg_path():
+    if sys.platform == "darwin":
+        d = os.path.expanduser("~/Library/Application Support/el-subtitle-animator")
+    else:
+        d = os.path.expanduser("~/.el-subtitle-animator")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "glass.json")
+
+
+def glass_reg_load():
+    try:
+        with open(glass_reg_path(), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def glass_reg_save(d):
+    try:
+        p = glass_reg_path()
+        with open(p + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        os.replace(p + ".tmp", p)
+    except Exception:
+        pass
+
+
+def glass_tl_key(tl):
+    try:
+        proj = resolve().GetProjectManager().GetCurrentProject().GetName()
+    except Exception:
+        proj = ""
+    return "%s / %s" % (proj, tl.GetName())
+
+
+def glass_tpl(comp):
+    t = comp.FindTool("Template")
+    if t is not None and get_in(t, "GlassFrost") is not None:
+        return t
+    return None
+
+
+def _text_w(s):
+    """The preset's Text2.Center width estimate (Justify left / right), per Size unit."""
+    best = 0.0
+    for line in str(s or "").split("\n"):
+        w = 0.0
+        for ch in line:
+            if ch == " ":
+                w += 0.09
+            elif ch in "ijl!|'.,:;":
+                w += 0.1
+            elif ch in "tfr":
+                w += 0.14
+            elif ch in "IJ":
+                w += 0.13
+            elif ch in "mw":
+                w += 0.33
+            elif ch in "MW":
+                w += 0.31
+            elif ch.isupper():
+                w += 0.24
+            elif ch.isdigit():
+                w += 0.21
+            elif ch in "sczvxykg":
+                w += 0.19
+            elif ch in "-?":
+                w += 0.15
+            else:
+                w += 0.21
+        best = max(best, w)
+    return best
+
+
+def glass_values(it, comp, tpl, tl):
+    T = lambda k, d: num(get_in(tpl, k), d)
+    texts = {n: (row_text(tpl, n) or "") for n in (1, 2, 3)}
+    J = int(T("RowsJustify", 0))
+    lk = T("RowsLink", 0) >= 0.5
+    if lk:
+        ox = T("UpperX", 0) + T("EmphasisX", 0) + T("LowerX", 0)
+        oy = T("UpperY", 0) + T("EmphasisY", 0) + T("LowerY", 0)
+    else:
+        ox, oy = T("EmphasisX", 0), T("EmphasisY", 0)
+    if J >= 1:
+        ox = 0.0
+    sizes = {1: T("Text1.Size", 0.065), 2: T("Text2.Size", 0.115), 3: T("Text3.Size", 0.065)}
+    try:
+        fw = float(comp.GetPrefs("Comp.FrameFormat.Width"))
+        fh = float(comp.GetPrefs("Comp.FrameFormat.Height"))
+    except Exception:
+        fw, fh = T("Width", 1080), T("Height", 1920)
+    x = T("RowsBaseX", 0.5) + T("RowsX", 0) + ox
+    if J >= 2:
+        wm = max(_text_w(texts[n]) * sizes[n] for n in (1, 2, 3)) * fh / max(1.0, fw)
+        x += (-1 if J == 2 else 1) * wm / 2
+    y = T("RowsBaseY", 0.47) + T("RowsY", 0) + oy
+    s2 = T("Seg2Start", 0)
+    e2 = T("Seg2End", s2)
+    d2 = max(1.0, (e2 - s2) * 0.55)
+    r2 = max(2.0, min(9.0, d2 * 0.5))
+    dur = max(4.0, min(12.0, max(1.0, e2 - (s2 + r2))))
+    p = it.GetProperty() or {}
+    pn = lambda k, d: num(p.get(k), d)
+    try:
+        W = float(tl.GetSetting("timelineResolutionWidth"))
+        H = float(tl.GetSetting("timelineResolutionHeight"))
+    except Exception:
+        W, H = fw, fh
+    zoom = pn("ZoomX", 1.0)
+    halign = -1 if J == 2 else (1 if J == 3 else 0)
+    return {
+        "text": texts[2], "font": get_in(tpl, "Text2.Font") or "Poppins", "style": get_in(tpl, "Text2.Style") or "Bold",
+        "size": sizes[2], "cs": T("Text2.CharacterSpacing", 1), "ls": T("Text2.LineSpacing", 1),
+        "center": [round(x, 5), round(y, 5)], "halign": halign,
+        "box": [T("HighlightWidth", 1), T("HighlightHeight", 1), T("HighlightX", 0), T("HighlightY", 0)],
+        "s2": s2, "dur": dur, "len": int(it.GetDuration()), "start": int(it.GetStart()),
+        "glass": [T("GlassFrost", 22), T("GlassBend", 0.06), T("GlassVibrancy", 1.3), T("GlassBright", 0.05)],
+        "xf": [0.5 + pn("Pan", 0) / max(1.0, W), 0.5 + pn("Tilt", 0) / max(1.0, H), zoom, pn("RotationAngle", 0)],
+        "lens": [0.5 + (x - 0.5) * zoom + pn("Pan", 0) / max(1.0, W), 0.5 + (y - 0.5) * zoom + pn("Tilt", 0) / max(1.0, H)],
+    }
+
+
+def glass_under(tl, it):
+    """[(clip, id)] of the footage the caption covers: for every frame of the caption, the topmost enabled media clip
+    on a lower track (a cut under the caption gives two clips)."""
+    try:
+        tidx = int(it.GetTrackTypeAndIndex()[1])
+    except Exception:
+        return []
+    left = [(int(it.GetStart()), int(it.GetEnd()))]
+    out = []
+    for t in range(tidx - 1, 0, -1):
+        if not left:
+            break
+        try:
+            if not tl.GetIsTrackEnabled("video", t):
+                continue
+        except Exception:
+            pass
+        for v in tl.GetItemListInTrack("video", t) or []:
+            try:
+                s, e = int(v.GetStart()), int(v.GetEnd())
+                if v.GetMediaPoolItem() is None:
+                    continue
+                if hasattr(v, "GetClipEnabled") and not v.GetClipEnabled():
+                    continue
+            except Exception:
+                continue
+            nxt, hit = [], False
+            for a0, a1 in left:
+                if e <= a0 or s >= a1:
+                    nxt.append((a0, a1))
+                    continue
+                hit = True
+                if a0 < s:
+                    nxt.append((a0, s))
+                if e < a1:
+                    nxt.append((e, a1))
+            if hit:
+                out.append((v, str(v.GetUniqueId())))
+            left = nxt
+    return out
+
+
+def glass_find(v, tid):
+    for e in v.GetEffects("fusion") or []:
+        try:
+            if (e.GetInfo() or {}).get("name") != GLASS_NAME:
+                continue
+            c = e.GetFusionComp()
+            sh = c.FindTool("GlassShape") if c is not None else None
+            if sh is not None and sh.GetData(GLASS_FOR) == tid:
+                return e
+        except Exception:
+            continue
+    return None
+
+
+def glass_write(e, tid, g, lead):
+    c = e.GetFusionComp()
+    sh, xf, disp = c.FindTool("GlassShape"), c.FindTool("GlassXf"), c.FindTool("GlassDisplace")
+    if sh is None:
+        raise RuntimeError("ELSA Glass has no GlassShape")
+    c.Lock()
+    try:
+        vals = {"Lead": lead, "S2": g["s2"], "Dur": g["dur"], "Len": g["len"],
+                "BoxW": g["box"][0], "BoxH": g["box"][1],
+                "Frost": g["glass"][0], "Bend": g["glass"][1], "Vib": g["glass"][2], "Bright": g["glass"][3],
+                "StyledText": g["text"], "Font": g["font"], "Style": g["style"], "Size": g["size"],
+                "CharacterSpacing": g["cs"], "LineSpacing": g["ls"],
+                "HorizontalLeftCenterRight": g["halign"], "HorizontalJustificationCenter": g["halign"]}
+        for k, v in vals.items():
+            sh.SetInput(k, v)
+        sh.SetInput("Center", {1: g["center"][0], 2: g["center"][1], 3: 0.0})
+        sh.SetInput("Offset1", {1: g["box"][2], 2: g["box"][3], 3: 0.0})
+        sh.SetData(GLASS_FOR, tid)
+        if xf is not None:
+            xf.SetInput("Center", {1: g["xf"][0], 2: g["xf"][1], 3: 0.0})
+            xf.SetInput("Size", g["xf"][2])
+            xf.SetInput("Angle", g["xf"][3])
+        if disp is not None:
+            disp.SetInput("Center", {1: g["lens"][0], 2: g["lens"][1], 3: 0.0})
+    finally:
+        c.Unlock()
+
+
+def glass_items_by_id(tl, ids):
+    want, out = set(ids), {}
+    for t in range(1, tl.GetTrackCount("video") + 1):
+        for v in tl.GetItemListInTrack("video", t) or []:
+            try:
+                uid = str(v.GetUniqueId())
+            except Exception:
+                continue
+            if uid in want:
+                out[uid] = v
+    return out
+
+
+def glass_drop(tl, tid, clip_ids):
+    n = 0
+    for v in glass_items_by_id(tl, clip_ids).values():
+        e = glass_find(v, tid)
+        if e is not None and v.DeleteEffects([e]):
+            n += 1
+    return n
+
+
+def glass_sync(item_id, force=False):
+    """Adds / updates / removes the ELSA Glass effects for one Glass Blur caption. Writes only when something the
+    glass depends on changed since the last sync (state kept on the caption's Template). None = not a glass caption."""
+    tid = str(item_id)
+    it = find_item(tid)
+    comp = get_comp(tid)
+    tpl = glass_tpl(comp)
+    _glass_kind[tid] = tpl is not None
+    if tpl is None:
+        return None
+    tl = timeline()
+    g = glass_values(it, comp, tpl, tl)
+    under = glass_under(tl, it) if g["text"].strip() else []
+    state = json.dumps([g, [(uid, int(v.GetStart())) for v, uid in under]], sort_keys=True)
+    try:
+        last = tpl.GetData(GLASS_STATE)
+    except Exception:
+        last = None
+    if not force and last == state:
+        return {"glass": "unchanged", "clips": len(under)}
+    reg = glass_reg_load()
+    key = glass_tl_key(tl)
+    prev = list((reg.get(key) or {}).get(tid) or [])
+    from_fx = FX_PREFIX + GLASS_NAME
+    done, failed = [], []
+    for v, uid in under:
+        e = glass_find(v, tid)
+        if e is None:
+            e = v.AddEffect("fusion", from_fx)
+            if e is None:
+                failed.append(v.GetName())
+                continue
+        try:
+            glass_write(e, tid, g, g["start"] - int(v.GetStart()))
+            done.append(uid)
+        except Exception as ex:
+            failed.append("%s (%s)" % (v.GetName(), ex))
+    gone = [c for c in prev if c not in done]
+    removed = glass_drop(tl, tid, gone) if gone else 0
+    reg.setdefault(key, {})
+    if done:
+        reg[key][tid] = done
+    else:
+        reg[key].pop(tid, None)
+    glass_reg_save(reg)
+    try:
+        tpl.SetData(GLASS_STATE, state if not failed else None)
+    except Exception:
+        pass
+    return {"glass": "synced", "clips": len(done), "removed": removed, "failed": failed}
+
+
+def glass_after(a):
+    """After a panel edit of a caption (text, rows, box, timing, Clip controls): resync its glass. Never raises."""
+    try:
+        if a.get("item") is not None and _glass_kind.get(str(a["item"])) is not False:
+            glass_sync(a["item"])
+    except Exception:
+        pass
+
+
+def op_glass_sync(a):
+    return glass_sync(a["item"], bool(a.get("force"))) or {"glass": None}
+
+
+def op_glass_remove(a):
+    """Removes a caption's glass effects (before the caption is deleted, or for a caption already gone)."""
+    tid = str(a["item"])
+    tl = timeline()
+    reg = glass_reg_load()
+    key = glass_tl_key(tl)
+    ids = list((reg.get(key) or {}).pop(tid, None) or [])
+    n = glass_drop(tl, tid, ids) if ids else 0
+    glass_reg_save(reg)
+    return {"removed": n}
+
+
+def op_glass_gc(a):
+    """Removes the glass of captions no longer on the current timeline (deleted by hand)."""
+    tl = timeline()
+    reg = glass_reg_load()
+    key = glass_tl_key(tl)
+    ent = reg.get(key) or {}
+    if not ent:
+        return {"removed": 0, "captions": 0}
+    present = glass_items_by_id(tl, list(ent.keys()))
+    n = 0
+    for tid in [t for t in ent if t not in present]:
+        n += glass_drop(tl, tid, ent.pop(tid))
+    glass_reg_save(reg)
+    return {"removed": n, "captions": len(ent)}
+
+
+OPS = {"glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
 
 

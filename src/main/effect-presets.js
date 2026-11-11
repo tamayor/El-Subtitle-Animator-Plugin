@@ -20,9 +20,12 @@ const EFFECTS = [
     // A Fusion effect (ELSA Stop Motion, a TimeStretcher last before the output), so it holds the glitch / wiggle with the
     // picture. Clips with Edit sizing (Zoom / Pan / Tilt) get Resolve's own OFX Stop Motion instead (`ofx`): in a Fusion
     // effect their held frames come back without that sizing. Scripts cannot set the OFX's Frame Repeat.
-    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look, glitch / wiggle included. Zoomed or panned clips get DaVinci\'s own Stop Motion (set the same Frame Repeat in Resolve\'s Inspector > Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true }
+    { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look, glitch / wiggle included. Zoomed or panned clips get DaVinci\'s own Stop Motion (set the same Frame Repeat in Resolve\'s Inspector > Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true },
+    // Glass: the frosted half of the "Glass Blur (ML)" text preset. Not in the panel's list (hidden): the bridge adds it
+    // to the footage clip(s) under a Glass Blur caption and fills it from the caption (fusion_bridge.glass_sync).
+    { id: 'Glass', name: 'Glass', tags: [], tip: 'Frosted glass behind a Glass Blur caption', hidden: true }
 ];
-const ORDER = EFFECTS.map(e => e.id);
+const ORDER = EFFECTS.filter(e => !e.hidden).map(e => e.id);
 const DEFAULT_STRENGTH = 25;
 const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
@@ -249,7 +252,53 @@ function track() {
     ]);
 }
 
-const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch };
+// Glass: macOS-style frosted glass on the footage behind a Glass Blur caption's emphasis pill.
+// GlassShape redraws the caption's pill (a Text+ with the emphasis word, its element 1 drawn as the rounded box) with
+// the caption's own values, which the bridge copies in (glass_sync): text, font, size, row centre, Box Width / Height /
+// X / Y and the Emphasis timing. GlassXf applies the caption clip's Edit Pan / Tilt / Zoom / Rotation (effects work in
+// timeline space). That pill is the mask for: Displace (lens bend at the edges, its map = the pill blurred) ->
+// Gaussian Blur (frost) -> Brightness / Saturation (vibrancy). Outside the caption's frames the mask is empty and the
+// blur sizes are 0, so the clip passes through. Simple expressions only (Lua ones cost ~25 ms a frame in effects).
+// Lead = frames from this clip's first frame to the caption's first frame; S2 / Dur = the pill's grow-in (as the
+// caption's Highlight: starts 3 frames after Emphasis Start, over Dur frames); Len = the caption's length.
+const GLASS_DEFAULTS = { Frost: 22, Bend: 0.06, Vib: 1.3, Bright: 0.05 };
+function glass() {
+    const G = 'GlassShape';
+    const rel = '(time-comp.RenderStart-' + G + '.Lead)';
+    const hid = (id, def) => id + ' = { LINKS_Name = "' + id + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = ' + def + ', IC_Visible = false, ICS_ControlPage = "Controls", }';
+    const D = GLASS_DEFAULTS;
+    const ctl = { Lead: 0, S2: 10, Dur: 8, Len: 0, BoxW: 1, BoxH: 1, Frost: D.Frost, Bend: D.Bend, Vib: D.Vib, Bright: D.Bright, U: 0, On: 0 };
+    const user = '\t\t\t\t\tUserControls = ordered() { ' + Object.keys(ctl).map(k => hid(k, ctl[k])).join(', ') + ', },\n';
+    const grow = (box) => '(0.88+0.12*(1-(1-' + G + '.U)^4))*' + G + '.' + box;
+    const mask = ['EffectMask = Input { SourceOp = "GlassXf", Source = "Output", }'];
+    return group('ELSAGlass', ['GlassDisplace', 'Input'], 'GlassOut', [], [
+        tool(G, 'TextPlus', Object.keys(ctl).filter(k => k !== 'U' && k !== 'On').map(k => k + ' = Input { Value = ' + ctl[k] + ', }').concat([
+            expr('U', 0, 'min(1, max(0, (' + rel + '-' + G + '.S2-3)/max(1,' + G + '.Dur)))'),
+            expr('On', 0, 'iif(' + rel + '>=0, 1, 0)*iif(' + rel + '<' + G + '.Len, 1, 0)'),
+            'UseFrameFormatSettings = Input { Value = 1, }',
+            'StyledText = Input { Value = "", }', 'Font = Input { Value = "Poppins", }', 'Style = Input { Value = "Bold", }',
+            'Size = Input { Value = 0.115, }', 'Center = Input { Value = { 0.5, 0.47 }, }',
+            'CharacterSpacing = Input { Value = 1, }', 'LineSpacing = Input { Value = 1, }',
+            'HorizontalLeftCenterRight = Input { Value = 0, }', 'HorizontalJustificationCenter = Input { Value = 0, }',
+            'ElementShape1 = Input { Value = 2, }', 'Level1 = Input { Value = 1, }',
+            'ExtendHorizontal1 = Input { Value = 0.2, }', 'ExtendVertical1 = Input { Value = 0, }', 'Round1 = Input { Value = 0.5, }',
+            'Offset1 = Input { Value = { 0, 0 }, }',
+            expr('SizeX1', 1, grow('BoxW')), expr('SizeY1', 1, grow('BoxH')),
+            expr('Opacity1', 0, 'min(1, ' + G + '.U*1.6)*' + G + '.On'),
+            'Red1 = Input { Value = 1, }', 'Green1 = Input { Value = 1, }', 'Blue1 = Input { Value = 1, }'
+        ]), 0, -120, user),
+        tool('GlassXf', 'Transform', [inp('Input', G), 'Center = Input { Value = { 0.5, 0.5 }, }', 'Size = Input { Value = 1, }', 'Angle = Input { Value = 0, }'], 0, -60),
+        tool('GlassEdge', 'Blur', [inp('Input', 'GlassXf'), expr('XBlurSize', 30, '30*' + G + '.On')], 110, -60),
+        tool('GlassDisplace', 'Displace', [inp('Foreground', 'GlassEdge'), 'Offset = Input { Value = -0.5, }',
+            expr('RefractionStrength', 0, G + '.Bend*' + G + '.On'), 'LightChannel = Input { Value = 5, }',
+            'Center = Input { Value = { 0.5, 0.5 }, }'].concat(mask), 110, 0),
+        tool('GlassBlur', 'Blur', [inp('Input', 'GlassDisplace'), expr('XBlurSize', D.Frost, G + '.Frost*' + G + '.On')].concat(mask), 220, 0),
+        tool('GlassOut', 'BrightnessContrast', [inp('Input', 'GlassBlur'), expr('Brightness', 0, G + '.Bright*' + G + '.On'),
+            expr('Saturation', 1, '1+(' + G + '.Vib-1)*' + G + '.On')].concat(mask), 330, 0)
+    ]);
+}
+
+const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass };
 
 // Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
 function installEffects() {
@@ -268,7 +317,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
+function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;

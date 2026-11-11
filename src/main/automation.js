@@ -1158,7 +1158,10 @@ const TOOLS = {
         const vids = await findItemsByIds(tl, [rec.itemId], 'video');
         let auds = await findItemsByIds(tl, audioIds, 'audio');
         const found = [vids.get(rec.itemId), ...audioIds.map(id => auds.get(id))].filter(Boolean);
-        if (!found.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.' }; }
+        // a Glass Blur caption's frost (ELSA Glass effects on the footage under it) goes with it
+        let glassRemoved = 0;
+        try { glassRemoved = ((await bridgeCall('glass_remove', { item: rec.itemId }, 15000)) || {}).removed || 0; } catch (e) { /* none */ }
+        if (!found.length) { placed.splice(i, 1); return { removed: false, note: 'The clip is no longer on the timeline.', glassRemoved }; }
         let ok = await tl.DeleteClips(found, false);
         // a copy that survived the batch delete (Resolve sometimes skips linked clips) is deleted on its own
         try {
@@ -1177,7 +1180,7 @@ const TOOLS = {
                 try { restored += (await setSubtitlesEnabled(tl, { start: s.start, end: s.end, track: s.track }, true)).length; } catch (e) { /* ignore */ }
             }
         }
-        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset, soundClipsRemoved: soundsRemoved, subtitleClipsReEnabled: restored };
+        return { removed: !!ok, subtitle: rec.subtitle, preset: rec.preset, soundClipsRemoved: soundsRemoved, subtitleClipsReEnabled: restored, glassRemoved: glassRemoved || undefined };
     }
 };
 

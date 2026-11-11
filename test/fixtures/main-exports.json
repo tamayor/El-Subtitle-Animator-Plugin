@@ -71,6 +71,21 @@
     "WORKFLOW_INTEGRATION_NODE:string",
     "ensureDirs:function"
   ],
+  "edit-rules.js": [
+    "RULES_FILE:string",
+    "ZONES:object",
+    "cleanHighlight:function",
+    "cleanRows:function",
+    "cleanRules:function",
+    "defaultRules:function",
+    "highlightReq:function",
+    "loadRules:function",
+    "rowsReq:function",
+    "saveRules:function",
+    "takeShare:function",
+    "withFillColor:function",
+    "withGradientFill:function"
+  ],
   "effect-presets.js": [
     "CATEGORY:string",
     "DEFAULT_STRENGTH:number",

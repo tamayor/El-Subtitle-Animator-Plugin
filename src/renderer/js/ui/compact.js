@@ -4,6 +4,7 @@
 // In compact mode the tabs move into the header row, so header + tabs take one line instead of three.
 
 const COMPACT_W = 520, COMPACT_H = 700;
+let expandTarget = null;   // while the window animates open: its final content size
 
 function compactPref() {
     try { return localStorage.getItem('sa.compact') || 'auto'; } catch (e) { return 'auto'; }
@@ -14,7 +15,8 @@ function isCompact() { return document.body.classList.contains('compact'); }
 function applyCompact() {
     const pref = compactPref();
     const collapsed = document.body.classList.contains('win-collapsed');   // collapsed bar = the compact one-row header
-    const on = collapsed || pref === 'on' || (pref !== 'off' && (window.innerWidth < COMPACT_W || window.innerHeight < COMPACT_H));
+    const vw = expandTarget ? expandTarget.width : window.innerWidth, vh = expandTarget ? expandTarget.height : window.innerHeight;
+    const on = collapsed || pref === 'on' || (pref !== 'off' && (vw < COMPACT_W || vh < COMPACT_H));
     const was = isCompact();
     document.body.classList.toggle('compact', on);
     // tabs: inside the header row when compact, under the header otherwise
@@ -50,10 +52,70 @@ function syncAutoCollapse(on) {
     }
     if (window.sa && window.sa.setAutoCollapse) window.sa.setAutoCollapse(on);
 }
+// The collapsed bar: a Claude-style status line - a turning glyph and editing words that change every few seconds,
+// each letter bouncing in, a shimmer running through them. Runs only while collapsed.
+const TICKER_WORDS = ['Animating', 'Keyframing', 'Editing', 'Keying', 'Manipulating', 'Compositing', 'Rendering',
+    'Kerning', 'Tracking', 'Captioning', 'Subtitling', 'Easing', 'Bouncing', 'Popping', 'Wiggling', 'Glitching',
+    'Trimming', 'Scrubbing', 'Syncing', 'Retiming', 'Grading', 'Masking', 'Fusing', 'Highlighting', 'Typesetting'];
+const TICKER_GLYPHS = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+const ticker = { spin: null, word: null, n: 0, g: 0, last: '' };
+function tickerWord(text) {
+    const el = document.querySelector('#collapsedTicker .ct-word');
+    if (!el) return;
+    el.textContent = '';
+    [...(text + '…')].forEach((ch, i) => {
+        const s = document.createElement('span');
+        s.textContent = ch;
+        s.style.setProperty('--i', i);
+        el.appendChild(s);
+    });
+}
+function tickerNext() {
+    let w;
+    if (ticker.n++ === 0) w = 'El Subtitle Animator';
+    else do { w = TICKER_WORDS[Math.floor(Math.random() * TICKER_WORDS.length)]; } while (w === ticker.last);
+    ticker.last = w;
+    tickerWord(w);
+}
+function tickerStart() {
+    if (ticker.word) return;
+    const spin = document.querySelector('#collapsedTicker .ct-spin');
+    ticker.n = 0;
+    tickerNext();
+    ticker.word = setInterval(tickerNext, 2600);
+    ticker.spin = setInterval(() => { if (spin) spin.textContent = TICKER_GLYPHS[ticker.g++ % TICKER_GLYPHS.length]; }, 110);
+}
+function tickerStop() {
+    clearInterval(ticker.word); clearInterval(ticker.spin);
+    ticker.word = ticker.spin = null;
+}
+
 function initAutoCollapse() {
     if (window.sa && window.sa.onCollapsed) {
-        window.sa.onCollapsed((v) => {
-            document.body.classList.toggle('win-collapsed', v);
+        // phases from src/main/window.js: collapsing -> collapsed (bar lands), expanding -> expanded
+        window.sa.onCollapsed((phase, size) => {
+            const b = document.body;
+            clearTimeout(initAutoCollapse.landTimer);
+            if (phase === 'collapsing' || phase === true) {
+                b.classList.remove('win-expanding', 'win-landed');
+                b.classList.add('win-collapsed');
+                tickerStart();
+            } else if (phase === 'collapsed') {
+                b.classList.add('win-landed');
+                initAutoCollapse.landTimer = setTimeout(() => b.classList.remove('win-landed'), 500);
+            } else if (phase === 'expanding') {
+                // the layout is picked for the size the window is heading to, so it doesn't flip mid-animation
+                expandTarget = size && size.width && size.height ? size : null;
+                tickerStop();
+                b.classList.remove('win-collapsed', 'win-landed');
+                b.classList.add('win-expanding');
+            } else {
+                expandTarget = null;
+                tickerStop();
+                b.classList.remove('win-collapsed', 'win-landed');
+                // let the content's spring (0.48 s + footer delay) finish before the animation class goes
+                initAutoCollapse.landTimer = setTimeout(() => b.classList.remove('win-expanding'), 200);
+            }
             applyCompact();
         });
     }

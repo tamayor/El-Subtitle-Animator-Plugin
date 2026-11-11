@@ -134,22 +134,53 @@ function acStayOpen(w) {
     return w.isFocused() || w.isMinimized() || w.isFullScreen() || isColorPanelOpen() || cursorInside(w);
 }
 
+// Window height animation: the window is resized frame by frame (setBounds at ~60 fps) along an easing curve.
+// Expanding uses ease-out-back (a little overshoot past the full height, then it settles = the bounce); collapsing uses
+// ease-in-back (a small lift first, then it snaps up to the bar). The top edge stays put; the bottom never leaves the screen.
+const EXPAND_MS = 420, COLLAPSE_MS = 300, FRAME_MS = 1000 / 60;
+const easeOutBack = (t, k = 1.35) => 1 + (k + 1) * Math.pow(t - 1, 3) + k * Math.pow(t - 1, 2);
+const easeInBack = (t, k = 1.2) => (k + 1) * t * t * t - k * t * t;
+let anim = null;
+function stopAnim() { if (anim) { clearInterval(anim.timer); anim = null; } }
+function animateHeight(w, to, ms, ease, done) {
+    stopAnim();
+    const b0 = w.getBounds();
+    const wa = screen.getDisplayMatching(b0).workArea;
+    const from = b0.height, t0 = Date.now();
+    const maxH = wa.y + wa.height - b0.y;             // never past the bottom of the screen (also the overshoot)
+    const a = { timer: null };
+    const step = () => {
+        const w2 = acWin();
+        if (!w2 || anim !== a) { clearInterval(a.timer); return; }
+        const t = Math.min(1, (Date.now() - t0) / ms);
+        const h = Math.round(Math.max(1, Math.min(maxH, from + (to - from) * ease(t))));
+        const c = w2.getBounds();
+        if (c.height !== h) w2.setBounds({ x: c.x, y: c.y, width: c.width, height: h }, false);
+        if (t >= 1) { clearInterval(a.timer); anim = null; if (done) done(); }
+    };
+    anim = a;
+    a.timer = setInterval(step, FRAME_MS);
+    step();
+}
+
 function collapseWin() {
     const w = acWin();
     if (!w || !ac.enabled || ac.collapsed) return;
     const b = w.getBounds();
     const frame = Math.max(0, b.height - w.getContentSize()[1]);
     ac.collapsed = true;
-    ac.fullH = b.height;
-    w.webContents.send('win:collapsed', true);            // the panel shows only its header first, then the window shrinks
+    if (!anim) ac.fullH = b.height;                    // (mid-expand: keep the full height it was heading to)
+    w.webContents.send('win:collapsed', 'collapsing');  // the panel fades its content out and pins the header bar
     clearTimeout(ac.resizeTimer);
     ac.resizeTimer = setTimeout(() => {
         const w2 = acWin();
         if (!w2 || !ac.collapsed) return;
-        const c = w2.getBounds();
         w2.setMinimumSize(MIN_W, 1);
-        w2.setBounds({ x: c.x, y: c.y, width: c.width, height: COLLAPSED_H + frame }, false);
-    }, 60);
+        animateHeight(w2, COLLAPSED_H + frame, COLLAPSE_MS, easeInBack, () => {
+            const w3 = acWin();
+            if (w3 && ac.collapsed) w3.webContents.send('win:collapsed', 'collapsed');   // the bar lands (small bounce)
+        });
+    }, 90);
     acStartPoll();
 }
 
@@ -161,10 +192,16 @@ function expandWin() {
     const c = w.getBounds();
     const wa = screen.getDisplayMatching(c).workArea;
     const h = Math.min(ac.fullH || 860, wa.height);
-    const y = Math.max(wa.y, Math.min(c.y, wa.y + wa.height - h));   // keep the bottom on screen
-    w.setBounds({ x: c.x, y, width: c.width, height: h }, false);
-    w.setMinimumSize(MIN_W, MIN_H);
-    w.webContents.send('win:collapsed', false);
+    const y = Math.max(wa.y, Math.min(c.y, wa.y + wa.height - h));   // room for the full height below the top edge
+    if (y !== c.y) w.setBounds({ x: c.x, y, width: c.width, height: c.height }, false);
+    const frame = Math.max(0, c.height - w.getContentSize()[1]);
+    w.webContents.send('win:collapsed', 'expanding', { width: w.getContentSize()[0], height: h - frame });
+    animateHeight(w, h, EXPAND_MS, easeOutBack, () => {
+        const w2 = acWin();
+        if (!w2 || ac.collapsed) return;
+        w2.setMinimumSize(MIN_W, MIN_H);
+        w2.webContents.send('win:collapsed', 'expanded');
+    });
 }
 
 function acStopPoll() { clearInterval(ac.poll); ac.poll = null; }
@@ -238,7 +275,7 @@ function saveWinState() {
     try {
         if (!state.mainWindow || state.mainWindow.isDestroyed() || state.mainWindow.isMinimized() || state.mainWindow.isFullScreen()) return;
         const b = state.mainWindow.getNormalBounds ? state.mainWindow.getNormalBounds() : state.mainWindow.getBounds();
-        if (ac.collapsed && ac.fullH) b.height = ac.fullH;     // collapsed: remember the full height, not the bar
+        if ((ac.collapsed || anim) && ac.fullH) b.height = ac.fullH;     // collapsed / animating: remember the full height
         const tmp = WIN_STATE_FILE + '.tmp';
         fs.writeFileSync(tmp, JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height }));
         fs.renameSync(tmp, WIN_STATE_FILE);
@@ -295,7 +332,7 @@ function createWindow() {
     state.mainWindow.on('restore', () => { state.parkArmed = false; setAppIdle(false); });
     state.mainWindow.on('blur', () => { if (state.parkArmed) setAppIdle(true, 'parked'); acOnBlur(); });
     state.mainWindow.on('focus', () => { state.parkArmed = false; if (state.appIdle && !state.mainWindow.isMinimized()) setAppIdle(false); acOnFocus(); });
-    state.mainWindow.on('closed', () => { acStopPoll(); clearTimeout(ac.blurTimer); clearTimeout(ac.resizeTimer); });
+    state.mainWindow.on('closed', () => { stopAnim(); acStopPoll(); clearTimeout(ac.blurTimer); clearTimeout(ac.resizeTimer); });
     state.mainWindow.on('show', () => setAppIdle(state.mainWindow.isMinimized()));
     applyOnTop(loadLib().alwaysOnTop !== false);   // stays above Resolve by default
     state.mainWindow.loadFile(INDEX_HTML);

@@ -625,7 +625,8 @@ function renderAnimations() {
             const dot = document.createElement('button');
             dot.type = 'button';
             dot.className = 'gallery-dot' + (idx === activeIdx ? ' active' : '');
-            dot.title = members.map(m => m.name).join(' / ');
+            dot.textContent = String(idx + 1);
+            dot.title = (idx + 1) + '. ' + members.map(m => m.name).join(' / ');
             dot.classList.toggle('stacked', members.length > 1);
             dot.setAttribute('aria-label', dot.title);
             dot.addEventListener('click', (e) => {

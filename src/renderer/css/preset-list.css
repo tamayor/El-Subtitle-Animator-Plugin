@@ -428,7 +428,7 @@
 .gallery-dots-scroll {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: safe center;   /* centred, but a long row still scrolls back to 1 */
     max-width: 100%;
     overflow-x: auto;
     padding: 4px 8px;
@@ -442,31 +442,38 @@
 .gallery-dots {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     padding: 2px;
 }
 
+/* numbered dots: 1, 2, 3... (the active one is wider and filled) */
 .gallery-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.25);
+    min-width: 18px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
     border: none;
-    padding: 0;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     flex: 0 0 auto;
 }
 
 .gallery-dot:hover {
-    background: rgba(255, 255, 255, 0.55);
-    transform: scale(1.2);
+    background: rgba(255, 255, 255, 0.22);
+    color: var(--text);
 }
 
 .gallery-dot.active {
+    min-width: 26px;
     background: var(--matcha);
-    width: 18px;
-    border-radius: 4px;
+    color: var(--matcha-ink);
     box-shadow: 0 0 6px rgba(100, 210, 150, 0.4);
 }
 

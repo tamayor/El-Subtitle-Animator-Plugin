@@ -55,12 +55,13 @@ body.compact .preset-search-wrap { max-width: none; min-width: 100px; }
 body.compact .grid { gap: 6px; margin: 6px 0 2px; }
 body.compact .card { padding: 7px 8px; min-height: 0; }
 
-/* (search boxes and the small view selects keep their own padding: icon inset, fixed height) */
-body.compact textarea,
-body.compact input[type=text]:not(.preset-search-wrap input),
-body.compact select:not(.view-select) { padding: 5px 8px; border-radius: 7px; }
-body.compact button { padding: 5px 9px; border-radius: 7px; }
-body.compact button.ghost { padding: 3px 6px; }
+/* :where() keeps these as weak as the base element rules, so any component's own class (search box, view select,
+   gallery dots...) still wins */
+:where(body.compact) textarea,
+:where(body.compact) input[type=text],
+:where(body.compact) select { padding: 5px 8px; border-radius: 7px; }
+:where(body.compact) button { padding: 5px 9px; border-radius: 7px; }
+:where(body.compact) button.ghost { padding: 3px 6px; }
 
 /* Effect Preset cards: the card frame goes, a divider separates them, the sliders get the width */
 body.compact .grid.fx-grid { gap: 0; }
@@ -129,6 +130,81 @@ body.win-collapsed header {
     border-bottom: 0;
     background: var(--bg);
 }
-/* the rest stays laid out (scroll position and sizes are kept), just not shown */
-body.win-collapsed > *:not(header) { visibility: hidden; }
-body.win-collapsed footer { display: none; }
+/* the rest stays laid out (scroll position and sizes are kept): it fades and lifts out while the window shrinks */
+body.win-collapsed > *:not(header):not(svg) {
+    animation: saCollapseOut 0.16s ease-in forwards;
+    pointer-events: none;
+}
+@keyframes saCollapseOut {
+    to { opacity: 0; transform: translateY(-10px) scale(0.985); visibility: hidden; }
+}
+/* the bar lands: a small bounce once the window reaches its height */
+body.win-landed header { animation: saBarLand 0.42s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes saBarLand {
+    0% { transform: translateY(-5px); }
+    45% { transform: translateY(2px); }
+    75% { transform: translateY(-1px); }
+    100% { transform: translateY(0); }
+}
+/* opening: the content drops in with a springy overshoot while the window grows */
+body.win-expanding > *:not(header):not(svg) {
+    animation: saExpandIn 0.48s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+body.win-expanding footer { animation-delay: 0.12s; }
+@keyframes saExpandIn {
+    from { opacity: 0; transform: translateY(-14px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.win-collapsed > *:not(header):not(svg),
+    body.win-expanding > *:not(header):not(svg),
+    body.win-landed header { animation-duration: 0.01s; }
+}
+
+/* ---------- the collapsed bar's status line (js/ui/compact.js): turning glyph + bouncing, shimmering word ---------- */
+.collapsed-ticker { display: none; }
+body.win-collapsed header > :not(.collapsed-ticker) { display: none; }
+body.win-collapsed .collapsed-ticker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 100%;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: pre;
+    overflow: hidden;
+    animation: ctIn 0.35s ease-out both;
+}
+@keyframes ctIn { from { opacity: 0; } to { opacity: 1; } }
+.ct-spin {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    color: var(--strawberry);
+    font-size: 14px;
+    text-shadow: 0 0 8px var(--strawberry-border);
+}
+.ct-word { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ct-word span {
+    display: inline-block;
+    color: var(--matcha);
+    animation:
+        ctLetter 0.55s cubic-bezier(.34, 1.7, .64, 1) both,
+        ctShimmer 2.2s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 28ms), calc(var(--i) * 70ms + 0.4s);
+}
+@keyframes ctLetter {
+    from { opacity: 0; transform: translateY(9px) scale(0.7); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes ctShimmer {
+    0%, 100% { color: var(--matcha); text-shadow: none; }
+    18% { color: #f4fff5; text-shadow: 0 0 8px rgba(140, 207, 142, 0.6); }
+    36% { color: var(--matcha); text-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ct-word span { animation: none; }
+}

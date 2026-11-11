@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('sa', {
     setClipControls: (itemId, values) => ipcRenderer.invoke('controls:set', itemId, values),
     clipRows: (itemId) => ipcRenderer.invoke('controls:rows', itemId),
     setClipRows: (itemId, texts, frames) => ipcRenderer.invoke('controls:setRows', itemId, texts, frames),
+    setClipGradient: (itemId, tool, index, stops) => ipcRenderer.invoke('controls:setGradient', itemId, tool, index, stops),
     seek: (frame) => ipcRenderer.invoke('act:seek', frame),
     subtitles: (force) => ipcRenderer.invoke('app:subtitles', force),
     cleanup: () => ipcRenderer.invoke('resolve:cleanup'),

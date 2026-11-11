@@ -1296,6 +1296,33 @@ def op_controls_set(a):
     return {"values": {i: get_in(tool, i) for i in ids}}
 
 
+def op_gradient_set(a):
+    """Clip controls' gradient pickers: {item, tool, index, stops: [[pos, r, g, b, a], ...]} -> writes the whole
+    ShadingGradient<index> table (and keeps the element a gradient). Write-only: the Text+ is follower-fed in
+    Money Pop Up / $123,456, and a script read of such a tool can freeze Resolve."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tool = comp.FindTool(str(a.get("tool") or ""))
+    if tool is None:
+        raise RuntimeError("This clip has no tool named %s" % a.get("tool"))
+    idx = int(a.get("index") or 1)
+    if is_driven(tool, "ShadingGradient%d" % idx) is not None:
+        raise RuntimeError("That gradient is animated; edit it in Fusion")
+    table = {}
+    for s in a.get("stops") or []:
+        try:
+            table[float(s[0])] = [float(s[1]), float(s[2]), float(s[3]), float(s[4]) if len(s) > 4 else 1.0]
+        except Exception:
+            continue
+    if len(table) < 2:
+        raise RuntimeError("A gradient needs two colours")
+    with LOCKED(comp):
+        if is_driven(tool, "Type%d" % idx) is None:
+            tool.SetInput("Type%d" % idx, 2)
+        tool.SetInput("ShadingGradient%d" % idx, table)
+    count("setInputs", 2)
+    return {"ok": True, "stops": len(table)}
+
+
 def op_multitext_rows(a):
     """Set the Row controls of a MultiText clip (tools/add-multitext-row-controls.py): gap (text lines between the
     rows), equalize (bool: equal ink-to-ink gaps above and below the emphasis), justify (manual / center / left / right), link (bool), all / upper / emphasis / lower {x, y} (Inspector
@@ -3985,7 +4012,7 @@ def op_fx_set(a):
 
 
 OPS = {"highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the

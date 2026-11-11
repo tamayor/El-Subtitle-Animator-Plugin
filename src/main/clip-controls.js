@@ -4,7 +4,7 @@
 // read from the clip's title template (its name is the clip's name), so every preset gets its own set automatically.
 // The timing sliders are left to the timing bar (anim-timing.js), which re-keys segment letters when they change.
 
-module.exports = { clipControls, setClipControls, clipRows, setClipRows };
+module.exports = { clipControls, setClipControls, clipRows, setClipRows, setClipGradient, gradientsOf };
 
 const fs = require('fs');
 const path = require('path');
@@ -51,6 +51,77 @@ function defsFor(clipName) {
     return [];
 }
 
+// ---- Gradient fills
+// A Text+ element whose shading is a gradient (TypeN = 2 with a ShadingGradientN table), read from the clip's title
+// template / library preset file, never from the placed comp: a script read of a follower-fed Text+ (Money Pop Up,
+// $123,456) can freeze Resolve. -> [{ tool, index, angle, stops: [[pos, '#rrggbb', alpha], ...] }]
+const gradCache = new Map();    // file -> { mtime, grads }
+
+function braceBlock(s, from) {
+    const open = s.indexOf('{', from);
+    if (open < 0) return '';
+    let depth = 0;
+    for (let i = open; i < s.length; i++) {
+        if (s[i] === '{') depth++;
+        else if (s[i] === '}' && --depth === 0) return s.slice(open, i + 1);
+    }
+    return '';
+}
+const hex2 = v => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255).toString(16).padStart(2, '0');
+
+function gradientsOf(text) {
+    const out = [];
+    const re = /(\w+)\s*=\s*TextPlus\s*\{/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        const tool = m[1], block = braceBlock(text, m.index);
+        for (let i = 1; i <= 8; i++) {
+            if (!new RegExp('\\bType' + i + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*2\\b').test(block)) continue;
+            const gi = block.search(new RegExp('\\bShadingGradient' + i + '\\s*=\\s*Input'));
+            if (gi < 0) continue;
+            const gb = braceBlock(block, gi);
+            if (/SourceOp\s*=/.test(gb)) continue;     // animated / connected gradient: not a plain edit
+            const stops = [];
+            const sre = /\[\s*([\d.eE+-]+)\s*\]\s*=\s*\{\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)\s*(?:,\s*([\d.eE+-]+))?/g;
+            let sm;
+            while ((sm = sre.exec(gb)) !== null) {
+                stops.push([Number(sm[1]), '#' + hex2(sm[2]) + hex2(sm[3]) + hex2(sm[4]), sm[5] != null ? Number(sm[5]) : 1]);
+            }
+            if (stops.length < 2) continue;
+            stops.sort((a, b) => a[0] - b[0]);
+            const am = new RegExp('\\bShadingMappingAngle' + i + '\\s*=\\s*Input\\s*\\{\\s*Value\\s*=\\s*([\\d.eE+-]+)').exec(block);
+            out.push({ tool, index: i, angle: am ? Number(am[1]) : null, stops });
+        }
+    }
+    return out;
+}
+function gradFromFile(file) {
+    let st;
+    try { st = fs.statSync(file); } catch (e) { return null; }
+    const c = gradCache.get(file);
+    if (c && c.mtime === st.mtimeMs) return c.grads;
+    const grads = gradientsOf(fs.readFileSync(file, 'utf8'));
+    gradCache.set(file, { mtime: st.mtimeMs, grads });
+    if (gradCache.size > 100) gradCache.delete(gradCache.keys().next().value);
+    return grads;
+}
+function gradsFor(clipName) {
+    const name = String(clipName || '').trim();
+    if (!name || /[/\\]/.test(name)) return [];
+    const fromTpl = gradFromFile(path.join(titlesDir(), name + '.setting'));
+    if (fromTpl) return fromTpl;
+    try {
+        const lib = loadLib();
+        for (const [id, tname] of presetTitleNames(lib.animations)) {
+            if (tname.toLowerCase() !== name.toLowerCase()) continue;
+            const a = lib.animations.find(x => x.id === id);
+            const g = a && gradFromFile(path.join(ANIM_DIR, a.file));
+            if (g) return g;
+        }
+    } catch (e) { /* no library */ }
+    return [];
+}
+
 function idsOf(defs) {
     const ids = [];
     for (const d of defs) {
@@ -79,13 +150,14 @@ async function clipControls() {
         const presetId = presetIdFor(c.name);
         const frames = (Number(c.end) > Number(c.start)) ? Number(c.end) - Number(c.start) : null;
         const controls = defsFor(c.name);
-        if (!controls.length) return { ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, presetId, frames, controls: [], values: {} };
+        const gradient = gradsFor(c.name);
+        if (!controls.length) return { ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, presetId, frames, controls: [], values: {}, gradient };
         const ids = idsOf(controls);
         // MultiText rows: the hidden UE / EL read-outs are the gaps as rendered (the panel links them to Upper / Lower Y)
         if (ids.includes('RowsSetUE')) ids.push('RowsGapUE', 'RowsGapEL');
         const r = await bridgeCall('controls_get', { item: c.itemId, ids }, 5000);
         return {
-            ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, presetId, frames, controls, values: (r && r.values) || {},
+            ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, presetId, frames, controls, values: (r && r.values) || {}, gradient,
             frameHeight: (r && Number(r.frameHeight)) || null
         };
     } catch (e) {
@@ -102,6 +174,24 @@ async function setClipControls(event, itemId, values) {
         if (/^[A-Za-z_]\w*$/.test(k) && Number.isFinite(Number(v))) clean[k] = Number(v);
     }
     return await bridgeCall('controls_set', { item: String(itemId), values: clean }, 5000);
+}
+
+// Writes a gradient fill on the clip: tool + element index, stops [[pos, '#rrggbb', alpha], ...] (the whole table,
+// as Fusion keeps it). Write-only: nothing is read back from the follower-fed Text+.
+async function setClipGradient(event, itemId, tool, index, stops) {
+    if (state.applying) return { busy: true };
+    const i = Math.round(Number(index));
+    if (!itemId || !/^[A-Za-z_]\w*$/.test(String(tool || '')) || !(i >= 1 && i <= 8) || !Array.isArray(stops)) return { error: 'Nothing to set' };
+    const clean = [];
+    for (const s of stops.slice(0, 32)) {
+        const m = Array.isArray(s) && /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(s[1] || ''));
+        const pos = Number(s && s[0]);
+        if (!m || !Number.isFinite(pos)) continue;
+        const a = Number.isFinite(Number(s[2])) ? Math.max(0, Math.min(1, Number(s[2]))) : 1;
+        clean.push([Math.max(0, Math.min(1, pos)), ...[1, 2, 3].map(k => parseInt(m[k], 16) / 255), a]);
+    }
+    if (clean.length < 2) return { error: 'A gradient needs two colours' };
+    return await bridgeCall('gradient_set', { item: String(itemId), tool: String(tool), index: i, stops: clean }, 5000);
 }
 
 // ---- MultiText split of a placed clip (the Upper / Emphasize / Lower splitter in Clip controls)

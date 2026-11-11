@@ -155,9 +155,73 @@ function ccLockBox(parent, key, label, tip, onToggle) {
     return cb;
 }
 
+// ---- Gradient fills
+// A preset whose text fill is a gradient (Money Pop Up, $123,456...) gets one colour picker per stop. The stops come
+// from the preset file (src/main/clip-controls.js gradientsOf), since the placed Text+ is never read; what you pick is
+// written to the clip (bridge gradient_set) and remembered here per clip, so the pickers show it next time.
+const CC_GRAD_KEY = 'sa.ccGradients';
+const ccGrad = { timer: null, pending: null };
+function ccGradStore() { try { return JSON.parse(localStorage.getItem(CC_GRAD_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function ccGradKey(itemId, g) { return itemId + '|' + g.tool + '|' + g.index; }
+function ccGradSaved(itemId, g) {
+    const v = ccGradStore()[ccGradKey(itemId, g)];
+    return (Array.isArray(v) && v.length === g.stops.length) ? v : null;
+}
+function ccGradRemember(itemId, g, colors) {
+    const all = ccGradStore();
+    const k = ccGradKey(itemId, g);
+    delete all[k];
+    all[k] = colors;
+    const keys = Object.keys(all);
+    for (const old of keys.slice(0, Math.max(0, keys.length - 300))) delete all[old];
+    try { localStorage.setItem(CC_GRAD_KEY, JSON.stringify(all)); } catch (e) { /* optional */ }
+}
+function ccGradSend(itemId, g, colors) {
+    ccGrad.pending = { itemId, g, colors: colors.slice() };
+    clearTimeout(ccGrad.timer);
+    ccGrad.timer = setTimeout(async () => {
+        const p = ccGrad.pending;
+        ccGrad.pending = null;
+        if (!p) return;
+        ccState.sentAt = Date.now();
+        try {
+            const stops = p.g.stops.map((st, k) => [st[0], p.colors[k], st[2]]);
+            const r = await window.sa.setClipGradient(p.itemId, p.g.tool, p.g.index, stops);
+            if (r && r.error) setStatus(r.error, 'bad');
+            else ccGradRemember(p.itemId, p.g, p.colors);
+        } catch (e) { setStatus('Could not set the gradient: ' + e.message, 'bad'); }
+    }, CC_SEND_MS);
+}
+function ccGradBuild(body, info) {
+    const grads = info.gradient || [];
+    grads.forEach((g) => {
+        ccEl('div', 'cc-head', body, grads.length > 1 ? 'Gradient · ' + g.tool + ' ' + g.index : 'Gradient');
+        const colors = ccGradSaved(info.itemId, g) || g.stops.map(st => st[1]);
+        const bar = ccEl('div', 'cc-grad-bar', body);
+        const paint = () => {
+            const ang = Number.isFinite(g.angle) ? (90 - g.angle) : 180;   // Fusion 0 deg = left to right, CSS 90deg
+            bar.style.background = 'linear-gradient(' + ang + 'deg, ' + g.stops.map((st, k) => colors[k] + ' ' + (st[0] * 100).toFixed(1) + '%').join(', ') + ')';
+        };
+        paint();
+        bar.title = 'The gradient as it is set on this clip' + (Number.isFinite(g.angle) ? ' (angle ' + g.angle + '°)' : '');
+        g.stops.forEach((st, k) => {
+            const row = ccEl('div', 'cc-row cc-color', body);
+            const name = g.stops.length === 2 ? (k === 0 ? 'Start' : 'End') : 'Stop ' + (k + 1);
+            const lab = ccEl('label', 'cc-label', row, name + ' · ' + Math.round(st[0] * 100) + '%');
+            lab.title = 'Gradient colour at ' + Math.round(st[0] * 100) + '% (preset: ' + st[1] + ')\nDouble-click to reset';
+            const col = ccEl('input', 'cc-color', row);
+            col.type = 'color';
+            col.value = colors[k];
+            col.addEventListener('input', () => { colors[k] = col.value; paint(); ccGradSend(info.itemId, g, colors); });
+            lab.addEventListener('dblclick', () => { colors[k] = st[1]; col.value = st[1]; paint(); ccGradSend(info.itemId, g, colors); });
+        });
+    });
+}
+
 function ccBuild(info) {
     const body = $('clipCtlBody');
     body.textContent = '';
+    ccGradBuild(body, info);
     ccState.defs = {};
     for (const d of info.controls) if (d.kind !== 'header') ccState.defs[d.id] = d;
     const rowLinks = ccHas(CC_ROW_IDS);
@@ -288,7 +352,8 @@ function ccSyncCard() {
 function ccRender(info) {
     const card = $('clipCtlCard');
     if (!card) return;
-    if (!info || info.none || !info.controls || !info.controls.length) {
+    const hasGrad = !!(info && !info.none && info.gradient && info.gradient.length);
+    if (!info || info.none || ((!info.controls || !info.controls.length) && !hasGrad)) {
         ccState.itemId = null;
         ccState.sig = '';
         $('clipCtlBody').textContent = '';
@@ -298,7 +363,7 @@ function ccRender(info) {
     }
     ccState.itemId = info.itemId;
     ccSyncCard();
-    const sig = info.itemId + '|' + info.controls.map(d => d.id).join(',');
+    const sig = info.itemId + '|' + (info.controls || []).map(d => d.id).join(',') + '|' + JSON.stringify(info.gradient || []);
     if (sig !== ccState.sig) {
         if (ccState.sig.split('|')[0] !== String(info.itemId)) { ccState.touched = {}; ccState.pending = {}; }
         ccState.sig = sig;

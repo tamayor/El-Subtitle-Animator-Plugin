@@ -109,3 +109,12 @@
 .clip-ctl.compact .cc-mt .mt-in { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; }
 .clip-ctl.compact .cc-mt .mt-chip { padding: 0 6px; font-size: 10.5px; }
 .clip-ctl.compact .cc-mt .mt-rbtn { padding: 1px 6px; font-size: 10.5px; }
+
+/* gradient fill: a preview strip of the stops above their pickers (js/timeline/clip-controls.js ccGradBuild) */
+.clip-ctl .cc-grad-bar {
+    grid-column: 1 / -1;
+    height: 10px;
+    margin: 2px 0 4px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}

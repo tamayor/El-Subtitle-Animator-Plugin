@@ -5,6 +5,7 @@ const env = require('../helpers/env');
 const { makeTimeline, makeItem } = require('../helpers/fake-resolve');
 
 const P = env.main('placement');
+const { isTitleClipName } = env.main('title-templates');
 const { takeSnapshot } = env.main('timeline-snapshot');
 
 const clip = (start, end, extra) => Object.assign({ name: 'clip', start, end }, extra || {});
@@ -114,8 +115,8 @@ test('the cut guard reads the same keys with and without a snapshot, and only wa
 });
 
 test('title clips are recognised by name', () => {
-    assert.equal(P.isTitleClipName('Text+ Pop In'), true);
-    assert.equal(P.isTitleClipName('MultiText Glass Pill'), true);
-    assert.equal(P.isTitleClipName('A001.mov'), false);
-    assert.equal(P.isTitleClipName(null), false);
+    assert.equal(isTitleClipName('Text+ Pop In'), true);
+    assert.equal(isTitleClipName('MultiText Glass Pill'), true);
+    assert.equal(isTitleClipName('A001.mov'), false);
+    assert.equal(isTitleClipName(null), false);
 });

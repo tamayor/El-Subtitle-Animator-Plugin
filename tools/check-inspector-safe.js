@@ -3,7 +3,7 @@
 // Resolve's Edit-page Inspector only shows a Fusion title's controls when Resolve built the title itself. Replacing the
 // comp of a clip the user keeps (ImportFusionComp, LoadFusionCompByName, AddFusionComp, comp:Paste, tool:LoadSettings)
 // leaves only a folded "Text+" header, even when the imported comp is the clip's own. So presets are placed as title
-// templates (presetTitleFor in src/main/placement.js) and inserted with InsertFusionTitleIntoTimeline.
+// templates (presetTitleFor in src/main/title-templates.js) and inserted with InsertFusionTitleIntoTimeline.
 //
 // This check fails when:
 //   1. one of those calls appears without an "inspector-ok: <reason>" comment on the same line or the line above
@@ -47,7 +47,7 @@ if (!/bridgeCall\(\s*'set_output'/.test(apply)) problems.push('src/main/apply.js
 if (problems.length) {
     console.error('Inspector check failed. These replace a clip\'s Fusion comp, which empties Resolve\'s Inspector for that clip:\n');
     for (const p of problems) console.error('  ' + p);
-    console.error('\nInsert the preset as a title template instead (presetTitleFor in src/main/placement.js). If the clip is never');
+    console.error('\nInsert the preset as a title template instead (presetTitleFor in src/main/title-templates.js). If the clip is never');
     console.error('shown to the user, add a comment "// inspector-ok: <why>" on the line or the line above.');
     process.exit(1);
 }

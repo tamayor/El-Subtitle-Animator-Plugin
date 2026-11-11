@@ -17,7 +17,7 @@ const { copyFontsForSetting } = require('./fonts');
 const { clearDesignCache, copyPreset, detectNodes, expandToolsInFile } = require('./fusion-setting');
 const { libForUI, loadLib, newAnimation, saveLib, uniqueName } = require('./library');
 const { capturePreview, exportSelectedClip, makePreview } = require('./previews');
-const { presetTitleNames, syncTemplates } = require('./placement');
+const { presetTitleNames, syncTemplates } = require('./title-templates');
 const { findSelectedFusionItem } = require('./selection');
 const { copySfx, isEditedSfxName } = require('./sfx');
 

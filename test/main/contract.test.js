@@ -9,11 +9,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const env = require('../helpers/env');
 
 const EXPORTS_FILE = path.join(__dirname, '..', 'fixtures', 'main-exports.json');
 // index.js starts the app when required, and workflow-integration.js is Blackmagic's native addon.
 const NOT_LOADED = new Set(['index.js', 'workflow-integration.js']);
+
+// Found by the import check below and left as it is until the owner decides (fixing it changes behaviour):
+// index.js imports pruneSfxCache from sfx.js, which does not export it, so the start-up and six-hourly clean-up of
+// _app/sfx-cache throws and is swallowed. The cache is still pruned every time a trimmed sound is saved.
+const KNOWN_MISSING_IMPORTS = ['index.js: pruneSfxCache is not exported by sfx.js'];
 
 function mainModules() {
     return fs.readdirSync(env.MAIN_DIR).filter(f => f.endsWith('.js') && !NOT_LOADED.has(f)).sort();
@@ -40,6 +46,46 @@ test('every main-process module loads and keeps its exported names', () => {
         assert.deepEqual(missing, [], f + ' no longer exports these');
     }
     assert.deepEqual(now, recorded, 'exports changed: run `npm run test:update-exports` if that is intended');
+});
+
+// The modules require each other in cycles, which works because each one assigns module.exports (hoisted functions)
+// before it requires anything. Which module is loaded first decides the order all the others load in, so each one is
+// tried as the first, in a process of its own.
+test('every main-process module loads whichever one is required first', async () => {
+    const helper = path.join(__dirname, '..', 'helpers', 'env.js');
+    const load = (f) => new Promise((resolve) => {
+        const code = 'const env = require(' + JSON.stringify(helper) + '); env.main(' + JSON.stringify(f) + '); process.exit(0);';
+        execFile(process.execPath, ['-e', code], { timeout: 30000 }, (err, stdout, stderr) => resolve(err ? f + ': ' + String(stderr || err).split('\n').filter(l => /Error/.test(l))[0] : null));
+    });
+    const failed = (await Promise.all(mainModules().map(load))).filter(Boolean);
+    assert.deepEqual(failed, []);
+});
+
+// `const { a, b } = require('./x')` and `X.a` after `const X = require('./x')`: the name must be one x.js exports.
+// (A missing one is `undefined` until the moment it is called.)
+test('every name a main-process module imports from another one is exported there', () => {
+    const problems = [];
+    for (const f of fs.readdirSync(env.MAIN_DIR).filter(n => n.endsWith('.js'))) {
+        const src = fs.readFileSync(path.join(env.MAIN_DIR, f), 'utf8');
+        const has = (mod, name) => { const file = mod + '.js'; return NOT_LOADED.has(file) || name in env.main(file); };
+        for (const m of src.matchAll(/const \{([^}]*)\} = require\('\.\/([\w-]+)'\)/g)) {
+            for (const part of m[1].split(',').map(x => x.trim()).filter(Boolean)) {
+                const name = part.split(':')[0].trim();
+                if (!has(m[2], name)) problems.push(f + ': ' + name + ' is not exported by ' + m[2] + '.js');
+            }
+        }
+        for (const m of src.matchAll(/const (\w+) = require\('\.\/([\w-]+)'\);/g)) {
+            if (NOT_LOADED.has(m[2] + '.js')) continue;
+            for (const u of src.matchAll(new RegExp('\\b' + m[1] + '\\.([A-Za-z_]\\w*)', 'g'))) {
+                if (!has(m[2], u[1]) && !(u[1] in Object.prototype)) problems.push(f + ': ' + m[1] + '.' + u[1] + ' is not exported by ' + m[2] + '.js');
+            }
+        }
+        for (const m of src.matchAll(/require\('\.\/([\w-]+)'\)\.([A-Za-z_]\w*)/g)) {
+            if (!has(m[1], m[2])) problems.push(f + ': ' + m[2] + ' is not exported by ' + m[1] + '.js');
+        }
+    }
+    assert.deepEqual(problems.filter(p => !KNOWN_MISSING_IMPORTS.includes(p)), []);
+    assert.deepEqual(KNOWN_MISSING_IMPORTS.filter(p => !problems.includes(p)), [], 'fixed: take it off KNOWN_MISSING_IMPORTS');
 });
 
 test('every IPC channel the panel calls has a handler, and every handler is reachable', () => {

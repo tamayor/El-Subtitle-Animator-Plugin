@@ -20,10 +20,8 @@ const { dlog } = require('./log');
 const { compressPngTree } = require('./png-compress');
 
 const PREV_MAX_DIM = 720;
-const {
-    directPlaceTitle, fitDuration, insertTitleAtEnd, inspectorSafeComp, isTitleClipName, pickTrack,
-    titleKindFor
-} = require('./placement');
+const { directPlaceTitle, fitDuration, insertTitleAtEnd, pickTrack } = require('./placement');
+const { inspectorSafeComp, isTitleClipName, titleKindFor } = require('./title-templates');
 const { getProject, timelineMeta } = require('./resolve');
 const { findSelectedFusionItem } = require('./selection');
 

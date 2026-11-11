@@ -11,7 +11,9 @@ const state = require('./state');
 const { bridgeCall } = require('./fusion-bridge');
 const { currentTimeline, getProject, tcToFrame, timelineMeta, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
-const { typingFramesFor, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty, findAudioItemById, findItemById, deleteExtraSfx, placeExtraSfx, refitRowSfx } = require('./placement');
+const { deleteExtraSfx, findAudioItemById, findItemById, placeExtraSfx } = require('./placement');
+const { refitRowSfx, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty } = require('./row-sfx');
+const { typingFramesFor } = require('./title-templates');
 
 // itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
 const cache = new Map();
@@ -266,7 +268,7 @@ async function setClipTiming(event, itemId, ranges, wake) {
     return { ok: true, sounds };
 }
 
-// Places the clip's per-row sound copies again at its new row times (placement.js refitRowSfx). The clip of a
+// Places the clip's per-row sound copies again at its new row times (row-sfx.js refitRowSfx). The clip of a
 // running Resolve preview keeps its sounds unlinked and temporary; the preview's and automation's id lists follow.
 async function refitRowSounds(itemId) {
     if (state.applying) return null;
@@ -293,7 +295,7 @@ async function refitRowSounds(itemId) {
     } finally { state.applying = false; }
 }
 
-// Puts every sound placed for one row of this clip (placement.js segSfx*) at that row's start + its own offset.
+// Puts every sound placed for one row of this clip (row-sfx.js segSfx*) at that row's start + its own offset.
 // -> { moved, failed } (null when the clip has no row sounds)
 async function moveSegSounds(itemId, list) {
     const links = segSfxFor(itemId);

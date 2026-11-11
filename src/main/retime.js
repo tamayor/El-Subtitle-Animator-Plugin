@@ -11,7 +11,7 @@
 //                           (fusion_bridge.init_retime).
 // Effects after the text (wiggle, glitch, stop motion) keep their own speed.
 // Presets retimed before AnimStart existed get it from upgradeRetiming (when saved, and when their title template is
-// written, see placement.presetTitleFor). Presets with their own per-text ranges (Seg1Start ..., e.g. "Highlight
+// written, see title-templates.js presetTitleFor). Presets with their own per-text ranges (Seg1Start ..., e.g. "Highlight
 // Select") are timed by those and get no retiming.
 
 module.exports = { addRetiming, retimeTerms, upgradeRetiming, upgradeTyping };

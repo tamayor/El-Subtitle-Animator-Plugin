@@ -18,9 +18,12 @@ const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { loadLib, saveLib } = require('./library');
 const { dlog } = require('./log');
 const {
-    FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, importSfx, layerList, linkToText, pickTrack,
-    loneRow, placeExtraSfx, relinkToProjectCopy, rowFramesFor, segSfxForget, segSfxSetEmpty, sfxCutFor, sfxCutFrames, tailFor, trackUsable, typingFramesFor
+    FADE_WARNING, appendSfxCut, deleteClipsById, deleteExtraSfx, findAudioItemById, findItemById, fitDuration, layerList, linkToText, pickTrack,
+    placeExtraSfx, sfxCutFor, sfxCutFrames, trackUsable
 } = require('./placement');
+const { loneRow, rowFramesFor, segSfxForget, segSfxSetEmpty } = require('./row-sfx');
+const { importSfx, relinkToProjectCopy } = require('./sfx-import');
+const { tailFor, typingFramesFor } = require('./title-templates');
 const { findItemsByIds, getProject, setSubtitlesEnabled, timelineMeta } = require('./resolve');
 const { snapAdd } = require('./timeline-snapshot');
 const PERF = require('./perf');

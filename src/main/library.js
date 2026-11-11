@@ -220,7 +220,7 @@ function loadLib() {
 }
 
 // MultiText row presets were saved with a 12-frame tail ("Ends" after the caption). A MultiText clip now always ends
-// with its caption (placement.js tailFor), so the saved tail goes to 0 once per preset (tailCapped) and the Alignment
+// with its caption (title-templates.js tailFor), so the saved tail goes to 0 once per preset (tailCapped) and the Alignment
 // timeline shows what is placed.
 function capRowTailsOnce(lib) {
     let changed = false;

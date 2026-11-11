@@ -221,39 +221,16 @@
     "findAudioItemById:function",
     "findItemById:function",
     "fitDuration:function",
-    "importSfx:function",
     "insertTitleAtEnd:function",
-    "inspectorSafeComp:function",
-    "installAllTemplates:function",
-    "isTitleClipName:function",
     "layerList:function",
     "linkToText:function",
-    "loneRow:function",
     "moveTitleSafe:function",
     "pickTrack:function",
     "placeExtraSfx:function",
-    "presetHasRowControls:function",
-    "presetOutputFor:function",
-    "presetTitleFor:function",
-    "presetTitleNames:function",
     "presetTplState:function",
-    "pruneTemplates:function",
-    "refitRowSfx:function",
-    "relinkToProjectCopy:function",
-    "rowFramesFor:function",
-    "segSfxFor:function",
-    "segSfxForget:function",
-    "segSfxRecord:function",
-    "segSfxSetEmpty:function",
     "sfxCutFor:function",
     "sfxCutFrames:function",
-    "startupTemplates:function",
-    "syncTemplates:function",
-    "tailFor:function",
-    "titleKindFor:function",
-    "titlesDir:function",
-    "trackUsable:function",
-    "typingFramesFor:function"
+    "trackUsable:function"
   ],
   "playback.js": [
     "ensureStopped:function",
@@ -316,6 +293,18 @@
     "upgradeRetiming:function",
     "upgradeTyping:function"
   ],
+  "row-sfx.js": [
+    "loneRow:function",
+    "placeRowSfx:function",
+    "refitRowSfx:function",
+    "rowFramesFor:function",
+    "rowSfxSet:function",
+    "segSfxAdd:function",
+    "segSfxFor:function",
+    "segSfxForget:function",
+    "segSfxRecord:function",
+    "segSfxSetEmpty:function"
+  ],
   "seg-watch.js": [
     "markSegSweepHot:function",
     "startSegWatch:function"
@@ -326,6 +315,10 @@
   "settle.js": [
     "settleLater:function",
     "settleNow:function"
+  ],
+  "sfx-import.js": [
+    "importSfx:function",
+    "relinkToProjectCopy:function"
   ],
   "sfx-level.js": [
     "PEAK_HI:number",
@@ -402,6 +395,23 @@
   "timeline-sync.js": [
     "syncLiveTransform:function",
     "updateLatest:function"
+  ],
+  "title-templates.js": [
+    "inspectorSafeComp:function",
+    "installAllTemplates:function",
+    "isTitleClipName:function",
+    "presetHasRowControls:function",
+    "presetOutputFor:function",
+    "presetTitleFor:function",
+    "presetTitleNames:function",
+    "pruneTemplates:function",
+    "startupTemplates:function",
+    "syncTemplates:function",
+    "tailFor:function",
+    "templateAgeMs:function",
+    "titleKindFor:function",
+    "titlesDir:function",
+    "typingFramesFor:function"
   ],
   "window.js": [
     "createWindow:function",

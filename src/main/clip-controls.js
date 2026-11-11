@@ -15,7 +15,7 @@ const { parseAddons } = require('./addon-controls');
 const { currentFusionClip } = require('./anim-timing');
 const { bridgeCall } = require('./fusion-bridge');
 const { loadLib } = require('./library');
-const { presetTitleNames, titlesDir } = require('./placement');
+const { presetTitleNames, titlesDir } = require('./title-templates');
 
 const cache = new Map();    // file -> { mtime, defs }
 

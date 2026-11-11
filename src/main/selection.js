@@ -4,7 +4,7 @@ module.exports = {
     findSelectedFusionItem
 };
 
-const { isTitleClipName } = require('./placement');
+const { isTitleClipName } = require('./title-templates');
 const { getProject } = require('./resolve');
 
 async function findSelectedFusionItem() {

@@ -24,9 +24,8 @@ const { blockEnd } = require('./fusion-setting');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
 const { settleLater } = require('./settle');
-const {
-    fitDuration, insertTitleAtEnd, isTitleClipName, moveTitleSafe, pickTrack, presetOutputFor, presetTitleFor, presetTitleNames, titleKindFor, titlesDir
-} = require('./placement');
+const { fitDuration, insertTitleAtEnd, moveTitleSafe, pickTrack } = require('./placement');
+const { isTitleClipName, presetOutputFor, presetTitleFor, presetTitleNames, titleKindFor, titlesDir } = require('./title-templates');
 const { getProject, timelineMeta } = require('./resolve');
 
 // Tools that say nothing about which preset a clip holds: the output, and the white background a preview render adds.

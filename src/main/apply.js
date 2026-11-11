@@ -22,9 +22,14 @@ const {
 } = require('./live-preview');
 const { ensureStopped, noteFrame } = require('./playback');
 const {
-    FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, importSfx, insertTitleAtEnd, inspectorSafeComp,
-    layerList, loneRow, moveTitleSafe, pickTrack, placeExtraSfx, rowFramesFor, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, presetTplState, sfxCutFor, sfxCutFrames, tailFor, titleKindFor, typingFramesFor
+    FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, directPlaceTitle, fitDuration, insertTitleAtEnd, layerList, moveTitleSafe, pickTrack,
+    placeExtraSfx, presetTplState, sfxCutFor, sfxCutFrames
 } = require('./placement');
+const { loneRow, rowFramesFor } = require('./row-sfx');
+const { importSfx } = require('./sfx-import');
+const {
+    inspectorSafeComp, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames, tailFor, titleKindFor, typingFramesFor
+} = require('./title-templates');
 const { frameToTC, getProject, setSubtitlesEnabled, tcToFrame, timelineMeta } = require('./resolve');
 const { snapAdd, takeSnapshot } = require('./timeline-snapshot');
 const PERF = require('./perf');

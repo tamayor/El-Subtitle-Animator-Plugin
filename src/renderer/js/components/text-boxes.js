@@ -719,8 +719,23 @@
     if (!mt.cfg.caps || typeof mt.cfg.caps !== 'object') mt.cfg.caps = { upper: false, emphasis: !!mt.cfg.upper, lower: false };
     function mtSave() { try { localStorage.setItem(MT_KEY, JSON.stringify(mt.cfg)); } catch (e) { /* ignore */ } }
 
-    const mtNodes = (a) => nodesOf(a).filter(n => n.kind === 'multitext');
+    const realMtNodes = (a) => nodesOf(a).filter(n => n.kind === 'multitext');
+    // Justified Pop (tools/gen-justified-pop.py) is one Text+ whose expressions split "upper *emphasis* lower" into rows.
+    // It gets the same Upper / Emphasize / Lower splitter: three stand-in layers here, one starred text sent to its Text+.
+    const isRowTpl = (a) => !!a && (a.id === 'jp7justpop01' || /^Justified Pop\b/i.test(String(a.name || '')))
+        && nodesOf(a).some(n => n.kind === 'textplus' && !n.nested);
+    const ROW_TPL_NODES = [
+        { layer: 1, layerName: 'Upper', cx: 0.5, cy: 0.6, size: 0.05 },
+        { layer: 2, layerName: 'Emphasis', cx: 0.5, cy: 0.5, size: 0.08 },
+        { layer: 3, layerName: 'Lower', cx: 0.5, cy: 0.4, size: 0.05 }];
+    const mtNodes = (a) => isRowTpl(a) ? ROW_TPL_NODES : realMtNodes(a);
     const isMT = (a) => !!a && (a.isMultiText === true || mtNodes(a).length > 0);      // isMultiText is flagged by the backend with the preset list
+    function rowTplText(a, sub) {
+        const p = mtParts(sub).parts;
+        const e = p.emphasis.trim();
+        if (!e) return [p.upper, p.lower].filter(Boolean).join(' ');
+        return [p.upper.trim(), '*' + e + '*', p.lower.trim()].filter(Boolean).join(' ');
+    }
 
     // Clip mode: the clip in Clip controls (selected, else under the playhead) is a MultiText preset. The splitter then
     // shows THAT clip's words (read from its rows) and writes the new split back to its rows; otherwise it splits the
@@ -781,7 +796,7 @@
         let a = null;
         const live = typeof state !== 'undefined' && state.livePrev;
         if (!live && info && !info.none && info.itemId && info.presetId && typeof libEntry === 'function') a = libEntry(info.presetId);
-        if (!a || !isMT(a)) {
+        if (!a || !isMT(a) || isRowTpl(a)) {      // clip mode reads MultiText rows; Justified Pop has none
             if (mt.clip) { mt.clip = null; mt.over = null; mt.lastKey = ''; mt.lastSub = null; renderMT('U'); }
             return;
         }
@@ -897,7 +912,8 @@
     }
     // Upper / lower parts only show in the panel when the preset has a layer for them.
     const mtShown = (r, role) => role === 'emphasis' || r[role] !== null;
-    const textFor = (a, n, b, sub) => n.kind === 'multitext' ? mtText(a, n, sub) : resolveText(b, sub);
+    const textFor = (a, n, b, sub) => n.kind === 'multitext' ? mtText(a, n, sub)
+        : (isRowTpl(a) && n.kind === 'textplus' && !n.nested && n.id === primaryId(a)) ? rowTplText(a, sub) : resolveText(b, sub);
 
     // ---- the panel
     function mtHost() {
@@ -1053,7 +1069,7 @@
 
     window.SABoxes = { renderMT, setClip: mtSetClip, active, payload, cloneBoxes, draw, paint, hideLayer, render, liveSummary, nodesOf, primaryCenter, setPrimaryCenter,
         designFor, renderTarget, targetLabel, setTarget, renderKey, hasOverrides,
-        mtRoles: (a) => autoRoles(mtNodes(a)),      // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
+        mtRoles: (a) => autoRoles(realMtNodes(a)),      // which MultiText layer is upper / emphasis / lower (Use tab Text Style)
         // Use tab: the MultiText layers (= row numbers) that will get no text for the current subtitle
-        mtEmptyRows: (a) => isMT(a) ? mtNodes(a).filter(n => mtText(a, n, subtitleText()) === '').map(n => Number(n.layer)) : [] };
+        mtEmptyRows: (a) => (isMT(a) && !isRowTpl(a)) ? mtNodes(a).filter(n => mtText(a, n, subtitleText()) === '').map(n => Number(n.layer)) : [] };
 })();

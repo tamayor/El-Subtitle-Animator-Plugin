@@ -40,7 +40,7 @@ for old, new in (("0.55", "0.5"), ("0.16", "0.05"), ("0.3", "0.16")):
 GLASS = [
     # id, label, default, min, max, tip
     ("GlassFrost", "Glass Frost", 22, 0, 60, "How frosted the footage behind the pill is (Gaussian Blur size)"),
-    ("GlassBend", "Glass Bend", 0.06, 0, 0.3, "Lens bend at the pill's edges (Displace refraction)"),
+    ("GlassBend", "Glass Bend", 0.1, 0, 0.3, "Lens bend at the pill's edges (Displace refraction)"),
     ("GlassVibrancy", "Glass Vibrancy", 1.3, 0.5, 2, "Colour saturation behind the glass (1 = unchanged)"),
     ("GlassBright", "Glass Brightness", 0.05, -0.3, 0.3, "Brightness added behind the glass"),
 ]

@@ -736,3 +736,65 @@
 .preset-limits .pl-body ul { margin: 0 0 8px; padding-left: 16px; }
 .preset-limits .pl-body li { margin: 2px 0; }
 .preset-limits .pl-fix { color: var(--text) !important; }
+
+/* Compact: the Text Preset section is a fixed 80% of the panel height; the preset list scrolls inside it
+   so the sections below stay visible. Toggled by #presetCompactBtn (js/library/preset-list.js setPresetCompact). */
+#presetSection.preset-compact {
+    display: flex;
+    flex-direction: column;
+    height: 80vh;          /* the section box is always 80% of the panel, whatever the list holds */
+    box-sizing: border-box;
+}
+#presetSection.preset-compact > * { flex: none; }
+#presetSection.preset-compact > #animGrid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* scroll chaining: once the list hits its top/bottom, the wheel carries on scrolling the panel */
+    overscroll-behavior-y: auto;
+    /* rows keep their natural card height and overflow (scroll) instead of shrinking to fit the box */
+    grid-auto-rows: max-content;
+    align-content: start;
+}
+#presetSection.preset-compact > #animGrid > * { flex-shrink: 0; }
+.preset-compact-btn[aria-pressed="true"] {
+    color: var(--matcha);
+    background: var(--matcha-tint);
+}
+
+/* View mode dropdown (icon) + icon Compact button in the Text Preset header */
+.view-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    width: auto;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--text);
+    cursor: pointer;
+}
+.view-mode-btn .chev { font-size: 9px; color: var(--dim); }
+.vm-ico { display: inline-flex; align-items: center; }
+.pop-viewmode { min-width: 120px; }
+.pop-viewmode .pop-item:not(.on) .pop-check { visibility: hidden; }
+.preset-compact-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+}
+/* Tags dropdown with the "N saved" count beside it */
+.use-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.use-filter-row > .tag-filter { flex: none; }
+.preset-compact-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}

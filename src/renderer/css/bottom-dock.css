@@ -85,3 +85,10 @@ body:not(.tab-apply) .bottom-dock { display: none !important; }
 
 /* the Use tab scrolls clear of the dock */
 body.tab-apply.dock-on { padding-bottom: calc(var(--footer-h, 40px) + 16px); }
+
+/* Hover: the dock grows to half the window height (--dock-open-h, js/timeline/bottom-dock.js) and shrinks back to its
+   resting height when the mouse leaves. */
+.dock-scroll { transition: max-height 0.28s cubic-bezier(.2, .7, .2, 1); }
+.bottom-dock.resizing .dock-scroll { transition: none; }
+.bottom-dock.expanded .dock-scroll { max-height: var(--dock-open-h, 50vh) !important; }
+@media (prefers-reduced-motion: reduce) { .dock-scroll { transition: none; } }

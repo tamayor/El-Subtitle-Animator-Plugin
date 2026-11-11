@@ -19,13 +19,13 @@ function fxStrengthShown(e) {
     }
     return fxNextStrength(e);
 }
-// ---- Glitch options (Entry > Blink at start, Colour A / B, Opacity)
-const FX_PARAM_IDS = ['BlinkIn', 'ColorARed', 'ColorAGreen', 'ColorABlue', 'ColorBRed', 'ColorBGreen', 'ColorBBlue', 'Opacity'];
+// ---- Glitch options (Entry > Blink at start, Duration, Colour A / B, Opacity)
+const FX_PARAM_IDS = ['BlinkIn', 'ColorARed', 'ColorAGreen', 'ColorABlue', 'ColorBRed', 'ColorBGreen', 'ColorBBlue', 'Opacity', 'Dur'];
 function fxDefaultParams(e) {
     if (e.transform) return Object.assign({}, e.transform.defaults);
     if (e.track) return Object.assign({}, e.track.defaults);
-    const g = e.glitch || { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85 };
-    return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity };
+    const g = e.glitch || { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85, duration: 0 };
+    return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity, Dur: g.duration || 0 };
 }
 // the settings used when the effect is added (remembered per viewer)
 function fxNextParams(e) {
@@ -89,6 +89,20 @@ function fxGlitchOptions(e, st) {
     cb.addEventListener('change', () => fxSendParams(e, st, { BlinkIn: cb.checked ? 1 : 0 }, true));
     bl.append(cb, document.createTextNode('Blink at start'));
     bl.title = 'The first frames flicker on and off with a glitch burst';
+    // Duration (frames from the clip start, 0 = the whole clip)
+    const du = document.createElement('label'); du.className = 'fx-strength';
+    const dcap = document.createElement('span'); dcap.className = 'fx-strength-cap'; dcap.textContent = 'Duration';
+    const drng = document.createElement('input'); drng.type = 'range'; drng.min = '0'; drng.max = '120'; drng.step = '1'; drng.value = String(Math.round(Number(p.Dur) || 0));
+    const dval = document.createElement('span'); dval.className = 'fx-strength-val';
+    const dtxt = (v) => Number(v) > 0 ? v + 'f' : 'All';
+    dval.textContent = dtxt(drng.value);
+    hold(drng);
+    drng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
+    for (const ev of ['pointerup', 'pointercancel']) drng.addEventListener(ev, () => { fxUI.sliding = false; });
+    drng.addEventListener('input', () => { dval.textContent = dtxt(drng.value); fxSendParams(e, st, { Dur: Number(drng.value) }, false); });
+    drng.addEventListener('change', () => fxSendParams(e, st, { Dur: Number(drng.value) }, true));
+    du.title = 'How many frames the glitch lasts from the start of the clip, then it stops. All (0) = the whole clip';
+    du.append(dcap, drng, dval);
     // Colours
     const look = document.createElement('div'); look.className = 'fx-opt-head'; look.textContent = 'Glitch colour';
     const colRow = document.createElement('div'); colRow.className = 'fx-opt-row';
@@ -116,7 +130,7 @@ function fxGlitchOptions(e, st) {
     rng.addEventListener('change', () => fxSendParams(e, st, { Opacity: Number(rng.value) }, true));
     op.title = 'How strong the coloured fringes are';
     op.append(cap, rng, val);
-    d.append(entry, bl, look, colRow, op);
+    d.append(entry, bl, du, look, colRow, op);
     for (const ev of ['click', 'mousedown', 'pointerdown']) d.addEventListener(ev, (x) => x.stopPropagation());
     return d;
 }

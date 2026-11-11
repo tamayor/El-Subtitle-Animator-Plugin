@@ -113,3 +113,18 @@ body.tab-library {
     bottom: 2px;
     padding: 0 6px;
 }
+
+/* Tabs show an icon; hovering a tab swaps its icon for the name (both share one grid cell so the width never jumps). */
+.tab {
+    display: grid;
+    place-items: center;
+}
+.tab > .tab-ico,
+.tab > .tab-txt {
+    grid-area: 1 / 1;
+    transition: opacity 0.12s ease;
+}
+.tab > .tab-ico { display: inline-flex; line-height: 0; }
+.tab > .tab-txt { opacity: 0; white-space: nowrap; }
+.tab:hover > .tab-ico { opacity: 0; }
+.tab:hover > .tab-txt { opacity: 1; }

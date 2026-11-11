@@ -539,7 +539,8 @@
 .tags-wrap .tag-list {
     max-height: 200px;
     overflow-y: auto;
-    overscroll-behavior: contain;
+    /* scroll chaining: once the list hits its top/bottom, the wheel carries on scrolling the panel */
+    overscroll-behavior-y: auto;
     padding-right: 2px;
 }
 

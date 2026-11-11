@@ -14,8 +14,8 @@
 
 .use-dock-bar.stage-live {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name btns";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "cog name btns";
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
@@ -93,3 +93,24 @@
 @media (prefers-reduced-motion: reduce) {
     .use-dock-body { transition: none; }
 }
+
+/* Cog: click opens / closes Preset Set Up, Text Style and Placement (js/app/use-dock.js). */
+.use-dock-cog {
+    grid-area: cog;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .07);
+    color: var(--dim);
+    cursor: pointer;
+}
+.use-dock-cog svg { transition: transform 0.25s ease; }
+.use-dock-cog:hover { color: var(--text); background: rgba(255, 255, 255, .12); }
+.use-dock-cog.on { color: var(--matcha, #7bc98a); border-color: var(--matcha-border, rgba(123, 201, 138, .45)); background: var(--matcha-tint, rgba(123, 201, 138, .12)); }
+.use-dock-cog.on svg { transform: rotate(60deg); }
+body.compact .use-dock-cog { width: 26px; height: 26px; }

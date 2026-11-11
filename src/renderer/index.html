@@ -133,10 +133,10 @@
     </header>
 
     <nav class="tabs">
-        <button id="tabBtnApply" class="tab on">Use</button>
-        <button id="tabBtnLibrary" class="tab">Library</button>
-        <button id="tabBtnCreate" class="tab">Create</button>
-        <button id="tabBtnPrompt" class="tab">Prompt</button>
+        <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
+        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
+        <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
+        <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
     </nav>
 
     <!-- ============================ USE: apply what you have already made ============================ -->
@@ -156,6 +156,8 @@
                 <!-- Upper dock (sticky nav bar, Use tab, between Subtitle and Text Preset): selected preset, Settings toggle (Preset Set Up / Text Style / Placement) + timeline preview Start -->
                 <div id="useDockU" class="use-dock hidden">
                     <div id="stageLiveU" class="use-dock-bar stage-live">
+                        <button type="button" id="useDockCog" class="use-dock-cog" aria-expanded="false" aria-controls="useDockBodyU" aria-label="Settings"
+                            title="Settings: Preset Set Up, Text Style and Placement"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
                         <span id="useDockName" class="use-dock-name" title="Selected preset"></span>
                         <div class="stage-live-btns">
                             <button type="button" id="liveRemoveU" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove</button>
@@ -289,7 +291,7 @@
                     <div id="clipCtlBody" class="cc-body"></div>
                 </section>
 
-                <section>
+                <section id="presetSection">
                     <div class="row between preset-header-row">
                         <div class="preset-header-left">
                             <span class="label">
@@ -310,18 +312,19 @@
                                 <option value="default">Default order</option>
                                 <option value="custom">Custom order</option>
                             </select>
-                            <select id="viewModeSelect" class="view-select" aria-label="Preset view mode" title="How the presets are shown">
-                                <option value="list">List</option>
-                                <option value="grid">Grid</option>
-                                <option value="gallery">Gallery</option>
-                            </select>
+                            <button type="button" id="viewModeBtn" class="view-mode-btn" aria-label="Preset view mode" aria-haspopup="menu"
+                                title="How the presets are shown: List, Grid or Gallery"><span class="vm-ico" id="viewModeIco"></span><span class="chev">▾</span></button>
+                            <button type="button" id="presetCompactBtn" class="ghost preset-compact-btn" aria-pressed="false" aria-label="Compact"
+                                title="Compact: limit this section to 80% of the panel height and scroll the presets inside it, so the sections below stay visible"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5 8 5.5 11 2.5"/><path d="M5 13.5 8 10.5 11 13.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/></svg></button>
                             <button id="makePrevAll" class="ghost hidden"
                                 title="Render a 3-second preview for each preset that has none">Make
                                 previews</button>
-                            <span class="meta" id="libCount"></span>
                         </span>
                     </div>
-                    <div id="useFilter" class="tag-filter"></div>
+                    <div class="use-filter-row">
+                        <div id="useFilter" class="tag-filter"></div>
+                        <span class="meta" id="libCount"></span>
+                    </div>
                     <div id="animGrid" class="grid view-list"></div>
                     <details id="presetLimits" class="preset-limits">
                         <summary><span class="pl-icon" aria-hidden="true">!</span>Limitations: highlight &amp; pill presets</summary>

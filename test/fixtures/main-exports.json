@@ -65,6 +65,7 @@
     "PREV_CACHE_DIR:string",
     "PREV_CACHE_MAX:number",
     "PREV_DIR:string",
+    "RESOLVE_BATCH:number",
     "RESOLVE_PYTHON:string",
     "RESOLVE_SCRIPT_API:string",
     "RESOLVE_SCRIPT_LIB:string",

@@ -108,6 +108,10 @@ const RESOLVE_SCRIPT_API = '/Library/Application Support/Blackmagic Design/DaVin
 const OSASCRIPT = '/usr/bin/osascript';
 const OSACOMPILE = '/usr/bin/osacompile';
 
+// How many timeline items are asked about at once. A walk of a track sends its calls (start, end, name, id) for this
+// many clips together and waits for them, instead of one call at a time or the whole track in one go.
+const RESOLVE_BATCH = 40;
+
 // A folder inside the user's own Resolve support folder, where Resolve reads Fusion templates from:
 // resolveUserDir('Fusion', 'Templates', 'Edit', 'Titles').
 function resolveUserDir(...parts) {
@@ -140,7 +144,7 @@ module.exports = {
     APP_ROOT, PRELOAD_FILE, INDEX_HTML, BRIDGE_SCRIPT, PACKAGE_JSON, MANIFEST_XML, WORKFLOW_INTEGRATION_NODE,
     DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, SFX_ORIG_DIR, PREV_DIR, FONTS_DIR, LIB_FILE,
     APP_DATA_DIR, SFX_CACHE_DIR, DRAFT_DIR, CLIP_REG, WIN_STATE_FILE, ensureDirs,
-    RESOLVE_PYTHON, RESOLVE_SCRIPT_LIB, RESOLVE_SCRIPT_API, OSASCRIPT, OSACOMPILE, resolveUserDir,
+    RESOLVE_PYTHON, RESOLVE_SCRIPT_LIB, RESOLVE_SCRIPT_API, OSASCRIPT, OSACOMPILE, RESOLVE_BATCH, resolveUserDir,
     SAMPLE_TEXTS, CANCEL_FLAG, PREV_CACHE_DIR, PREV_CACHE_MAX,
     DEBUG_ON, DEBUG_LOG
 };

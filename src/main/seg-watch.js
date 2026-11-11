@@ -13,6 +13,7 @@ module.exports = {
 };
 
 const state = require('./state');
+const { RESOLVE_BATCH } = require('./config');
 const { bridgeCall } = require('./fusion-bridge');
 const { getFixes } = require('./fusion-fixes');
 const { currentTimeline, videoTrackLists } = require('./resolve');
@@ -114,8 +115,8 @@ async function keyedFacts(t, list, budget) {
     }
     if (old && mem.count === list.length) budget.full--;
     const keyed = [], out = [];
-    for (let i = 0; i < list.length; i += 40) {
-        const part = list.slice(i, i + 40);
+    for (let i = 0; i < list.length; i += RESOLVE_BATCH) {
+        const part = list.slice(i, i + RESOLVE_BATCH);
         const names = await Promise.all(part.map(it => Promise.resolve(it.GetName()).catch(() => '')));
         const pos = part.map((it, k) => i + k).filter((p, k) => KEYED_CLIP.test(String(names[k] || '')));
         const facts = await Promise.all(pos.map(p => Promise.all([list[p].GetUniqueId(), list[p].GetStart(), list[p].GetEnd()]).catch(() => null)));

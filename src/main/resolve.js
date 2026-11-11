@@ -9,7 +9,7 @@ module.exports = {
 const WorkflowIntegration = require('./workflow-integration');
 
 const state = require('./state');
-const { PLUGIN_ID } = require('./config');
+const { PLUGIN_ID, RESOLVE_BATCH } = require('./config');
 const { subtitleColorsFromDb } = require('./clip-colors-db');
 const PERF = require('./perf');
 const { dlog } = require('./log');
@@ -226,7 +226,6 @@ let subReading = null;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
 const SUB_READ_COLOR = false, SUB_READ_DURATION = false;
-const CHUNK = 40;
 async function subtitleCounts(tl, tracks) {
     const out = [];
     for (let t = 1; t <= tracks; t++) out.push(((await tl.GetItemListInTrack('subtitle', t)) || []).length);
@@ -290,7 +289,7 @@ async function subtitleNames(tl, tracks) {
     for (let t = 1; t <= tracks; t++) {
         const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
         const arr = Array.isArray(its) ? its : Object.values(its);
-        for (let i = 0; i < arr.length; i += CHUNK) out.push(...await Promise.all(arr.slice(i, i + CHUNK).map(it => Promise.resolve(it.GetName()).catch(() => ''))));
+        for (let i = 0; i < arr.length; i += RESOLVE_BATCH) out.push(...await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(it => Promise.resolve(it.GetName()).catch(() => ''))));
     }
     return out.join('\n');
 }
@@ -301,7 +300,7 @@ async function readSubtitles(tl, key) {
     const items = [];      // the Resolve handles, kept next to the list so setSubtitlesEnabled can act on them without a new walk
     const tracks = (await tl.GetTrackCount('subtitle')) || 0;
     // Each subtitle needs a few calls into Resolve. Made one after another that was thousands of round trips every couple
-    // of seconds on a long timeline (the panel lagged), so each item's calls run together, CHUNK items at a time.
+    // of seconds on a long timeline (the panel lagged), so each item's calls run together, RESOLVE_BATCH items at a time.
     // enabled: false when the clip or its whole subtitle track is turned off (e.g. a subtitle already animated by Place).
     const readItem = async (it, t, trackOn) => {
         const color = (SUB_READ_COLOR && typeof it.GetClipColor === 'function') ? Promise.resolve(it.GetClipColor()).catch(() => '') : '';
@@ -315,8 +314,8 @@ async function readSubtitles(tl, key) {
         const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
         let trackOn = true;
         try { trackOn = (await tl.GetIsTrackEnabled('subtitle', t)) !== false; } catch (e) { /* assume on */ }
-        for (let i = 0; i < its.length; i += CHUNK) {
-            list.push(...await Promise.all(its.slice(i, i + CHUNK).map(it => readItem(it, t, trackOn))));
+        for (let i = 0; i < its.length; i += RESOLVE_BATCH) {
+            list.push(...await Promise.all(its.slice(i, i + RESOLVE_BATCH).map(it => readItem(it, t, trackOn))));
         }
     }
     // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.
@@ -385,8 +384,8 @@ async function setSubtitlesEnabled(tl, range, enabled) {
         for (let t = 1; t <= tracks; t++) {
             if (range.track && Number(range.track) !== t) continue;
             const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
-            for (let i = 0; i < its.length; i += CHUNK) {
-                const part = its.slice(i, i + CHUNK);
+            for (let i = 0; i < its.length; i += RESOLVE_BATCH) {
+                const part = its.slice(i, i + RESOLVE_BATCH);
                 const se = await Promise.all(part.map(async (it) => { try { return [await it.GetStart(), await it.GetEnd()]; } catch (e) { return null; } }));
                 for (let k = 0; k < part.length; k++) {
                     if (!se[k] || !overlaps(se[k][0], se[k][1])) continue;
@@ -412,7 +411,7 @@ async function setSubtitlesEnabled(tl, range, enabled) {
     return out;
 }
 
-// Timeline items by unique id, in one pass over the tracks of `kind` (video / audio) with the ids read CHUNK at a time.
+// Timeline items by unique id, in one pass over the tracks of `kind` (video / audio) with the ids read RESOLVE_BATCH at a time.
 // Returns Map id -> item for the ids found. Used wherever one id per walk used to be looked up.
 async function findItemsByIds(tl, ids, kind) {
     const want = new Set((ids || []).map(String));
@@ -423,8 +422,8 @@ async function findItemsByIds(tl, ids, kind) {
     let scanned = 0;
     for (let t = 1; t <= tracks && found.size < want.size; t++) {
         const its = (await tl.GetItemListInTrack(kind || 'video', t)) || [];
-        for (let i = 0; i < its.length && found.size < want.size; i += CHUNK) {
-            const part = its.slice(i, i + CHUNK);
+        for (let i = 0; i < its.length && found.size < want.size; i += RESOLVE_BATCH) {
+            const part = its.slice(i, i + RESOLVE_BATCH);
             const got = await Promise.all(part.map(it => Promise.resolve(it.GetUniqueId()).then(String).catch(() => null)));
             scanned += part.length;
             for (let k = 0; k < part.length; k++) if (got[k] && want.has(got[k]) && !found.has(got[k])) found.set(got[k], part[k]);

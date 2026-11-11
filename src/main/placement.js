@@ -15,6 +15,7 @@ const path = require('path');
 const fs = require('fs');
 
 const state = require('./state');
+const { RESOLVE_BATCH } = require('./config');
 const { isEditedSfxName, sfxFilePath } = require('./sfx');
 const { applyLevel, levelVolume } = require('./sfx-level');
 const { importSfx } = require('./sfx-import');
@@ -82,8 +83,8 @@ async function trackClips(tl, kind, t, snap, withEnabled) {
     const its = (await tl.GetItemListInTrack(kind, t)) || [];
     const arr = Array.isArray(its) ? its : Object.values(its);
     const out = [];
-    for (let i = 0; i < arr.length; i += 40) {
-        out.push(...await Promise.all(arr.slice(i, i + 40).map(async (it) => {
+    for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+        out.push(...await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(async (it) => {
             try {
                 const [start, end, on] = await Promise.all([it.GetStart(), it.GetEnd(), withEnabled ? Promise.resolve(it.GetClipEnabled()).then(v => v !== false).catch(() => true) : true]);
                 return { it, start: Number(start), end: Number(end), enabled: on };
@@ -326,8 +327,8 @@ async function cutSnapshot(tl, snap) {
             const arr = Array.isArray(its) ? its : Object.values(its);
             // only a video clip can be one of this plugin's titles (left out of the keys): no names read on audio
             const named = kind === 'video';
-            for (let i = 0; i < arr.length; i += 40) {
-                const facts = await Promise.all(arr.slice(i, i + 40).map(it => Promise.all([named ? it.GetName() : '', it.GetStart(), it.GetEnd()]).catch(() => null)));
+            for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+                const facts = await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(it => Promise.all([named ? it.GetName() : '', it.GetStart(), it.GetEnd()]).catch(() => null)));
                 for (const f of facts) {
                     if (!f || (named && /^Text\+/.test(String(f[0])))) continue;
                     out.push(kind[0] + t + ':' + f[1] + '-' + f[2]);
@@ -665,8 +666,8 @@ async function stillThere(tl, kind, ids, where) {
             const arr = Array.isArray(its) ? its : Object.values(its);
             const starts = new Set(want.map(w => w.start));
             const cands = [];
-            for (let i = 0; i < arr.length; i += 40) {
-                const part = arr.slice(i, i + 40);
+            for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+                const part = arr.slice(i, i + RESOLVE_BATCH);
                 const st = await Promise.all(part.map(it => Promise.resolve(it.GetStart()).then(Number).catch(() => NaN)));
                 for (let k = 0; k < part.length; k++) if (starts.has(st[k])) cands.push(part[k]);
             }

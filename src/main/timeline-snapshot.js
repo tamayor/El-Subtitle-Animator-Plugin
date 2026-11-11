@@ -11,9 +11,9 @@ module.exports = {
     snapAdd, snapAddTrack, snapCutKeys, snapTrack, takeSnapshot
 };
 
+const { RESOLVE_BATCH } = require('./config');
 const PERF = require('./perf');
 
-const CHUNK = 40;
 
 // opts: { kinds: ['video', 'audio'], withIds: false, withEnabled: true }
 // -> { at, withIds, tracks: { video: [{ t, locked, enabled, items: [{ it, name, start, end, enabled, id }] }], audio: [...] } }
@@ -36,8 +36,8 @@ async function takeSnapshot(tl, opts) {
             const arr = Array.isArray(its) ? its : Object.values(its);
             const out = [];
             const ro = { withName: kind === 'video' && t === 1, withEnabled: o.withEnabled && kind === 'video' && t >= 2, withIds: o.withIds };
-            for (let i = 0; i < arr.length; i += CHUNK) {
-                out.push(...await Promise.all(arr.slice(i, i + CHUNK).map(it => readItem(it, ro))));
+            for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+                out.push(...await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(it => readItem(it, ro))));
             }
             items += out.length;
             list.push({ t, locked, enabled, items: out.filter(Boolean) });

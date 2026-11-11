@@ -6,7 +6,7 @@ module.exports = { importSfx, relinkToProjectCopy };
 const path = require('path');
 const fs = require('fs');
 
-const { APP_DATA_DIR, DATA_DIR } = require('./config');
+const { APP_DATA_DIR, DATA_DIR, RESOLVE_BATCH } = require('./config');
 const { dlog } = require('./log');
 const PERF = require('./perf');
 
@@ -153,8 +153,8 @@ async function importSfxInner(project, sfxPath, projectCopy) {
         if (arr.length === sfxBin.count && sfxBin.byPath.size) return;
         sfxBin.verified = new Map();
         const byPath = new Map();
-        for (let i = 0; i < arr.length; i += 40) {
-            const part = arr.slice(i, i + 40);
+        for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+            const part = arr.slice(i, i + RESOLVE_BATCH);
             const paths = await Promise.all(part.map(c => Promise.resolve(c.GetClipProperty('File Path')).then(p => path.resolve(String(p || ''))).catch(() => '')));
             for (let k = 0; k < part.length; k++) if (paths[k] && !byPath.has(paths[k])) byPath.set(paths[k], part[k]);
         }

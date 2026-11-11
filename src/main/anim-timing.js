@@ -8,6 +8,7 @@
 module.exports = { clipTiming, currentFusionClip, setClipTiming };
 
 const state = require('./state');
+const { RESOLVE_BATCH } = require('./config');
 const { bridgeCall } = require('./fusion-bridge');
 const { currentTimeline, getProject, tcToFrame, timelineMeta, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
@@ -56,8 +57,8 @@ let candMemo = { key: '', at: 0, list: null };
 // -> [{ item, start, end, comps }] for one track's items, 40 at a time
 async function trackFacts(arr) {
     const list = [];
-    for (let i = 0; i < arr.length; i += 40) {
-        const part = arr.slice(i, i + 40);
+    for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+        const part = arr.slice(i, i + RESOLVE_BATCH);
         const se = await Promise.all(part.map(it => Promise.all([it.GetStart(), it.GetEnd()]).catch(() => null)));
         for (let k = 0; k < part.length; k++) if (se[k]) list.push({ item: part[k], start: Number(se[k][0]), end: Number(se[k][1]), comps: null });
     }

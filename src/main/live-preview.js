@@ -10,7 +10,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const state = require('./state');
-const { CLIP_REG, OSASCRIPT, SAMPLE_TEXTS } = require('./config');
+const { CLIP_REG, OSASCRIPT, RESOLVE_BATCH, SAMPLE_TEXTS } = require('./config');
 const { presetSfxName, sfxFilePath } = require('./sfx');
 const { applyLevel, levelVolume } = require('./sfx-level');
 const { bridgeCall } = require('./fusion-bridge');
@@ -633,7 +633,7 @@ function regCountOthers() {
 function regAdd(id) { if (!id) return; const a = regRead(); if (!a.includes(String(id))) { a.push(String(id)); regWrite(a); } }
 function regDel(id) { if (!id) return; regWrite(regRead().filter(x => x !== String(id)), true); }
 // snap: a timeline snapshot taken by the caller (timeline-snapshot.js) with the items' ids, so the sweep does not
-// walk the timeline again. Without one (or one without ids) it reads the ids itself - CHUNK at a time, by track.
+// walk the timeline again. Without one (or one without ids) it reads the ids itself - RESOLVE_BATCH at a time, by track.
 async function sweepTempClips(tl, snap) {
     const ids = new Set(regRead());
     if (state.liveSession) { ids.delete(String(state.liveSession.itemId)); if (state.liveSession.sfxId) ids.delete(String(state.liveSession.sfxId)); for (const x of (state.liveSession.extraIds || [])) ids.delete(String(x)); }      // the clip of a running Resolve preview stays
@@ -649,8 +649,8 @@ async function sweepTempClips(tl, snap) {
                 const tracks = (await tl.GetTrackCount(kind)) || 0;
                 for (let t = 1; t <= tracks; t++) {
                     const its = (await tl.GetItemListInTrack(kind, t)) || [];
-                    for (let i = 0; i < its.length; i += 40) {
-                        const part = its.slice(i, i + 40);
+                    for (let i = 0; i < its.length; i += RESOLVE_BATCH) {
+                        const part = its.slice(i, i + RESOLVE_BATCH);
                         const got = await Promise.all(part.map(it => Promise.resolve(it.GetUniqueId()).then(String).catch(() => null)));
                         for (let k = 0; k < part.length; k++) if (got[k]) take(got[k], part[k]);
                     }

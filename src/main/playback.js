@@ -6,6 +6,7 @@ module.exports = { ensureStopped, isPlaying, noteFrame, stopPlayback };
 
 const { execFile } = require('child_process');
 const state = require('./state');
+const { OSASCRIPT } = require('./config');
 const { dlog } = require('./log');
 
 const PROC = 'first process whose name is "Resolve" or name contains "DaVinci Resolve"';
@@ -47,7 +48,7 @@ async function isPlaying(tl) {
 function osa(script) {
     return new Promise((resolve) => {
         if (process.platform !== 'darwin') return resolve(false);
-        execFile('/usr/bin/osascript', ['-e', script], { timeout: 6000 }, (err) => resolve(!err));
+        execFile(OSASCRIPT, ['-e', script], { timeout: 6000 }, (err) => resolve(!err));
     });
 }
 

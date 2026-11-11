@@ -1,5 +1,5 @@
 // Static configuration: plugin id, on-disk locations of the library and app files, debug switches.
-// Pure constants only - this module must not require any other project module.
+// Constants and path helpers only - this module must not require any other project module.
 
 const path = require('path');
 const fs = require('fs');
@@ -98,6 +98,24 @@ function ensureDirs() {
     for (const d of [ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, SFX_ORIG_DIR, PREV_DIR, FONTS_DIR, APP_DATA_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
+// ------------------------------------------------------------------ DaVinci Resolve and system tools
+// Where Resolve and macOS keep the things this plugin starts or writes to. One place, so a different install location
+// (or another platform) is one edit.
+const RESOLVE_APP = '/Applications/DaVinci Resolve/DaVinci Resolve.app';
+const RESOLVE_PYTHON = RESOLVE_APP + '/Contents/Resources/ResolvePython/ResolvePython';      // the Python Resolve ships
+const RESOLVE_SCRIPT_LIB = RESOLVE_APP + '/Contents/Libraries/Fusion/fusionscript.so';
+const RESOLVE_SCRIPT_API = '/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting';
+const OSASCRIPT = '/usr/bin/osascript';
+const OSACOMPILE = '/usr/bin/osacompile';
+
+// A folder inside the user's own Resolve support folder, where Resolve reads Fusion templates from:
+// resolveUserDir('Fusion', 'Templates', 'Edit', 'Titles').
+function resolveUserDir(...parts) {
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', ...parts);
+    if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Blackmagic Design', 'DaVinci Resolve', 'Support', ...parts);
+    return path.join(os.homedir(), '.local', 'share', 'DaVinciResolve', ...parts);
+}
+
 // ------------------------------------------------------------------ previews
 // Renders use this sample text when there is no subtitle (one line per Text+ node).
 const SAMPLE_TEXTS = ['Sample text', 'Second line', 'Third line', 'Fourth line'];
@@ -122,6 +140,7 @@ module.exports = {
     APP_ROOT, PRELOAD_FILE, INDEX_HTML, BRIDGE_SCRIPT, PACKAGE_JSON, MANIFEST_XML, WORKFLOW_INTEGRATION_NODE,
     DATA_DIR, ANIM_DIR, ANIM_ORIG_DIR, SFX_DIR, SFX_ORIG_DIR, PREV_DIR, FONTS_DIR, LIB_FILE,
     APP_DATA_DIR, SFX_CACHE_DIR, DRAFT_DIR, CLIP_REG, WIN_STATE_FILE, ensureDirs,
+    RESOLVE_PYTHON, RESOLVE_SCRIPT_LIB, RESOLVE_SCRIPT_API, OSASCRIPT, OSACOMPILE, resolveUserDir,
     SAMPLE_TEXTS, CANCEL_FLAG, PREV_CACHE_DIR, PREV_CACHE_MAX,
     DEBUG_ON, DEBUG_LOG
 };

@@ -6,7 +6,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+
+const { resolveUserDir } = require('./config');
 
 const CATEGORY = 'Subtitle Animator';
 // id -> what the panel shows; order = the stacking order on a clip (first is applied first)
@@ -33,10 +34,7 @@ const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace' };
 // the tool holding each effect's other settings (fx_param; FX_PARAM_TOOL in fusion_bridge.py)
 
 function effectsDir() {
-    const tail = ['Fusion', 'Templates', 'Edit', 'Effects', CATEGORY];
-    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', ...tail);
-    if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Blackmagic Design', 'DaVinci Resolve', 'Support', ...tail);
-    return path.join(os.homedir(), '.local', 'share', 'DaVinciResolve', ...tail);
+    return resolveUserDir('Fusion', 'Templates', 'Edit', 'Effects', CATEGORY);
 }
 // The template's file name (and the name Resolve lists it under)
 function fileName(id) { return 'ELSA ' + EFFECTS.find(e => e.id === id).name + '.setting'; }

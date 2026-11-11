@@ -10,7 +10,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const state = require('./state');
-const { APP_DATA_DIR, ensureDirs } = require('./config');
+const { APP_DATA_DIR, OSACOMPILE, OSASCRIPT, ensureDirs } = require('./config');
 
 // Minimized or hidden window: no real-time work (the panel stops polling and rendering), so nothing disturbs Resolve while you work.
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
@@ -37,10 +37,10 @@ function prepareColorScript() {
             ensureDirs();
             const h = require('crypto').createHash('sha1').update(COLOR_SCRIPT_LINES.join('\n')).digest('hex').slice(0, 8);
             const file = path.join(APP_DATA_DIR, 'pick-color-' + h + '.scpt');
-            const warm = () => execFile('/usr/bin/osascript', [file], { timeout: 20000 }, () => { colorScriptPath = file; resolve(file); });
+            const warm = () => execFile(OSASCRIPT, [file], { timeout: 20000 }, () => { colorScriptPath = file; resolve(file); });
             if (fs.existsSync(file)) return warm();
             const args = ['-o', file]; for (const l of COLOR_SCRIPT_LINES) args.push('-e', l);
-            execFile('/usr/bin/osacompile', args, { timeout: 20000 }, (err) => { if (err) return resolve(null); warm(); });
+            execFile(OSACOMPILE, args, { timeout: 20000 }, (err) => { if (err) return resolve(null); warm(); });
         } catch (e) { resolve(null); }
     });
     return colorScriptPromise;
@@ -97,7 +97,7 @@ function startJxaHelper() {
         const file = path.join(APP_DATA_DIR, 'color-helper.js');
         fs.writeFileSync(file, JXA_HELPER);
         jxaReady = false; jxaBuf = '';
-        const ch = require('child_process').spawn('/usr/bin/osascript', ['-l', 'JavaScript', file], { stdio: ['pipe', 'pipe', 'ignore'] });
+        const ch = require('child_process').spawn(OSASCRIPT, ['-l', 'JavaScript', file], { stdio: ['pipe', 'pipe', 'ignore'] });
         jxa = ch;
         ch.stdout.on('data', (b) => { jxaBuf += b.toString(); let i; while ((i = jxaBuf.indexOf('\n')) >= 0) { const l = jxaBuf.slice(0, i); jxaBuf = jxaBuf.slice(i + 1); jxaLine(l); } });
         const gone = () => { if (jxa === ch) { jxa = null; jxaReady = false; if (jxaWait) { const w = jxaWait; w('CANCEL'); } } };
@@ -160,7 +160,7 @@ function pickNativeColor(event, hex) {
         ].join('\n');
         // the precompiled script when it is ready, otherwise the same thing inline
         const osaArgs = colorScriptPath ? [colorScriptPath, String(c[0]), String(c[1]), String(c[2])] : ['-e', script];
-        colorChild = execFile('/usr/bin/osascript', osaArgs, { timeout: 15 * 60 * 1000 }, (err, out) => {
+        colorChild = execFile(OSASCRIPT, osaArgs, { timeout: 15 * 60 * 1000 }, (err, out) => {
             colorPanelOpen = false;
             colorChild = null;
             try { if (state.mainWindow && !state.mainWindow.isDestroyed()) { state.mainWindow.show(); state.mainWindow.focus(); } } catch (e) { /* ignore */ }      // the panel closed: the app is in front again

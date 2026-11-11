@@ -10,7 +10,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const state = require('./state');
-const { CLIP_REG, SAMPLE_TEXTS } = require('./config');
+const { CLIP_REG, OSASCRIPT, SAMPLE_TEXTS } = require('./config');
 const { presetSfxName, sfxFilePath } = require('./sfx');
 const { applyLevel, levelVolume } = require('./sfx-level');
 const { bridgeCall } = require('./fusion-bridge');
@@ -76,12 +76,12 @@ function clickLoopMenu() {
             'end tell',
             'return "ok"'
         ].join('\n');
-        execFile('/usr/bin/osascript', ['-e', script], { timeout: 8000 }, (err) => {
+        execFile(OSASCRIPT, ['-e', script], { timeout: 8000 }, (err) => {
             if (!err) return resolve({ ok: true });
             const why = String(err.message || err).split('\n')[0];
             // fall back to the shortcut Cmd+/ (needs Resolve in front)
             const key = 'tell application "DaVinci Resolve" to activate\ndelay 0.3\ntell application "System Events" to keystroke "/" using command down';
-            execFile('/usr/bin/osascript', ['-e', key], { timeout: 8000 }, (err2) => {
+            execFile(OSASCRIPT, ['-e', key], { timeout: 8000 }, (err2) => {
                 if (err2) return resolve({ ok: false, error: why });
                 resolve({ ok: true, viaKey: true });
             });
@@ -106,7 +106,7 @@ function readLoopState() {
             '  end try',
             'end tell'
         ].join('\n');
-        execFile('/usr/bin/osascript', ['-e', script], { timeout: 12000 }, (err, out) => {
+        execFile(OSASCRIPT, ['-e', script], { timeout: 12000 }, (err, out) => {
             const t = String(out || '').trim();
             resolve(!err && (t === 'on' || t === 'off') ? t : 'unknown');
         });
@@ -123,7 +123,7 @@ async function loopOn(alreadyOn) {
         dlog('[loop] state after click: ' + st2);
         if (st2 === 'off') {            // the click did nothing: try the shortcut as well
             const key = 'tell application "DaVinci Resolve" to activate\ndelay 0.3\ntell application "System Events" to keystroke "/" using command down';
-            await new Promise((res) => execFile('/usr/bin/osascript', ['-e', key], { timeout: 8000 }, () => res()));
+            await new Promise((res) => execFile(OSASCRIPT, ['-e', key], { timeout: 8000 }, () => res()));
         }
         loopToggled = true;
         return r;

@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 
 const state = require('./state');
-const { ANIM_DIR } = require('./config');
+const { ANIM_DIR, resolveUserDir } = require('./config');
 const { blockEnd, derived, detectNodes, expandAllTools, presetText } = require('./fusion-setting');
 const { dlog } = require('./log');
 const { upgradeRetiming } = require('./retime');
@@ -116,11 +116,10 @@ function titleKindFor(compPath) {
 // and inserted by name with InsertFusionTitleIntoTimeline: the clip is then a real Resolve title with working controls.
 // Resolve picks up a new or rewritten template file straight away. The name starts with "Text+" / "MultiText", so
 // isTitleClipName and cutSnapshot still recognise the clip.
+// The folder under Resolve's Titles that holds this plugin's templates (the category shown in the Effects library).
+const TITLES_FOLDER = 'Subtitle Animator';
 function titlesDir() {
-    const tail = ['Fusion', 'Templates', 'Edit', 'Titles', 'Subtitle Animator'];
-    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', ...tail);
-    if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Blackmagic Design', 'DaVinci Resolve', 'Support', ...tail);
-    return path.join(os.homedir(), '.local', 'share', 'DaVinciResolve', ...tail);
+    return resolveUserDir('Fusion', 'Templates', 'Edit', 'Titles', TITLES_FOLDER);
 }
 // A title template is a .setting ({ Tools = ordered() { ... } }); a .comp preset is cut down to its tool list.
 function asSetting(s) {

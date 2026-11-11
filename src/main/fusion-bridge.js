@@ -19,7 +19,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const state = require('./state');
-const { BRIDGE_SCRIPT } = require('./config');
+const { BRIDGE_SCRIPT, RESOLVE_PYTHON, RESOLVE_SCRIPT_API, RESOLVE_SCRIPT_LIB } = require('./config');
 const { bridgeFixes } = require('./fusion-fixes');
 const PERF = require('./perf');
 
@@ -36,10 +36,7 @@ const MAX_WAIT_CAP_MS = 60000;
 function bridgeLane(op) { return LANE_OF[op] === undefined ? 1 : LANE_OF[op]; }
 
 function pythonPath() {
-    const list = [
-        '/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Resources/ResolvePython/ResolvePython',
-        '/usr/bin/python3', '/opt/homebrew/bin/python3', '/usr/local/bin/python3'
-    ];
+    const list = [RESOLVE_PYTHON, '/usr/bin/python3', '/opt/homebrew/bin/python3', '/usr/local/bin/python3'];
     return list.find(p => fs.existsSync(p)) || 'python3';
 }
 
@@ -60,11 +57,10 @@ class Helper {
     }
 
     start() {
-        const api = '/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting';
         const env = Object.assign({}, process.env, {
-            RESOLVE_SCRIPT_API: api,
-            RESOLVE_SCRIPT_LIB: '/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so',
-            PYTHONPATH: path.join(api, 'Modules') + path.delimiter + (process.env.PYTHONPATH || '')
+            RESOLVE_SCRIPT_API,
+            RESOLVE_SCRIPT_LIB,
+            PYTHONPATH: path.join(RESOLVE_SCRIPT_API, 'Modules') + path.delimiter + (process.env.PYTHONPATH || '')
         });
         this.buf = ''; this.err = '';
         const proc = spawn(pythonPath(), [BRIDGE_SCRIPT], { env });

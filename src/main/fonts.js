@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
 
-const { ANIM_DIR, FONTS_DIR, ensureDirs } = require('./config');
+const { ANIM_DIR, FONTS_DIR, OSASCRIPT, ensureDirs } = require('./config');
 const { loadLib } = require('./library');
 const { dlog } = require('./log');
 const { bridgeCall } = require('./fusion-bridge');
@@ -55,7 +55,7 @@ function listMacFonts() {
         const js = 'ObjC.import("AppKit"); const fm = $.NSFontManager.sharedFontManager; const out = {};' +
             'for (const f of ObjC.deepUnwrap(fm.availableFontFamilies)) { let st = []; try { st = (ObjC.deepUnwrap(fm.availableMembersOfFontFamily(f)) || []).map(m => String(m[1])); } catch (e) {} out[f] = st; }' +
             'JSON.stringify(out)';
-        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 60000, maxBuffer: 32 * 1024 * 1024 }, (err, out) => {
+        execFile(OSASCRIPT, ['-l', 'JavaScript', '-e', js], { timeout: 60000, maxBuffer: 32 * 1024 * 1024 }, (err, out) => {
             try {
                 const map = JSON.parse(String(out || '').trim());
                 const names = Object.keys(map).filter(x => x && !x.startsWith('.')).sort((a, b) => a.localeCompare(b));
@@ -157,7 +157,7 @@ ObjC.import("CoreText");
     return JSON.stringify(out);
 })();`;
 
-        execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', js], { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+        execFile(OSASCRIPT, ['-l', 'JavaScript', '-e', js], { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
             if (err || !stdout) return resolve({});
             try {
                 const map = JSON.parse(String(stdout).trim());

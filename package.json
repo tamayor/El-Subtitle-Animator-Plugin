@@ -4,6 +4,9 @@
     "description": "El Subtitle Animator - Workflow Integration plugin for DaVinci Resolve Studio",
     "main": "main.js",
     "private": true,
+    "engines": {
+        "node": ">=22"
+    },
     "scripts": {
         "start": "electron .",
         "lint": "eslint .",

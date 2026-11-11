@@ -1,0 +1,17 @@
+# Python packages for development. Nothing here is needed to run the plugin:
+# src/python/fusion_bridge.py uses only the standard library and Resolve's own DaVinciResolveScript module.
+#
+#   python3 -m pip install -r requirements-dev.txt
+
+# npm run lint:py
+pyflakes>=3.0
+
+# tools/gen-justified-pop.py (glyph widths from the font file)
+fonttools>=4.0
+# tools/lower-third-align.py (measures a rendered frame)
+Pillow>=10.0
+
+# src/python/subject_tracker.py (Track Subject). The panel installs these itself into its own virtual environment
+# the first time Track Subject is used (src/main/subject-track.js); listed here for running the tracker by hand.
+opencv-contrib-python-headless>=4.8
+numpy>=1.24

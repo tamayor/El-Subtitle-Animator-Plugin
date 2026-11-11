@@ -1,0 +1,22 @@
+# The style the code is already written in. Editors that read .editorconfig keep new code in step with it.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{setting,comp}]
+# Fusion files are written by Fusion (tabs) and must stay byte for byte as they are.
+indent_style = tab
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.md]
+trim_trailing_whitespace = false
+
+[{package.json,package-lock.json}]
+indent_size = 4

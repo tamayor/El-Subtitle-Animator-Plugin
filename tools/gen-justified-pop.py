@@ -10,6 +10,7 @@ emphasis's left ink edge, the last word's right edge on its right edge, and the 
 (gap = (emphasis width - the row's word widths) / (words - 1)). One word on a row is centred.
 
 Animation: only a word-by-word pop (each word scales up from nothing with a small overshoot), in reading order.
+"Pop" = 0 turns the pop off: each word simply appears at full size on its frame (same timing).
 By default the words are spread over "Spread" of the clip length (so they roughly follow the speech); "Frames Per Word"
 caps the spacing.
 
@@ -236,6 +237,7 @@ local ord = 0
 for j = 1, K do if c[j] ~= "" then ord = ord + 1 end end
 local p = (tt - (ord - 1) * STEP) / POP
 if p <= 0 then return 0 end
+if (tonumber(T.Pop) or 1) < 0.5 then return sz[K] end
 if p >= 1 then return sz[K] end
 local B = 1.70158 * (tonumber(T.Bounce) or 1)
 local q = p - 1
@@ -276,6 +278,7 @@ SLIDERS = [
     ('UpperEmph', 'Uppercase Emphasis', 1, 0, 1, 1, '1 = the emphasis row is set in capitals', True),
     ('StepFrames', 'Frames Per Word', 8, 1, 60, 30, 'Most frames between one word popping in and the next', True),
     ('Spread', 'Spread', 0.7, 0, 1, 1, 'Pop all words within this fraction of the clip (0 = always Frames Per Word)', False),
+    ('Pop', 'Pop', 1, 0, 1, 1, '1 = each word pops in; 0 = each word just appears, no animation', True),
     ('PopFrames', 'Pop Frames', 6, 1, 30, 20, 'Frames a word takes to pop in', True),
     ('Bounce', 'Bounce', 1, 0, 3, 2, 'Overshoot of the pop (0 = none)', False),
 ]

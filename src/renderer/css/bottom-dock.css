@@ -42,6 +42,7 @@ body:not(.tab-apply) .bottom-dock { display: none !important; }
     overflow-x: hidden;
     overscroll-behavior: contain;
     scrollbar-width: thin;
+    scrollbar-color: var(--scroll-inner) transparent;
 }
 /* the bar: a tiny Real-time render switch in the corner (always shown in the Use tab; details in its tooltip) */
 .dock-bar {

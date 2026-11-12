@@ -74,12 +74,12 @@
     }
 
     .tab-col-side::-webkit-scrollbar-thumb {
-        background: var(--line);
+        background: var(--scroll-inner);
         border-radius: 4px;
     }
 
     .tab-col-side::-webkit-scrollbar-thumb:hover {
-        background: var(--line-soft);
+        background: var(--scroll-inner-hover);
     }
 }
 

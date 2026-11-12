@@ -290,7 +290,7 @@
     -webkit-overflow-scrolling: touch;
     padding: 4px 4px 8px;
     scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
+    scrollbar-color: var(--scroll-inner) transparent;
 }
 
 .gallery-track::-webkit-scrollbar {
@@ -302,7 +302,7 @@
 }
 
 .gallery-track::-webkit-scrollbar-thumb {
-    background: var(--line);
+    background: var(--scroll-inner);
     border-radius: 2px;
 }
 

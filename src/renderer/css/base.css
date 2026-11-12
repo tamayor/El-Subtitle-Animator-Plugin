@@ -156,3 +156,42 @@ h1 {
     box-shadow: 0 0 0 1px var(--matcha);
     -webkit-text-fill-color: var(--text);
 }
+
+/* Scrollbars: thin everywhere. The panel's own (outer) bar is matcha; every scrolling area inside it is strawberry.
+   Elements that set scrollbar-width take their colour from scrollbar-color instead (see --scroll-inner below). */
+:root {
+    --scroll-size: 5px;
+    --scroll-outer: var(--matcha);
+    --scroll-outer-hover: var(--matcha-hover);
+    --scroll-inner: var(--strawberry);
+    --scroll-inner-hover: var(--strawberry-hover);
+}
+
+::-webkit-scrollbar {
+    width: var(--scroll-size);
+    height: var(--scroll-size);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scroll-inner);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-inner-hover);
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+    background: var(--scroll-outer);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-outer-hover);
+}

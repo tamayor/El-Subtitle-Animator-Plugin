@@ -128,7 +128,7 @@
     }
     function ease(x){return x<=0?0:x>=1?1:1-Math.pow(1-x,3)}
     function draw(){
-      play.style.left=pc(t);
+      play.style.left=pc(Math.min(t,TOTAL));
       var p=(t-S)/(E-S);
       letters.forEach(function(el,i){
         var a=ease(p*(1+1.4)-i/(N-1)*1.4);

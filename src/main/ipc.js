@@ -30,7 +30,7 @@ const { captureFromSelection, makePreview, previewData, scanClip } = require('./
 const { listSubtitles } = require('./resolve');
 const { fxGet, fxList, fxParam, fxSet, fxSetTags, fxStrength } = require('./effect-presets');
 const { trackCancel, trackEngine, trackInstall, trackRun, trackSettings, trackSource } = require('./subject-track');
-const { spotCancel, spotEngine, spotGet, spotInfo, spotInstall, spotRemove, spotRun, spotSet, spotSource } = require('./spotlight');
+const { spotCancel, spotEngine, spotGet, spotInfo, spotInstall, spotRecut, spotRemove, spotRun, spotSet, spotSource } = require('./spotlight');
 const {
     addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
@@ -38,7 +38,7 @@ const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setAutoCollapse, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
-const { clipTiming, setClipTiming } = require('./anim-timing');
+const { clipTiming, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings } = require('./anim-timing');
 const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } = require('./clip-controls');
 const { boilerplateList, insertBoilerplate } = require('./boilerplates');
 const { matchCutCancel, matchCutDefaults, matchCutOpen, matchCutRun } = require('./match-cut');
@@ -57,6 +57,9 @@ const SAFE_HANDLERS = {
     'app:liveFrame': liveFrame,
     'timing:get': clipTiming,
     'timing:set': setClipTiming,
+    'timing:fitWords': fitClipToWords,
+    'timing:wordsStatus': wordTimingStatus,
+    'timing:wordsActivate': activateWordTimings,
     'boilerplate:list': () => boilerplateList(),
     'boilerplate:insert': insertBoilerplate,
     'fx:list': fxList,
@@ -79,6 +82,7 @@ const SAFE_HANDLERS = {
     'spot:cancel': spotCancel,
     'spot:get': spotGet,
     'spot:set': spotSet,
+    'spot:recut': spotRecut,
     'spot:remove': spotRemove,
     'controls:get': clipControls,
     'controls:set': setClipControls,

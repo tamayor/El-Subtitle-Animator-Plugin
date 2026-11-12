@@ -263,6 +263,31 @@
                     <div id="timingBar" class="tm-bar" role="group" tabindex="0"
                         aria-label="Animation timing: where each animation starts and ends"></div>
                     <div class="tm-scale"><span>0</span><span id="timingEnd"></span></div>
+                    <!-- word timings for this clip, and Fit to words (src/main/word-fit.js) -->
+                    <div id="timingWords" class="tm-words">
+                        <span id="timingWordsState" class="tm-words-state">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                                <path d="M2 6v4M5 4v8M8 6v4M11 3v10M14 6v4" />
+                            </svg>
+                            <span id="timingWordsText">Word timings</span>
+                        </span>
+                        <span class="tm-words-btns">
+                            <button id="timingWordsActivate" type="button" class="ghost tm-words-btn hidden"
+                                title="Transcribe the recording under this clip once, so its words have timings (every clip cut from the same recording is then ready too)">
+                                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" /><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" />
+                                </svg>
+                                <span>Activate word timings</span>
+                            </button>
+                            <button id="timingFitWords" type="button" class="ghost tm-words-btn" disabled
+                                title="Time the reveal to the spoken words: each word appears as it is said, at the speed it is said. Dragging a head afterwards goes back to one even speed.">
+                                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M2 6v4M5 4v8M8 6v4M11 3v10M14 6v4" />
+                                </svg>
+                                <span>Fit to words</span>
+                            </button>
+                        </span>
+                    </div>
                     <div class="row between tm-actions">
                         <span id="timingValue" class="tm-value"></span>
                         <span class="tm-buttons">

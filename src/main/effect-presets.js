@@ -30,7 +30,7 @@ const EFFECTS = [
     { id: 'Spotlight', name: 'Spotlight', tags: ['spotlight', 'behind', 'word', 'title', 'glow', 'subject'], tip: 'A big glowing word BEHIND the speaker, the room dimmed: the speaker is cut out automatically (Robust Video Matting) and put over the word', spot: true },
     // Match Cut: like Spotlight, makes its own clip at the playhead (match-cut.js renders a news-article match cut MP4),
     // never an effect on the selected clip, so it is not in ORDER and has no template.
-    { id: 'MatchCut', name: 'Match Cut', tags: ['match cut', 'news', 'headline', 'article', 'word'], tip: 'News headlines flash past with one word locked in the same spot: articles using the word are found, screenshotted, lined up on it and placed at the playhead', matchCut: true }
+    { id: 'MatchCut', name: 'Article Text Match Cut', tags: ['match cut', 'news', 'headline', 'article', 'word'], tip: 'News headlines flash past with one word locked in the same spot: articles using the word are found, screenshotted, lined up on it and placed at the playhead', matchCut: true }
 ];
 const ORDER = EFFECTS.filter(e => !e.hidden && !e.spot && !e.matchCut).map(e => e.id);
 const DEFAULT_STRENGTH = 25;
@@ -392,7 +392,7 @@ async function fxSet(event, effectId, on, strength, params, hold) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
-    if (EFFECTS.some(e => e.id === effectId && e.matchCut)) return { error: 'Match Cut makes its own clip: use Make on its card' };
+    if (EFFECTS.some(e => e.id === effectId && e.matchCut)) return { error: 'Article Text Match Cut makes its own clip: use Make on its card' };
     ensureInstalled();
     if (EFFECT_SFX_DEFAULTS[effectId]) takeSfxFlag(effectId, params);
     const before = EFFECT_SFX_DEFAULTS[effectId] ? await fxClipsWith(effectId) : null;

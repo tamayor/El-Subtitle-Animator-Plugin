@@ -202,3 +202,9 @@ button.primary.trk-done:disabled { opacity: 1; background: var(--matcha-tint); c
 .fx-mc-bar i { display: block; height: 100%; width: 0; background: var(--matcha); transition: width .3s ease; }
 .fx-note.fx-mc-msg { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .fx-note.fx-mc-bad { color: var(--strawberry); }
+.fx-card .fx-note.fx-spot-tip { padding: 5px 7px; border-radius: 6px; background: color-mix(in srgb, var(--matcha, #8ccf8e) 14%, transparent); color: var(--text, inherit); }
+.fx-card .fx-note.fx-spot-edge-head { margin-top: 8px; font-weight: 600; color: var(--text); }
+.fx-card .btn.fx-spot-dirty { border-color: var(--matcha); color: var(--matcha); }
+.fx-spot-progress { flex: 1 0 100%; margin-top: 6px; }
+.fx-spot-bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.fx-spot-bar > i { display: block; height: 100%; width: 0; background: var(--matcha); transition: width .25s ease; }

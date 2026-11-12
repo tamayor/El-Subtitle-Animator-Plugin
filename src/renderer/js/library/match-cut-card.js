@@ -39,13 +39,13 @@ async function mcRun() {
     if (mcUI.running) return;
     await mcEnsurePrefs();
     const word = String(mcUI.prefs.word || '').trim();
-    if (!word) { setStatus('Match Cut: type the word to match on first.', 'bad'); fxShow('MatchCut', true); mcRefreshCard(); return; }
+    if (!word) { setStatus('Article Text Match Cut: type the word to match on first.', 'bad'); fxShow('MatchCut', true); mcRefreshCard(); return; }
     mcUI.running = true; mcUI.last = null; mcUI.progress = { phase: 'start', text: 'Starting…' };
     mcRefreshCard();
     let r;
     try { r = await window.sa.matchCutRun({ ...mcUI.prefs, word }); } catch (err) { r = { error: String(err && err.message || err) }; }
     mcUI.running = false;
-    if (r && r.error && !mcUI.last) { mcUI.last = { phase: 'error', text: r.error }; setStatus('Match cut: ' + r.error, 'bad'); }
+    if (r && r.error && !mcUI.last) { mcUI.last = { phase: 'error', text: r.error }; setStatus('Article Text Match Cut: ' + r.error, 'bad'); }
     mcRefreshCard();
 }
 
@@ -127,13 +127,13 @@ if (window.sa && window.sa.onMatchCutProgress) {
     window.sa.onMatchCutProgress((p) => {
         if (p.phase === 'done' || p.phase === 'error') {
             mcUI.running = false; mcUI.last = p; mcUI.progress = null;
-            setStatus('Match cut “' + p.word + '”: ' + p.text, p.phase === 'done' ? 'ok' : 'bad');
+            setStatus('Article Text Match Cut “' + p.word + '”: ' + p.text, p.phase === 'done' ? 'ok' : 'bad');
             mcRefreshCard();
             return;
         }
         const was = mcUI.running;
         mcUI.running = true; mcUI.progress = p;
-        setStatus('Match cut “' + p.word + '”: ' + mcLine(p), '');
+        setStatus('Article Text Match Cut “' + p.word + '”: ' + mcLine(p), '');
         const c = mcCard();
         const msg = c && c.querySelector('.fx-mc-msg'), fill = c && c.querySelector('.fx-mc-bar i');
         if (!was || !msg) { mcRefreshCard(); return; }

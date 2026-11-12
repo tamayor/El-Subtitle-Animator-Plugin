@@ -39,8 +39,18 @@ const ANIMS = [
 const DEFAULTS = {
     wordOn: true, word: '', caps: true, font: 'DM Serif Display', style: 'Italic',
     color: [1, 1, 1], glowColor: [1, 0.3, 0.75], glow: 70, dim: 55, vig: 50,
-    anim: 'zoom', inF: 12, outF: 8, size: 0, width: 86, x: 0.5, y: null, overlap: 45
+    anim: 'zoom', inF: 12, outF: 8, size: 0, width: 86, x: 0.5, y: null, overlap: 45,
+    // cut-out edge (subject_matte.py; a change needs Re-cut): edgeTight = levels choke %, edgeSoft = feather in 0.1 px,
+    // wisps = how far soft hair / edge alpha may reach from the solid subject (px at 1920), islands = % of the biggest
+    // piece a separate piece needs to stay (higher drops more stray bits)
+    edgeTight: 12, edgeSoft: 7, wisps: 15, islands: 12
 };
+const MATTE_KEYS = ['edgeTight', 'edgeSoft', 'wisps', 'islands'];
+function matteArgs(s, W, H) {
+    const n = (k, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(Number(s[k])) ? Number(s[k]) : DEFAULTS[k]));
+    return { choke: n('edgeTight', 0, 40) / 100, feather: n('edgeSoft', 0, 40) / 10,
+        band: Math.max(2, n('wisps', 2, 80) * Math.max(W || 1920, H || 1080) / 1920), islands: n('islands', 0, 90) / 100 };
+}
 
 function userDir() { return require('electron').app.getPath('userData'); }
 function venvPython() { return path.join(userDir(), 'tracker-venv', 'bin', 'python3'); }
@@ -141,10 +151,17 @@ function pickWord(text) {
     return best || (words[0] || '').replace(/[^\p{L}\p{N}$%]+/gu, '');
 }
 
+// cached: live slider drags re-lay-out the word many times a second and must not start Python each time
+const measured = new Map();
 async function measure(font, style, text) {
     if (!fs.existsSync(venvPython())) return null;
+    const key = [font, style, text || 'H'].join('\u0001');
+    if (measured.has(key)) return measured.get(key);
     const r = await run(venvPython(), ['-I', MATTE_SCRIPT, 'measure'], { input: JSON.stringify({ font, style, text: text || 'H' }) + '\n' });
-    try { return JSON.parse(r.out.trim().split('\n').pop()); } catch (e) { return null; }
+    let m = null;
+    try { m = JSON.parse(r.out.trim().split('\n').pop()); } catch (e) { m = null; }
+    if (m) { if (measured.size > 200) measured.clear(); measured.set(key, m); }
+    return m;
 }
 
 // Settings + matte statistics + font metrics -> what the effect gets: size (Text+ Size) and cx / cy (0..1, top-left).
@@ -237,7 +254,7 @@ async function spotRun(event, opts) {
         send({ phase: 'frames', done: total, total });
         const frames = []; for (let f = lo; f <= hi; f++) frames.push(f);
         let stats = null, error = null;
-        const r = await run(venvPython(), ['-I', MATTE_SCRIPT], { input: JSON.stringify({ dir: tmp, frames, model: modelPath(), out: dir }) + '\n', track: (p) => { job.proc = p; } }, (line) => {
+        const r = await run(venvPython(), ['-I', MATTE_SCRIPT], { input: JSON.stringify(Object.assign({ dir: tmp, frames, model: modelPath(), out: dir }, matteArgs(s, src.width, src.height))) + '\n', track: (p) => { job.proc = p; } }, (line) => {
             let m; try { m = JSON.parse(line); } catch (e) { return; }
             if (m.progress) send({ phase: 'matte', done: m.progress, total: m.total });
             else if (m.done) stats = m.stats;
@@ -246,12 +263,16 @@ async function spotRun(event, opts) {
         if (job.cancelled) return { cancelled: true };
         if (!stats) return { error: 'Matting failed: ' + (error || r.err.trim().slice(-300) || 'no result') };
         send({ phase: 'place' });
+        // Re-cut: the new cut-out is ready, so the old one goes now (it puts its lifted captions back first)
+        if (o.replace) await spotRemove(event, o.replace);
         const fin = await resolveSettings(s, stats, src.width, src.height);
         const small = { headTop: stats.headTop, cx: stats.cx, box: stats.box, width: stats.width, height: stats.height };
         const placed = await bridgeCall('spot_place', { footage: src.footage.id, from: lo, to: hi, seq: path.join(dir, 'c%05d.png'), count: total, dir, label: fin.word, settings: fin, stats: small }, 60000, { lane: 0 });
         keep = true;
         if (placed && placed.needRestart) placed.error = 'The cut-out is on V' + placed.track + ', but Resolve has not loaded the new Spotlight effect yet: restart DaVinci Resolve once, select the cut-out clip and press Update on the Spotlight card.';
-        return Object.assign({}, placed, { settings: fin, range: [lo, hi], why: src.why, footage: src.footage, ms: stats.ms });
+        const out = Object.assign({}, placed, { settings: fin, range: [lo, hi], why: src.why, footage: src.footage, ms: stats.ms });
+        if (src.trimmed) out.warning = 'The selection was ' + (src.trimmed / (src.fps || 25)).toFixed(1) + ' s; Spotlight takes 20 s at most, so only the first 20 s got the cut-out.';
+        return out;
     } finally {
         job = null;
         try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* temp */ }
@@ -288,6 +309,18 @@ async function spotSet(event, itemId, settings, addEffect) {
     return await bridgeCall('spot_set', { item: String(itemId), settings: fin, addEffect: !!addEffect }, 20000, { lane: 0 });
 }
 
+// Re-cut: the same moment cut out again with new edge settings (MATTE_KEYS), every other setting kept. The old cut-out
+// stays until the new one is matted, then it is swapped.
+async function spotRecut(event, itemId, matte) {
+    const cur = await spotGet(event, itemId);
+    if (!cur || cur.busy) return { busy: true };
+    if (!cur.item) return { error: 'Select a spotlight cut-out clip first.' };
+    const keep = clean(cur.settings || {});    // word, size, position, look: as they are now
+    const m = {}; for (const k of MATTE_KEYS) if (matte && k in matte) m[k] = matte[k];
+    const from = Number(cur.start), to = Number(cur.start) + Number(cur.frames) - 1;
+    return await spotRun(event, { frame: from, from, to, replace: cur.item, settings: Object.assign(keep, clean(m)) });
+}
+
 async function spotRemove(event, itemId) {
     const state = require('./state');
     if (state.applying) return { busy: true };
@@ -300,4 +333,4 @@ async function spotRemove(event, itemId) {
 
 function spotInfo() { return { anims: ANIMS, defaults: DEFAULTS }; }
 
-module.exports = { spotEngine, spotInstall, spotSource, spotRun, spotCancel, spotGet, spotSet, spotRemove, spotInfo, pickWord, layout, DEFAULTS, ANIMS };
+module.exports = { spotEngine, spotInstall, spotSource, spotRun, spotCancel, spotGet, spotSet, spotRecut, spotRemove, spotInfo, pickWord, layout, DEFAULTS, ANIMS };

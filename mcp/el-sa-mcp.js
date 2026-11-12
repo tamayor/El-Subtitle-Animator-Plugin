@@ -512,7 +512,7 @@ const TOOLS = [
     },
     {
         name: 'match_cut',
-        description: 'News-article match cut: news articles that use `word` are screenshotted, lined up so the word stays at the same size in the same spot, rendered at the timeline\'s size and frame rate, and placed at the playhead (top free video layer, clicks on a free audio track). Saved in "<footage folder>/El Subtitle Animator MatchCut/<word>/" next to "El Subtitle Animator SFX". Same as the panel\'s header "Match Cut" button; omitted options use the panel\'s last values. Takes 1-4 minutes: returns { running } after `wait` seconds, then call again with status: true. Big paywalled sites (Reuters, WSJ, NYT, Bloomberg) are skipped because they block automated browsers.',
+        description: 'News-article match cut: news articles that use `word` are screenshotted, lined up so the word stays at the same size in the same spot, rendered at the timeline\'s size and frame rate, and placed at the playhead (top free video layer, clicks on a free audio track). Saved in "<footage folder>/El Subtitle Animator MatchCut/<word>/" next to "El Subtitle Animator SFX". Same as the panel\'s "Article Text Match Cut" effect card; omitted options use the panel\'s last values. Takes 1-4 minutes: returns { running } after `wait` seconds, then call again with status: true. Big paywalled sites (Reuters, WSJ, NYT, Bloomberg) are skipped because they block automated browsers.',
         inputSchema: S({
             word: { type: 'string', description: 'Word or short phrase to lock in place' },
             count: { type: 'integer', minimum: 2, maximum: 40, description: 'Articles to cut between (default 12)' },

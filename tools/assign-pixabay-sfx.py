@@ -52,7 +52,7 @@ PICKS = {
 
 # preset -> main sound id (None = no main sound)
 MAIN = {
-    "$123,456": "376896",                 # (Money Pop Up was a duplicate and was deleted 2026-11-11)
+    # "$123,456": "376896",  replaced 2026-11-12 by sounds/original/assets-cash-register-kaching.wav (ASSETS 02 SFX/Foley & Everyday/Cash Register.mp3, 90-1380 ms, 350 ms fade)
     "Drop Pump": "447487",
     "Pop Up": "467466", "Pop Down": "323580",
     "Justified Pop": None,                # its wooden tap per word only (user's choice), no main sound

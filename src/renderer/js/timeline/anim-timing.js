@@ -111,11 +111,13 @@ function renderTiming() {
     const card = $('timingCard');
     if (!card) return;
     const i = tmState.info;
-    if (!i) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); return; }
+    // nothing selected, or a clip whose preset has no timing slider: no card at all (an empty "No timing slider" card
+    // only made the bottom dock taller)
+    if (!i || i.noSlider) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); return; }
     card.classList.remove('hidden');
     document.body.classList.toggle('tm-docked', tmView() === 'docked');
     const bare = !!i.noSlider;
-    for (const id of ['timingBar', 'timingToPlayhead', 'timingReset']) $(id).classList.toggle('hidden', bare);
+    for (const id of ['timingBar', 'timingToPlayhead', 'timingReset', 'timingWords']) $(id).classList.toggle('hidden', bare);
     card.querySelector('.tm-scale').classList.toggle('hidden', bare);
     if (bare) {
         $('timingMeta').textContent = i.name || 'Clip';
@@ -239,6 +241,11 @@ function tmFrameAt(clientX, laneIdx, part, grab) {
 async function tmSend(wake) {
     const i = tmState.info;
     if (!i || !i.ranges) return;
+    if (i.fitted) {         // moving a head replaces the Fit to words curve (fusion_bridge op_timing_set)
+        i.fitted = false;
+        tmState.unfitAt = Date.now();
+        tmRenderWords();
+    }
     tmState.sentAt = Date.now();
     const ranges = i.ranges.map(r => ({ key: r.key, start: r.start, end: r.end }));
     try {
@@ -383,11 +390,102 @@ function initAnimTiming() {
         }
         tmCommit();
     });
+    $('timingFitWords').addEventListener('click', tmFitWords);
+    $('timingWordsActivate').addEventListener('click', tmActivateWords);
     $('timingCompactBtn').addEventListener('click', () => setTimingView(tmView() === 'full' ? 'compact' : 'full'));
     $('timingDockBtn').addEventListener('click', () => setTimingView('docked'));
     $('timingUndockBtn').addEventListener('click', () => setTimingView('compact'));
     applyTimingView();
     tmTick();
+}
+
+// ------------------------------------------------------------------ word timings row
+// tmState.words: { itemId, available, engine, sound, at } for the clip shown (window.sa.wordTimingStatus)
+function tmRenderWords() {
+    const i = tmState.info, w = tmState.words;
+    const st = $('timingWordsState'), txt = $('timingWordsText'), act = $('timingWordsActivate'), fit = $('timingFitWords');
+    if (!st) return;
+    const mine = !!(i && w && w.itemId === i.itemId);
+    const ready = mine && w.available;
+    st.classList.toggle('ready', !!ready);
+    st.classList.toggle('missing', mine && !w.available);
+    if (tmState.activating) txt.textContent = 'Transcribing…';
+    else if (!mine) txt.textContent = 'Checking words…';
+    else if (w.available) txt.textContent = 'Word timings ready';
+    else if (!w.sound) txt.textContent = 'No dialogue under this clip';
+    else if (!w.engine) txt.textContent = 'No speech engine';
+    else txt.textContent = 'Word timings off';
+    act.classList.toggle('hidden', !(mine && !w.available && w.sound) && !tmState.activating);
+    act.disabled = !!tmState.activating || !(mine && w.engine);
+    fit.disabled = !ready || !!tmState.fitting || !!tmState.activating;
+    const on = !!(i && i.fitted);
+    fit.classList.toggle('active', on);
+    fit.setAttribute('aria-pressed', String(on));
+    $('timingBar').classList.toggle('fitted', on);
+    $('timingCard').classList.toggle('word-fitted', on);
+    fit.title = on ? 'Fitted to the spoken words. Moving a head on the bar goes back to one even speed; click to fit again.'
+        : ready ? 'Time the reveal to the spoken words: each word appears as it is said, at the speed it is said. Dragging a head afterwards goes back to one even speed.'
+        : 'Activate word timings first';
+}
+async function tmCheckWords(force) {
+    const i = tmState.info;
+    if (!i || !i.itemId || i.noSlider) return;
+    const w = tmState.words;
+    if (!force && w && w.itemId === i.itemId && Date.now() - w.at < 60000) return;
+    if (tmState.wordsAsking === i.itemId) return;
+    tmState.wordsAsking = i.itemId;
+    try {
+        const r = await window.sa.wordTimingStatus(i.itemId, !!force);
+        if (r && r.ok) tmState.words = Object.assign({ at: Date.now() }, r);
+    } catch (e) { /* asked again on the next clip */ }
+    tmState.wordsAsking = null;
+    tmRenderWords();
+}
+async function tmActivateWords() {
+    const i = tmState.info;
+    if (!i || !i.itemId || tmState.activating) return;
+    tmState.activating = true;
+    tmRenderWords();
+    setStatus('Working out word timings for the recording under ' + (i.name || 'this clip') + '… (a long recording takes a few minutes, once)');
+    try {
+        const r = await window.sa.activateWordTimings(i.itemId);
+        if (!r || r.error) setStatus((r && r.error) || 'Could not work out the word timings', 'bad');
+        else setStatus('Word timings ready: ' + r.words + ' words in ' + (r.names || []).join(', ') + '. Fit to words is on for every clip from ' + (r.files === 1 ? 'this recording' : 'these recordings') + '.', 'ok');
+    } catch (e) { setStatus('Could not work out the word timings: ' + e.message, 'bad'); }
+    tmState.activating = false;
+    await tmCheckWords(true);
+}
+
+// "Fit to words": the clip's reveal follows the spoken words (src/main/word-fit.js).
+async function tmFitWords() {
+    const i = tmState.info, btn = $('timingFitWords');
+    if (!i || !i.ranges || btn.disabled) return;
+    tmState.fitting = true;
+    tmRenderWords();
+    tmState.busy = true;
+    setStatus('Fitting ' + (i.name || 'the clip') + ' to the spoken words… (transcribing the first time can take a little while)');
+    try {
+        const r = await window.sa.fitClipToWords(i.itemId);
+        if (!r || r.error) setStatus((r && r.error) || 'Could not fit the timing to the words', 'bad');
+        else {
+            const of = (r.matched != null && r.words) ? ' (' + r.matched + ' of ' + r.words + ' words matched' + (r.matched < r.words ? ', the rest spread between them' : '') + ')' : '';
+            let msg;
+            const sp = r.speed ? ', speed ' + r.speed.slowest + '×–' + r.speed.fastest + '×' : '';
+            if (r.mode === 'letters' || r.mode === 'words') msg = 'Fitted to ' + r.words + ' spoken words: each word ' + (r.mode === 'words' ? 'pops' : 'reveals') + ' as it is said' + sp + of + '.';
+            else if (r.mode === 'rows-pop') msg = 'Fitted ' + r.units + ' row' + (r.units === 1 ? '' : 's') + ' to the spoken words: each row pops on its first word' + sp + of + '.';
+            else if (r.mode === 'typing') msg = 'Fitted the typing to ' + r.words + ' spoken words: each word types in as it is said' + of + '.';
+            else if (r.mode === 'rows') msg = 'Fitted ' + r.rows + ' row' + (r.rows === 1 ? '' : 's') + ' to the spoken words' + of + '.';
+            else msg = 'Fitted the animation to the spoken words: frames ' + r.start + ' to ' + r.end + ' (this preset plays at one even speed).';
+            if (r.transcribed) msg += ' Transcribed this span.';
+            if (r.sounds && (r.sounds.error || r.sounds.failed)) msg += ' Some sounds could not follow.';
+            setStatus(msg, 'ok');
+            tmState.sentAt = 0;
+            if (r.mode !== 'rows' && r.mode !== 'range' && tmState.info && tmState.info.itemId === i.itemId) { tmState.info.fitted = true; tmState.unfitAt = 0; }
+        }
+    } catch (e) { setStatus('Could not fit the timing: ' + e.message, 'bad'); }
+    tmState.fitting = false;
+    tmState.busy = false;
+    tmRenderWords();
 }
 
 // Follows Resolve: which clip, its length and ranges, and the playhead.
@@ -411,10 +509,13 @@ async function tmTick() {
                         tmState.info.ranges.length === (r.ranges || []).length;
                     // values just sent win over an older read
                     if (same && Date.now() - tmState.sentAt < 1600) r.ranges = tmState.info.ranges;
+                    if (same && Date.now() - (tmState.unfitAt || 0) < 1600) r.fitted = false;
                     if (!same) tmState.active = { lane: 0, part: 'e' };
                     tmState.info = r;
                 }
                 renderTiming();
+                tmRenderWords();
+                if (!r.none && !r.noSlider) tmCheckWords(false);
                 const sig = r.none ? 'none' : (r.itemId + '|' + r.frame + '|' + JSON.stringify(r.ranges || null));
                 if (sig !== tmPace.sig) { tmPace.sig = sig; tmPace.changedAt = Date.now(); }
                 if (Date.now() - tmPace.changedAt > 3000) delay = 1500;

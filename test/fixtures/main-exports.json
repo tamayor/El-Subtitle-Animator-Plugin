@@ -4,9 +4,12 @@
     "parseAddons:function"
   ],
   "anim-timing.js": [
+    "activateWordTimings:function",
     "clipTiming:function",
     "currentFusionClip:function",
-    "setClipTiming:function"
+    "fitClipToWords:function",
+    "setClipTiming:function",
+    "wordTimingStatus:function"
   ],
   "app-version.js": [
     "getAppVersion:function",
@@ -454,6 +457,7 @@
     "spotGet:function",
     "spotInfo:function",
     "spotInstall:function",
+    "spotRecut:function",
     "spotRemove:function",
     "spotRun:function",
     "spotSet:function",
@@ -533,5 +537,15 @@
     "setAutoCollapse:function",
     "setLayoutMode:function",
     "setOnTop:function"
+  ],
+  "word-fit.js": [
+    "alignWords:function",
+    "planAnimKeys:function",
+    "planLinear:function",
+    "planRows:function",
+    "planStepKeys:function",
+    "planTypingKeys:function",
+    "speedRange:function",
+    "textWords:function"
   ]
 }

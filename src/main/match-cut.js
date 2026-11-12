@@ -98,7 +98,7 @@ async function matchCutStart(opts) {
     const outRoot = path.join(footage || DATA_DIR, RUNS_DIR);
 
     const py = await pillowPython();
-    if (!py) throw new Error('Match Cut needs Python with Pillow. In Terminal run: pip3 install pillow');
+    if (!py) throw new Error('Article Text Match Cut needs Python with Pillow. In Terminal run: pip3 install pillow');
 
     const args = [SCRIPT, word, '--out-dir', outRoot, '--size', meta.width + 'x' + meta.height, '--fps', String(meta.fps),
         '--count', String(Math.max(2, Math.min(40, Number(o.count) || DEFAULTS.count))),

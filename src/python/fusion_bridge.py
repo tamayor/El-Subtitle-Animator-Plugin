@@ -2768,6 +2768,7 @@ def kinetic_state(comp, tpl, kind):
     except Exception:
         rs = 0.0
     bake = bake_inputs(tpl, kind)     # the rows' layout, colours and motion sliders (bake_rows); last in the state
+    bake.append(["WordFit", fit_keys(tpl)])      # a Fit to words curve (op_word_fit_set) re-keys too
     if kind == "justpop":
         try:
             re_ = float(a.get("COMPN_RenderEnd") or rs)
@@ -2829,7 +2830,11 @@ def key_kinetic_inner(comp):
     NAT = max(1.0, NAT)
     D = max(1.0, AF - AS)
 
+    fit = fit_keys(tpl)
+
     def frame(tt):        # comp frame where the remapped time reaches tt (inverse of REMAP in the generators)
+        if fit:
+            return rs + fit_frame(fit, tt)
         if AF <= 0:
             rel = tt
         elif tt < NAT:
@@ -3097,8 +3102,11 @@ def bake_merge(comp, slot, empty):
         pass
 
 
-def remap_tt(t, rs, AS, AF, NAT):
-    """The generators' REMAP: comp time -> the preset's own time (Animation Start / Frames retiming)."""
+def remap_tt(t, rs, AS, AF, NAT, fit=None):
+    """The generators' REMAP: comp time -> the preset's own time (Animation Start / Frames retiming), or through a
+    Fit to words curve (fit: keys [[clip frame, own time], ...], see op_word_fit_set)."""
+    if fit:
+        return max(0.0, fit_tt(fit, t - rs))
     rel = t - rs - AS
     if rel <= 0:
         return 0.0
@@ -3146,7 +3154,7 @@ def bake_rows(comp, tpl, kind, st):
         Bk = 1.70158 * num(B.get("Bounce"), 1)
         style = str(B.get("Style") or "")
         row_style = JP_ROW_STYLE if style in (JP_EMPH_STYLE, "Black", "Bold", "Heavy") else style
-        tts = [remap_tt(t, rs, AS, AF, NAT) for t in frames]
+        tts = [remap_tt(t, rs, AS, AF, NAT, fit_keys(tpl)) for t in frames]
         ordn = 0
         for k, name in enumerate(JP_SLOTS, 1):
             tool = comp.FindTool(name)
@@ -3185,7 +3193,7 @@ def bake_rows(comp, tpl, kind, st):
     _, _, AS, AF, NAT, STEP = st[:6]
     NAT = max(1.0, NAT)
     cnt = len(rows)
-    tts = [remap_tt(t, rs, AS, AF, NAT) for t in frames]
+    tts = [remap_tt(t, rs, AS, AF, NAT, fit_keys(tpl)) for t in frames]
     if kind == "lines":
         SLIDE = max(1.0, st[6])
         DIST = num(B.get("SlideDist"), 0.16)
@@ -3398,6 +3406,10 @@ def op_timing_get(a):
     st = get_in(tool, START_INPUT.get(kind))
     out["hasStart"] = st is not None
     out["start"] = num(st, 0)
+    try:      # a Fit to words curve is driving the timing (the bar's heads only show its span)
+        out["fitted"] = word_fit_state(comp) is not None or fit_data(comp.FindTool("Template")) is not None
+    except Exception:
+        out["fitted"] = False
     return out
 
 
@@ -3418,6 +3430,7 @@ def op_timing_set(a):
             tool.SetInput("Seg%dStart" % n, start)
             tool.SetInput("Seg%dEnd" % n, end)
         else:
+            word_fit_clear(comp)      # a hand-set range replaces a "Fit to words" keying
             if get_in(tool, START_INPUT.get(kind)) is not None:
                 tool.SetInput(START_INPUT[kind], start)
             tool.SetInput(inp, end)
@@ -3426,6 +3439,275 @@ def op_timing_set(a):
         wake_effects(comp)
     glass_after(a)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- "Fit to words" (src/main/word-fit.js)
+# Word-pop presets reveal word / letter / row k at a fixed point of their OWN time, and their own time runs as one
+# straight line from Animation Start to Animation Frames, so everything comes in at one even speed whatever the
+# speaker does. Fit to words swaps that line for a curve through the spoken words: keys [[clip frame, own time], ...]
+# (frames from the clip's start), linear between them, normal speed after the last. Three targets:
+#   animtime  letter-by-letter Follower presets (Pop Up, Word Cascade, Kinetic Statements...): keyframes on the
+#             hidden AnimTime.SourceTime (src/main/retime.js), whose expression is kept in WORD_FIT_DATA
+#   step      Kinetic Cloud / Lines, Justified Pop (row / word k pops at (k - 1) x Step of own time): the keys are kept
+#             on the Template (WORD_FIT_DATA) and key_kinetic / bake_rows re-key the rows through them (remap_tt)
+#   typing    Word by Word Typing: the Template's End (how much of the text shows) keyed as steps, one per spoken
+#             word; its expression is kept in WORD_FIT_DATA
+# A hand change on the timing bar (op_timing_set) or op_word_fit_clear puts the straight line back. Only hidden
+# tools / the Template's own inputs change; the Inspector is untouched.
+WORD_FIT_DATA = "ElsaWordFit"
+FIT_TERM_RE = re.compile(r"(-?[\d.]+) \+ ([\d.]+) \* math\.max\(0, n\((\w+)\.Text\.Value\) - 1\)")
+
+
+def tool_named(comp, name):
+    for t in tool_list(comp):
+        if attrs(t).get("TOOLS_Name") == name:
+            return t
+    return None
+
+
+def fit_data(tool):
+    """The fit kept on a tool: {expr?, keys: [[clip frame, own time], ...], frames?} or None."""
+    if tool is None:
+        return None
+    try:
+        v = tool.GetData(WORD_FIT_DATA)
+        d = json.loads(v) if isinstance(v, str) and v else None
+        return d if isinstance(d, dict) and d.get("keys") else None
+    except Exception:
+        return None
+
+
+def fit_keys(tool):
+    d = fit_data(tool)
+    ks = (d or {}).get("keys") or []
+    return [[float(k[0]), float(k[1])] for k in ks] if len(ks) >= 2 else None
+
+
+def fit_tt(keys, rel):
+    """Clip frame rel -> own time through the fit (held before the first key, normal speed after the last)."""
+    if rel <= keys[0][0]:
+        return keys[0][1]
+    for (f0, v0), (f1, v1) in zip(keys, keys[1:]):
+        if rel <= f1:
+            return v0 + (v1 - v0) * ((rel - f0) / (f1 - f0) if f1 > f0 else 1.0)
+    return keys[-1][1] + (rel - keys[-1][0])
+
+
+def fit_frame(keys, tt):
+    """Inverse of fit_tt: the clip frame where own time tt is reached."""
+    if tt <= keys[0][1]:
+        return keys[0][0]
+    for (f0, v0), (f1, v1) in zip(keys, keys[1:]):
+        if tt <= v1:
+            return f0 + (f1 - f0) * ((tt - v0) / (v1 - v0) if v1 > v0 else 0.0)
+    return keys[-1][0] + (tt - keys[-1][1])
+
+
+def word_fit_state(comp):
+    """The AnimTime fit (letter-by-letter presets), or None."""
+    st = fit_data(tool_named(comp, "AnimTime"))
+    return st if st and st.get("expr") else None
+
+
+def word_fit_frame(comp, tt):
+    """Clip frame where AnimTime's own time tt is reached under a fit, or None when the clip has none."""
+    ks = fit_keys(tool_named(comp, "AnimTime"))
+    return fit_frame(ks, tt) if ks else None
+
+
+def key_input_curve(comp, tool, inp, keys, expr_keep):
+    """Replaces tool.inp's expression with linear keyframes {comp time: value}. The expression goes into the tool's
+    WORD_FIT_DATA (expr_keep: the state dict to store, gets "expr"). -> None, or why it could not."""
+    if expr_keep.get("expr") is None:
+        try:
+            expr = getattr(tool, inp).GetExpression()
+        except Exception:
+            expr = None
+        if not expr:
+            return "This clip's timing does not look as expected"
+        expr_keep["expr"] = expr
+        getattr(tool, inp).SetExpression(None)
+    sp = is_driven(tool, inp)
+    if sp is None or attrs(sp).get("TOOLS_RegID") != "BezierSpline":
+        if not tool.AddModifier(inp, "BezierSpline"):
+            getattr(tool, inp).SetExpression(expr_keep["expr"])      # never leave it without its timing
+            return "Could not key the timing"
+        sp = is_driven(tool, inp)
+    mine = sorted(keys)
+    lo, hi = mine[0], mine[-1]
+    want = dict((t, {1: v, "Flags": {"Linear": True}}) for t, v in keys.items())
+    try:
+        old = [float(k) for k in (sp.GetKeyFrames() or {}).keys()]
+    except Exception:
+        old = []
+    for k in old:        # earlier keys: overwritten with a value on the new curve, then the ones not wanted deleted
+        if k not in want:
+            want[k] = {1: keys[lo] if k < lo else keys[hi], "Flags": {"Linear": True}}
+    sp.SetKeyFrames(want, True)
+    try:
+        sp.DeleteKeyFrames(-1e6, lo - 1e-3)
+        sp.DeleteKeyFrames(hi + 1e-3, 1e6)
+        for k0, k1 in zip(mine, mine[1:]):
+            if k1 - k0 > 2e-3:
+                sp.DeleteKeyFrames(k0 + 1e-3, k1 - 1e-3)
+    except Exception:
+        pass
+    tool.SetData(WORD_FIT_DATA, json.dumps(expr_keep))
+    return None
+
+
+def restore_input_expr(tool, inp):
+    st = fit_data(tool)
+    if not st or not st.get("expr"):
+        return False
+    try:
+        getattr(tool, inp).ConnectTo(None)        # drop the keyframe spline
+    except Exception:
+        pass
+    try:
+        getattr(tool, inp).SetExpression(st["expr"])
+    except Exception:
+        return False
+    return True
+
+
+def word_fit_clear(comp):
+    """Puts every straight-line timing back (undoes a Fit to words). True when there was a fit."""
+    done = False
+    with LOCKED(comp):
+        at = tool_named(comp, "AnimTime")
+        if at is not None and fit_data(at) and restore_input_expr(at, "SourceTime"):
+            at.SetData(WORD_FIT_DATA, None)
+            done = True
+        tpl = comp.FindTool("Template")
+        if tpl is not None and fit_data(tpl):
+            if get_in(tpl, "TypingFrames") is not None:
+                restore_input_expr(tpl, "End")
+            tpl.SetData(WORD_FIT_DATA, None)       # step presets: key_followers re-keys the rows without it
+            done = True
+    return done
+
+
+def step_units(comp, tpl, kind):
+    """Kinetic Cloud / Lines rows, Justified Pop words: [{text, own}] (own = when it starts to pop, own time)."""
+    B = dict(bake_inputs(tpl, kind))
+    rows = bake_layout(B.get("Comments")) or []
+    out = []
+    if kind == "justpop":
+        a = attrs(comp)
+        rs = num(a.get("COMPN_RenderStart"), 0)
+        L = max(1.0, num(a.get("COMPN_RenderEnd"), rs) - rs + 1)
+        words = [r[4] for r in rows if r[4] != ""]
+        NW = len(words)
+        POP = max(1.0, num(B.get("PopFrames"), 6))
+        STEP = num(B.get("StepFrames"), 8)
+        SPREAD = num(B.get("Spread"), 0.7)
+        if SPREAD > 0 and NW > 1:
+            STEP = min(STEP, (L * SPREAD - POP) / (NW - 1))
+        STEP = max(1.0, STEP)
+        return [{"text": w, "own": k * STEP} for k, w in enumerate(words)], POP
+    STEP = num(get_in(tpl, "StepFrames"), 7 if kind == "cloud" else 5)
+    W = max(1.0, num(get_in(tpl, "SlideFrames"), 12)) if kind == "lines" else 8.0
+    for k, r in enumerate(rows):
+        if str(r[4]).strip():
+            out.append({"text": r[4], "own": k * STEP})
+    return out, W
+
+
+def op_word_fit_info(a):
+    """What Fit to words needs from a clip: {kind, target, ...}. target: "animtime" (terms: [{follower, a, delay,
+    text}]), "step" (units: [{text, own}], pop), "typing" (text) or None (range only). Reads Follower Text inputs and
+    plain Template inputs only, never a follower-driven Text+."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tool, inp, kind = timing_tool(comp)
+    if tool is None:
+        return {"kind": None}
+    out = {"kind": kind, "target": None}
+    if kind == "typing":
+        txt = get_in(tool, "StyledText")
+        if isinstance(txt, str) and get_in(tool, "End") is not None:
+            out.update({"target": "typing", "text": txt, "fitted": fit_data(tool) is not None})
+        return out
+    if kind != "anim":
+        return out
+    tpl, kk = kinetic_template(comp)
+    if tpl is not None:
+        units, pop = step_units(comp, tpl, kk)
+        out.update({"target": "step", "preset": kk, "units": units, "pop": pop, "fitted": fit_data(tpl) is not None})
+        return out
+    try:
+        expr = tool.AnimNatural.GetExpression() or ""
+    except Exception:
+        expr = ""
+    terms = []
+    for m in FIT_TERM_RE.finditer(expr):
+        fol = tool_named(comp, m.group(3))
+        if fol is None:
+            continue
+        txt = get_in(fol, "Text")
+        terms.append({"follower": m.group(3), "a": float(m.group(1)), "delay": num(get_in(fol, "Delay"), float(m.group(2))),
+                      "text": txt if isinstance(txt, str) else ""})
+    if terms and tool_named(comp, "AnimTime") is not None:
+        out.update({"target": "animtime", "terms": terms, "fitted": word_fit_state(comp) is not None})
+    return out
+
+
+def op_word_fit_set(a):
+    """{item, target, keys: [[clip frame, value], ...], start, end, frames?, wake}. animtime / step: value = own time;
+    typing: value = the End (share of the text shown), keyed as given. start / end go on the timing bar's sliders so
+    it shows the fitted span."""
+    comp = get_comp(a["item"], a.get("comp"))
+    tool, inp, kind = timing_tool(comp)
+    target = a.get("target") or "animtime"
+    keys = sorted([float(k[0]), float(k[1])] for k in (a.get("keys") or []))
+    if len(keys) < 2:
+        return {"ok": False, "why": "Not enough words to fit"}
+    ca = attrs(comp)
+    rs = num(ca.get("COMPN_RenderStart"), 0)
+    re_ = num(ca.get("COMPN_RenderEnd"), rs)
+    why = None
+    with LOCKED(comp):
+        if target == "animtime":
+            at = tool_named(comp, "AnimTime")
+            if kind != "anim" or at is None:
+                return {"ok": False, "why": "This clip has no AnimTime retiming"}
+            st = fit_data(at) or {}
+            st["keys"] = keys
+            why = key_input_curve(comp, at, "SourceTime", dict((round(rs + f, 3), min(re_, rs + max(0.0, v))) for f, v in keys), st)
+        elif target == "step":
+            tpl, kk = kinetic_template(comp)
+            if tpl is None:
+                return {"ok": False, "why": "This clip is not a Kinetic / Justified Pop preset"}
+            tpl.SetData(WORD_FIT_DATA, json.dumps({"keys": keys}))
+        elif target == "typing":
+            if kind != "typing":
+                return {"ok": False, "why": "This clip is not a typing preset"}
+            st = fit_data(tool) or {}
+            st["keys"] = keys
+            st["frames"] = [int(round(f)) for f in (a.get("frames") or [])]
+            why = key_input_curve(comp, tool, "End", dict((round(rs + f, 3), max(0.0, min(1.0, v))) for f, v in keys), st)
+        else:
+            return {"ok": False, "why": "Unknown fit"}
+        if why:
+            return {"ok": False, "why": why}
+        si = START_INPUT.get(kind)
+        if si and get_in(tool, si) is not None:
+            tool.SetInput(si, max(0, int(round(num(a.get("start"), 0)))))
+        tool.SetInput(inp, max(1, int(round(num(a.get("end"), 1)))))
+    if target == "step":
+        key_kinetic(comp)        # the rows / words re-keyed through the fit (remap_tt)
+    if a.get("wake", True):
+        wake_effects(comp)
+    glass_after(a)
+    return {"ok": True, "keys": len(keys)}
+
+
+def op_word_fit_clear(a):
+    comp = get_comp(a["item"], a.get("comp"))
+    done = word_fit_clear(comp)
+    if done:
+        key_followers(comp)
+    return {"ok": True, "cleared": done}
 
 
 # ---------------------------------------------------------------- Inspector repair (src/main/repair.js)
@@ -3565,9 +3847,12 @@ def op_row_times(a):
     frames_in = int(num(get_in(tpl, "AnimFrames"), 0))
     natural = max(1.0, num(get_in(tpl, "AnimNatural"), 1))
     out = []
+    fit = fit_keys(tpl)
     for k in range(rows):
         tt = k * float(step)
-        if frames_in <= 0:
+        if fit:
+            f = fit_frame(fit, tt)
+        elif frames_in <= 0:
             f = start + tt
         else:
             d = max(1, frames_in - start)
@@ -3581,9 +3866,12 @@ def typing_word_times(comp, tpl):
     maths as the preset's End expression (and retime.js upgradeTyping): words are runs of non-space characters,
     dur = Typing Frames (0 = clip length minus 1 second, at least 10), word k shows once
     floor((t - S) * (n - 1) / max(1, dur - S)) + 1 reaches k (S = Typing Start); the first word shows from frame 0.
-    Reads only the plain Template (this preset has no Follower)."""
+    Reads only the plain Template (this preset has no Follower). Fitted to words: the spoken words' frames."""
     text = str(get_in(tpl, "StyledText") or "")
     n = len(text.split())
+    fit = fit_data(tpl)
+    if fit and fit.get("frames") and len(fit["frames"]) == n:
+        return {"frames": list(fit["frames"]), "count": n, "fitted": True}
     if n <= 0:
         return {"frames": [], "count": 0}
     ca = comp.GetAttrs() or {}
@@ -3634,7 +3922,8 @@ def follower_word_times(comp, tpl):
     out = []
     for i in starts:
         tt = i * delay
-        f = tt if T <= 0 else (tt * T / N if tt < N else T + tt - N)
+        fit = word_fit_frame(comp, tt)        # a "Fit to words" keying of AnimTime, when the clip has one
+        f = fit if fit is not None else (tt if T <= 0 else (tt * T / N if tt < N else T + tt - N))
         out.append(int(round(f)))
     return {"frames": out, "count": len(out), "step": delay, "natural": N, "animFrames": T}
 
@@ -3662,7 +3951,10 @@ def jp_word_times(comp, tpl):
     out = []
     for k in range(NW):
         tt = k * STEP          # inverse of remap_tt; the pop shows from the first frame where tt passes this
-        if AF <= 0:
+        fit = fit_keys(tpl)
+        if fit:
+            rel = fit_frame(fit, tt) - AS
+        elif AF <= 0:
             rel = tt
         else:
             D = max(1, AF - AS)
@@ -5047,7 +5339,9 @@ def op_spot_source(a):
     hi = min(hi, int(foot.GetEnd()) - 1)
     if hi - lo < 4:
         raise RuntimeError("The moment is too short (pick at least 5 frames over the footage).")
-    if hi - lo + 1 > int(fps * 20):
+    trimmed = None
+    if hi - lo + 1 > int(fps * 20):          # SPOT_MAX_SECONDS: longer moments are cut to 20 s (and the panel warns)
+        trimmed = hi - lo + 1
         hi = lo + int(fps * 20) - 1
     anchor = min(hi, max(lo, frame))
     r = foot.ExportFrame(anchor - int(foot.GetStart()), {"outputType": "encodedString", "encodedImageFormat": "jpg", "maxDimension": int(a.get("maxDim") or 540)})
@@ -5056,7 +5350,7 @@ def op_spot_source(a):
     except Exception:
         tr = None
     return {"footage": {"id": str(foot.GetUniqueId()), "name": foot.GetName(), "track": tr, "start": int(foot.GetStart())},
-            "range": [lo, hi], "why": why, "anchor": anchor, "fps": fps,
+            "range": [lo, hi], "why": why, "anchor": anchor, "fps": fps, "trimmed": trimmed,
             "data": (r or {}).get("data") if r and r.get("success") else None,
             "subtitle": sub[2] if sub and sub[0] <= anchor < sub[1] else (spot_subtitle_at(tl, lo) or (0, 0, ""))[2],
             "width": int(tl.GetSetting("timelineResolutionWidth") or 1920), "height": int(tl.GetSetting("timelineResolutionHeight") or 1080)}
@@ -5445,7 +5739,7 @@ def op_markers_clear(a):
 
 
 OPS = {"markers_clear": op_markers_clear, "timeline_frames": op_timeline_frames, "cut_words": op_cut_words, "cut_transcribe": op_cut_transcribe, "cut_subtitles": op_cut_subtitles, "glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track,
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "word_fit_info": op_word_fit_info, "word_fit_set": op_word_fit_set, "word_fit_clear": op_word_fit_clear, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track,
        "spot_source": op_spot_source, "spot_place": op_spot_place, "spot_set": op_spot_set, "spot_get": op_spot_get, "spot_remove": op_spot_remove}
 
 

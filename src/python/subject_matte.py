@@ -3,7 +3,8 @@ written as RGBA cut-outs (the footage where the person is, transparent elsewhere
 place the big word behind the head.
 
 Runs in the app's tracker venv (onnxruntime + OpenCV + numpy). Reads one JSON line on stdin:
-  {dir, frames: [timeline frames], model, out, feather?, downsample?}
+  {dir, frames: [timeline frames], model, out, feather? (px), choke? (0..0.4), band? (px), islands? (0..1), downsample?}
+(downsample above ~0.3 at HD makes RVM key the background - SIC logo - so keep the 512 px default)
 dir/f<frame>.jpg are the footage frames (timeline space, Edit sizing applied - bridge track_frames). Writes
 out/c%05d.png (index 0..n-1, an image sequence Resolve imports as one clip) and prints JSON lines:
   {"progress": i, "total": n}  ...  {"done": true, "stats": {...}}   or   {"error": "..."}
@@ -49,28 +50,83 @@ def head_top(a):
     return top / float(h), cx
 
 
-def keep_subject(al):
+def keep_subject(al, keep_frac=0.12):
     """Drops matte islands that are not the person: RVM sometimes keys bright signage / logos in the background. Keeps
-    the components at least 12% the size of the largest one (the body, plus a detached hand or arm)."""
+    the components at least 12% the size of the largest one (the body, plus a detached hand or arm). An opening first
+    cuts the thin soft bridges that join a wall sign to the hair, so the sign becomes its own island and is dropped."""
     h, w = al.shape
     small = cv2.resize(al, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
-    n, lab, st, _ = cv2.connectedComponentsWithStats((small > 0.3).astype(np.uint8), 8)
+    solid = cv2.morphologyEx((small > 0.5).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, lab, st, _ = cv2.connectedComponentsWithStats(solid, 8)
     if n <= 2:
         return al
     areas = st[1:, cv2.CC_STAT_AREA]
     big = areas.max()
     keep = np.zeros(n, np.uint8)
-    keep[1:] = (areas >= 0.12 * big).astype(np.uint8)
+    keep[1:] = (areas >= keep_frac * big).astype(np.uint8)
     m = keep[lab] * 255
     m = cv2.dilate(m, np.ones((5, 5), np.uint8))
     m = cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255.0
-    return al * m
+    return al * cv2.GaussianBlur(m, (0, 0), 2)
+
+
+def fill_holes(al):
+    """Makes everything enclosed by the silhouette opaque: RVM leaves eyes, teeth and shiny skin half transparent, and
+    the word then shows through the face. Background = what is reachable from any frame edge (the desk between the arms
+    at the bottom is background too, not a hole)."""
+    h, w = al.shape
+    ff = (al > 0.9).astype(np.uint8)
+    m = np.zeros((h + 2, w + 2), np.uint8)
+    for x in range(0, w, 4):
+        for y in (0, h - 1):
+            if ff[y, x] == 0:
+                cv2.floodFill(ff, m, (x, y), 2)
+    for y in range(0, h, 4):
+        for x in (0, w - 1):
+            if ff[y, x] == 0:
+                cv2.floodFill(ff, m, (x, y), 2)
+    return np.maximum(al, (ff == 0).astype(np.float32))
+
+
+def near_core(al, band):
+    """Keeps soft alpha only within `band` px of the solid subject (alpha > 0.9): hair wisps and edges stay, but the
+    half-keyed wall / desk patches RVM hangs off the shoulders and hands (grey clouds once the room is dimmed) go."""
+    core = (al > 0.9).astype(np.uint8)
+    if not core.any():
+        return al
+    dist = cv2.distanceTransform(1 - core, cv2.DIST_L2, 3)
+    return al * np.clip((band - dist) / (0.5 * band), 0, 1)
+
+
+def clean_matte(al, choke=0.12, feather=0.7, band=None, keep_frac=0.12):
+    """RVM alpha -> a cut-out that reads cleanly with a bright word behind it: levels squeeze the soft haze around the
+    hair (glow and wall colour bleeding through) and firm up the inside, then islands are dropped, holes filled and the
+    edge softened by `feather` px."""
+    if choke > 0:
+        al = np.clip((al - choke) / (1.0 - 2.0 * choke), 0, 1)
+    al = keep_subject(al, keep_frac)
+    al = near_core(al, band or max(6.0, 0.008 * max(al.shape)))     # ~15 px at 1080x1920
+    al = fill_holes(al)
+    if feather > 0:
+        al = cv2.GaussianBlur(al, (0, 0), feather)
+    return np.clip(al, 0, 1)
+
+
+def decontaminate(img, fgr, al):
+    """Edge colour: the footage pixels inside, RVM's predicted foreground where the matte is soft, so the wall / sign
+    colour behind loose hair does not ring the head (a pink fringe over a red glow)."""
+    f8 = cv2.cvtColor((np.clip(fgr, 0, 1) * 255.0 + 0.5).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    wgt = (np.clip((1.0 - al) * 2.0, 0, 1) * (al > 0.35) * 0.6)[..., None]
+    return (img * (1.0 - wgt) + f8 * wgt + 0.5).astype(np.uint8)
 
 
 def main():
     a = json.loads(sys.stdin.readline())
     src_dir, frames, out = a["dir"], [int(f) for f in a["frames"]], a["out"]
-    feather = float(a.get("feather", 1.0))
+    feather = float(a.get("feather", 0.7))
+    choke = float(a.get("choke", 0.12))
+    band = float(a["band"]) if a.get("band") else None
+    keep_frac = float(a.get("islands", 0.12))
     os.makedirs(out, exist_ok=True)
     cancel = os.path.join(src_dir, "cancel")
     sess = session(a["model"])
@@ -82,6 +138,11 @@ def main():
     # RVM's own guidance: downsample so the long side is ~512 px at HD (0.25 for 4K); quality vs speed
     ds = float(a.get("downsample") or min(1.0, 512.0 / max(W, H)))
     dsr = np.array([ds], np.float32)
+    # warm-up: RVM's recurrent state starts empty, so frame 0 comes out with half-transparent patches (forehead,
+    # eyes); a few passes over the first frame settle it before the real run
+    rgb0 = np.ascontiguousarray((cv2.cvtColor(first, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0).transpose(2, 0, 1)[None])
+    for _ in range(3):
+        _, _, *rec = sess.run(None, {"src": rgb0, "r1i": rec[0], "r2i": rec[1], "r3i": rec[2], "r4i": rec[3], "downsample_ratio": dsr})
     tops, cxs, per = [], [], []
     union = None
     t0 = time.time()
@@ -99,10 +160,7 @@ def main():
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         src = np.ascontiguousarray(rgb.transpose(2, 0, 1)[None])
         fgr, pha, *rec = sess.run(None, {"src": src, "r1i": rec[0], "r2i": rec[1], "r3i": rec[2], "r4i": rec[3], "downsample_ratio": dsr})
-        al = pha[0, 0]
-        if feather > 0:
-            al = cv2.GaussianBlur(al, (0, 0), feather)
-        al = keep_subject(np.clip(al, 0, 1))
+        al = clean_matte(np.clip(pha[0, 0], 0, 1), choke, feather, band, keep_frac)
         top, cx = head_top(al)
         per.append([round(top, 4) if top is not None else None, round(cx, 4) if cx is not None else None])
         if top is not None:
@@ -112,8 +170,8 @@ def main():
         if len(xs):
             b = (xs.min(), ys.min(), xs.max(), ys.max())
             union = b if union is None else (min(union[0], b[0]), min(union[1], b[1]), max(union[2], b[2]), max(union[3], b[3]))
-        # straight alpha: the original footage pixels (not RVM's predicted foreground, which shifts colour at edges)
-        rgba = np.dstack([img, (al * 255.0 + 0.5).astype(np.uint8)])
+        # straight alpha: the original footage pixels inside, RVM's foreground only on the soft edge
+        rgba = np.dstack([decontaminate(img, fgr[0].transpose(1, 2, 0), al), (al * 255.0 + 0.5).astype(np.uint8)])
         pending.append(pool.submit(cv2.imwrite, os.path.join(out, "c%05d.png" % i), rgba, [cv2.IMWRITE_PNG_COMPRESSION, 1]))
         while len(pending) > 8:
             pending.pop(0).result()

@@ -5,7 +5,7 @@
 //   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
 // Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
-module.exports = { clipTiming, currentFusionClip, setClipTiming };
+module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings };
 
 const state = require('./state');
 const { RESOLVE_BATCH } = require('./config');
@@ -206,7 +206,7 @@ async function clipTiming(event, opts) {
             const length = Math.max(1, c.end - c.start);
             return Object.assign({
                 ok: true, itemId: c.itemId, name: c.name, selected: !!c.selected, kind: info.kind,
-                start: c.start, length, fps: meta.meta.fps, frame,
+                start: c.start, length, fps: meta.meta.fps, frame, fitted: !!info.fitted,
                 playhead: frame >= c.start && frame < c.end ? frame - c.start : null
             }, { ranges: rangesFor(info, length, meta.meta.fps) });
         }
@@ -336,4 +336,163 @@ async function moveSegSounds(itemId, list) {
         } catch (e) { /* the sounds are in place; only the badge stays */ }
     }
     return { moved, failed };
+}
+
+// ------------------------------------------------------------------ Fit to words (src/main/word-fit.js)
+// The spoken words under a placed clip, in frames from the clip's start: the cached transcription of the dialogue
+// track when one covers the clip (Cut tab Analyse, transcribe_words), else that span is transcribed now.
+// The dialogue clips under a timeline span (the lowest audio track with sound, as the Cut tab's word analysis).
+async function wordSegs(start, end) {
+    const MEDIA = require('./media-analysis');
+    const CUTTOOLS = require('./cut-tools');
+    const pad = 12;
+    const media = await CUTTOOLS.timelineMedia({ startFrame: Math.max(0, start - pad), endFrame: end + pad });
+    const segs = MEDIA.pickSegments('words', media, {}).filter(s => s.tlEnd > start && s.tlStart < end);
+    return { media, segs };
+}
+// Cached words of those clips over the span ([{ w, start, end }] in timeline frames), or null when one has none.
+function cachedSpanWords(media, segs) {
+    const MEDIA = require('./media-analysis');
+    const words = [];
+    for (const seg of segs) {
+        const m = MEDIA.sourceMapper(seg);
+        const a = Math.max(media.from, seg.tlStart), b = Math.min(media.to, seg.tlEnd);
+        const w = MEDIA.cachedWords(seg.file, m.toFile(a), m.toFile(b));
+        if (!w) return null;
+        for (const x of w) words.push({ w: x.w, start: m.toFrame(x.start), end: m.toFrame(x.end) });
+    }
+    return words;
+}
+
+// The spoken words under a placed clip, in frames from the clip's start: the cached transcription of the dialogue
+// track when one covers the clip (Activate word timings, Cut tab Analyse, transcribe_words), else that span is
+// transcribed now.
+async function spokenWordsFor(start, end) {
+    const MEDIA = require('./media-analysis');
+    const { media, segs } = await wordSegs(start, end);
+    const inClip = (w) => w.end > start && w.start < end && (w.start + w.end) / 2 >= start - 1 && (w.start + w.end) / 2 < end;
+    const rel = (w) => ({ w: w.w, start: w.start - start, end: w.end - start });
+    let words = segs.length ? cachedSpanWords(media, segs) : null, cached = true;
+    if (!words) {
+        cached = false;
+        const r = await MEDIA.analyseTimeline('words', media, {});
+        if (!r.words.length && r.warnings.length) throw new Error(r.warnings[0]);
+        words = r.words;
+    }
+    return { words: words.filter(inClip).map(rel).sort((x, y) => x.start - y.start), cached };
+}
+
+async function clipSpan(itemId) {
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) throw new Error('Open a timeline in Resolve');
+    const item = await findItemById(tl, String(itemId));
+    if (!item) throw new Error('That clip is no longer on the timeline');
+    return { start: Number(await item.GetStart()), end: Number(await item.GetEnd()) };
+}
+
+// Is there a word transcription for the dialogue under this clip? (the timing card's Word timings row)
+// -> { ok, available, engine, sound }. Read once per clip (and again after a while), not on every poll.
+const wordsSeen = new Map();
+let asrSeen = { at: 0, engine: null };
+async function wordTimingStatus(event, itemId, force) {
+    if (!itemId) return { ok: false };
+    const k = String(itemId);
+    const c = wordsSeen.get(k);
+    if (c && !force && Date.now() - c.at < 60000) return c.r;
+    try {
+        if (Date.now() - asrSeen.at > 300000 || asrSeen.engine === null) {
+            const st = await require('./media-analysis').asrStatus();
+            asrSeen = { at: Date.now(), engine: st.engines.length > 0 };
+        }
+        const { start, end } = await clipSpan(k);
+        const { media, segs } = await wordSegs(start, end);
+        const r = { ok: true, itemId: k, sound: segs.length > 0, available: segs.length > 0 && !!cachedSpanWords(media, segs), engine: asrSeen.engine };
+        wordsSeen.set(k, { at: Date.now(), r });
+        if (wordsSeen.size > 300) wordsSeen.delete(wordsSeen.keys().next().value);
+        return r;
+    } catch (e) {
+        return { ok: false, reason: e.message };
+    }
+}
+
+// "Activate word timings": transcribes the whole recording(s) under the clip once, so this clip and every other one
+// cut from the same recording can be fitted without waiting again.
+let activating = null;
+async function activateWordTimings(event, itemId) {
+    if (activating) return { error: 'Word timings are already being worked out' };
+    const MEDIA = require('./media-analysis');
+    activating = String(itemId);
+    try {
+        const { start, end } = await clipSpan(itemId);
+        const { segs } = await wordSegs(start, end);
+        if (!segs.length) return { error: 'No dialogue under this clip (the lowest audio track with sound is used)' };
+        const st = await MEDIA.asrStatus();
+        if (!st.engines.length) return { error: 'No speech engine is installed: ' + st.install.join('; ') };
+        const files = [...new Set(segs.map(x => x.file))];
+        let words = 0;
+        for (const f of files) {
+            const r = await MEDIA.transcribeWords(f, {});
+            words += (r.words || []).length;
+        }
+        wordsSeen.clear();
+        return { ok: true, files: files.length, words, names: segs.map(x => x.name).filter((v, i, a) => a.indexOf(v) === i) };
+    } catch (e) {
+        return { error: e.message };
+    } finally { activating = null; }
+}
+
+async function fitClipToWords(event, itemId) {
+    if (!itemId) return { error: 'No clip' };
+    if (state.applying) return { error: 'Busy placing: try again in a moment' };
+    const WF = require('./word-fit');
+    let start, end;
+    try { ({ start, end } = await clipSpan(itemId)); } catch (e) { return { error: e.message }; }
+    const length = Math.max(1, end - start);
+    let spoken;
+    try { spoken = await spokenWordsFor(start, end); } catch (e) { return { error: 'No word timings: ' + e.message }; }
+    if (!spoken.words.length) return { error: 'No spoken words under this clip (the dialogue is on the lowest audio track with sound)' };
+    const info = await bridgeCall('word_fit_info', { item: String(itemId) }, 8000);
+    const kind = info && info.kind;
+    if (!kind) return { error: 'This clip\'s preset has no timing slider' };
+    const done = (r, extra) => { cache.delete(String(itemId)); candMemo.list = null; return Object.assign({ ok: true, kind, spokenWords: spoken.words.length, transcribed: !spoken.cached }, extra, r); };
+
+    if (kind === 'segments') {
+        const rows = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
+        const plan = WF.planRows(rows.filter(r => String(r.text || '').trim()).map(r => ({ key: String(r.n), text: r.text })), spoken.words, length);
+        if (!plan || !plan.ranges.length) return { error: 'Could not match the rows\' text to the spoken words' };
+        const r = await setClipTiming(event, itemId, plan.ranges, true);
+        if (r.error) return r;
+        return done({ mode: 'rows', rows: plan.ranges.length, matched: plan.matched, words: plan.words, sounds: r.sounds });
+    }
+    // word-pop presets: a curve through the spoken words (fusion_bridge op_word_fit_set)
+    let plan = null, mode = null;
+    if (info.target === 'animtime') {
+        // the Follower that sets the natural length carries the reveal
+        const len = (t) => (Number(t.a) || 0) + (Number(t.delay) || 0) * Math.max(0, WF.textWords(t.text).letters - 1);
+        const term = info.terms.slice().sort((x, y) => len(y) - len(x))[0];
+        plan = WF.planAnimKeys(term, spoken.words, length);
+        mode = 'letters';
+    } else if (info.target === 'step') {
+        plan = WF.planStepKeys(info.units || [], spoken.words, length, info.pop);
+        mode = info.preset === 'justpop' ? 'words' : 'rows-pop';
+    } else if (info.target === 'typing') {
+        plan = WF.planTypingKeys(info.text, spoken.words, length);
+        mode = 'typing';
+    }
+    if (plan) {
+        const r = await bridgeCall('word_fit_set', { item: String(itemId), target: info.target, keys: plan.keys, frames: plan.frames,
+            start: plan.start, end: plan.end, wake: true }, 15000);
+        if (!(r && r.ok)) return { error: (r && r.why) || 'Could not key the clip' };
+        let sounds = null;
+        try { sounds = await refitRowSounds(String(itemId)); } catch (e) { sounds = { error: e.message }; }
+        return done({ mode, keys: plan.keys.length, matched: plan.matched, words: plan.words, units: plan.units,
+            speed: info.target === 'typing' ? null : WF.speedRange(plan.keys), start: plan.start, end: plan.end, sounds });
+    }
+    // whole-text animations (or nothing matched): one range on the spoken words
+    const lin = WF.planLinear(kind, spoken.words, length);
+    if (!lin) return { error: 'Could not fit the timing' };
+    const r = await setClipTiming(event, itemId, [{ key: kind, start: lin.start, end: lin.end }], true);
+    if (r.error) return r;
+    return done({ mode: 'range', start: lin.start, end: lin.end, sounds: r.sounds });
 }

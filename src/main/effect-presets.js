@@ -356,6 +356,7 @@ async function fxSet(event, effectId, on, strength, params, hold) {
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
     ensureInstalled();
+    if (EFFECT_SFX_DEFAULTS[effectId]) takeSfxFlag(effectId, params);
     const before = EFFECT_SFX_DEFAULTS[effectId] ? await fxClipsWith(effectId) : null;
     const r = await require('./fusion-bridge').bridgeCall('fx_set', { effect: effectId, on: on === true || on === false ? on : null, strength: Number.isFinite(Number(strength)) && strength !== null ? Math.max(0, Math.min(100, Number(strength))) : null, params: cleanParams(params), hold: Number.isFinite(Number(hold)) && hold !== null ? Math.max(1, Math.min(10, Math.round(Number(hold)))) : null }, 15000);
     if (before && r && Array.isArray(r.clips)) {
@@ -373,7 +374,16 @@ const EFFECT_SFX_DEFAULTS = {
     // heard only while the picture glitches: cuts of a 20 s texture (tools/trim-sfx.py glitch_bed), one per burst
     Glitch: { file: 'kave_msri-glitch-bed-312910b.wav', volume: -6, follow: 'bursts', bedSeconds: 20 }
 };
+// The panel's SFX checkbox (params.Sfx 1/0, sent with every add / setting change); on until told otherwise
+const fxSfxOn = {};
+function takeSfxFlag(effectId, params) {
+    const v = params && typeof params === 'object' ? params.Sfx : undefined;
+    if (v === undefined || v === null || !Number.isFinite(Number(v))) return null;
+    fxSfxOn[effectId] = Number(v) !== 0;
+    return fxSfxOn[effectId];
+}
 function effectSfxSpec(effectId) {
+    if (fxSfxOn[effectId] === false) return null;
     let lib = null;
     try { lib = require('./library').loadLib(); } catch (e) { lib = null; }
     const own = lib && lib.effectSfx && lib.effectSfx[effectId];
@@ -520,6 +530,42 @@ async function resyncEffectSfx(effectId) {
     return { placed, clips: sel.length, warnings };
 }
 
+// SFX checkbox flipped: off removes the effect's sounds from the selected clips, on puts them on the ones that have none.
+async function toggleEffectSfx(effectId, on) {
+    const state = require('./state');
+    const { getProject, timelineMeta } = require('./resolve');
+    const P = require('./placement');
+    const reg = fxSfxRead();
+    const mine = reg[effectId] = reg[effectId] || {};
+    const sel = Array.from(await fxClipsWith(effectId));
+    if (!sel.length) return null;
+    const project = await getProject();
+    const tl = project && await project.GetCurrentTimeline();
+    if (!tl) return null;
+    const spec = on ? effectSfxSpec(effectId) : null;
+    const warnings = [];
+    let placed = 0, deleted = 0;
+    state.applying = true;
+    try {
+        const meta = on && spec ? await timelineMeta(tl, project) : null;
+        for (const id of sel) {
+            if (!on) {
+                const ids = mine[id] || [];
+                const left = ids.length ? await P.deleteExtraSfx(tl, ids) : [];
+                deleted += ids.length - left.length;
+                if (left.length) mine[id] = left; else delete mine[id];
+            } else if (spec && !(mine[id] && mine[id].length)) {
+                const got = await placeEffectSounds(tl, project, meta, effectId, id, spec, warnings);
+                if (got.length) { mine[id] = got; placed += got.length; }
+            }
+        }
+    } finally {
+        state.applying = false;
+        fxSfxWrite(reg);
+    }
+    return { placed, deleted, warnings };
+}
+
 // Sets one effect's Strength (0..100) on the selected clips that have it.
 async function fxStrength(event, effectId, value) {
     const state = require('./state');
@@ -542,8 +588,13 @@ async function fxParam(event, effectId, values) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
-    const r = await require('./fusion-bridge').bridgeCall('fx_param', { effect: effectId, values: cleanParams(values) }, 8000);
-    if (r && EFFECT_SFX_DEFAULTS[effectId]) { try { r.sounds = await resyncEffectSfx(effectId); } catch (e) { r.sounds = { error: e.message }; } }
+    const flag = EFFECT_SFX_DEFAULTS[effectId] ? takeSfxFlag(effectId, values) : null;
+    const clean = cleanParams(values);
+    delete clean.Sfx;
+    const only = flag !== null && !Object.keys(clean).length;
+    const r = only ? await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000) : await require('./fusion-bridge').bridgeCall('fx_param', { effect: effectId, values: clean }, 8000);
+    if (r && flag !== null) { try { r.sounds = await toggleEffectSfx(effectId, flag); } catch (e) { r.sounds = { error: e.message }; } }
+    else if (r && EFFECT_SFX_DEFAULTS[effectId]) { try { r.sounds = await resyncEffectSfx(effectId); } catch (e) { r.sounds = { error: e.message }; } }
     return r;
 }
 

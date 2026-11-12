@@ -21,6 +21,10 @@
     "stopAutomation:function",
     "swapAudioIds:function"
   ],
+  "boilerplates.js": [
+    "boilerplateList:function",
+    "insertBoilerplate:function"
+  ],
   "clip-colors-db.js": [
     "subtitleColorsFromDb:function"
   ],
@@ -420,6 +424,7 @@
     "updateLatest:function"
   ],
   "title-templates.js": [
+    "BOILERPLATE_TITLES:object",
     "inspectorSafeComp:function",
     "installAllTemplates:function",
     "isTitleClipName:function",

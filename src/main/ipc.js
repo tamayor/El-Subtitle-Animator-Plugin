@@ -39,6 +39,7 @@ const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
 const { clipTiming, setClipTiming } = require('./anim-timing');
 const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } = require('./clip-controls');
+const { boilerplateList, insertBoilerplate } = require('./boilerplates');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
 function wrap(fn) {
@@ -52,6 +53,8 @@ const SAFE_HANDLERS = {
     'app:liveFrame': liveFrame,
     'timing:get': clipTiming,
     'timing:set': setClipTiming,
+    'boilerplate:list': () => boilerplateList(),
+    'boilerplate:insert': insertBoilerplate,
     'fx:list': fxList,
     'fx:get': fxGet,
     'fx:set': fxSet,

@@ -1,0 +1,114 @@
+Composition {
+	CurrentTime = 20,
+	RenderRange = { 0, 89 },
+	GlobalRange = { 0, 89 },
+	CurrentID = 30,
+	HiQ = true,
+	PlaybackUpdateMode = 0,
+	StereoMode = false,
+	Version = "DaVinci Resolve Studio 21.1.2.0010",
+	SavedOutputs = 0,
+	HeldTools = 0,
+	DisabledTools = 0,
+	LockedTools = 0,
+	AudioOffset = 0,
+	Resumable = true,
+	OutputClips = {
+	},
+	CustomData = { TEMPLATE_ID = "Text+" },
+	Tools = {
+		Template = TextPlus {
+			CtrlWZoom = false,
+			Inputs = {
+				AnimFrames = Input { Value = 0, },
+				AnimNatural = Input { Value = 1, Expression = ": local function n(s) s = tostring(s or \"\"):gsub(\"[\\128-\\191]\", \"\"):gsub(\"[\\r\\n]\", \"\"); return #s end\nreturn math.max(1, 12 + 0.6 * math.max(0, n(Follower1.Text.Value) - 1))", },
+				GlobalOut = Input { Value = 89, },
+				Width = Input { Value = 1080, },
+				Height = Input { Value = 1920, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				Softness1 = Input { Value = 1, },
+				StyledText = Input {
+					SourceOp = "Follower1",
+					Source = "StyledText",
+				},
+				Font = Input { Value = "Poppins", },
+				Style = Input { Value = "ExtraBold", },
+				Size = Input { Value = 0.09, },
+				VerticalJustificationNew = Input { Value = 3, },
+				HorizontalJustificationNew = Input { Value = 3, }
+			},
+			UserControls = ordered() { AnimFrames = { LINKS_Name = "Animation Frames", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Integer = true, INP_Default = 0, INP_MinAllowed = 0, INP_MaxAllowed = 100000, INP_MinScale = 0, INP_MaxScale = 120, ICS_ControlPage = "Text", INP_External = false, INPS_StatusText = "Frame where the last effect ends (0 = the preset's own timing)", }, AnimNatural = { LINKS_Name = "Natural Frames", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", IC_Visible = false, INP_Passive = true, INP_External = false, ICS_ControlPage = "Text", }, },
+			ViewInfo = OperatorInfo { Pos = { 220, 49.5 } },
+			Version = 1
+		},
+		AnimTime = TimeStretcher {
+			Inputs = {
+				SourceTime = Input { Value = 0, Expression = ": local T = math.floor(tonumber(Template.AnimFrames) or 0)\nif T <= 0 then return time end\nlocal N = tonumber(Template.AnimNatural) or T\nlocal rel = time - comp.RenderStart\nif rel < T then return comp.RenderStart + rel * N / T end\nreturn comp.RenderStart + N + rel - T", },
+				InterpolateBetweenFrames = Input { Value = 0, },
+				Input = Input { SourceOp = "Template", Source = "Output", },
+			},
+		},
+		Follower1 = StyledTextFollower {
+			CtrlWZoom = false,
+			Inputs = {
+				Order = Input { Value = 7, },
+				Delay = Input { Value = 0.6, },
+				Text = Input {
+					Value = StyledText {
+						Value = "Boilerplate text"
+					},
+				},
+				SelectTransform = Input { Value = 1, },
+				TransformRotation = Input { Value = 1, },
+				TransformSize = Input { Value = 1, },
+				Opacity1 = Input {
+					SourceOp = "Follower1Opacity1",
+					Source = "Value",
+				},
+				Softness1 = Input { Value = 1, },
+				Softness2 = Input { Value = 1, },
+				Softness3 = Input { Value = 1, },
+				Softness4 = Input { Value = 1, },
+				Softness5 = Input { Value = 1, },
+				Softness6 = Input { Value = 1, },
+				Softness7 = Input { Value = 1, },
+				Softness8 = Input { Value = 1, }
+			},
+		},
+		Follower1Opacity1 = BezierSpline { CtrlWZoom = false,
+			SplineColor = { Red = 180, Green = 120, Blue = 240 },
+			KeyFrames = {
+				[0] = { 0, RH = { 4, 0.6 } },
+				[12] = { 1, LH = { 8, 1 } }
+			}
+		},
+		MediaOut1 = Saver { CtrlWZoom = false,
+			Inputs = {
+				Index = Input { Value = "0", },
+				Input = Input {
+					SourceOp = "AnimTime",
+					Source = "Output",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 440, 49.5 } },
+		}
+	},
+	Frames = {
+	},
+	Prefs = {
+		Comp = {
+			FrameFormat = {
+				Width = 1080,
+				Height = 1920,
+				Rate = 29.97002997003,
+				GuideRatio = 1.77777777777778,
+				DepthFull = 3,
+				DepthPreview = 3,
+				DepthInteractive = 3,
+			},
+			Unsorted = {
+				GlobalEnd = 89
+			},
+		}
+	},
+}

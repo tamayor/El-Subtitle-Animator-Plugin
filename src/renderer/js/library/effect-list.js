@@ -25,7 +25,7 @@ function fxDefaultParams(e) {
     if (e.transform) return Object.assign({}, e.transform.defaults);
     if (e.track) return Object.assign({}, e.track.defaults);
     const g = e.glitch || { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85, duration: 0 };
-    return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity, Dur: g.duration || 0 };
+    return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity, Dur: g.duration || 0, Sfx: 1 };
 }
 // the settings used when the effect is added (remembered per viewer)
 function fxNextParams(e) {
@@ -130,7 +130,15 @@ function fxGlitchOptions(e, st) {
     rng.addEventListener('change', () => fxSendParams(e, st, { Opacity: Number(rng.value) }, true));
     op.title = 'How strong the coloured fringes are';
     op.append(cap, rng, val);
-    d.append(entry, bl, du, look, colRow, op);
+    // Sound effect (the glitch sound put on the timeline with the effect; unticked = no sound, existing ones removed)
+    const sfxHead = document.createElement('div'); sfxHead.className = 'fx-opt-head'; sfxHead.textContent = 'Sound';
+    const sl = document.createElement('label'); sl.className = 'fx-opt-row fx-check';
+    const scb = document.createElement('input'); scb.type = 'checkbox'; scb.checked = Number(p.Sfx) !== 0;
+    hold(scb);
+    scb.addEventListener('change', () => fxSendParams(e, st, { Sfx: scb.checked ? 1 : 0 }, true));
+    sl.append(scb, document.createTextNode('SFX'));
+    sl.title = 'Put the glitch sound effect on the timeline with this effect. Untick to leave it out (the sound already on the selected clips is removed)';
+    d.append(entry, bl, du, look, colRow, op, sfxHead, sl);
     for (const ev of ['click', 'mousedown', 'pointerdown']) d.addEventListener(ev, (x) => x.stopPropagation());
     return d;
 }
@@ -480,6 +488,7 @@ function fxViewObserver() {
                 const c = en.target;
                 if (en.isIntersecting || !c.isConnected || c.classList.contains('fx-shut')) continue;
                 if (c.contains(document.activeElement)) continue;      // being edited
+                if (c.classList.contains('fx-on') || c.classList.contains('fx-some')) continue;      // an effect that is on keeps its options open
                 fxShow(c.dataset.id, false);
             }
         }, { threshold: 0 });
@@ -538,7 +547,10 @@ function fxBuildCard(e) {
     c.appendChild(optsAt);
     const dots = tagDotsEl({ tags: fxTagsOf(e) });
     if (dots) c.appendChild(dots);
-    c.addEventListener('click', () => { fxShow(e.id, true); fxToggle(e); });
+    // the switch alone turns the effect on / off; clicking the rest of the card only opens / closes its options
+    for (const ev of ['mousedown', 'pointerdown']) sw.addEventListener(ev, (x) => x.stopPropagation());
+    sw.addEventListener('click', (x) => { x.stopPropagation(); if (fxStateOf(e.id) === 'none') fxShow(e.id, true); fxToggle(e); });
+    c.addEventListener('click', () => fxShow(e.id, c.classList.contains('fx-shut')));
     fxViewObserver().observe(c);
     c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); fxTagMenu(c, e); });
     c._fx = { sw, sub, note, row, rng, val, optsAt, optsSig: null };
@@ -554,8 +566,8 @@ function fxFillCard(c, e) {
     const nodeClips = fxInNodes(e.id);
     // dragged in as a node AND switched on here (the node went in after): it runs twice - click the card to remove this one
     const twice = nodeClips.some(x => x.effects && x.effects[e.id]);
-    let title = e.tip + (st === 'on' ? '\nClick to remove it from the selected clip(s)' : '\nClick to add it to the selected clip(s)');
-    if (twice) title += '\nAlso a node in the clip\'s Fusion graph, so it runs twice: click to remove the panel one';
+    let title = e.tip + (st === 'on' ? '\nUse the switch to remove it from the selected clip(s); click here to show / hide its options' : '\nUse the switch to add it to the selected clip(s); click here to show / hide its options');
+    if (twice) title += '\nAlso a node in the clip\'s Fusion graph, so it runs twice: use the switch to remove the panel one';
     if (nodeClips.length) title += '\nAlready a node in the Fusion graph of: ' + nodeClips.map(x => x.name).join(', ') + ' (not added again there)';
     fxPut(c, 'title', title);
     const aria = st === 'on' ? 'true' : (st === 'some' ? 'mixed' : 'false');

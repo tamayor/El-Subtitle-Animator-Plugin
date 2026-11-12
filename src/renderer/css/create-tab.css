@@ -318,3 +318,135 @@
 .cr-def .cr-head {
     margin-bottom: 9px;
 }
+
+/* ---------------------------------------------------------------- Create tab: "Create using this" boilerplates */
+.cr-boiler { margin-bottom: 14px; }
+
+.boiler-headrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.boiler-manual-btn { white-space: nowrap; }
+
+.boiler-tile { cursor: default; min-height: 0; gap: 4px; }
+
+.boiler-tile:hover { transform: none; }
+
+.boiler-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.boiler-actions button {
+    width: auto;
+    height: 26px;
+    padding: 0 12px;
+    font-size: 11.5px;
+    line-height: 1;
+}
+
+.boiler-actions button.primary { font-weight: 600; }
+
+.boiler-actions button.busy { opacity: .6; cursor: progress; }
+
+.boiler-status { margin-top: 8px; min-height: 0; }
+
+.boiler-status:empty { display: none; }
+
+/* The pop-up manual */
+.bm-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    background: rgba(8, 11, 9, 0.62);
+    animation: popIn 0.12s ease-out;
+}
+
+.bm-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 560px;
+    max-height: 100%;
+    background: #1d231f;
+    border: 1px solid #36423a;
+    border-radius: 12px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+
+.bm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px 8px;
+}
+
+.bm-title { font-weight: 700; font-size: 13px; color: var(--text); }
+
+.bm-x { padding: 2px 8px; line-height: 1.2; }
+
+.bm-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 0 12px 8px;
+    border-bottom: 1px solid var(--line);
+}
+
+.bm-tab {
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+
+.bm-tab:hover { color: var(--text); border-color: var(--matcha-border); }
+
+.bm-tab.on {
+    color: var(--matcha-ink);
+    background: var(--matcha);
+    border-color: var(--matcha);
+    font-weight: 600;
+}
+
+.bm-body {
+    overflow-y: auto;
+    padding: 10px 14px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.bm-h {
+    margin: 12px 0 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--matcha);
+}
+
+.bm-h:first-child { margin-top: 0; }
+
+.bm-p { margin: 0 0 6px; color: var(--text); }
+
+.bm-list { margin: 0 0 6px; padding-left: 18px; }
+
+.bm-list li { margin: 0 0 5px; padding-left: 2px; }
+
+.bm-list li::marker { color: var(--matcha); }

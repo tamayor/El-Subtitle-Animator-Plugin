@@ -15,6 +15,7 @@
 
 .fx-card .fx-switch {
     flex: none;
+    cursor: pointer;
     position: relative;
     width: 26px;
     height: 15px;

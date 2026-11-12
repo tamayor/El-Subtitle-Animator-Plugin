@@ -200,6 +200,7 @@ async function initApp() {
         });
     }
     bindLibTools();
+    initBoilerplates();
     $('tagsToggle').addEventListener('click', () => setTagsOpen(!tagUI.open));
     $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
     setTagsOpen(false);

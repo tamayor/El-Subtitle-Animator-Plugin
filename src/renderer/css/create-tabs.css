@@ -1,0 +1,6 @@
+/* Create tab: ScratchPad / SelfServe sub-tabs (js/library/create-tabs.js). The tab buttons reuse .presets-tabs / .presets-tab. */
+.create-head { margin: 0 0 8px; }
+#createWrap[data-ct="scratch"] > #selfServeSection,
+#createWrap[data-ct="scratch"] > #defaultSfxSection { display: none; }
+#createWrap[data-ct="selfserve"] > #boilerSection { display: none; }
+.boiler-next { display: flex; justify-content: flex-end; margin-top: 8px; }

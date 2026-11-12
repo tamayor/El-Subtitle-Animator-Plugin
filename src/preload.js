@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('sa', {
     liveFrame: (frame) => ipcRenderer.invoke('app:liveFrame', frame),
     clipTiming: (opts) => ipcRenderer.invoke('timing:get', opts || {}),
     setClipTiming: (itemId, ranges, wake) => ipcRenderer.invoke('timing:set', itemId, ranges, !!wake),
+    boilerplateList: () => ipcRenderer.invoke('boilerplate:list'),
+    insertBoilerplate: (id) => ipcRenderer.invoke('boilerplate:insert', id),
     fxList: () => ipcRenderer.invoke('fx:list'),
     fxGet: () => ipcRenderer.invoke('fx:get'),
     fxSet: (effectId, on, strength, params, hold) => ipcRenderer.invoke('fx:set', effectId, on, strength, params, hold),

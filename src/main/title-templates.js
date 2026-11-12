@@ -5,8 +5,11 @@
 // in README.md). This module names, writes, renames and prunes those template files and answers questions about a
 // preset that are read from its file: Text+ or MultiText, its output tool, its row controls, its typing length.
 
+// The Create tab's boilerplate presets (src/main/boilerplates.js): their templates are not pruned with the library's.
+const BOILERPLATE_TITLES = ['Text+ Boilerplate', 'MultiText Boilerplate'];
+
 module.exports = {
-    inspectorSafeComp, installAllTemplates, isTitleClipName, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames,
+    BOILERPLATE_TITLES, inspectorSafeComp, installAllTemplates, isTitleClipName, presetHasRowControls, presetOutputFor, presetTitleFor, presetTitleNames,
     pruneTemplates, startupTemplates, syncTemplates, tailFor, templateAgeMs, titleKindFor, titlesDir, typingFramesFor
 };
 
@@ -209,7 +212,7 @@ function pruneTemplates(animations) {
     try {
         const dir = titlesDir();
         if (!fs.existsSync(dir)) return removed;
-        const keep = new Set([...presetTitleNames(animations).values()].map(n => (n + '.setting').toLowerCase()));
+        const keep = new Set([...presetTitleNames(animations).values(), ...BOILERPLATE_TITLES].map(n => (n + '.setting').toLowerCase()));
         for (const f of fs.readdirSync(dir)) {
             if (!/\.setting$/i.test(f) || keep.has(f.toLowerCase())) continue;
             try { fs.unlinkSync(path.join(dir, f)); removed.push(f); } catch (e) { /* in use or gone */ }

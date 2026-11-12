@@ -20,7 +20,9 @@
     <link rel="stylesheet" href="./css/text-boxes.css">
     <link rel="stylesheet" href="./css/preset-list.css">
     <link rel="stylesheet" href="./css/effect-list.css">
+    <link rel="stylesheet" href="./css/presets-tabs.css">
     <link rel="stylesheet" href="./css/create-tab.css">
+    <link rel="stylesheet" href="./css/create-tabs.css">
     <link rel="stylesheet" href="./css/prompt-tab.css">
     <link rel="stylesheet" href="./css/text-style.css">
     <link rel="stylesheet" href="./css/tags.css">
@@ -67,7 +69,10 @@
     <script src="./js/ui/fusion-fixes.js" defer></script>
     <script src="./js/library/preset-list.js" defer></script>
     <script src="./js/library/effect-list.js" defer></script>
+    <script src="./js/library/presets-tabs.js" defer></script>
     <script src="./js/library/create-tab.js" defer></script>
+    <script src="./js/library/boilerplates.js" defer></script>
+    <script src="./js/library/create-tabs.js" defer></script>
     <script src="./js/library/prompt-tab.js" defer></script>
     <script src="./js/library/text-style.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
@@ -133,9 +138,9 @@
     </header>
 
     <nav class="tabs">
-        <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
-        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
         <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
+        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
+        <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
         <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
     </nav>
 
@@ -291,6 +296,15 @@
                     <div id="clipCtlBody" class="cc-body"></div>
                 </section>
 
+                <!-- Presets: Text / Effects sub-tabs (js/library/presets-tabs.js) -->
+                <div id="presetsWrap" class="presets-wrap" data-pt="text">
+                    <div class="presets-head">
+                        <span class="label">Presets</span>
+                        <div class="presets-tabs" role="tablist">
+                            <button type="button" class="presets-tab on" data-pt="text" role="tab" aria-selected="true">Text</button>
+                            <button type="button" class="presets-tab" data-pt="fx" role="tab" aria-selected="false">Effects</button>
+                        </div>
+                    </div>
                 <section id="presetSection">
                     <div class="row between preset-header-row">
                         <div class="preset-header-left">
@@ -368,6 +382,7 @@
                     <div id="fxTarget" class="fx-target meta">Select a clip on the timeline (video, title or text preset)</div>
                     <div id="fxGrid" class="grid view-list fx-grid"></div>
                 </section>
+                </div>
             </div>
 
             <div class="tab-col-side">
@@ -528,7 +543,57 @@
     <div id="tabCreate" class="hidden">
         <div class="tab-columns">
             <div class="tab-col-main">
-                <section class="cr">
+                <!-- Create: ScratchPad (boilerplates) / SelfServe (pick a clip in the timeline yourself) sub-tabs (js/library/create-tabs.js) -->
+                <div id="createWrap" class="create-wrap" data-ct="scratch">
+                    <div class="presets-head create-head">
+                        <span class="label">Create</span>
+                        <div class="presets-tabs" role="tablist">
+                            <button type="button" class="presets-tab on" data-ct="scratch" role="tab" aria-selected="true"
+                                title="Start from a boilerplate and animate it">ScratchPad</button>
+                            <button type="button" class="presets-tab" data-ct="selfserve" role="tab" aria-selected="false"
+                                title="Select the clip in your timeline yourself (or drop a file) and save it">SelfServe</button>
+                        </div>
+                    </div>
+                <section class="cr cr-boiler" id="boilerSection">
+                    <div class="cr-head">
+                        <div class="boiler-headrow">
+                            <span class="label">Create using this</span>
+                            <button id="boilerManualBtn" type="button" class="ghost sm-btn boiler-manual-btn"
+                                title="Step-by-step manual: how to animate a boilerplate and save it">? Manual</button>
+                        </div>
+                        <span class="cr-sub">Start from a ready preset that already has the right structure, then only
+                            animate it.</span>
+                    </div>
+                    <div class="cr-choices" id="boilerChoices">
+                        <div class="cr-tile boiler-tile" data-boiler="text">
+                            <span class="cr-tl">Text+ boilerplate</span>
+                            <span class="cr-ts">One block of text that fades in letter by letter. The fade is already set up.</span>
+                            <div class="boiler-actions">
+                                <button type="button" class="primary sm-btn" data-act="insert"
+                                    title="Puts it on your Resolve timeline at the playhead (3 seconds, first free layer above V1)">Put on timeline</button>
+                                <button type="button" class="ghost sm-btn" data-act="file"
+                                    title="Uses the boilerplate file itself as the text animation in step 2 below">Use as file</button>
+                            </div>
+                        </div>
+                        <div class="cr-tile boiler-tile" data-boiler="multitext">
+                            <span class="cr-tl">MultiText boilerplate</span>
+                            <span class="cr-ts">Upper / emphasis / lower rows with a highlight box and row timing.</span>
+                            <div class="boiler-actions">
+                                <button type="button" class="primary sm-btn" data-act="insert"
+                                    title="Puts it on your Resolve timeline at the playhead (3 seconds, first free layer above V1)">Put on timeline</button>
+                                <button type="button" class="ghost sm-btn" data-act="file"
+                                    title="Uses the boilerplate file itself as the text animation in step 2 below">Use as file</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="boilerStatus" class="status boiler-status"></div>
+                    <div class="boiler-next">
+                        <button id="boilerNext" type="button" class="ghost sm-btn"
+                            title="Switch to SelfServe: select your animated clip in the timeline, name it and save it">Next: save it in SelfServe →</button>
+                    </div>
+                </section>
+
+                <section class="cr" id="selfServeSection">
                     <div class="cr-head">
                         <span class="label">New text + sound effect</span>
                         <span class="cr-sub">Pair a Fusion text animation with a sound, then save it to your
@@ -589,7 +654,7 @@
                     <div id="createStatus" class="status"></div>
                 </section>
 
-                <section class="cr cr-def">
+                <section class="cr cr-def" id="defaultSfxSection">
                     <div class="cr-head">
                         <span class="label">Default sound effect</span>
                         <span class="cr-sub">Used by every preset that has no sound of its own.</span>
@@ -601,6 +666,7 @@
                         <button id="defClear" class="ghost" title="Remove">×</button>
                     </div>
                 </section>
+                </div>
 
             </div>
 

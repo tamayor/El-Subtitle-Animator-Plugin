@@ -70,7 +70,7 @@ const BOILER_MANUAL = [
             {
                 ol: [
                     'Select a row\'s Follower and change what it does: the Opacity, Word Size X / Y and Word Offset inputs are expressions that follow that row\'s start frame. Replace the expression (or keyframe the input) with your own motion.',
-                    'To change when a row starts, change Seg1Start / Seg2Start / Seg3Start rather than the keyframes: the sounds, the timing bar and the box follow those numbers.',
+                    'If you keyframe a row\'s Follower, saving it reads the first and last keyframe of that row and sets its Start / End for you, so the timing bar matches your animation. To change when a row starts without keyframes, change Seg1Start / Seg2Start / Seg3Start: the sounds, the timing bar and the box follow those numbers.',
                     'The box: Highlight Color, Box Width / Height / X / Y and Accent Opacity are in the Inspector and in the app\'s Clip controls. Accent Opacity 0 hides the box.',
                     'Rows: Row Gap, Gap Mode, Equal Gaps, All / Upper / Emphasis / Lower X and Y, and Justify are in Clip controls. Equal Gaps keeps the space above and below the emphasis the same.'
                 ]

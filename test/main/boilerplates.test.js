@@ -39,3 +39,19 @@ test('the MultiText boilerplate keeps rows, timing ranges, row and box controls'
         assert.ok(s.includes(part), part);
     }
 });
+
+test('detectSegments reads a keyframed MultiText row into its Seg range and leaves other rows alone', () => {
+    const { detectSegments } = env.main('retime');
+    const file = B.boilerplateList()[1].path;
+    let s = fs.readFileSync(file, 'utf8');
+    assert.equal(detectSegments(s), s, 'no keyframes: unchanged');
+    const spline = '\t\tEmphasisFollowerOpacity1 = BezierSpline {\n\t\t\tKeyFrames = {\n\t\t\t\t[5] = { 0 },\n\t\t\t\t[21] = { 1 }\n\t\t\t}\n\t\t},\n';
+    const at = s.indexOf('\t\tEmphasisFollower = StyledTextFollower {');
+    s = s.slice(0, at) + spline + s.slice(at);
+    s = s.replace(/(EmphasisFollower = StyledTextFollower \{[\s\S]*?)Opacity1 = Input \{[^\n]*\n/, '$1Opacity1 = Input { SourceOp = "EmphasisFollowerOpacity1", Source = "Value", },\n');
+    const out = detectSegments(s);
+    assert.match(out, /Seg2Start = Input \{ Value = 5, \}/);
+    assert.match(out, /Seg2End = Input \{ Value = 21, \}/);
+    assert.match(out, /Seg1Start = Input \{ Value = 0, \}/);
+    assert.match(out, /Seg3End = Input \{ Value = 44, \}/);
+});

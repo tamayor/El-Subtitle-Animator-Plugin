@@ -315,6 +315,7 @@
   ],
   "retime.js": [
     "addRetiming:function",
+    "detectSegments:function",
     "retimeTerms:function",
     "upgradeRetiming:function",
     "upgradeTyping:function"

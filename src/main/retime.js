@@ -14,7 +14,7 @@
 // written, see title-templates.js presetTitleFor). Presets with their own per-text ranges (Seg1Start ..., e.g. "Highlight
 // Select") are timed by those and get no retiming.
 
-module.exports = { addRetiming, retimeTerms, upgradeRetiming, upgradeTyping };
+module.exports = { addRetiming, detectSegments, retimeTerms, upgradeRetiming, upgradeTyping };
 
 const SPLINES = /^(BezierSpline|CubicSpline|LUTBezier|PolyPath|XYPath|Path)$/;
 
@@ -169,6 +169,36 @@ function upgradeTyping(s) {
             'INP_MinScale = 0, INP_MaxScale = 120, ICS_ControlPage = "Text", INP_External = false, ' +
             'INPS_StatusText = "Frame where the typing starts", }, ' + m0);
         return out;
+    } catch (e) {
+        return s;
+    }
+}
+
+// MultiText presets (Seg<n>Start / Seg<n>End on the text node) are timed per row, not by one Animation Frames slider. When
+// the user animated a row's follower with keyframes in Resolve (an input linked to a spline instead of the preset's
+// expression), the row's range is read from them: Seg<n>Start = the first keyframe, Seg<n>End = the last, so the timing
+// bar, the sounds and the highlight box follow the animation. A row with no keyframes keeps its Seg values.
+// Rows: UpperFollower -> Seg1, EmphasisFollower -> Seg2, LowerFollower -> Seg3 (the follower feeding Text1 / 2 / 3).
+function detectSegments(s) {
+    try {
+        if (!/\bSeg1Start = Input\b/.test(s)) return s;
+        const T = toolMap(s);
+        const rows = [['UpperFollower', 1], ['EmphasisFollower', 2], ['LowerFollower', 3]];
+        const edits = [];
+        for (const [fname, n] of rows) {
+            const t = T.get(fname);
+            if (!t || t.type !== 'StyledTextFollower') continue;
+            const b = blockOf(s, t);
+            const ks = [...b.matchAll(/(\w+) = Input \{\s*SourceOp = "(\w+)"/g)].flatMap(m => keyTimes(s, T, m[2]));
+            if (!ks.length) continue;
+            const a = Math.max(0, Math.round(Math.min(...ks)));
+            const z = Math.max(a + 1, Math.round(Math.max(...ks)));
+            edits.push(['Seg' + n + 'Start', a], ['Seg' + n + 'End', z]);
+        }
+        for (const [name, v] of edits) {
+            s = s.replace(new RegExp('(\\b' + name + ' = Input \\{ Value = )-?[\\d.]+'), '$1' + v);
+        }
+        return s;
     } catch (e) {
         return s;
     }

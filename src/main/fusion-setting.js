@@ -9,7 +9,7 @@ module.exports = {
 const fs = require('fs');
 
 const { validFontStyle } = require('./fonts');
-const { addRetiming } = require('./retime');
+const { addRetiming, detectSegments } = require('./retime');
 
 // ------------------------------------------------------------------ one read per preset file
 // Every place that needs a preset's text (node detection, text style, template body, add-ons, segments) used to read
@@ -702,7 +702,7 @@ function expandToolsInFile(file) {
     try {
         const s = fs.readFileSync(file, 'utf8');
         // the Animation Frames retiming (src/main/retime.js) goes into every preset saved into the library
-        const out = addRetiming(expandAllTools(s));
+        const out = detectSegments(addRetiming(expandAllTools(s)));
         if (out !== s) fs.writeFileSync(file, out);
     } catch (e) { /* the file stays as it was */ }
     return file;

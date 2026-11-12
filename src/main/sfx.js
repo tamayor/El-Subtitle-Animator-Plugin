@@ -6,8 +6,8 @@
 // sound name into a path with sfxFilePath().
 
 module.exports = {
-    addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, presetSfxName, readSfx, removeSfxOriginal,
-    saveAttachedClip, saveSfxClip, sfxFilePath, useOriginalSfx
+    addSfxOriginal, copySfx, isEditedSfxName, listSfxOriginals, migrateSfxOriginals, presetSfxName, pruneSfxCache, readSfx,
+    removeSfxOriginal, saveAttachedClip, saveSfxClip, sfxFilePath, useOriginalSfx
 };
 
 const path = require('path');

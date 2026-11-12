@@ -361,6 +361,7 @@
     "listSfxOriginals:function",
     "migrateSfxOriginals:function",
     "presetSfxName:function",
+    "pruneSfxCache:function",
     "readSfx:function",
     "removeSfxOriginal:function",
     "saveAttachedClip:function",

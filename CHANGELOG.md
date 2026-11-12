@@ -44,10 +44,10 @@ Inspector checks, and pyflakes; what only a live Resolve session can confirm is 
 
 - Unused panel code: `setPresetNow`, `previewMatchesDesign`, `ADJUST_HTML`, and the unused variable `lastStage`.
 
-### Known issues (found, not changed)
+### Fixed
 
-- `src/main/index.js` imports `pruneSfxCache` from `sfx.js`, which does not export it. The start-up and six-hourly
-  clean-up of `_app/sfx-cache` therefore fails silently; the cache is still pruned whenever a trimmed sound is saved.
+- `sfx.js` now exports `pruneSfxCache`. `index.js` imported it, but it was never exported, so the start-up and
+  six-hourly clean-up of `_app/sfx-cache` failed silently and the cache was only pruned when a trimmed sound was saved.
 
 ## 1.0.0
 

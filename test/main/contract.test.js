@@ -16,10 +16,8 @@ const EXPORTS_FILE = path.join(__dirname, '..', 'fixtures', 'main-exports.json')
 // index.js starts the app when required, and workflow-integration.js is Blackmagic's native addon.
 const NOT_LOADED = new Set(['index.js', 'workflow-integration.js']);
 
-// Found by the import check below and left as it is until the owner decides (fixing it changes behaviour):
-// index.js imports pruneSfxCache from sfx.js, which does not export it, so the start-up and six-hourly clean-up of
-// _app/sfx-cache throws and is swallowed. The cache is still pruned every time a trimmed sound is saved.
-const KNOWN_MISSING_IMPORTS = ['index.js: pruneSfxCache is not exported by sfx.js'];
+// Imports that are known to be missing from the module they name, left until the owner decides. None at present.
+const KNOWN_MISSING_IMPORTS = [];
 
 function mainModules() {
     return fs.readdirSync(env.MAIN_DIR).filter(f => f.endsWith('.js') && !NOT_LOADED.has(f)).sort();

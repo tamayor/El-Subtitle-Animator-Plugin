@@ -1,0 +1,432 @@
+// B-roll tab: motion-graphic overlays made with Remotion (src/main/broll.js, broll/ in the code folder).
+// Make: pick an effect, set its fields (the preview still redraws as you type, over the playhead frame), render and
+// place it over a subtitle or at the playhead. Editing a placed clip loads its values here; "Update clip" re-renders it
+// and swaps the media under the clip, so it keeps its place.
+// Auto: suggest B-roll from the subtitles (numbers, "comment X", days, typing, quotes, steps), tick, place ticked.
+// Placed: the B-roll on this timeline, with Edit / Remove and the id Claude's adjust_broll takes.
+
+const brUI = { effects: [], common: [], sel: null, values: {}, editing: null, frame: null, busy: false, ready: false,
+    suggestions: [], placed: [], previewSeq: 0, strip: null };
+const BR_TABS = ['make', 'auto', 'placed'];
+// Colour-box trace (<data>/_app/broll-trace.log): what a click on a B-roll colour box led to, to find picker trouble.
+function brTrace(msg) { try { window.sa.brollTrace(msg); } catch (e) { /* ignore */ } }
+window.addEventListener('blur', () => { if (state.tab === 'broll') brTrace('window blur (colorPicking=' + !!state.colorPicking + ')'); });
+window.addEventListener('focus', () => { if (state.tab === 'broll') brTrace('window focus (colorPicking=' + !!state.colorPicking + ')'); });
+
+function brEl(tag, attrs, kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+        if (v === undefined || v === null || v === false) continue;
+        if (k === 'class') el.className = v;
+        else if (k === 'text') el.textContent = v;
+        else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+        else el.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of [].concat(kids || [])) if (c !== null && c !== undefined && c !== false) el.append(c.nodeType ? c : String(c));
+    return el;
+}
+
+function brSubTab(t) {
+    const wrap = $('brWrap');
+    if (!wrap || !BR_TABS.includes(t)) return;
+    wrap.dataset.br = t;
+    wrap.querySelectorAll('.presets-tab[data-br]').forEach((b) => {
+        const on = b.dataset.br === t;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    try { localStorage.setItem('brTab', t); } catch (e) { /* ignore */ }
+    if (t === 'placed') brLoadPlaced();
+}
+
+function brStatus(text, kind, id) {
+    const el = $(id || 'brStatus');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function brBusy(on) {
+    brUI.busy = on;
+    $('brPlace').disabled = on; $('brPlaceNew').disabled = on; $('brPlaceTicked').disabled = on || !brUI.suggestions.some(s => s.on);
+    $('brSuggest').disabled = on; $('brSyncAll').disabled = on;
+    $('brCancel').classList.toggle('hidden', !on);
+    if (!on) $('brBar').style.width = '0';
+}
+
+// ------------------------------------------------------------------ effects and fields
+
+async function brLoadEffects() {
+    const r = await window.sa.brollEffects();
+    if (!r || r.error) { brSetup(r && r.error ? r.error : 'Could not read the B-roll effects'); return false; }
+    brUI.effects = r.effects; brUI.common = r.common;
+    const miss = [];
+    if (!r.ready.node) miss.push('Node.js 18+ (nodejs.org, or brew install node)');
+    if (!r.ready.project) miss.push('the renderer packages: in Terminal, cd "' + r.ready.dir + '" && npm install');
+    brSetup(miss.length ? 'B-roll needs ' + miss.join(' and ') + '.' : '');
+    brRenderEffects();
+    brRenderAllow();
+    let last = null;
+    try { last = localStorage.getItem('brEffect'); } catch (e) { /* ignore */ }
+    brPick(brUI.effects.find(e => e.id === last) ? last : (brUI.effects[0] && brUI.effects[0].id), null);
+    return true;
+}
+
+function brSetup(msg) {
+    const el = $('brSetup');
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+}
+
+function brRenderEffects() {
+    const box = $('brEffects');
+    box.textContent = '';
+    for (const e of brUI.effects) {
+        box.append(brEl('button', { type: 'button', class: 'br-effect' + (brUI.sel === e.id ? ' on' : ''), 'data-id': e.id, title: e.description,
+            onclick: () => brPick(e.id, null) }, [
+            brEl('span', { class: 'br-effect-name', text: e.name }),
+            brEl('span', { class: 'br-effect-desc', text: e.description })
+        ]));
+    }
+}
+
+// Selects an effect; values = a placed clip's props (editing) or the last values used, then the defaults.
+function brPick(id, values) {
+    const e = brUI.effects.find(x => x.id === id);
+    if (!e) return;
+    brUI.sel = id;
+    try { localStorage.setItem('brEffect', id); } catch (err) { /* ignore */ }
+    brUI.values = { ...e.defaults, ...(e.last || {}), ...(values || {}) };
+    $('brEffects').querySelectorAll('.br-effect').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+    brRenderFields($('brFields'), e.fields);
+    brRenderFields($('brCommon'), brUI.common);
+    brPreviewSoon(true);
+}
+
+function brRenderFields(box, fields) {
+    box.textContent = '';
+    for (const f of fields) {
+        const v = brUI.values[f.key];
+        let input;
+        const set = (val) => { brUI.values[f.key] = val; brPreviewSoon(); };
+        if (f.type === 'bool') {
+            input = brEl('input', { type: 'checkbox' });
+            input.checked = !!v;
+            input.addEventListener('change', () => set(input.checked));
+            box.append(brEl('label', { class: 'cut-f br-check', title: f.help }, [input, brEl('span', { text: f.label })]));
+            continue;
+        }
+        if (f.type === 'number') {
+            input = brEl('input', { type: 'number', step: f.step, min: f.min, max: f.max });
+            input.value = v;
+            input.addEventListener('input', () => { const n = Number(input.value); if (Number.isFinite(n)) set(n); });
+        } else if (f.type === 'color') {
+            // the panel's colour box: a click opens the macOS Colors panel (design/color-fields.js), live as you pick
+            input = brEl('input', { type: 'color', 'data-key': f.key });
+            input.value = v || '#ffffff';
+            input.addEventListener('input', () => { brTrace('input ' + f.key + ' ' + input.value); set(input.value); });
+            input.addEventListener('change', () => brTrace('change ' + f.key + ' ' + input.value));
+            input.addEventListener('click', () => brTrace('click ' + f.key + ' from ' + input.value), true);
+            box.append(brEl('label', { class: 'cut-f br-color', title: f.help }, [brEl('span', { text: f.label }), input]));
+            continue;
+        } else if (f.type === 'list') {
+            input = brEl('textarea', { rows: Math.min(6, Math.max(2, (v || []).length)), placeholder: 'one per line' });
+            input.value = (v || []).join('\n');
+            input.addEventListener('input', () => set(input.value.split('\n').map(s => s.trim()).filter(Boolean)));
+        } else {
+            input = brEl('input', { type: 'text' });
+            input.value = v === undefined ? '' : v;
+            input.addEventListener('input', () => set(input.value));
+        }
+        box.append(brEl('label', { class: 'cut-f' + (f.type === 'list' ? ' br-wide' : ''), title: f.help }, [brEl('span', { text: f.label }), input]));
+    }
+    try { attachHexFields(); } catch (e) { /* the boxes still open the picker */ }
+}
+
+// ------------------------------------------------------------------ preview
+
+// The preview: a still at the Moment (drawn small, at the panel's size), then a strip of ~24 frames over the whole
+// clip in one pass. Once the strip is in, the Moment slider only swaps pictures (no render); any settings change starts
+// a new still + strip.
+let brPreviewTimer = null;
+function brKey() { return JSON.stringify([brUI.sel, brUI.values, Number($('brSec').value) || 0]); }
+
+function brPreviewSoon(now) {
+    clearTimeout(brPreviewTimer);
+    brPreviewTimer = setTimeout(brPreview, now ? 0 : 300);
+}
+
+function brShow(url, w, h) {
+    const box = $('brPreview');
+    if (w && h) box.style.aspectRatio = w + ' / ' + h;
+    $('brPreviewImg').src = url;
+    $('brPreviewMsg').classList.add('hidden');
+}
+
+// Moment slider: the nearest strip frame when the strip matches the settings, else a quick still.
+function brMoment() {
+    const st = brUI.strip;
+    if (st && st.key === brKey() && st.frames.length) {
+        const at = Number($('brAt').value);
+        let best = st.frames[0];
+        for (const f of st.frames) if (Math.abs(f.at - at) < Math.abs(best.at - at)) best = f;
+        brShow(best.url, st.width, st.height);
+        return;
+    }
+    clearTimeout(brPreviewTimer);
+    brPreviewTimer = setTimeout(() => brPreview(true), 120);
+}
+
+async function brPreview(stillOnly) {
+    if (!brUI.sel) return;
+    const seq = ++brUI.previewSeq;
+    const key = brKey();
+    const msg = $('brPreviewMsg');
+    msg.textContent = 'Drawing…'; msg.classList.remove('hidden');
+    const sec = Number($('brSec').value) || undefined;
+    const r = await window.sa.brollPreview({ effect: brUI.sel, props: brUI.values, at: Number($('brAt').value), seconds: sec, maxDim: 720 });
+    if (seq !== brUI.previewSeq) return;     // a newer change is already drawing
+    if (!r || r.error) { msg.textContent = (r && r.error) || 'No preview'; return; }
+    brShow(r.dataUrl, r.width, r.height);
+    if (stillOnly || (brUI.strip && brUI.strip.key === key)) return;
+    // the scrub strip for these settings, in the background
+    const st = await window.sa.brollStrip({ effect: brUI.sel, props: brUI.values, seconds: sec, count: 24, maxDim: 560 });
+    if (!st || st.error || key !== brKey()) return;
+    brUI.strip = { key, width: st.width, height: st.height, frames: st.frames };
+}
+
+async function brLoadFrame() {
+    const r = await window.sa.brollFrame();
+    if (!r || r.error) return;
+    brUI.frame = r;
+    if (r.subtitle && !$('brSub').value) $('brSub').placeholder = '#' + r.subtitle.index;
+    brApplyBg();
+}
+
+function brApplyBg() {
+    const box = $('brPreview'), bg = $('brBg').value;
+    box.dataset.bg = bg;
+    box.style.backgroundImage = bg === 'frame' && brUI.frame && brUI.frame.img ? 'url("' + brUI.frame.img + '")' : '';
+    if (brUI.frame) box.style.aspectRatio = brUI.frame.width + ' / ' + brUI.frame.height;
+}
+
+// ------------------------------------------------------------------ place / update
+
+function brWhere() {
+    const w = $('brWhere').value;
+    const o = { effect: brUI.sel, props: { ...brUI.values }, usePrefs: false };
+    const sec = Number($('brSec').value), tr = Number($('brTrack').value);
+    if (sec > 0 && w !== 'marks') o.seconds = sec;
+    if (tr > 0) o.track = tr;
+    if ($('brLand').checked) o.landOnWord = true;
+    const ext = Number($('brExtend').value);
+    if (ext > 0) o.extend = ext;
+    if (w === 'marks') o.marks = true;
+    else if (w === 'sub') o.subtitle = 'playhead';
+    else if (w === 'num') { const n = Number($('brSub').value); if (!(n > 0)) throw new Error('Type the subtitle number'); o.subtitle = n; }
+    return o;
+}
+
+async function brPlace(asNew) {
+    if (brUI.busy || !brUI.sel) return;
+    let o;
+    try { o = brWhere(); } catch (e) { brStatus(e.message, 'bad'); return; }
+    brBusy(true);
+    brStatus(brUI.editing && !asNew ? 'Re-rendering…' : 'Rendering…', '');
+    let r;
+    if (brUI.editing && !asNew) {
+        const ch = { id: brUI.editing.id, effect: brUI.sel, props: o.props };
+        if (o.seconds) ch.seconds = o.seconds;     // editing: Seconds sets the length (Extend by is for new clips, so it never adds up)
+        r = await window.sa.brollAdjust(ch);
+    } else r = await window.sa.brollPlace(o);
+    brBusy(false);
+    if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad'); return; }
+    if (r.landed) brStatus($('brStatus').textContent + ' · lands on “' + r.landed.word + '”' + (r.landed.source === 'speech' ? '' : ' (estimated)'), 'ok');
+    if (brUI.editing && !asNew) brEdit(r);       // stays in edit mode on the updated record
+    brLoadPlaced();
+}
+
+function brEdit(rec) {
+    brUI.editing = rec || null;
+    const on = !!rec;
+    $('brPlace').textContent = on ? 'Update clip' : 'Render & place';
+    $('brPlaceNew').classList.toggle('hidden', !on);
+    $('brStopEdit').classList.toggle('hidden', !on);
+    const tag = $('brEditing');
+    tag.classList.toggle('hidden', !on);
+    tag.textContent = on ? 'editing ' + rec.name + (rec.subtitle ? ' on #' + rec.subtitle.index : '') + ' · ' + rec.id : '';
+    if (on) { brPick(rec.effect, rec.props); $('brSec').value = rec.frames && rec.fps ? (rec.frames / rec.fps).toFixed(1) : ''; }
+}
+
+// ------------------------------------------------------------------ auto
+
+function brRenderAllow() {
+    const box = $('brAllow');
+    box.textContent = '';
+    let off = [];
+    try { off = JSON.parse(localStorage.getItem('brAllowOff') || '[]'); } catch (e) { /* ignore */ }
+    for (const e of brUI.effects) {
+        const cb = brEl('input', { type: 'checkbox', 'data-id': e.id });
+        cb.checked = !off.includes(e.id);
+        cb.addEventListener('change', () => {
+            const o = [...box.querySelectorAll('input')].filter(i => !i.checked).map(i => i.dataset.id);
+            try { localStorage.setItem('brAllowOff', JSON.stringify(o)); } catch (err) { /* ignore */ }
+        });
+        box.append(brEl('label', { class: 'br-chip' }, [cb, brEl('span', { text: e.name })]));
+    }
+}
+
+function brPropsLine(p) {
+    return Object.entries(p || {}).map(([k, v]) => k + ': ' + (Array.isArray(v) ? v.join(', ') : v)).join(' · ');
+}
+
+async function brSuggest() {
+    if (brUI.busy) return;
+    const effects = [...$('brAllow').querySelectorAll('input')].filter(i => i.checked).map(i => i.dataset.id);
+    brStatus('Reading the subtitles…', '', 'brAutoStatus');
+    const r = await window.sa.brollSuggest({ max: Number($('brMax').value) || 8, minGap: Number($('brGap').value), effects,
+        from: Number($('brFrom').value) || undefined, to: Number($('brTo').value) || undefined, marks: $('brAutoMarks').checked });
+    if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad', 'brAutoStatus'); return; }
+    brUI.suggestions = r.suggestions.map(s => ({ ...s, on: true }));
+    brRenderSuggestions();
+    brStatus(r.suggestions.length ? r.suggestions.length + ' suggestions from ' + r.subtitles + ' subtitles. Untick any you do not want, or Edit one first.'
+        : 'Nothing in ' + r.subtitles + ' subtitles matched. Use Make for a hand-picked line.', r.suggestions.length ? 'ok' : '', 'brAutoStatus');
+}
+
+function brRenderSuggestions() {
+    const box = $('brSuggestions');
+    box.textContent = '';
+    for (const s of brUI.suggestions) {
+        const cb = brEl('input', { type: 'checkbox' });
+        cb.checked = s.on;
+        cb.addEventListener('change', () => { s.on = cb.checked; $('brPlaceTicked').disabled = brUI.busy || !brUI.suggestions.some(x => x.on); });
+        const sel = brEl('select', { class: 'br-sel' }, brUI.effects.map(e => { const o = brEl('option', { value: e.id, text: e.name }); if (e.id === s.effect) o.selected = true; return o; }));
+        sel.addEventListener('change', () => { s.effect = sel.value; s.props = {}; s.name = sel.selectedOptions[0].textContent; });
+        box.append(brEl('div', { class: 'br-item' }, [
+            cb,
+            brEl('span', { class: 'br-num', text: '#' + s.subtitle }),
+            brEl('div', { class: 'br-item-main' }, [brEl('div', { class: 'br-item-text', text: s.text }), brEl('div', { class: 'br-item-props', text: brPropsLine(s.props) + ' — ' + s.why })]),
+            sel,
+            brEl('button', { class: 'ghost', text: 'Edit', title: 'Open in Make with this subtitle', onclick: () => {
+                brEdit(null);
+                brPick(s.effect, s.props);
+                $('brWhere').value = 'num'; $('brSub').value = s.subtitle; brWhereChanged();
+                brSubTab('make');
+            } })
+        ]));
+    }
+    $('brPlaceTicked').disabled = brUI.busy || !brUI.suggestions.some(s => s.on);
+}
+
+async function brPlaceTicked() {
+    const land = $('brLand').checked;
+    const ext = Number($('brExtend').value) > 0 ? Number($('brExtend').value) : undefined;
+    const list = brUI.suggestions.filter(s => s.on).map(s => ({ effect: s.effect, props: s.props, subtitle: s.subtitle, landOnWord: land || undefined, extend: ext }));
+    if (!list.length || brUI.busy) return;
+    brBusy(true);
+    brStatus('Placing ' + list.length + '…', '', 'brAutoStatus');
+    const r = await window.sa.brollPlaceMany(list);
+    brBusy(false);
+    if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad', 'brAutoStatus'); return; }
+    const ok = r.filter(x => x.ok).length, bad = r.filter(x => !x.ok);
+    brStatus(ok + ' placed' + (bad.length ? ', ' + bad.length + ' failed: ' + bad.map(b => '#' + b.subtitle + ' ' + b.error).join('; ') : ''), bad.length ? 'bad' : 'ok', 'brAutoStatus');
+    for (const s of brUI.suggestions) if (s.on && r.some(x => x.ok && x.subtitle && x.subtitle.index === s.subtitle)) s.on = false;
+    brUI.suggestions = brUI.suggestions.filter(s => !r.some(x => x.ok && x.subtitle && x.subtitle.index === s.subtitle));
+    brRenderSuggestions();
+    brLoadPlaced();
+}
+
+// ------------------------------------------------------------------ placed
+
+async function brLoadPlaced() {
+    const r = await window.sa.brollList({});
+    if (!r || r.error) return;
+    brUI.placed = r.placed;
+    $('brPlacedCount').textContent = r.placed.length ? String(r.placed.length) : '';
+    const box = $('brPlacedList');
+    box.textContent = '';
+    if (!r.placed.length) { box.append(brEl('div', { class: 'cr-sub', text: 'No B-roll placed on ' + (r.timeline || 'this timeline') + ' yet.' })); return; }
+    for (const p of r.placed) {
+        const sec = p.fps ? (p.frames / p.fps).toFixed(1) + ' s' : '';
+        box.append(brEl('div', { class: 'br-item' + (p.onTimeline === false ? ' gone' : '') }, [
+            brEl('span', { class: 'br-num', text: p.subtitle ? '#' + p.subtitle.index : '·' }),
+            brEl('div', { class: 'br-item-main' }, [
+                brEl('div', { class: 'br-item-text', text: p.name + ' · ' + (p.track || '') + ' · ' + sec + (p.onTimeline === false ? ' · not on the timeline' : '') }),
+                brEl('div', { class: 'br-item-props', text: brPropsLine(p.props) })
+            ]),
+            brEl('button', { class: 'ghost br-id', text: p.id, title: 'Copy the id (for Claude: adjust_broll ' + p.id + ' …)', onclick: () => { try { navigator.clipboard.writeText(p.id); } catch (e) { /* ignore */ } } }),
+            brEl('button', { class: 'ghost', text: 'Sync', disabled: p.onTimeline === false, title: 'Re-time it so the animation lands as its key word is spoken', onclick: () => brSync({ id: p.id }) }),
+            brEl('button', { class: 'ghost', text: 'Edit', disabled: p.onTimeline === false, onclick: () => { brEdit(p); brSubTab('make'); } }),
+            brEl('button', { class: 'ghost', text: '×', title: 'Remove from the timeline', onclick: async () => {
+                const x = await window.sa.brollRemove({ id: p.id });
+                if (brUI.editing && brUI.editing.id === p.id) brEdit(null);
+                if (x && x.error) brStatus(x.error, 'bad');
+                brLoadPlaced();
+            } })
+        ]));
+    }
+}
+
+// Sync to words: one clip ({ id }) or every one on the timeline ({ all: true }).
+async function brSync(o) {
+    if (brUI.busy) return;
+    brBusy(true);
+    brStatus(o.all ? 'Syncing every B-roll to its word…' : 'Syncing to the word…', '', 'brPlacedStatus');
+    const r = await window.sa.brollSync(o);
+    brBusy(false);
+    if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad', 'brPlacedStatus'); return; }
+    const ok = r.results.filter(x => x.ok), bad = r.results.filter(x => !x.ok);
+    const words = ok.map(x => '“' + x.word + '”' + (x.source === 'speech' ? '' : '*')).join(', ');
+    brStatus((ok.length ? ok.length + ' synced' + (words ? ': ' + words : '') : '') + (bad.length ? (ok.length ? '; ' : '') + bad.length + ' failed: ' + bad.map(b => b.error).join('; ') : '')
+        + (r.note ? ' — * ' + r.note : ''), bad.length ? 'bad' : 'ok', 'brPlacedStatus');
+    brLoadPlaced();
+}
+
+// ------------------------------------------------------------------ wiring
+
+function brWhereChanged() {
+    const w = $('brWhere').value;
+    $('brSubWrap').classList.toggle('hidden', w !== 'num');
+    $('brSecWrap').classList.toggle('hidden', w === 'marks');      // the marks set the length
+    try { localStorage.setItem('brWhere', w); } catch (e) { /* ignore */ }
+}
+
+function initBrollTab() {
+    $('brWrap').querySelectorAll('.presets-tab[data-br]').forEach(b => b.addEventListener('click', () => brSubTab(b.dataset.br)));
+    $('brPlace').addEventListener('click', () => brPlace(false));
+    $('brPlaceNew').addEventListener('click', () => brPlace(true));
+    $('brStopEdit').addEventListener('click', () => brEdit(null));
+    $('brCancel').addEventListener('click', () => window.sa.brollCancel());
+    $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
+    $('brAt').addEventListener('input', brMoment);
+    $('brSec').addEventListener('input', () => brPreviewSoon());
+    $('brBg').addEventListener('change', () => { try { localStorage.setItem('brBg', $('brBg').value); } catch (e) { /* ignore */ } if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg(); });
+    $('brWhere').addEventListener('change', brWhereChanged);
+    $('brSuggest').addEventListener('click', brSuggest);
+    $('brPlaceTicked').addEventListener('click', brPlaceTicked);
+    $('brRefresh').addEventListener('click', brLoadPlaced);
+    $('brSyncAll').addEventListener('click', () => brSync({ all: true }));
+    try { $('brLand').checked = localStorage.getItem('brLand') === '1'; } catch (e) { /* ignore */ }
+    $('brLand').addEventListener('change', () => { try { localStorage.setItem('brLand', $('brLand').checked ? '1' : '0'); } catch (e) { /* ignore */ } });
+    $('brOpenFolder').addEventListener('click', () => window.sa.brollOpen({}));
+    try { const bg = localStorage.getItem('brBg'); if (bg) $('brBg').value = bg; } catch (e) { /* ignore */ }
+    try { const w = localStorage.getItem('brWhere'); if (w && $('brWhere').querySelector('option[value="' + w + '"]')) $('brWhere').value = w; } catch (e) { /* ignore */ }
+    brWhereChanged();
+    window.sa.onBrollProgress((d) => {
+        if (!d) return;
+        if (d.phase === 'render') { $('brBar').style.width = Math.round((d.p || 0) * 100) + '%'; brStatus(d.text + (d.p ? ' ' + Math.round(d.p * 100) + '%' : ''), ''); }
+        else if (d.phase === 'place') brStatus(d.text, '');
+        else if (d.phase === 'done') { brStatus(d.text, 'ok'); $('brBar').style.width = '0'; if (d.placed && brUI.ready) brLoadPlaced(); }
+        else if (d.phase === 'error') brStatus(d.text, 'bad');
+    });
+    let t = 'make';
+    try { t = localStorage.getItem('brTab') || 'make'; } catch (e) { /* ignore */ }
+    brSubTab(t);
+}
+
+// The tab was opened: effects once, the playhead frame and the placed list every time.
+async function brollTabShown() {
+    if (!brUI.ready) { brUI.ready = await brLoadEffects(); }
+    if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg();
+    brLoadPlaced();
+}

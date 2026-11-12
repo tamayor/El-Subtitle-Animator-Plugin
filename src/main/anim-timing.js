@@ -5,7 +5,7 @@
 //   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
 // Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
-module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings };
+module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, spokenWordsFor };
 
 const state = require('./state');
 const { RESOLVE_BATCH } = require('./config');

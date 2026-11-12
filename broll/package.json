@@ -1,0 +1,25 @@
+{
+  "name": "el-sa-broll",
+  "private": true,
+  "description": "El Subtitle Animator B-roll effects (Remotion). Rendered by src/main/broll.js through render.mjs.",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "setup": "node setup-chrome.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.538",
+    "@remotion/cli": "4.0.538",
+    "@remotion/renderer": "4.0.538",
+    "@remotion/google-fonts": "4.0.538",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "remotion": "4.0.538",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "typescript": "5.9.3"
+  }
+}

@@ -42,6 +42,7 @@ const { clipTiming, setClipTiming, fitClipToWords, wordTimingStatus, activateWor
 const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } = require('./clip-controls');
 const { boilerplateList, insertBoilerplate } = require('./boilerplates');
 const { matchCutCancel, matchCutDefaults, matchCutOpen, matchCutRun } = require('./match-cut');
+const BROLL = require('./broll');
 const { cutAnalyze, cutBuild, cutCancel, cutDefaults, cutInstall, cutListen, cutSetPrefs } = require('./auto-cut');
 const { cutToolsRun, cutToolsCheck, cutToolsStatus, cancelCutTools, cutToolsInstall, cutToolsMarkers, cutToolsWave, cutToolsGoto, cutToolsDeletePauses, cutToolsPlayhead } = require('./cut-tools');
 
@@ -94,6 +95,21 @@ const SAFE_HANDLERS = {
     'matchcut:run': matchCutRun,
     'matchcut:cancel': () => matchCutCancel(),
     'matchcut:open': () => matchCutOpen(),
+    // B-roll tab: Remotion overlays rendered at the timeline's size and placed (broll.js); progress as broll:progress
+    'broll:effects': () => BROLL.brollEffects(),
+    'broll:preview': BROLL.brollPreview,
+    'broll:strip': BROLL.brollStrip,
+    'broll:trace': BROLL.brollTrace,
+    'broll:sync': BROLL.brollSync,
+    'broll:place': BROLL.brollPlace,
+    'broll:placeMany': BROLL.brollPlaceMany,
+    'broll:adjust': BROLL.brollAdjust,
+    'broll:remove': BROLL.brollRemove,
+    'broll:list': BROLL.brollList,
+    'broll:suggest': BROLL.brollSuggest,
+    'broll:cancel': () => BROLL.brollCancel(),
+    'broll:open': BROLL.brollOpenFolder,
+    'broll:frame': () => BROLL.brollFrame(),
     // Cut tab: rough cut of the source track into a new "(cut)" timeline (auto-cut.js); progress as cut:progress
     'cut:defaults': () => cutDefaults(),
     'cut:prefs': cutSetPrefs,
@@ -209,7 +225,14 @@ const RAW_HANDLERS = {
     'live:loopRestore': () => loopRestore(),
     'live:finish': liveFinish,
     'fonts:list': async () => await listSystemFonts(),
-    'color:pick': pickNativeColor,
+    // the answer is also written to the B-roll colour trace (_app/broll-trace.log) while that tab is being debugged
+    'color:pick': async (event, hex) => {
+        const t0 = Date.now();
+        BROLL.brollTrace(null, 'pickColor asked from ' + hex);
+        const r = await pickNativeColor(event, hex);
+        BROLL.brollTrace(null, 'pickColor answered ' + JSON.stringify(r) + ' after ' + (Date.now() - t0) + ' ms');
+        return r;
+    },
     'color:cancel': cancelNativeColor,
     'win:park': () => parkUntilFocus(),
     'win:emojiPanel': () => { try { app.showEmojiPanel(); return true; } catch (e) { return false; } },      // macOS Character Viewer

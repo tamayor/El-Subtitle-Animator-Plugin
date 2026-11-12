@@ -90,6 +90,8 @@ async function initApp() {
     $('tabBtnCut').addEventListener('click', () => { setTab('cut'); cutTabShown(); cutToolsShown(); });
     initCutTab();
     initCutTools();
+    $('tabBtnBroll').addEventListener('click', () => { setTab('broll'); brollTabShown(); });
+    initBrollTab();
 
     $('defPlay').addEventListener('click', () => play(state.lib.defaultSfx && state.lib.defaultSfx.path));
     $('defClear').addEventListener('click', async () => takeLib(await window.sa.setDefaultSfx(null)));

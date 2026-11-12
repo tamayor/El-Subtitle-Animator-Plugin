@@ -9,6 +9,7 @@
     "currentFusionClip:function",
     "fitClipToWords:function",
     "setClipTiming:function",
+    "spokenWordsFor:function",
     "wordTimingStatus:function"
   ],
   "app-version.js": [
@@ -40,6 +41,26 @@
   "boilerplates.js": [
     "boilerplateList:function",
     "insertBoilerplate:function"
+  ],
+  "broll.js": [
+    "brollAdjust:function",
+    "brollCancel:function",
+    "brollEffects:function",
+    "brollFrame:function",
+    "brollLandingPlan:function",
+    "brollList:function",
+    "brollOpenFolder:function",
+    "brollPlace:function",
+    "brollPlaceMany:function",
+    "brollPreview:function",
+    "brollRemove:function",
+    "brollShutdown:function",
+    "brollStatus:function",
+    "brollStrip:function",
+    "brollSuggest:function",
+    "brollSuggestFromTexts:function",
+    "brollSync:function",
+    "brollTrace:function"
   ],
   "clip-colors-db.js": [
     "subtitleColorsFromDb:function"

@@ -52,11 +52,13 @@ function setTab(t) {
     $('tabCreate').classList.toggle('hidden', t !== 'create');
     $('tabPrompt').classList.toggle('hidden', t !== 'prompt');
     $('tabCut').classList.toggle('hidden', t !== 'cut');
+    $('tabBroll').classList.toggle('hidden', t !== 'broll');
     $('tabBtnApply').classList.toggle('on', t === 'apply');
     $('tabBtnLibrary').classList.toggle('on', t === 'library');
     $('tabBtnCreate').classList.toggle('on', t === 'create');
     $('tabBtnPrompt').classList.toggle('on', t === 'prompt');
     $('tabBtnCut').classList.toggle('on', t === 'cut');
+    $('tabBtnBroll').classList.toggle('on', t === 'broll');
     document.body.className = 'tab-' + t;
     renderTimelines();
     redrawStages();

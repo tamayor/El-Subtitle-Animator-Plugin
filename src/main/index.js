@@ -29,6 +29,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 // Cmd+Q and friends: hold the quit until an un-applied preview is off the timeline (quitPlugin quits afterwards).
 app.on('before-quit', (e) => {
     stopJxaHelper();
+    try { require('./broll').brollShutdown(); } catch (err) { /* the B-roll worker quits on its own when idle */ }
     if (!state.isQuitting) { e.preventDefault(); quitPlugin(); return; }
     cleanup();
 });

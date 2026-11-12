@@ -275,6 +275,32 @@ const TOOLS = {
         if (r) { if (!r.ok) throw new Error(r.error); return r; }
         return { running: true, progress: MC.matchCutStatus().progress, note: 'Still rendering. Call match_cut with status: true for the result.' };
     },
+    // B-roll tab (broll.js): Remotion overlays rendered at the timeline's size and frame rate, placed on a free video
+    // track. Renders take a few seconds each; a batch waits up to `wait` seconds, then keeps going in the background.
+    list_broll(args) {
+        const B = require('./broll');
+        if (args && args.placed) return B.brollList(null, args);
+        return B.brollEffects();
+    },
+    async broll_preview(args) {
+        const r = await require('./broll').brollPreview(null, { ...(args || {}), dataUrl: false });
+        return { path: r.path, width: r.width, height: r.height, effect: r.effect, props: r.props, note: 'Look at the PNG at `path` (it has a transparent background).' };
+    },
+    async place_broll(args) {
+        args = args || {};
+        const B = require('./broll');
+        await waitFree(20000);
+        if (!Array.isArray(args.items)) return B.brollPlace(null, args);
+        const run = B.brollPlaceMany(null, args.items);
+        const waitMs = Math.max(0, Math.min(170, Number.isFinite(Number(args.wait)) ? Number(args.wait) : 150)) * 1000;
+        const r = await Promise.race([run, new Promise(res => setTimeout(() => res(null), waitMs))]);
+        if (r) return { results: r };
+        return { running: true, status: B.brollStatus(), note: 'Still rendering in the background. Call list_broll { placed: true } to see what is placed.' };
+    },
+    async adjust_broll(args) { await waitFree(20000); return require('./broll').brollAdjust(null, args || {}); },
+    remove_broll(args) { return require('./broll').brollRemove(null, args || {}); },
+    async sync_broll(args) { await waitFree(20000); return require('./broll').brollSync(null, args || {}); },
+    suggest_broll(args) { return require('./broll').brollSuggest(null, args || {}); },
     // Cut tab (auto-cut.js): analyse the source track (nothing changes), then build: true makes the new "(cut)"
     // timeline. Omitted options use the Cut tab's last values.
     async auto_cut(args) {

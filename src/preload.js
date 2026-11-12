@@ -117,6 +117,23 @@ contextBridge.exposeInMainWorld('sa', {
     matchCutOpen: () => ipcRenderer.invoke('matchcut:open'),
     onMatchCutProgress: (cb) => ipcRenderer.on('matchcut:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
 
+    // B-roll tab: Remotion overlays (src/main/broll.js)
+    brollEffects: () => ipcRenderer.invoke('broll:effects'),
+    brollPreview: (o) => ipcRenderer.invoke('broll:preview', o || {}),
+    brollStrip: (o) => ipcRenderer.invoke('broll:strip', o || {}),
+    brollTrace: (m) => ipcRenderer.invoke('broll:trace', String(m)),
+    brollSync: (o) => ipcRenderer.invoke('broll:sync', o || {}),
+    brollPlace: (o) => ipcRenderer.invoke('broll:place', o || {}),
+    brollPlaceMany: (list) => ipcRenderer.invoke('broll:placeMany', list || []),
+    brollAdjust: (o) => ipcRenderer.invoke('broll:adjust', o || {}),
+    brollRemove: (o) => ipcRenderer.invoke('broll:remove', o || {}),
+    brollList: (o) => ipcRenderer.invoke('broll:list', o || {}),
+    brollSuggest: (o) => ipcRenderer.invoke('broll:suggest', o || {}),
+    brollCancel: () => ipcRenderer.invoke('broll:cancel'),
+    brollOpen: (o) => ipcRenderer.invoke('broll:open', o || {}),
+    brollFrame: () => ipcRenderer.invoke('broll:frame'),
+    onBrollProgress: (cb) => ipcRenderer.on('broll:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
+
     // Cut tab
     cutDefaults: () => ipcRenderer.invoke('cut:defaults'),
     cutPrefs: (p) => ipcRenderer.invoke('cut:prefs', p || {}),

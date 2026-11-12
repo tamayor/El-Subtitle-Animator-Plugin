@@ -1,0 +1,159 @@
+{
+  "_about": "B-roll effects. One entry per Remotion composition in src/effects/. The panel's B-roll tab builds its form from `fields`, the MCP tools list them, and suggest_broll matches subtitles against `triggers` (regular expressions, case-insensitive). Every effect also takes the common fields x, y, scale, accent, enter, exit (see `common`).",
+  "common": [
+    { "key": "x", "type": "number", "label": "X", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "help": "Centre, 0 = left edge, 1 = right edge" },
+    { "key": "y", "type": "number", "label": "Y", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "help": "Centre, 0 = top, 1 = bottom" },
+    { "key": "scale", "type": "number", "label": "Size", "default": 1, "min": 0.3, "max": 3, "step": 0.05 },
+    { "key": "accent", "type": "color", "label": "Accent", "default": "#8ccf8e" },
+    { "key": "enter", "type": "number", "label": "In (frames)", "default": 10, "min": 0, "max": 60, "step": 1 },
+    { "key": "exit", "type": "number", "label": "Out (frames)", "default": 8, "min": 0, "max": 60, "step": 1 },
+    { "key": "settle", "type": "number", "label": "Lands at (frame)", "default": 0, "min": 0, "max": 1500, "step": 1, "help": "0 = the effect's own pace. Otherwise the frame (from the clip start) where the animation has fully landed; Sync to words sets it to the spoken word" }
+  ],
+  "effects": [
+    {
+      "id": "live-cursor",
+      "name": "Live cursor",
+      "description": "A named cursor glides in and drags a selection box with handles and a size label around a spot (a face, a product, a word on screen).",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.42 },
+      "fields": [
+        { "key": "name", "type": "text", "label": "Cursor name", "default": "Claude" },
+        { "key": "boxW", "type": "number", "label": "Box width", "default": 0.28, "min": 0.05, "max": 1, "step": 0.01, "help": "Share of the frame width" },
+        { "key": "boxH", "type": "number", "label": "Box height", "default": 0.34, "min": 0.05, "max": 1, "step": 0.01, "help": "Share of the frame height" },
+        { "key": "sizeLabel", "type": "bool", "label": "Size label", "default": true },
+        { "key": "boxColor", "type": "color", "label": "Box colour", "default": "#e8d9a8" }
+      ],
+      "triggers": ["\\b(this (one|part|right here)|look at|right here|select(ed|ing)?|click(ed|ing)?|highlight(ed)?)\\b"]
+    },
+    {
+      "id": "comment-drop",
+      "name": "Comment drop",
+      "description": "A comment box types a word and posts it; the comment drops in, hearts tick up and a reply lands under it. For \"comment X\" calls to action.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.16 },
+      "fields": [
+        { "key": "keyword", "type": "text", "label": "Word typed", "default": "EDIT" },
+        { "key": "user", "type": "text", "label": "Username", "default": "you" },
+        { "key": "comment", "type": "text", "label": "Comment", "default": "{keyword} to get access to these", "help": "{keyword} is replaced with the typed word" },
+        { "key": "author", "type": "text", "label": "Comment author", "default": "creator" },
+        { "key": "likes", "type": "number", "label": "Hearts", "default": 9, "min": 0, "max": 9999, "step": 1 },
+        { "key": "reply", "type": "bool", "label": "Show reply", "default": true }
+      ],
+      "triggers": ["\\bcomment(ing)?\\b", "\\b(drop|type|leave) (a|the word)\\b", "\\bdm me\\b"]
+    },
+    {
+      "id": "predict-keys",
+      "name": "Predict keys",
+      "description": "A phone keyboard slides up and types the text, with three predictive suggestions changing as it types.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.78 },
+      "fields": [
+        { "key": "text", "type": "text", "label": "Typed text", "default": "Predict keys" },
+        { "key": "suggestions", "type": "list", "label": "Suggestions", "default": ["the", "your", "what"] },
+        { "key": "dark", "type": "bool", "label": "Dark keyboard", "default": false }
+      ],
+      "triggers": ["\\b(typ(e|ed|ing)|search(ed|ing)?|googl(e|ed)|ask(ed)? (chatgpt|claude|ai)|prompt(ed)?|text(ed)? (me|him|her))\\b"]
+    },
+    {
+      "id": "day-dial",
+      "name": "Day dial",
+      "description": "A printed clock dial spins in with a word round its rim and a hand sweeping the hours. For time, days, routines, \"every day\".",
+      "seconds": 3,
+      "defaults": { "x": 0.78, "y": 0.5, "scale": 1 },
+      "fields": [
+        { "key": "word", "type": "text", "label": "Word on the rim", "default": "day" },
+        { "key": "title", "type": "text", "label": "Title", "default": "dial" },
+        { "key": "hours", "type": "number", "label": "Hour marks", "default": 12, "min": 4, "max": 24, "step": 1 },
+        { "key": "paper", "type": "color", "label": "Paper", "default": "#efe8d8" },
+        { "key": "ink", "type": "color", "label": "Ink", "default": "#2a2620" }
+      ],
+      "triggers": ["\\b(every ?day|daily|each day|days?|hours?|o'?clock|morning|routine|24/7|week(s|ly)?)\\b"]
+    },
+    {
+      "id": "post-wall",
+      "name": "Post wall",
+      "description": "A wall of squares fills in tile by tile while a counter runs up to the number. For \"I posted 1,400 times\", streaks, consistency.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.3 },
+      "fields": [
+        { "key": "count", "type": "number", "label": "Number", "default": 1403, "min": 0, "max": 100000000, "step": 1 },
+        { "key": "unit", "type": "text", "label": "Unit", "default": "posts" },
+        { "key": "tag", "type": "text", "label": "Corner tag", "default": "day 479" },
+        { "key": "cols", "type": "number", "label": "Columns", "default": 26, "min": 6, "max": 60, "step": 1 },
+        { "key": "rows", "type": "number", "label": "Rows", "default": 9, "min": 2, "max": 30, "step": 1 }
+      ],
+      "triggers": ["\\b\\d[\\d,.]*\\s*(posts?|videos?|reels?|uploads?|days? in a row|streak)\\b", "\\b(posted|uploaded) (every|for)\\b", "\\bconsisten(t|cy)\\b"]
+    },
+    {
+      "id": "voice-note",
+      "name": "Voice note",
+      "description": "A chat voice-note bubble pops in, plays (waveform fills, timer runs) with a small caption under it. For quotes, \"she told me\", calls.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.15 },
+      "fields": [
+        { "key": "caption", "type": "text", "label": "Caption", "default": "Voice note" },
+        { "key": "length", "type": "text", "label": "Length shown", "default": "0:12" },
+        { "key": "dark", "type": "bool", "label": "Dark bubble", "default": false }
+      ],
+      "triggers": ["\\b(voice (note|message|memo)|called me|on the phone|(she|he|they) (said|told me)|left me a)\\b"]
+    },
+    {
+      "id": "sketch-words",
+      "name": "Sketch words",
+      "description": "A word is drawn on in pencil: outline first, then hatching fills it, with a scribbled underline and a small handwritten note.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.2, "accent": "#c0392b" },
+      "fields": [
+        { "key": "word", "type": "text", "label": "Big word", "default": "words" },
+        { "key": "note", "type": "text", "label": "Small note", "default": "sketch" },
+        { "key": "ink", "type": "color", "label": "Pencil", "default": "#7a2a1e" },
+        { "key": "paper", "type": "bool", "label": "Paper card behind", "default": false }
+      ],
+      "triggers": []
+    },
+    {
+      "id": "money-counter",
+      "name": "Money counter",
+      "description": "A big number counts up (money, followers, percentages) with a label under it and a marker swipe behind it.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.25 },
+      "fields": [
+        { "key": "prefix", "type": "text", "label": "Prefix", "default": "$" },
+        { "key": "value", "type": "number", "label": "Number", "default": 174953, "min": -1000000000, "max": 1000000000, "step": 1 },
+        { "key": "suffix", "type": "text", "label": "Suffix", "default": "" },
+        { "key": "decimals", "type": "number", "label": "Decimals", "default": 0, "min": 0, "max": 3, "step": 1 },
+        { "key": "label", "type": "text", "label": "Label", "default": "in 12 months" },
+        { "key": "color", "type": "color", "label": "Number colour", "default": "#ffffff" }
+      ],
+      "triggers": ["\\$\\s?\\d", "\\b\\d[\\d,.]*\\s?(k|m|million|thousand|grand|dollars|bucks|percent|%)\\b", "\\b\\d[\\d,.]*\\s*(followers|subscribers|views|clients|customers|sales)\\b"]
+    },
+    {
+      "id": "tag-stack",
+      "name": "Tag stack",
+      "description": "Small labelled tags drop one by one and pile up in a wobbly stack (above a head, beside a product). For lists of tools, skills, names. Y is the bottom of the stack.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.34 },
+      "fields": [
+        { "key": "tags", "type": "list", "label": "Tags", "default": ["Live cursor", "Banknote", "Orbit ring", "Blade slice", "Press front"] },
+        { "key": "dark", "type": "bool", "label": "Dark tags", "default": false }
+      ],
+      "triggers": ["\\b(tools?|skills?|apps?|things|stack|list of)\\b"]
+    },
+    {
+      "id": "chapter-list",
+      "name": "Chapter list",
+      "description": "An \"In this video\" side list: numbered items with the current one highlighted and a counter (03 / 20). Reuse it across a video, one clip per chapter.",
+      "seconds": 3,
+      "defaults": { "x": 0.84, "y": 0.42, "accent": "#d9b44a" },
+      "fields": [
+        { "key": "title", "type": "text", "label": "Title", "default": "In this video" },
+        { "key": "items", "type": "list", "label": "Items", "default": ["Live cursor", "Clone row", "Day dial", "Predict keys", "Orbit ring", "Code body", "Post wall", "Letter dive"] },
+        { "key": "active", "type": "number", "label": "Current item", "default": 1, "min": 1, "max": 60, "step": 1, "help": "1 = first item" },
+        { "key": "total", "type": "number", "label": "Total shown in counter", "default": 0, "min": 0, "max": 999, "step": 1, "help": "0 = number of items" },
+        { "key": "footer", "type": "text", "label": "Footer button", "default": "+ 40 more effects" },
+        { "key": "panel", "type": "color", "label": "Panel colour", "default": "#1f3a2c" }
+      ],
+      "triggers": ["\\b(number|step|tip|part|chapter) (one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\b(first|second|third|fourth|fifth|next) (one|thing|tip|step)\\b"]
+    }
+  ]
+}

@@ -30,6 +30,7 @@ Workflow for editing a video:
 6. Call place for each subtitle (once placed, its subtitle clip is disabled so it does not show under the animation; remove_placed re-enables it). Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
 Measuring (ffmpeg, local): find_cuts before placing over B-roll (shots with bright: true are light cutaways where white text disappears: accent colour, empty top space, and split a caption that crosses a cut at the cut frame); find_beats when there is music (land pops and hits on supported beats); find_pauses / transcribe_words for exact phrase cuts (regroup snaps to pauses by itself); break_lines for a "\n" break that keeps phrases together. After placing short Pop / Drop / Glitch clips or when a render looks blank, run check_render on their itemIds (black tail, static entrance).
 7. Report what you placed, where, and any warnings.
+B-roll overlays (motion graphics over the footage, B-roll tab): list_broll for the effects and their fields; suggest_broll proposes subtitle -> effect pairs with props from the words (refine them, keep only the strong ones, at most about one every 4 s); broll_preview renders a still to look at first; place_broll renders at the timeline's size and places it (items: several in a row); adjust_broll changes a placed one by id ("bigger", "other number", "move left", "longer") without moving it; remove_broll deletes it. Put B-roll where the captions and faces are not (get_frame).
 Keeping Resolve responsive: send place / place_stack / get_frame / remove_placed calls ONE AT A TIME (wait for each result; never several in one batch). Never read or change a placed clip's Fusion composition with a Resolve script (GetFusionCompByIndex, GetToolList, GetInput, SetInput): a script read of a follower-driven text freezes Resolve for good. The sizes and fonts actually applied are in place's "inspector" result and in inspect_placed; enabled subtitles are in list_subtitles (enabled / activeOnly).
 Show the user your plan before placing more than about 10 clips.
 
@@ -508,6 +509,76 @@ const TOOLS = [
             reanalyse: { type: 'boolean', description: 'With build: analyse again first (default true)' },
             status: { type: 'boolean', description: 'Only read the progress' },
             cancel: { type: 'boolean', description: 'Stop the running analysis / build' }
+        })
+    },
+    {
+        name: 'list_broll',
+        description: 'B-roll overlays (the panel\'s B-roll tab): motion graphics rendered with Remotion at the timeline\'s size and frame rate (ProRes 4444 with alpha) and placed on a free video track above the footage. Returns every effect with its fields (key, type, default, range) and the common fields x / y (0..1 centre of the graphic), scale, accent, enter / exit (frames). With placed: true, returns the B-roll clips placed on the open timeline (id, effect, props, start, frames, onTimeline) instead.',
+        inputSchema: S({ placed: { type: 'boolean', description: 'List the placed B-roll clips instead of the effects' }, all: { type: 'boolean', description: 'With placed: every timeline' } })
+    },
+    {
+        name: 'broll_preview',
+        description: 'Render one still of a B-roll effect (no change to Resolve) and return the PNG path: look at it before placing. `at` is the moment (0..1 of the clip, default 0.62).',
+        inputSchema: S({
+            effect: { type: 'string', description: 'Effect id from list_broll (e.g. comment-drop)' },
+            props: { type: 'object', description: 'Field values; omitted fields use the defaults' },
+            seconds: { type: 'number', description: 'Clip length the still is taken from (default: the effect\'s)' },
+            at: { type: 'number', description: 'Moment 0..1 (default 0.62)' }
+        }, ['effect'])
+    },
+    {
+        name: 'place_broll',
+        description: 'Render a B-roll effect and place it on the open timeline: over a subtitle\'s range (subtitle), the timeline\'s Mark In -> Mark Out (marks: true), between startFrame / endFrame, or at the playhead for `seconds`. Clips shorter than 1.2 s are held to 1.2 s. The file goes to "<footage folder>/El Subtitle Animator B-roll/" and a Media Pool bin of that name. Returns the record id used by adjust_broll / remove_broll. Pass `items` (a list of these objects, e.g. from suggest_broll) to place several one after another. Keep B-roll off the faces and away from the captions (check get_frame).',
+        inputSchema: S({
+            effect: { type: 'string', description: 'Effect id from list_broll' },
+            props: { type: 'object', description: 'Field values (see list_broll); omitted fields use the last values used, then the defaults' },
+            subtitle: { type: 'integer', description: 'Subtitle number: the clip covers its range' },
+            marks: { type: 'boolean', description: 'Cover the timeline\'s Mark In -> Mark Out range (I / O in Resolve), up to 60 s' },
+            startFrame: { type: 'integer', description: 'Timeline frame to start at (default: the subtitle start or the playhead)' },
+            endFrame: { type: 'integer', description: 'Timeline frame to end at' },
+            seconds: { type: 'number', description: 'Length when there is no endFrame (default: the effect\'s)' },
+            track: { type: 'integer', description: 'Video track (default: the lowest free one from V2)' },
+            usePrefs: { type: 'boolean', description: 'Start from the last values used for this effect (default true)' },
+            place: { type: 'boolean', description: 'false = render the file only' },
+            extend: { type: 'number', description: 'Make the clip this many seconds longer than the subtitle / marks / landing (default 0)' },
+            landOnWord: { type: 'boolean', description: 'Time it so the animation lands exactly as the key word is spoken (the comment keyword, the number, the drawn word...): the clip may start up to 1.6 s earlier' },
+            items: { type: 'array', items: { type: 'object' }, description: 'Several placements, each with the fields above' },
+            wait: { type: 'number', description: 'With items: seconds to wait before returning (default 150)' }
+        })
+    },
+    {
+        name: 'adjust_broll',
+        description: 'Change a placed B-roll clip: merges `props` into its saved values, re-renders and swaps the media under the clip (it keeps its place and track). A new length (seconds / frames) or another effect replaces it with a new clip at the same start. Use this for "make it bigger", "change the number", "move it left" (x/y), "slower" (longer), "different colour".',
+        inputSchema: S({
+            id: { type: 'string', description: 'Record id from place_broll / list_broll { placed: true }' },
+            props: { type: 'object', description: 'Fields to change' },
+            effect: { type: 'string', description: 'Switch to another effect' },
+            seconds: { type: 'number', description: 'New length' },
+            frames: { type: 'integer', description: 'New length in frames' },
+            extend: { type: 'number', description: 'Add this many seconds to its current length' }
+        }, ['id'])
+    },
+    {
+        name: 'remove_broll',
+        description: 'Delete a placed B-roll clip from the timeline and forget it.',
+        inputSchema: S({ id: { type: 'string', description: 'Record id' } }, ['id'])
+    },
+    {
+        name: 'sync_broll',
+        description: 'Sync to words: re-time placed B-roll so each animation lands (finishes building) exactly as its key word is spoken: the comment keyword, the number, the dial word, the typed / drawn word. Uses the word transcription when there is one (else estimates from the word\'s place in the subtitle) and may start the clip up to 1.6 s earlier. One id, or all: true for every B-roll on the open timeline.',
+        inputSchema: S({ id: { type: 'string', description: 'Record id' }, all: { type: 'boolean', description: 'Every placed B-roll on this timeline' } })
+    },
+    {
+        name: 'suggest_broll',
+        description: 'Read the subtitles and suggest which ones get which B-roll effect, with props filled from the words (numbers -> Money counter / Post wall, "comment X" -> Comment drop, days / hours -> Day dial, typing / searching -> Predict keys, "she told me" -> Voice note, "step two" -> Chapter list). Places nothing: refine the props (and drop weak picks), then call place_broll { items }. Skips subtitles that already have B-roll.',
+        inputSchema: S({
+            max: { type: 'integer', description: 'At most this many (default 8)' },
+            minGap: { type: 'number', description: 'Seconds between two B-roll clips (default 4)' },
+            effects: { type: 'array', items: { type: 'string' }, description: 'Only these effect ids' },
+            from: { type: 'integer', description: 'First subtitle number' },
+            to: { type: 'integer', description: 'Last subtitle number' },
+            marks: { type: 'boolean', description: 'Only subtitles between the timeline\'s Mark In and Mark Out' },
+            skipPlaced: { type: 'boolean', description: 'Skip subtitles that already have B-roll (default true)' }
         })
     },
     {

@@ -2,6 +2,7 @@
 
 // Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
 // web colour picker instead. If the system panel cannot open, the web picker is used.
+let colorReopen = null, colorLastTarget = null;
 let colorPanelBusy = false, colorPanelUntil = 0, colorPanelSince = 0, colorLiveTarget = null, colorLiveApplied = false, colorLiveTimer = 0, colorLiveLast = 0;
 if (window.sa && window.sa.onColorLive) window.sa.onColorLive((hex) => {
     // the Colors panel changes the colour while you drag in it: the settings and the preview follow at once (no OK needed)
@@ -43,11 +44,15 @@ document.addEventListener('click', async (e) => {
     e.stopPropagation();
     // one panel only: further clicks (and the click a label passes on to its box) are ignored while it is open
     if (colorPanelBusy) {
-        // a panel that has been open a while (maybe hidden behind another window) is closed by clicking the box again
-        if (Date.now() - colorPanelSince > 1500) { try { window.sa.cancelColor(); } catch (err) { /* ignore */ } }
+        // the same box again closes the panel (the colour picked so far stays); another box closes it and opens it for
+        // that box, so a click on a box always answers
+        if (Date.now() - colorPanelSince > 700 || t !== colorLiveTarget) {
+            if (t !== colorLiveTarget) colorReopen = t;
+            try { window.sa.cancelColor(); } catch (err) { /* ignore */ }
+        }
         return;
     }
-    if (Date.now() < colorPanelUntil) return;
+    if (Date.now() < colorPanelUntil && t === colorLastTarget) return;
     colorPanelBusy = true;
     // While the picker is open, live colours only update the panel and the canvas; saving, the update of the clip in
     // Resolve and the Fusion re-render wait until it closes (doing them on every live step made everything glitch).
@@ -69,7 +74,10 @@ document.addEventListener('click', async (e) => {
     clearTimeout(colorLiveTimer); colorLiveTimer = 0;
     colorPanelUntil = Date.now() + 400;
     dbg('panel returned ' + JSON.stringify(r));
+    colorLastTarget = t;
     await new Promise(res => setTimeout(res, 150));    // let the window settle before the change is applied
+    const reopen = colorReopen; colorReopen = null;
+    if (reopen && reopen.isConnected) setTimeout(() => { colorPanelUntil = 0; reopen.click(); }, 0);
     if (r && r.busy) return;
     setStatus('', '');
     if (r && r.ok && r.hex) {

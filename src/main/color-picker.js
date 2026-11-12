@@ -16,8 +16,19 @@ const { APP_DATA_DIR, OSACOMPILE, OSASCRIPT, ensureDirs } = require('./config');
 // macOS's own Colors panel (with the swatches you saved in it) instead of the web colour picker.
 let colorPanelOpen = false, colorChild = null;
 function isColorPanelOpen() { return colorPanelOpen; }
-function cancelNativeColor() { try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ } try { if (colorViaHelper) { stopJxaHelper(); setTimeout(startJxaHelper, 300); } } catch (e) { /* ignore */ } return true; }
-let colorViaHelper = false;
+const COLOR_CANCEL_FILE = path.join(APP_DATA_DIR, 'color-helper.cancel');
+// Closes the open Colors panel (the colour picked so far is kept). The helper is asked through a file it checks every
+// 60 ms, so it stays warm for the next click; only if it does not answer is it restarted.
+function cancelNativeColor() {
+    try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ }
+    if (colorViaHelper && jxa) {
+        try { fs.writeFileSync(COLOR_CANCEL_FILE, '1'); } catch (e) { /* ignore */ }
+        const n = colorPickSeq;
+        setTimeout(() => { if (colorViaHelper && colorPickSeq === n) { stopJxaHelper(); setTimeout(startJxaHelper, 300); } }, 1500);
+    }
+    return true;
+}
+let colorViaHelper = false, colorPickSeq = 0;
 // The Colors panel script is compiled once (osacompile) and warmed up when the app starts, so a click only has to run it:
 // no compiling and no cold start of the AppleScript runtime on the click.
 const COLOR_SCRIPT_LINES = [
@@ -69,10 +80,17 @@ const JXA_HELPER = [
     "      var NSApp = $.NSApplication.sharedApplication; NSApp.setActivationPolicy(1);",
     "      var panel = $.NSColorPanel.sharedColorPanel; panel.setShowsAlpha(false);",
     "      panel.setColor($.NSColor.colorWithSRGBRedGreenBlueAlpha(a[0] / 65535, a[1] / 65535, a[2] / 65535, 1));",
-    "      panel.setMode(1); panel.setContentSize($.NSMakeSize(264, 372)); panel.center;",
-    "      panel.makeKeyAndOrderFront(null); NSApp.activateIgnoringOtherApps(true); say('SHOWN');",
+    "      panel.setMode(1); panel.setContentSize($.NSMakeSize(264, 372));",
+    // above the panel window (always-on-top = the same 'floating' level as the Colors panel, so it opened behind it),
+    // on every Space incl. a full-screen Resolve, and it stays up when you click back into the panel
+    "      panel.setHidesOnDeactivate(false); panel.setFloatingPanel(true); panel.setLevel(8); panel.setCollectionBehavior(1 | 256);",
+    "      if (a.length >= 5 && a[3] >= 0) panel.setFrameTopLeftPoint($.NSMakePoint(a[3], a[4])); else panel.center;",
+    "      try { fm.removeItemAtPathError(CANCEL, null); } catch (e) { }",
+    "      panel.makeKeyAndOrderFront(null); panel.orderFrontRegardless; NSApp.activateIgnoringOtherApps(true); say('SHOWN');",
     "      var last = '', cur = '';",
     "      while (panel.isVisible) {",
+    // a click on the colour box again (or on another box) asks the panel to close through this file: no helper restart
+    "        if (fm.fileExistsAtPath(CANCEL)) { try { fm.removeItemAtPathError(CANCEL, null); } catch (e) { } panel.orderOut(null); break; }",
     "        var ev = NSApp.nextEventMatchingMaskUntilDateInModeDequeue(4294967295, $.NSDate.dateWithTimeIntervalSinceNow(0.06), $.NSDefaultRunLoopMode, true);",
     "        if (ev) NSApp.sendEvent(ev);",
     "        var c = panel.color.colorUsingColorSpace($.NSColorSpace.sRGBColorSpace);",
@@ -95,7 +113,7 @@ function startJxaHelper() {
     try {
         ensureDirs();
         const file = path.join(APP_DATA_DIR, 'color-helper.js');
-        fs.writeFileSync(file, JXA_HELPER);
+        fs.writeFileSync(file, 'var CANCEL = ' + JSON.stringify(COLOR_CANCEL_FILE) + '; var fm = $.NSFileManager.defaultManager;\n' + JXA_HELPER);
         jxaReady = false; jxaBuf = '';
         const ch = require('child_process').spawn(OSASCRIPT, ['-l', 'JavaScript', file], { stdio: ['pipe', 'pipe', 'ignore'] });
         jxa = ch;
@@ -129,6 +147,20 @@ function pickViaHelper(c, onLive) {
         go();
     });
 }
+// Where the Colors panel opens: beside the app window (right, else left), as Cocoa's top-left point (y from the bottom of
+// the main screen). [-1, -1] = centred.
+function panelSpot() {
+    try {
+        const { screen } = require('electron');
+        const w = state.mainWindow;
+        if (!w || w.isDestroyed()) return [-1, -1];
+        const b = w.getBounds(), wa = screen.getDisplayMatching(b).workArea, PW = 280, PH = 420;
+        const x = b.x + b.width + 8 + PW <= wa.x + wa.width ? b.x + b.width + 8 : Math.max(wa.x, b.x - PW - 8);
+        const y = Math.max(wa.y, Math.min(b.y + 40, wa.y + wa.height - PH));
+        const mainH = screen.getPrimaryDisplay().bounds.height;
+        return [Math.round(x), Math.round(mainH - y)];
+    } catch (e) { return [-1, -1]; }
+}
 function pickNativeColor(event, hex) {
     return new Promise((resolve) => {
         if (process.platform === 'win32') return pickWindowsColor(hex, resolve);
@@ -146,8 +178,8 @@ function pickNativeColor(event, hex) {
             if (p.length !== 3 || p.some(x => !Number.isFinite(x))) return resolve({ ok: false, error: 'Unexpected colour answer' });
             resolve({ ok: true, hex: '#' + p.map(x => x.toString(16).padStart(2, '0')).join('') });
         };
-        colorViaHelper = true;
-        pickViaHelper(c, (rgb) => { try { const q = rgb.split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257)))); if (q.length === 3 && state.mainWindow && !state.mainWindow.isDestroyed()) state.mainWindow.webContents.send('color:live', '#' + q.map(x => x.toString(16).padStart(2, '0')).join('')); } catch (e) { /* ignore */ } }).then((r) => {
+        colorViaHelper = true; colorPickSeq++;
+        pickViaHelper(c.concat(panelSpot()), (rgb) => { try { const q = rgb.split(',').map(x => Math.max(0, Math.min(255, Math.round(parseInt(x, 10) / 257)))); if (q.length === 3 && state.mainWindow && !state.mainWindow.isDestroyed()) state.mainWindow.webContents.send('color:live', '#' + q.map(x => x.toString(16).padStart(2, '0')).join('')); } catch (e) { /* ignore */ } }).then((r) => {
             if (r) return finishH(r);
             colorViaHelper = false;
             runOsaFallback();

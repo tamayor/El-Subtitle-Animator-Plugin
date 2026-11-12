@@ -3,7 +3,7 @@
 // switch it on or off for the clips selected on the timeline (or the top clip under the playhead). Several on one clip
 // stack as one look (glitch -> wiggle -> stop motion). Search and the tag filter work like the Text Preset list.
 
-const fxUI = { effects: [], search: '', clips: [], busy: false, timer: null, sig: '', sliding: false, sendTimer: null, open: {}, paramTimer: null, pending: {} };
+const fxUI = { effects: [], search: '', clips: [], busy: false, timer: null, sig: '', sliding: false, sendTimer: null, open: {}, show: {}, paramTimer: null, pending: {} };
 
 // Strength (0..100) used when an effect is added; once on, the slider shows and sets the clip's own value.
 function fxNextStrength(e) {
@@ -440,7 +440,10 @@ function renderEffects() {
         const t = names.length
             ? 'Applies to: ' + (names.length > 3 ? names.slice(0, 3).join(', ') + ' +' + (names.length - 3) : names.join(', '))
             : 'Select a clip on the timeline (video, title or text preset)';
-        if (target.textContent !== t) target.textContent = t;
+        const temp = fxUI.clips.some(c => c.temp);
+        const t2 = temp ? 'Temporary preview text preset selected - effects are not allowed on it' : t;
+        target.classList.toggle('fx-target-warn', temp);
+        if (target.textContent !== t2) target.textContent = t2;
     }
     const layout = shown.map(e => e.id + ':' + fxTagsOf(e).join('.')).join(',') + '|' + (shown.length ? '' : q + '|' + n);
     if (grid.dataset.layout !== layout || !grid.querySelector('.fx-card') !== !shown.length) {
@@ -459,6 +462,29 @@ function renderEffects() {
         const e = fxUI.effects.find(x => x.id === c.dataset.id);
         if (e) fxFillCard(c, e);
     }
+}
+
+// Each effect card shows only its switch and name until it is in use: its Strength slider and Options open when the
+// effect is on or you click the card, and close again (the effect stays on) once the card scrolls out of view.
+function fxIsShut(id, st) { return fxUI.show[id] === undefined ? st === 'none' : !fxUI.show[id]; }
+function fxShow(id, open) {
+    fxUI.show[id] = !!open;
+    const c = document.querySelector('#fxGrid .fx-card[data-id="' + id + '"]');
+    if (c) c.classList.toggle('fx-shut', !open);
+}
+let fxObserver = null;
+function fxViewObserver() {
+    if (!fxObserver) {
+        fxObserver = new IntersectionObserver((entries) => {
+            for (const en of entries) {
+                const c = en.target;
+                if (en.isIntersecting || !c.isConnected || c.classList.contains('fx-shut')) continue;
+                if (c.contains(document.activeElement)) continue;      // being edited
+                fxShow(c.dataset.id, false);
+            }
+        }, { threshold: 0 });
+    }
+    return fxObserver;
 }
 
 // The parts of a card that never change; the rest is set by fxFillCard.
@@ -512,7 +538,8 @@ function fxBuildCard(e) {
     c.appendChild(optsAt);
     const dots = tagDotsEl({ tags: fxTagsOf(e) });
     if (dots) c.appendChild(dots);
-    c.addEventListener('click', () => fxToggle(e));
+    c.addEventListener('click', () => { fxShow(e.id, true); fxToggle(e); });
+    fxViewObserver().observe(c);
     c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); fxTagMenu(c, e); });
     c._fx = { sw, sub, note, row, rng, val, optsAt, optsSig: null };
     return c;
@@ -522,7 +549,7 @@ const fxPut = (el, prop, v) => { if (el[prop] !== v) el[prop] = v; };
 function fxFillCard(c, e) {
     const f = c._fx;
     const st = fxStateOf(e.id);
-    const cls = 'card fx-card' + (st === 'on' ? ' fx-on' : (st === 'some' ? ' fx-some' : '')) + (fxUI.pending[e.id] ? ' fx-pending' : '');
+    const cls = 'card fx-card' + (st === 'on' ? ' fx-on' : (st === 'some' ? ' fx-some' : '')) + (fxUI.pending[e.id] ? ' fx-pending' : '') + (fxIsShut(e.id, st) ? ' fx-shut' : '');
     fxPut(c, 'className', cls);
     const nodeClips = fxInNodes(e.id);
     // dragged in as a node AND switched on here (the node went in after): it runs twice - click the card to remove this one
@@ -581,6 +608,11 @@ async function fxToggle(e) {
     if (fxUI.pending[e.id]) return;
     if (!fxUI.clips.length) await fxRefresh(true);
     if (!fxUI.clips.length) { setStatus('Select a clip on the timeline first.', 'bad'); return; }
+    // the Resolve preview clip is a temporary text preset: it is replaced / removed, so an effect on it would be lost
+    if (fxUI.clips.some(c => c.temp)) {
+        setStatus('Effects cannot be applied to a temporary preview text preset. Click Apply (or Remove) on the preview first, then select the placed clip.', 'bad');
+        return;
+    }
     const want = fxStateOf(e.id) !== 'on';
     // Track Subject is added by tracking: switching it on opens the Track sheet (draw the box, Track)
     if (e.track && want) { fxTrackOpen(e); return; }

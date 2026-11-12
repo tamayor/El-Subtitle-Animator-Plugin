@@ -151,6 +151,9 @@ footer {
 }
 
 .status {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
     min-height: 18px;
     margin-top: 0;
     font-size: 12px;

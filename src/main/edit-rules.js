@@ -48,7 +48,7 @@ function defaultRules() {
         // the box / pill behind a highlighted word (Highlight Select, Glass Pill, Pill Soft / Outline / Solid, Soft
         // Marker, Underline Draw): width / height multiply the preset's box, x / y are added to its Offset (Inspector
         // units, + = right / up), auto evens out the padding around the word (fusion_bridge.op_highlight_box)
-        highlight: { auto: false, width: 1, height: 1, x: 0, y: 0 },
+        highlight: { auto: true, width: 1, height: 1, x: 0, y: 0 },
         // MultiText row layout (Inspector Row controls, tools/add-multitext-row-controls.py): gap = space between the
         // upper / emphasis / lower rows in text lines (null = the preset's own), justify = manual / center / left / right
         // (null = the preset's: manual). fusion_bridge.op_multitext_rows
@@ -128,7 +128,7 @@ function cleanGradient(g) {
 function cleanHighlight(h) {
     h = (h && typeof h === 'object') ? h : {};
     const num = (v, lo, hi, def) => { const n = Number(v); return (v !== null && v !== '' && Number.isFinite(n)) ? Math.max(lo, Math.min(hi, n)) : def; };
-    return { auto: !!h.auto, width: num(h.width, 0.2, 4, 1), height: num(h.height, 0.2, 4, 1), x: num(h.x, -2, 2, 0), y: num(h.y, -2, 2, 0) };
+    return { auto: h.auto === undefined ? true : !!h.auto, width: num(h.width, 0.2, 4, 1), height: num(h.height, 0.2, 4, 1), x: num(h.x, -2, 2, 0), y: num(h.y, -2, 2, 0) };
 }
 
 const ROW_JUSTIFY = ['manual', 'center', 'left', 'right'];
@@ -151,6 +151,7 @@ function rowsReq(rules, own) {
     own = (own && typeof own === 'object') ? own : {};
     const o = cleanRows(own);
     if (o.gap !== null) out.gap = o.gap;
+    if (out.gap === undefined) out.gap = 0;        // default: rows touching (the minimum); a rule or per-call gap overrides
     if (o.justify) out.justify = o.justify;
     if (own.link !== undefined && own.link !== null) out.link = !!own.link;
     if (own.equalize !== undefined && own.equalize !== null) out.equalize = !!own.equalize;

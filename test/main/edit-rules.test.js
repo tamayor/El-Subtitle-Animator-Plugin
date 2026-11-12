@@ -58,11 +58,12 @@ test('rules are saved and read back from edit-rules.json, and a broken file give
 });
 
 test('highlight box and row requests are null when nothing would change', () => {
-    assert.equal(R.highlightReq(null), null);
-    assert.equal(R.highlightReq({ width: 1, height: 1, x: 0, y: 0 }), null);
-    assert.deepEqual(R.highlightReq({ width: 9, y: -0.1 }), { auto: false, width: 4, height: 1, x: 0, y: -0.1 });
+    assert.equal(R.highlightReq({ auto: false }), null);
+    assert.equal(R.highlightReq({ auto: false, width: 1, height: 1, x: 0, y: 0 }), null);
+    assert.equal(R.highlightReq(null).auto, true);   // balanced, tight box by default
+    assert.deepEqual(R.highlightReq({ auto: false, width: 9, y: -0.1 }), { auto: false, width: 4, height: 1, x: 0, y: -0.1 });
     assert.deepEqual(R.cleanHighlight({ auto: 1, width: '', height: null }), { auto: true, width: 1, height: 1, x: 0, y: 0 });
-    assert.equal(R.rowsReq(null, null), null);
+    assert.deepEqual(R.rowsReq(null, null), { gap: 0 });   // rows touching by default
     assert.deepEqual(R.cleanRows({ gap: '2', justify: 'LEFT' }), { gap: 2, justify: 'left' });
     assert.deepEqual(R.cleanRows({ gap: 99, justify: 'diagonal' }), { gap: 6, justify: null });
 });

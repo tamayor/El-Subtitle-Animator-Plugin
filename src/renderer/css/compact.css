@@ -111,7 +111,7 @@ body.compact .bottom-dock.folded .dock-scroll { display: none; }
 body.compact .bottom-dock.folded .dock-bar { height: 20px; padding-top: 3px; padding-bottom: 2px; }
 
 /* status: one line, fades out after a few seconds (helpers.js setStatus adds .faded) */
-body.compact .status { min-height: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.compact .status { min-height: 0; font-size: 11px; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 body.compact #status { transition: opacity 0.3s ease; }
 body.compact #status.faded { opacity: 0; height: 0; }
 body.compact #status:empty { display: none; }

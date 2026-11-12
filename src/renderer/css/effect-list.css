@@ -181,3 +181,10 @@
 .trk-play { flex: none; width: 30px; padding: 2px 0; font-size: 12px; }
 .trk-pvlab { flex: none; min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 button.primary.trk-done:disabled { opacity: 1; background: var(--matcha-tint); color: var(--matcha); border-color: var(--matcha-border); }
+
+
+/* Closed effect card: only the switch and the name (+ On / Some) show */
+.fx-card.fx-shut > :not(.fx-switch):not(.nm):not(.sub) { display: none !important; }
+
+.fx-target.fx-target-warn { color: var(--strawberry); font-weight: 600; }
+.fx-card.fx-blocked { opacity: 0.55; }

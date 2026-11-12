@@ -344,7 +344,11 @@ async function fxGet() {
     const state = require('./state');
     if (state.applying || require('./resolve-load').resolveBusy()) return { busy: true };
     ensureInstalled();
-    return await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
+    const r = await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
+    // the clip of a running Resolve preview is a temporary text preset: flagged so the panel refuses effects on it
+    const live = state.liveSession && state.liveSession.itemId ? String(state.liveSession.itemId) : null;
+    if (live && r && Array.isArray(r.clips)) for (const c of r.clips) if (String(c.id) === live) c.temp = true;
+    return r;
 }
 // Adds (on = true), removes (false) or flips (null) one effect preset on the selected clips.
 async function fxSet(event, effectId, on, strength, params, hold) {

@@ -1169,6 +1169,7 @@ def hl_adjust(comp, tool, W, H, X, Y, auto):
         if ink and box[1] <= ink[1] + 2 and box[3] >= ink[3] - 2:
             iw, ih = ink[2] - ink[0], ink[3] - ink[1]
             pv0 = ((box[3] - ink[3]) + (ink[1] - box[1])) / 2.0
+            pv0 = min(pv0, 0.2 * ih)                # tight by default: padding capped at 20% of the word's height (Height slider widens it)
             th = max(ih * 1.02, (ih + 2 * pv0) * H)
             pv = (th - ih) / 2.0
             hh = th / 2.0

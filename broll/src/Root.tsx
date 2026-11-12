@@ -13,11 +13,12 @@ import { SketchWords } from './effects/SketchWords';
 import { MoneyCounter } from './effects/MoneyCounter';
 import { TagStack } from './effects/TagStack';
 import { ChapterList } from './effects/ChapterList';
+import { ReceiptPrinter } from './effects/ReceiptPrinter';
 
 const COMPONENTS: Record<string, React.FC<any>> = {
     'live-cursor': LiveCursor, 'comment-drop': CommentDrop, 'predict-keys': PredictKeys, 'day-dial': DayDial,
     'post-wall': PostWall, 'voice-note': VoiceNote, 'sketch-words': SketchWords, 'money-counter': MoneyCounter,
-    'tag-stack': TagStack, 'chapter-list': ChapterList
+    'tag-stack': TagStack, 'chapter-list': ChapterList, 'receipt-printer': ReceiptPrinter
 };
 
 function defaultsFor(e: any) {

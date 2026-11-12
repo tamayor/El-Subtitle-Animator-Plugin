@@ -99,6 +99,7 @@ function mergedProps(reg, e, props, usePrefs) {
     for (const f of fields) out[f.key] = f.default;
     Object.assign(out, e.defaults || {});
     if (usePrefs) Object.assign(out, (readJson(PREFS_FILE, {}).last || {})[e.id] || {});
+    delete out._times;   // word times belong to one placed clip, never to the remembered panel values
     const p = props || {};
     for (const f of fields) {
         if (!(f.key in p) || p[f.key] === undefined || p[f.key] === null) continue;
@@ -110,6 +111,8 @@ function mergedProps(reg, e, props, usePrefs) {
         else v = String(v);
         out[f.key] = v;
     }
+    // per-word print frames (receipt printer word by word, set by Sync to words); not a panel field
+    if (Array.isArray(p._times)) out._times = p._times.map(Number).filter(Number.isFinite).slice(0, 400);
     return out;
 }
 
@@ -416,6 +419,7 @@ async function brollPlace(event, o) {
         landed = await brollLandingPlan(tl, meta, e.id, props, r.start, r.end, r.subtitle && r.subtitle.index);
         r.start = landed.start; r.end = landed.end; r.frames = landed.end - landed.start;
         props.settle = landed.settle;
+        if (landed.times) props._times = landed.times; else delete props._times;
     }
     // Extend by: the clip runs this many seconds past the subtitle / marks (the finished graphic holds, then fades)
     const extendF = Math.round(Math.max(0, Math.min(30, Number(o.extend) || 0)) * meta.fps);
@@ -610,7 +614,8 @@ const KEY_WORD = {
     'voice-note': p => firstWordOf(p.caption),
     'tag-stack': p => firstWordOf((p.tags || []).slice(-1)[0]),
     'chapter-list': p => firstWordOf((p.items || [])[Math.max(0, (Number(p.active) || 1) - 1)]),
-    'live-cursor': () => null
+    'live-cursor': () => null,
+    'receipt-printer': () => null
 };
 
 // Does a spoken / written word match the key? Numbers compare by digits ("$174,953" = "174953", "13K" = "13").
@@ -661,6 +666,10 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
 // The new range and settle for a clip spanning start..end so its build lands on the key word: the clip starts 0.5-1.6 s
 // before the word (earlier than before if needed) and holds at least 1 s after it.
 async function brollLandingPlan(tl, meta, effect, props, start, end, subIndex) {
+    if (effect === 'receipt-printer' && props && props.byWord) {
+        const r = await receiptWordPlan(meta, props, start, end);
+        if (r) return r;
+    }
     const k = await keyWordFrame(tl, effect, props, start, end, subIndex);
     const fps = meta.fps;
     const minLead = Math.round(fps * 0.5), maxLead = Math.round(fps * 1.6);
@@ -669,6 +678,44 @@ async function brollLandingPlan(tl, meta, effect, props, start, end, subIndex) {
     let ne = Math.max(end, k.frame + Math.round(fps * 1.0));
     ne = Math.min(ne, ns + Math.round(fps * 12));
     return { start: ns, end: ne, settle: k.frame - ns, wordFrame: k.frame, word: k.word, source: k.source };
+}
+
+// Receipt printer, word by word: every printed word on the frame it is spoken (the transcription), so the clip spans
+// the whole subtitle (from just before the first word, room for the header) instead of landing on one word.
+// Printed words are matched to spoken ones in order (a few words of look-ahead); unmatched ones fall between.
+async function receiptWordPlan(meta, props, start, end) {
+    let words;
+    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end)); } catch (e) { return null; }
+    if (!words || !words.length) return null;
+    const fps = meta.fps;
+    const printed = [];
+    for (const raw of props.lines || []) {
+        const [l, r] = String(raw).split('|').map(x => x.trim());
+        printed.push(...String(l || '').split(/\s+/).filter(Boolean));
+        if (r) printed.push(r);
+    }
+    if (!printed.length) return null;
+    const lead = Math.round(fps * 0.8);
+    const ns = Math.min(start, start + words[0].start - lead);
+    const rel = (w) => start + w.start - ns;
+    const t = new Array(printed.length).fill(null);
+    let cur = 0;
+    printed.forEach((pw, i) => {
+        for (let k = cur; k < Math.min(words.length, cur + 4); k++) if (wordMatches(words[k].w, pw)) { t[i] = rel(words[k]); cur = k + 1; return; }
+    });
+    // nothing matched (the lines are not the spoken words): print them in step with the speech, word for word
+    if (t.every(v => v === null)) printed.forEach((_, i) => { t[i] = rel(words[Math.min(words.length - 1, Math.round(i * (words.length - 1) / Math.max(1, printed.length - 1)))]); });
+    for (let i = 0; i < t.length; i++) {
+        if (t[i] !== null) continue;
+        let j = i; while (j < t.length && t[j] === null) j++;
+        const a = i > 0 ? t[i - 1] : Math.max(0, (j < t.length ? t[j] : lead) - (j - i) * 4);
+        const b = j < t.length ? t[j] : a + (j - i + 1) * 4;
+        for (let k = i; k < j; k++) t[k] = Math.round(a + (b - a) * (k - i + 1) / (j - i + 1));
+        i = j - 1;
+    }
+    const last = Math.max(...t);
+    const ne = Math.min(ns + Math.round(fps * 20), Math.max(end, ns + last + Math.round(fps * 1.2)));
+    return { start: ns, end: ne, settle: 0, times: t, wordFrame: ns + last, word: printed[printed.length - 1], source: 'speech' };
 }
 
 // "Sync to words": re-times placed clips (one id, or all: true for this timeline) so each lands on its key word.
@@ -685,11 +732,12 @@ async function brollSync(event, o) {
             const [s, d] = await Promise.all([it.GetStart(), it.GetDuration()]);
             const start = Number(s), end = Number(s) + Number(d);
             const plan = await brollLandingPlan(tl, meta, rec.effect, rec.props, start, end, rec.subtitle && rec.subtitle.index);
-            if (plan.start === start && plan.end === end && Number(rec.props.settle) === plan.settle) {
+            const sameTimes = JSON.stringify(rec.props._times || null) === JSON.stringify(plan.times || null);
+            if (plan.start === start && plan.end === end && Number(rec.props.settle) === plan.settle && sameTimes) {
                 out.push({ id: rec.id, ok: true, unchanged: true, word: plan.word, source: plan.source });
                 continue;
             }
-            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle }, startFrame: plan.start, frames: plan.end - plan.start });
+            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle, _times: plan.times || [] }, startFrame: plan.start, frames: plan.end - plan.start });
             out.push({ id: rec.id, ok: true, word: plan.word, source: plan.source, wordFrame: plan.wordFrame, moved: plan.start - start, how: r.how });
         } catch (e) { out.push({ id: rec.id, ok: false, error: String(e.message || e) }); }
     }
@@ -700,7 +748,7 @@ async function brollSync(event, o) {
 // ------------------------------------------------------------------ suggest
 
 const SCORE = { 'money-counter': 3, 'post-wall': 3, 'comment-drop': 3, 'day-dial': 2, 'predict-keys': 2, 'voice-note': 2,
-    'chapter-list': 1, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 0 };
+    'chapter-list': 1, 'receipt-printer': 2, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 0 };
 const WORDNUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
 function parseNumber(text) {
@@ -744,6 +792,11 @@ function propsFor(effect, text) {
     }
     case 'predict-keys': return { text: short(t.replace(/[.!?]+$/, ''), 30) };
     case 'voice-note': return { caption: short(t.replace(/[.!?]+$/, ''), 30) };
+    case 'receipt-printer': {
+        // the sentence, one line per clause (at most 5), printed word by word
+        const parts = t.replace(/[.!?]+$/, '').split(/\s*[,;:\u2014]\s*|\s+-\s+|\.\s+/).map(s => s.trim()).filter(Boolean).slice(0, 5);
+        return { lines: parts.length ? parts.map(s => short(s, 40)) : [short(t, 40)], byWord: true, header: 'Receipt', subheader: '', mark: parts.length > 1 ? parts.length : 0 };
+    }
     case 'chapter-list': {
         const m = /\b(?:number|step|tip|part|chapter)\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.exec(t);
         const n = m ? (WORDNUM[m[1].toLowerCase()] || Number(m[1])) : 1;

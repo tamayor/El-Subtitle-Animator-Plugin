@@ -154,6 +154,26 @@
         { "key": "panel", "type": "color", "label": "Panel colour", "default": "#1f3a2c" }
       ],
       "triggers": ["\\b(number|step|tip|part|chapter) (one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\b(first|second|third|fourth|fifth|next) (one|thing|tip|step)\\b"]
+    },
+    {
+      "id": "receipt-printer",
+      "name": "Receipt printer",
+      "description": "A thermal printer feeds a receipt up out of its slot: header, then each line, a whole news line at a time or word by word (with Sync to words each word prints as it is spoken). \"Label | value\" lines print as two columns. Y is the centre of the printer + paper.",
+      "seconds": 4,
+      "defaults": { "x": 0.5, "y": 0.42, "accent": "#f07b8e" },
+      "fields": [
+        { "key": "header", "type": "text", "label": "Header", "default": "Today's news" },
+        { "key": "subheader", "type": "text", "label": "Small line", "default": "No. 0042" },
+        { "key": "lines", "type": "list", "label": "Lines", "default": ["Rent up | +12%", "Wages flat | 0%", "Savings down | -8%"], "help": "One per line. \"Label | value\" = two columns" },
+        { "key": "byWord", "type": "bool", "label": "Word by word", "default": false, "help": "Off = a whole line at a time" },
+        { "key": "mark", "type": "number", "label": "Highlight line", "default": 0, "min": 0, "max": 24, "step": 1, "help": "0 = none; 1 = first line (accent bar)" },
+        { "key": "footer", "type": "text", "label": "Footer", "default": "Thank you" },
+        { "key": "barcode", "type": "bool", "label": "Barcode", "default": true },
+        { "key": "upper", "type": "bool", "label": "Capitals", "default": true },
+        { "key": "paper", "type": "color", "label": "Paper", "default": "#fbf8f1" },
+        { "key": "ink", "type": "color", "label": "Ink", "default": "#1d1d1f" }
+      ],
+      "triggers": ["\\b(receipts?|bill|invoice|the cost|costs? (you|me|us)|price (tag|list)|headlines?|breaking|in the news|itemi[sz]ed|line by line|add(s|ed)? up)\\b"]
     }
   ]
 }

@@ -14,6 +14,8 @@ const { execFile } = require('child_process');
 const { APP_DATA_DIR } = require('./config');
 
 const PEAK_LO = -20, PEAK_HI = -15;
+const QUIET_PEAK = -45;         // dBFS: a cut peaking under this is left at the preset's volume
+const MAX_RAISE = 18;           // dB: the most a quiet sound is turned up
 const VARY_CENTS = 45;          // pitch: up to +/- this many cents (100 = one semitone)
 const VARY_DB = 1.0;            // volume: up to +/- this many dB (still kept inside the peak window)
 
@@ -80,11 +82,15 @@ async function peakOf(file, trimIn, len, fps) {
     return v;
 }
 
+// Never raised: a cut that peaks under QUIET_PEAK is near silence (a sound's quiet tail, room tone) and turning it up
+// to the window raises its noise, not the sound (ffmpeg-skill's ambience rule). Any raise is capped at MAX_RAISE dB.
 function clampToWindow(vol, peak) {
     const v = Number(vol) || 0;
     if (peak === null || peak === undefined || !Number.isFinite(peak)) return v;
     const lo = PEAK_LO - peak, hi = PEAK_HI - peak;
-    return Math.round(Math.max(lo, Math.min(hi, v)) * 10) / 10;
+    let out = Math.max(lo, Math.min(hi, v));
+    if (out > v) out = peak < QUIET_PEAK ? v : Math.min(out, v + MAX_RAISE);
+    return Math.round(out * 10) / 10;
 }
 
 // The clip volume (dB) that puts this cut's real peak inside the window, starting from the preset's volume.

@@ -1,7 +1,7 @@
 // Sound files in the Media Pool: importing a sound once per project, and keeping the project's own copy of it next to
 // the footage.
 
-module.exports = { importSfx, relinkToProjectCopy };
+module.exports = { importSfx, relinkToProjectCopy, timelineSfxDir };
 
 const path = require('path');
 const fs = require('fs');

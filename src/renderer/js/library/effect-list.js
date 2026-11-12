@@ -426,6 +426,7 @@ function fxInNodes(id) { return fxUI.clips.filter(c => Array.isArray(c.inNodes) 
 
 // "Glitch" on all of the target clips / some of them / none
 function fxStateOf(id) {
+    if (id === 'MatchCut') return mcUI.running ? 'on' : 'none';      // makes its own clip: "on" while it renders
     const n = fxUI.clips.length;
     if (!n) return 'none';
     const on = fxUI.clips.filter(c => c.effects && c.effects[id]).length;
@@ -597,6 +598,16 @@ function fxFillCard(c, e) {
         fxPut(f.val, 'textContent', fxStrengthLabel(v0, e));
     }
     // Options: rebuilt only when what they show changed, and never while one of their fields is being typed in
+    if (e.matchCut) {
+        const sig = JSON.stringify([!!mcUI.prefs, mcUI.running, mcUI.last && [mcUI.last.phase, mcUI.last.text]]);
+        const ae = document.activeElement;
+        const typing = !!ae && f.optsAt.contains(ae) && ae.tagName === 'INPUT' && ['number', 'text', 'color'].includes(ae.type);
+        if (sig !== f.optsSig && (!typing || !mcUI.running !== !f.optsAt.querySelector('.fx-mc-bar'))) {
+            f.optsSig = sig;
+            f.optsAt.textContent = '';
+            f.optsAt.appendChild(fxMatchCutOptions());
+        }
+    }
     if (e.spot) {
         const clip = fxUI.clips.find(x => x.effects && x.effects[e.id]);
         const sig = JSON.stringify([st, clip ? [clip.id, clip.spot] : null, spotUI.running, spotUI.ready]);
@@ -636,6 +647,8 @@ async function fxToggle(e) {
     if (fxUI.pending[e.id]) return;
     // Spotlight makes its own clip at the playhead (no clip needs to be selected); off = remove the selected one
     if (e.spot) { fxSpotToggle(e); return; }
+    // Match Cut makes its own clip at the playhead: the switch starts a run (or cancels the running one)
+    if (e.matchCut) { if (mcUI.running) window.sa.matchCutCancel(); else { fxShow(e.id, true); mcRun(); } return; }
     if (!fxUI.clips.length) await fxRefresh(true);
     if (!fxUI.clips.length) { setStatus('Select a clip on the timeline first.', 'bad'); return; }
     // the Resolve preview clip is a temporary text preset: it is replaced / removed, so an effect on it would be lost

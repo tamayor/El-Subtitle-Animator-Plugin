@@ -15,6 +15,19 @@
   "apply.js": [
     "apply:function"
   ],
+  "auto-cut.js": [
+    "cutAnalyze:function",
+    "cutBuild:function",
+    "cutBuildWithout:function",
+    "cutCancel:function",
+    "cutDefaults:function",
+    "cutEngine:function",
+    "cutInstall:function",
+    "cutListen:function",
+    "cutSetPrefs:function",
+    "cutStatus:function",
+    "cutWordsFromTc:function"
+  ],
   "automation.js": [
     "adjustHighlights:function",
     "startAutomation:function",
@@ -81,6 +94,22 @@
     "WORKFLOW_INTEGRATION_NODE:string",
     "ensureDirs:function",
     "resolveUserDir:function"
+  ],
+  "cut-tools.js": [
+    "analyse:function",
+    "cancelCutTools:function",
+    "checkRender:function",
+    "cutToolsCheck:function",
+    "cutToolsDeletePauses:function",
+    "cutToolsGoto:function",
+    "cutToolsInstall:function",
+    "cutToolsMarkers:function",
+    "cutToolsPlayhead:function",
+    "cutToolsRun:function",
+    "cutToolsStatus:function",
+    "cutToolsWave:function",
+    "resolveRange:function",
+    "timelineMedia:function"
   ],
   "edit-rules.js": [
     "RULES_FILE:string",
@@ -159,7 +188,8 @@
     "fitBox:function",
     "guideRegion:function",
     "layoutSummary:function",
-    "overlayFrame:function"
+    "overlayFrame:function",
+    "platformLayout:function"
   ],
   "library-actions.js": [
     "addAnimationFile:function",
@@ -201,6 +231,12 @@
     "quitPlugin:function",
     "watchResolve:function"
   ],
+  "line-break.js": [
+    "bareWord:function",
+    "breakCost:function",
+    "breakLines:function",
+    "wordsOf:function"
+  ],
   "live-preview.js": [
     "liveAlive:function",
     "liveClearMarks:function",
@@ -221,6 +257,39 @@
   ],
   "log.js": [
     "dlog:function"
+  ],
+  "match-cut.js": [
+    "matchCutCancel:function",
+    "matchCutDefaults:function",
+    "matchCutOpen:function",
+    "matchCutRun:function",
+    "matchCutStart:function",
+    "matchCutStatus:function"
+  ],
+  "media-analysis.js": [
+    "QUIET_SPEECH_DB:number",
+    "analyseTimeline:function",
+    "asrStatus:function",
+    "audioEnvelope:function",
+    "beatGrid:function",
+    "cachedWords:function",
+    "ensureAsrModel:function",
+    "ffmpegBin:function",
+    "ffprobeBin:function",
+    "findBeats:function",
+    "findPauses:function",
+    "frameContent:function",
+    "installAsr:function",
+    "pausesFromEnvelope:function",
+    "pickSegments:function",
+    "probeMedia:function",
+    "renderFlags:function",
+    "sceneCuts:function",
+    "shotsFromCuts:function",
+    "snapCuts:function",
+    "sourceMapper:function",
+    "stopAsr:function",
+    "transcribeWords:function"
   ],
   "perf.js": [
     "PERF_DEFAULTS:object",
@@ -345,7 +414,8 @@
   ],
   "sfx-import.js": [
     "importSfx:function",
-    "relinkToProjectCopy:function"
+    "relinkToProjectCopy:function",
+    "timelineSfxDir:function"
   ],
   "sfx-level.js": [
     "PEAK_HI:number",

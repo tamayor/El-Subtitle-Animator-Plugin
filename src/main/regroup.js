@@ -3,9 +3,14 @@
 // Given the subtitles and the phrases they should read as ("If this is the bar then" / "it's fine, but the bar is
 // this."), this times every phrase from its words: each word gets a share of its own subtitle's duration in
 // proportion to its length, so a phrase starts at its first word and ends at its last one.
+// With opts.pauses (measured speech pauses) and / or opts.words (word timings from a speech engine), each cut between
+// two phrases moves onto the real pause next to it (media-analysis.js snapCuts), so a phrase never starts or ends
+// mid-word. All of these are in timeline frames; opts.maxShift (frames) limits the move.
 // Pure functions (no Resolve calls), so they can be tested on their own.
 
 module.exports = { regroup, wordKey };
+
+const { snapCuts } = require('./media-analysis');
 
 // A word as compared between subtitles and phrases: lower case, letters and digits only.
 function wordKey(w) { return String(w).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); }
@@ -14,7 +19,8 @@ function splitWords(text) { return String(text || '').split(/\s+/).filter(Boolea
 
 // subs: [{ index, text, start, end }] in timeline order (consecutive). phrases: [string].
 // Returns [{ text, subtitle, subtitles, startFrame, endFrame, frames }] or throws when the phrases don't spell the subtitles.
-function regroup(subs, phrases) {
+function regroup(subs, phrases, opts) {
+    const o = opts || {};
     if (!Array.isArray(subs) || !subs.length) throw new Error('Give the subtitles to regroup');
     if (!Array.isArray(phrases) || !phrases.length) throw new Error('Give the phrases the subtitles should read as');
 
@@ -52,6 +58,18 @@ function regroup(subs, phrases) {
     });
     if (k < real.length) {
         throw new Error('The phrases leave out the subtitles\' last words: "' + real.slice(k).map(t => t.word).join(' ') + '"');
+    }
+
+    // cuts onto measured pauses / word gaps: the cut sits between phrase i's last word and phrase i+1's first word
+    if ((Array.isArray(o.pauses) && o.pauses.length) || (Array.isArray(o.words) && o.words.length)) {
+        for (let i = 0; i < out.length - 1; i++) {
+            const a = out[i], b = out[i + 1];
+            if (b.startFrame - a.endFrame > 1) continue;          // a real gap between subtitles already
+            const c = (a.endFrame + b.startFrame) / 2;
+            const s = snapCuts([c], o.pauses || [], o.words || null, Number.isFinite(o.maxShift) ? o.maxShift : 9)[0];
+            if (!s.by || s.to <= a.startFrame + 2 || s.to >= b.endFrame - 2) continue;
+            a.endFrame = s.to; b.startFrame = s.to; a.snapped = b.snapped = s.by;
+        }
     }
 
     // whole frames, back to back: each phrase ends where the next begins (unless a gap between subtitles lies there)

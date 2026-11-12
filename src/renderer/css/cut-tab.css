@@ -1,0 +1,186 @@
+/* Cut tab: rough cut into a new timeline (js/library/cut-tab.js). */
+
+#tabCut .tab-columns { display: block; }
+#tabCut .tab-col-main,
+#tabCut section.cr { width: 100%; max-width: none; }
+body.tab-cut footer { display: none; }
+body.tab-cut { padding-bottom: 24px; }
+
+.cut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px 10px;
+    margin-bottom: 10px;
+}
+.cut-nums { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+.cut-f { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--dim); min-width: 0; }
+.cut-f select, .cut-f input { width: 100%; box-sizing: border-box; }
+
+.cut-checks { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; font-size: 12px; }
+.cut-checks label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cut-checks .cr-sub { font-size: 11px; }
+input.cut-inline { width: 56px; }
+
+.cut-msg { font-size: 11px; color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cut-bar { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin: 0 0 8px; }
+.cut-bar i { display: block; height: 100%; width: 0; background: var(--matcha); transition: width .3s; }
+
+.cut-engine {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px; margin-bottom: 10px; font-size: 12px;
+    border: 1px solid var(--strawberry-border); background: var(--strawberry-tint); border-radius: 8px;
+}
+
+.cut-result { padding-top: 4px; }
+.cut-headline { font-size: 13px; color: var(--text); margin-bottom: 8px; }
+
+.cut-clips { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.cut-clip { display: grid; grid-template-columns: minmax(60px, 140px) 1fr auto; align-items: center; gap: 8px; font-size: 11px; }
+.cut-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+.cut-clip-t { color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cut-strip { position: relative; height: 10px; border-radius: 3px; background: var(--strawberry-tint); border: 1px solid var(--line); overflow: hidden; }
+.cut-strip i { position: absolute; top: 0; bottom: 0; background: var(--matcha); opacity: .85; }
+
+.cut-warn { font-size: 11px; color: var(--strawberry); display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.cut-warn:empty { display: none; }
+
+.cut-sub-head { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 6px; }
+.cut-drops { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; margin-bottom: 6px; }
+.cut-drop { display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; gap: 8px; font-size: 12px; padding: 3px 4px; border-radius: 6px; }
+.cut-drop:hover { background: var(--card-inner); }
+.cut-drop.kept .cut-drop-t { color: var(--dim); text-decoration: line-through; }
+.cut-drop-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cut-kind { font-size: 10px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--dim); }
+.cut-kind.k-retake { color: #f0a0c8; border-color: rgba(240, 160, 200, .45); }
+.cut-kind.k-stutter { color: #e8c86a; border-color: rgba(232, 200, 106, .45); }
+.cut-kind.k-filler { color: #b9a2f0; border-color: rgba(185, 162, 240, .45); }
+
+#cutName { flex: 1; min-width: 160px; }
+
+/* number fields: same look as the panel's text fields (were browser-white) */
+#tabCut input[type=number] {
+    background: var(--card-inner);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    cursor: ew-resize;
+}
+#tabCut input[type=number]:focus { outline: none; border-color: var(--matcha-border); cursor: text; }
+
+/* pause visualiser (cutViz in js/library/cut-tab.js) */
+.cut-viz {
+    margin: 2px 0 10px;
+    padding: 6px 6px 2px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card-inner);
+    user-select: none;
+    touch-action: none;
+}
+.cut-viz svg { display: block; width: 100%; height: auto; }
+.cut-viz .cv-word { fill: var(--matcha); opacity: .85; }
+.cut-viz .cv-wt { fill: var(--matcha-ink); font-size: 10px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+.cut-viz .cv-gap { fill: var(--line-soft); }
+.cut-viz .cv-kept { fill: var(--line); stroke: var(--dim); stroke-opacity: .35; }
+.cut-viz .cv-cut { fill: var(--strawberry-tint); stroke: var(--strawberry-border); stroke-dasharray: 3 2; }
+.cut-viz .cv-ct { fill: var(--strawberry); font-size: 9.5px; text-anchor: middle; pointer-events: none; }
+.cut-viz .cv-note { fill: var(--dim); font-size: 9px; text-anchor: middle; }
+.cut-viz .cv-lab { fill: var(--dim); font-size: 9.5px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.cut-viz .cv-start { text-anchor: start; }
+.cut-viz .cv-row { fill: var(--text); font-size: 11px; font-weight: 600; }
+.cut-viz .cv-sec { fill: var(--dim); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.cut-viz .cv-br { fill: none; stroke: var(--strawberry); stroke-width: 1.3; }
+.cut-viz .cv-drag { cursor: ew-resize; }
+.cut-viz .cv-drag:hover .cv-kept { fill: var(--matcha-border); }
+.cut-viz .cv-drag:hover .cv-lab { fill: var(--text); }
+.cut-viz.dragging .cv-lab { fill: var(--text); }
+
+.cut-kind.k-outtake { color: #f0a0c8; border-color: rgba(240, 160, 200, .45); }
+.cut-drop-s { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.cut-script { margin: 0 0 12px; font-size: 12px; }
+.cut-script summary { cursor: pointer; margin-bottom: 6px; }
+.cut-script textarea { width: 100%; box-sizing: border-box; font-size: 12px; }
+
+/* ---------------------------------------------------------------- layout: sub-tabs + numbered steps (2026-11-12)
+   Rough cut / Measure are sub-tabs (cutSubTab in js/library/cut-tab.js); each is a column of .cr-step steps
+   (the Create tab's step look, css/create-tab.css). */
+.cut-head { margin: 0 0 8px; }
+#cutWrap[data-cut="rough"] > #ctSection,
+#cutWrap[data-cut="measure"] > #cutRough { display: none; }
+#tabCut .cr-step { padding-bottom: 16px; }
+#tabCut .cr-step.last { padding-bottom: 0; }
+#tabCut .cr-title { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+#tabCut .cr-step .cut-grid:last-child,
+#tabCut .cr-step .cut-checks:last-child { margin-bottom: 0; }
+
+/* optional parts of a step (exact values, script) */
+.cut-more { margin: 0; font-size: 12px; }
+.cut-more > summary { cursor: pointer; user-select: none; list-style: none; display: flex; align-items: baseline; gap: 6px; }
+.cut-more > summary::-webkit-details-marker { display: none; }
+.cut-more > summary::before { content: '▸'; color: var(--dim); transition: transform .15s; }
+.cut-more[open] > summary::before { transform: rotate(90deg); }
+.cut-more[open] > summary { margin-bottom: 8px; }
+.cut-checks + .cut-more { margin-top: -4px; }
+
+/* progress + status of the running step */
+.cut-run-row { display: flex; align-items: center; gap: 8px; }
+.cut-run-row .cut-msg { flex: 1; }
+.cut-run-row:has(.cut-msg:empty):has(button.hidden) { display: none; }
+.cut-run .cut-bar { margin-top: 6px; }
+#tabCut .pr-bar { margin-bottom: 6px; }
+
+/* step 4: the plan is older than the settings */
+.cut-stale-note { display: none; color: #e8c86a; }
+#cutRough.stale .cut-stale-note { display: inline; }
+#cutRough.stale .cut-result { opacity: .55; }
+
+/* step 5 waits for an analysis */
+.cut-lock-note { margin-bottom: 8px; }
+#cutRough.has-plan .cut-lock-note { display: none; }
+#cutRough:not(.has-plan) .cut-lockable { opacity: .4; pointer-events: none; }
+#cutRough:not(.has-plan) #cutNum5 { opacity: .5; }
+@media (min-width: 620px) {
+    .cut-checks-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+}
+
+/* narrow panel: less indent */
+body.compact #tabCut .cr-step { gap: 8px; }
+
+/* .cut-engine sets display, so .hidden alone did not hide it (an empty pink bar showed) */
+.cut-engine.hidden { display: none; }
+/* the step buttons are button-sized, not the full-width primary */
+#tabCut .pr-bar button.primary { width: auto; flex: none; padding: 8px 18px; font-size: 13px; }
+
+/* ---------------------------------------------------------------- the real waveform (js/library/cut-wave.js) */
+.cut-viz.hidden { display: none; }
+.cut-wave { margin: 2px 0 10px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card-inner); user-select: none; }
+.cut-wave canvas { display: block; width: 100%; }
+.cut-wave canvas.hidden { display: none; }
+.cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; min-width: 0; }
+.cw-head .grow { flex: 1; }
+.cw-head select { max-width: 45%; }
+.cw-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-time { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cw-head button { padding: 2px 8px; font-size: 11px; }
+.cw-zoom { display: inline-flex; gap: 2px; flex: none; }
+.cw-over { height: 20px; margin-bottom: 4px; border-radius: 4px; cursor: grab; touch-action: none; }
+.cw-main { height: 122px; cursor: pointer; touch-action: pan-y; }
+.cw-after { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.cw-after canvas { height: 24px; min-width: 0; }
+.cw-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 4px; font-size: 10.5px; color: var(--dim); }
+.cw-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; opacity: .85; }
+.cut-clip.pick { cursor: pointer; padding: 2px 4px; margin: 0 -4px; border-radius: 6px; }
+.cut-clip.pick:hover { background: var(--card-inner); }
+.cut-clip.on .cut-clip-name { color: var(--text); font-weight: 600; }
+button.cut-drop-go { padding: 0 5px; font-size: 12px; line-height: 1.4; }
+
+/* sliders beside the number fields (cutSliders in js/library/cut-tab.js) */
+#cutNumsBox .cut-nums { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.cut-slrow { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; }
+.cut-slide { width: 100%; min-width: 0; accent-color: var(--matcha); }
+.cut-det { margin-top: 2px; }

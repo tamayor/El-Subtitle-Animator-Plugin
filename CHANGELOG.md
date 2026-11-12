@@ -2,6 +2,49 @@
 
 Notable changes to El Subtitle Animator. The plugin's version is in `package.json` and `manifest.xml`.
 
+## Unreleased: Cut tab, media analysis, Match Cut
+
+### Added
+
+- **Cut tab** (new top-level tab, two sub-tabs):
+  - **Rough cut** (`src/main/auto-cut.js`, `src/python/auto_cut.py`, pause rules adapted from ghost-editor, MIT): five
+    numbered steps (Source, Pauses, Take out, Analyse, Build). Shortens pauses, trims heads and tails, takes out
+    retakes, outtakes, stutters, fillers and sounds without words (from Resolve's transcription or the subtitle track),
+    optional script mode. Build makes a new "(cut)" timeline; the source timeline is never edited.
+  - After Analyse, the clip's real waveform with every cut drawn on it (`js/library/cut-wave.js`). The pause rules also
+    run in the panel (`js/library/cut-plan.js`, kept identical to `auto_cut.py` by `test/main/cut-plan.test.js`), so
+    pause settings, unticked lines and clicks on the waveform (keep / cut / drag a range) show at once and Build uses
+    them. Double-click listens to the join (`cut:listen`). Sliders for the five pause values; "What counts as
+    silence" (`pauseDb`, `voiceDb`) for recordings where the cut ate into words.
+  - **Measure** (`src/main/media-analysis.js`, `src/main/cut-tools.js`, ideas from kajisho5/ffmpeg-skill, MIT):
+    speech pauses, shot changes with brightness (light B-roll), beat grid, word timings from a local speech engine
+    (mlx-whisper), render check (black / frozen frames). Results are drawn over the range's waveform
+    (`js/library/cut-tools-view.js`) with Resolve's playhead (followed live), and listed; a click moves the playhead.
+  - Pauses work like Resolve's Remove Silence: Threshold (peak dBFS), Pre head, Post tail, Minimum to strip (frames),
+    clicks up to 60 ms bridged. Add markers (pause markers then follow the settings), Clear markers, and
+    "Delete marked pauses" (a new "(no pauses)" timeline without them; the scripting API cannot trim in place).
+  - Words: a running transcript; the word being said is highlighted and kept centred during playback.
+- MCP tools `auto_cut`, `find_pauses`, `find_cuts`, `find_beats`, `transcribe_words`, `check_render`, `break_lines`;
+  `regroup` snaps phrase cuts onto measured pauses; `chop_srt` takes `media`.
+- Built-in TikTok / Reels / Shorts safe-zone layouts (`src/main/layouts/*-9x16.json`).
+- Phrase-aware line breaks (`src/main/line-break.js`).
+- **Match Cut** effect card and MCP tool `match_cut` (`src/main/match-cut.js`, `src/python/news_match_cut.py`): a
+  news-article match cut of one word, placed at the playhead.
+
+### Fixed
+
+- Rough cut Build left the endFrame test piece's audio at the head of the cut (it played twice); markers are now off
+  by default.
+- `GetSourceEndFrame` is inclusive on some timeline items and exclusive on others: the clip end is now read from the
+  reading that matches the duration, pieces are never under 2 frames, and a batch Resolve refuses is placed piece by
+  piece ("Invalid items to append" on Delete marked pauses).
+- Measure's waveform left every third or fourth 10 ms bucket empty, which read as silence and marked speech as pauses.
+- Pauses across a cut join are measured as one pause.
+- Clear markers also removes a build's "... cut" markers and falls back to Resolve's Python API.
+- Speech engine: the model download resumes with curl (Hugging Face's downloader restarted from zero and showed no
+  progress), shows MB / speed / time left, stops on a stall instead of hanging, Cancel ends it at once, and leftovers
+  of earlier runs are stopped. Inside Resolve the engine could not find `ffmpeg` (no Homebrew folders on PATH).
+
 ## Unreleased: clean-up and tests
 
 No change in behaviour is intended. Everything below was checked with the new test suite, ESLint, the load-order and

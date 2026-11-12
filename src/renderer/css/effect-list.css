@@ -189,3 +189,16 @@ button.primary.trk-done:disabled { opacity: 1; background: var(--matcha-tint); c
 
 .fx-target.fx-target-warn { color: var(--strawberry); font-weight: 600; }
 .fx-card.fx-blocked { opacity: 0.55; }
+
+/* ---------- Match Cut card (library/match-cut-card.js) ---------- */
+.fx-mc-opts .fx-mc-num {
+    width: 54px; padding: 4px 6px; font: inherit;
+    background: var(--card-inner); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+}
+.fx-mc-opts .fx-mc-num:focus { outline: none; border-color: var(--matcha-border); }
+.fx-mc-opts .fx-mc-num:disabled { opacity: .5; }
+.fx-mc-opts input[type="color"] { width: 24px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
+.fx-mc-bar { height: 3px; margin: 4px 0 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.fx-mc-bar i { display: block; height: 100%; width: 0; background: var(--matcha); transition: width .3s ease; }
+.fx-note.fx-mc-msg { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.fx-note.fx-mc-bad { color: var(--strawberry); }

@@ -9,7 +9,7 @@
 // fitBox() is what placement uses: it keeps an (estimated) text box inside the safe area, off the zones, and says
 // how much the text must shrink to fit. overlayFrame() draws the layout over a get_frame image so results can be checked.
 
-module.exports = { defaultLayout, analyzeLayout, decodePng, fitBox, estimateTextBox, guideRegion, findGuide, overlayFrame, layoutSummary };
+module.exports = { defaultLayout, platformLayout, analyzeLayout, decodePng, fitBox, estimateTextBox, guideRegion, findGuide, overlayFrame, layoutSummary };
 
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +18,21 @@ const zlib = require('zlib');
 // The built-in layout: the social-media 9:16 safe zone (src/main/layouts/social-9x16.png, analysed into the .json
 // next to it). It only applies to vertical timelines of that shape. Regenerate the .json after changing the PNG:
 //   node -e "..." with analyzeLayout('src/main/layouts/social-9x16.png', { guideNames: [...], zoneNames: [...] })
+const PLATFORM_LAYOUTS = ['tiktok', 'reels', 'shorts'];
 const DEFAULT_LAYOUT_FILE = path.join(__dirname, 'layouts', 'social-9x16.json');
+
+// Built-in platform layouts (9:16): the parts of the frame TikTok / Reels / Shorts cover with their own UI, from
+// kajisho5/ffmpeg-skill's platform table, with equal side margins so captions stay centred. layouts/<name>-9x16.json.
+function platformLayout(name) {
+    const key = String(name || '').toLowerCase().replace(/^(ig|instagram)$/, 'reels').replace(/^youtube-?shorts$/, 'shorts');
+    if (!PLATFORM_LAYOUTS.includes(key)) return null;
+    try {
+        const l = JSON.parse(fs.readFileSync(path.join(__dirname, 'layouts', key + '-9x16.json'), 'utf8'));
+        l.source = null;
+        l.builtin = true;
+        return l;
+    } catch (e) { return null; }
+}
 
 function defaultLayout() {
     try {

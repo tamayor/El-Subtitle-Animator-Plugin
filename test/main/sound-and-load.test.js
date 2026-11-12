@@ -14,6 +14,9 @@ test('clampToWindow pulls a sound\'s peak into the -20..-15 dBFS window', () => 
     assert.equal(S.clampToWindow(-14.5, -3), -14.5, 'already inside: left alone');
     assert.equal(S.clampToWindow(-6, null), -6, 'no measurement: the preset volume as is');
     assert.equal(S.clampToWindow('x', NaN), 0);
+    assert.equal(S.clampToWindow(0, -50), 0, 'near silence: never turned up (it would only raise the noise)');
+    assert.equal(S.clampToWindow(0, -44), 18, 'quiet but real: turned up at most 18 dB');
+    assert.equal(S.clampToWindow(-3, -60), -3, 'near silence keeps the preset volume');
 });
 
 test('variations stay inside their limits and never repeat a pitch back to back', () => {

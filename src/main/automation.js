@@ -34,6 +34,8 @@ const LAYOUT = require('./layout');
 const STACK = require('./stack');
 const REPAIR = require('./repair');
 const { regroup } = require('./regroup');
+const CUTTOOLS = require('./cut-tools');
+const MEDIA = require('./media-analysis');
 
 const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'mcp-endpoint.json');
@@ -259,6 +261,37 @@ async function waitFree(ms) {
 // ------------------------------------------------------------------ tools
 
 const TOOLS = {
+    // News-article match cut of one word (match-cut.js), placed at the playhead. A run takes 1-4 minutes: this waits
+    // up to `wait` seconds (default 150, under the MCP client's 180 s), then returns { running } - call again with
+    // status: true to read the progress and the result.
+    async match_cut(args) {
+        args = args || {};
+        const MC = require('./match-cut');
+        if (args.status) return MC.matchCutStatus();
+        if (args.cancel) return { cancelled: MC.matchCutCancel() };
+        const j = await MC.matchCutStart(args);
+        const waitMs = Math.max(0, Math.min(170, Number.isFinite(Number(args.wait)) ? Number(args.wait) : 150)) * 1000;
+        const r = await Promise.race([j.promise, new Promise(res => setTimeout(() => res(null), waitMs))]);
+        if (r) { if (!r.ok) throw new Error(r.error); return r; }
+        return { running: true, progress: MC.matchCutStatus().progress, note: 'Still rendering. Call match_cut with status: true for the result.' };
+    },
+    // Cut tab (auto-cut.js): analyse the source track (nothing changes), then build: true makes the new "(cut)"
+    // timeline. Omitted options use the Cut tab's last values.
+    async auto_cut(args) {
+        args = args || {};
+        const C = require('./auto-cut');
+        if (args.status) return C.cutStatus();
+        if (args.cancel) return { cancelled: C.cutCancel() };
+        await waitFree(20000);
+        const opts = { ...args };
+        delete opts.build;
+        if (!args.build || args.reanalyse !== false) {
+            const sum = await C.cutAnalyze(null, opts);
+            if (sum && sum.needsEngine) throw new Error('The Cut engine (numpy) is not installed: open the Cut tab in the panel and press Install');
+            if (!args.build) return { ...sum, note: 'Nothing changed yet. Call auto_cut with build: true (and ignore: [drop ids to keep]) to make the cut timeline.' };
+        }
+        return C.cutBuild(null, opts);
+    },
     async status(args) {
         const { tl, meta } = await currentTimeline();
         const subs = await getSubtitles(tl, !!(args && args.refresh));
@@ -307,8 +340,19 @@ const TOOLS = {
             out.push(r);
         }
         const checked = out.filter(x => !x.error && !x.skipped);
-        return { total: ids.length, checked: checked.length, skipped: out.filter(x => x.skipped).length, blank: checked.filter(x => x.blank).length, clips: out };
+        const res = { total: ids.length, checked: checked.length, skipped: out.filter(x => x.skipped).length, blank: checked.filter(x => x.blank).length, clips: out };
+        if (args && args.content) {     // also the composited frames through ffmpeg: black tails, static entrances
+            const rc = await CUTTOOLS.checkRender({ itemIds: ids, step: args.step });
+            res.content = { problems: rc.problems, clips: rc.clips.map(c => ({ itemId: c.itemId, name: c.name, ok: c.ok, flags: c.flags, error: c.error })) };
+        }
+        return res;
     },
+
+    // Black or frozen frames in placed clips (or a frame range): Resolve's composited frames measured by ffmpeg.
+    async check_render(args) { await waitFree(10000); await settleNow(); return CUTTOOLS.checkRender(args || {}); },
+
+    // The media under a frame range (for the MCP script's own ffmpeg work): file, track and source mapping per clip.
+    async timeline_media(args) { return CUTTOOLS.timelineMedia(args || {}); },
 
     async get_rules() { return Object.assign({ file: RULES_FILE }, loadRules()); },
 
@@ -347,6 +391,13 @@ const TOOLS = {
             rules.layout = def;
             const saved = saveRules(rules).layout;
             return Object.assign({ saved: true, builtin: true, fit: saved.fit }, LAYOUT.layoutSummary(saved, null));
+        }
+        const platform = args.image ? LAYOUT.platformLayout(args.image) : null;
+        if (platform) {     // "tiktok" / "reels" / "shorts": the app's own UI zones (layouts/<name>-9x16.json)
+            platform.fit = Object.assign({}, args.fit || {});
+            rules.layout = platform;
+            const saved = saveRules(rules).layout;
+            return Object.assign({ saved: true, builtin: true, platform: saved.platform, fit: saved.fit }, LAYOUT.layoutSummary(saved, null));
         }
         const cur = rules.layout;
         let src = args.image ? String(args.image).replace(/^~(?=\/)/, os.homedir()) : (cur && cur.source);
@@ -784,10 +835,26 @@ const TOOLS = {
         if (!want.length) throw new Error('Give the subtitle numbers to regroup');
         const picked = want.map(n => { const s = subs.find(x => x.index === n); if (!s) throw new Error('No subtitle #' + n); return s; });
         for (let i = 1; i < picked.length; i++) if (picked[i].index !== picked[i - 1].index + 1) throw new Error('The subtitles must be consecutive');
-        const out = regroup(picked, args.phrases);
+        let snap = null;
+        if (args.snap !== false) {      // cuts between phrases onto the real pauses (and word gaps when transcribed)
+            try {
+                const media = await CUTTOOLS.timelineMedia({ startFrame: picked[0].start, endFrame: picked[picked.length - 1].end });
+                const r = await MEDIA.analyseTimeline('pauses', media, { audioTrack: args.audioTrack });
+                const seg = MEDIA.pickSegments('pauses', media, { audioTrack: args.audioTrack })[0];
+                let words = null;
+                if (seg) {
+                    const m = MEDIA.sourceMapper(seg);
+                    const w = MEDIA.cachedWords(seg.file, m.toFile(media.from), m.toFile(media.to));
+                    if (w) words = w.map(x => ({ start: m.toFrame(x.start), end: m.toFrame(x.end) }));
+                }
+                snap = { pauses: r.pauses, words, maxShift: Math.round(meta.fps * 0.35) };
+            } catch (e) { snap = { error: e.message }; }
+        }
+        const out = regroup(picked, args.phrases, snap && !snap.error ? snap : null);
         return {
             subtitles: picked.map(s => ({ index: s.index, text: s.text, start: s.start, end: s.end })),
             phrases: out.map(p => Object.assign(p, { tc: frameToTC(p.startFrame, meta) })),
+            snap: snap ? (snap.error ? { error: snap.error } : { pauses: snap.pauses.length, wordTimings: !!snap.words, phrasesAdjusted: out.filter(p => p.snapped).length }) : null,
             next: 'Place each phrase with place: subtitle, text, startFrame and endFrame from here.'
         };
     },

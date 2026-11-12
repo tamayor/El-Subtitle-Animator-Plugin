@@ -28,8 +28,11 @@ const EFFECTS = [
     // Spotlight: lives on the subject cut-out clip that spotlight.js makes. Its card makes / edits / removes that clip
     // (the panel never adds this effect to the selected clip itself), so it is not in ORDER.
     { id: 'Spotlight', name: 'Spotlight', tags: ['spotlight', 'behind', 'word', 'title', 'glow', 'subject'], tip: 'A big glowing word BEHIND the speaker, the room dimmed: the speaker is cut out automatically (Robust Video Matting) and put over the word', spot: true },
+    // Match Cut: like Spotlight, makes its own clip at the playhead (match-cut.js renders a news-article match cut MP4),
+    // never an effect on the selected clip, so it is not in ORDER and has no template.
+    { id: 'MatchCut', name: 'Match Cut', tags: ['match cut', 'news', 'headline', 'article', 'word'], tip: 'News headlines flash past with one word locked in the same spot: articles using the word are found, screenshotted, lined up on it and placed at the playhead', matchCut: true }
 ];
-const ORDER = EFFECTS.filter(e => !e.hidden && !e.spot).map(e => e.id);
+const ORDER = EFFECTS.filter(e => !e.hidden && !e.spot && !e.matchCut).map(e => e.id);
 const DEFAULT_STRENGTH = 25;
 const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
@@ -364,7 +367,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track || !!e.spot, spot: !!e.spot, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
+function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track || !!e.spot || !!e.matchCut, spot: !!e.spot, matchCut: !!e.matchCut, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;
@@ -389,6 +392,7 @@ async function fxSet(event, effectId, on, strength, params, hold) {
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };
+    if (EFFECTS.some(e => e.id === effectId && e.matchCut)) return { error: 'Match Cut makes its own clip: use Make on its card' };
     ensureInstalled();
     if (EFFECT_SFX_DEFAULTS[effectId]) takeSfxFlag(effectId, params);
     const before = EFFECT_SFX_DEFAULTS[effectId] ? await fxClipsWith(effectId) : null;

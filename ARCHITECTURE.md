@@ -41,6 +41,7 @@ decision below is about making those round trips few, and about never breaking R
 | Fusion | `fusion-bridge.js` (the Python helper's process, queue and lanes), `fusion-setting.js` (reading `.setting` / `.comp` files), `fusion-fixes.js` (wake settings), `retime.js` (Animation Frames retiming) |
 | Automation | `automation.js` (HTTP server and the MCP tools), `edit-rules.js` (editing rules), `layout.js` + `layouts/` (safe-zone layouts read from a reference PNG) |
 | Measuring | `perf.js` |
+| Media analysis (Cut tab "Analyse media") | `media-analysis.js` (ffmpeg: speech pauses, shot changes + brightness, beat grid, black / frozen frames, word timings from a local speech engine; plain Node, also run by the MCP script), `cut-tools.js` (timeline ranges → files, render check via the bridge op `timeline_frames`, markers), `line-break.js` (phrase-aware line breaks). Ideas from kajisho5/ffmpeg-skill (MIT) |
 
 Conventions:
 

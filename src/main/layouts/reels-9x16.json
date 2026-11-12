@@ -1,0 +1,51 @@
+{
+  "source": null,
+  "width": 1080,
+  "height": 1920,
+  "aspect": 0.5625,
+  "platform": "reels",
+  "bands": [
+    {
+      "y0": 0.08,
+      "y1": 0.8,
+      "spans": [
+        [
+          0.12,
+          0.88
+        ]
+      ]
+    }
+  ],
+  "guides": [
+    {
+      "name": "eye",
+      "orient": "h",
+      "pos": 0.2599
+    },
+    {
+      "name": "captions",
+      "orient": "h",
+      "pos": 0.4951
+    },
+    {
+      "name": "graphics",
+      "orient": "h",
+      "pos": 0.6167
+    },
+    {
+      "name": "bottom",
+      "orient": "h",
+      "pos": 0.78
+    }
+  ],
+  "zones": [],
+  "guideNames": [
+    "eye",
+    "captions",
+    "graphics",
+    "bottom"
+  ],
+  "zoneNames": [],
+  "name": "Instagram Reels 9:16 safe zone",
+  "description": "Instagram Reels UI covers the top 8%, bottom 20% (description, buttons) and right 12% (like / comment / share column). Text stays in the rest; guide 'bottom' is just above the description. Side margins are equal (the right column's width on both sides) so captions stay centred."
+}

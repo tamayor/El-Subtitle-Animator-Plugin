@@ -41,6 +41,9 @@ const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = requ
 const { clipTiming, setClipTiming } = require('./anim-timing');
 const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } = require('./clip-controls');
 const { boilerplateList, insertBoilerplate } = require('./boilerplates');
+const { matchCutCancel, matchCutDefaults, matchCutOpen, matchCutRun } = require('./match-cut');
+const { cutAnalyze, cutBuild, cutCancel, cutDefaults, cutInstall, cutListen, cutSetPrefs } = require('./auto-cut');
+const { cutToolsRun, cutToolsCheck, cutToolsStatus, cancelCutTools, cutToolsInstall, cutToolsMarkers, cutToolsWave, cutToolsGoto, cutToolsDeletePauses, cutToolsPlayhead } = require('./cut-tools');
 
 // A thrown error is returned to the panel as { error } instead of rejecting the call.
 function wrap(fn) {
@@ -82,6 +85,30 @@ const SAFE_HANDLERS = {
     'controls:rows': clipRows,
     'controls:setRows': setClipRows,
     'controls:setGradient': setClipGradient,
+    // Header "Match Cut" button: a news-article match cut of one word (match-cut.js); progress as matchcut:progress
+    'matchcut:defaults': () => matchCutDefaults(),
+    'matchcut:run': matchCutRun,
+    'matchcut:cancel': () => matchCutCancel(),
+    'matchcut:open': () => matchCutOpen(),
+    // Cut tab: rough cut of the source track into a new "(cut)" timeline (auto-cut.js); progress as cut:progress
+    'cut:defaults': () => cutDefaults(),
+    'cut:prefs': cutSetPrefs,
+    'cut:analyze': cutAnalyze,
+    'cut:build': cutBuild,
+    'cut:cancel': () => cutCancel(),
+    'cut:install': () => cutInstall(),
+    'cut:listen': cutListen,
+    // Cut tab "Analyse media": pauses, shot changes, beats, word timings, render check (cut-tools.js); progress as cuttools:progress
+    'cuttools:status': () => cutToolsStatus(),
+    'cuttools:run': cutToolsRun,
+    'cuttools:check': cutToolsCheck,
+    'cuttools:cancel': () => cancelCutTools(),
+    'cuttools:install': cutToolsInstall,
+    'cuttools:markers': cutToolsMarkers,
+    'cuttools:wave': cutToolsWave,
+    'cuttools:goto': cutToolsGoto,
+    'cuttools:playhead': () => cutToolsPlayhead(),
+    'cuttools:deletePauses': cutToolsDeletePauses,
     'app:getVersion': getAppVersion,
     // Header "Fusion" button: which Fusion fixes are applied to placed titles (fusion-fixes.js)
     'fusion:getFixes': () => ({ fixes: getFixes(), defaults: FIX_DEFAULTS }),

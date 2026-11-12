@@ -27,10 +27,10 @@ const LANES = 3;
 const LANE_OF = {
     live_frame: 0, controls_get: 0, controls_set: 0, mt_rows_get: 0, mt_rows_set: 0, timing_get: 0, timing_set: 0, seg_watch: 0, ping: 0, config: 0, fonts: 0, probe_render: 0,
     fx_get: 0, fx_set: 0, fx_param: 0, fx_strength: 0,      // effect preset toggles: the user is waiting on them
-    capture: 2, seg_sweep: 2
+    capture: 2, seg_sweep: 2, timeline_frames: 2     // render check frames (cut-tools.js): background, never ahead of a placement
 };
 const COALESCE = new Set(['fx_get', 'seg_watch', 'controls_get', 'timing_get', 'row_times', 'ping', 'fonts', 'tools']);
-const RENDER_OPS = new Set(['capture', 'live_frame']);
+const RENDER_OPS = new Set(['capture', 'live_frame', 'timeline_frames']);
 const MAX_WAIT_CAP_MS = 60000;
 
 function bridgeLane(op) { return LANE_OF[op] === undefined ? 1 : LANE_OF[op]; }

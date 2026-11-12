@@ -13,6 +13,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const MEDIA = require('../src/main/media-analysis');
+const LINES = require('../src/main/line-break');
+
 const ENDPOINT_FILE = path.join(os.homedir(), '.el-subtitle-animator', 'mcp-endpoint.json');
 const SERVER_INFO = { name: 'el-subtitle-animator', version: '1.0.0' };
 
@@ -25,6 +28,7 @@ Workflow for editing a video:
 4. Layout: if the user gives a safe-zone reference image, call set_layout with its path (look at the image yourself and pass the labels you read as guideNames top to bottom / zoneNames). A layout only applies to timelines of the same shape as its image (a 9:16 social safe zone is ignored on a 16:9 timeline; get_layout says appliesToThisTimeline). When it applies, place keeps every clip inside its safe area and off its zones (shrinking textSize if needed), and the user can say e.g. "centre the subtitle on the captions line" (guide: "captions") or "in the captions area" (guide: "captions", align: "below").
 5. When rules.position.avoidFaces is true, call get_frame for the subtitle and look at it. Choose x/y (0..1, top-left origin = where the text's centre goes) so the text sits on empty space and never over a face, eyes or mouth, and stays inside the safe area. Check get_tracks if layer placement matters.
 6. Call place for each subtitle (once placed, its subtitle clip is disabled so it does not show under the animation; remove_placed re-enables it). Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
+Measuring (ffmpeg, local): find_cuts before placing over B-roll (shots with bright: true are light cutaways where white text disappears: accent colour, empty top space, and split a caption that crosses a cut at the cut frame); find_beats when there is music (land pops and hits on supported beats); find_pauses / transcribe_words for exact phrase cuts (regroup snaps to pauses by itself); break_lines for a "\n" break that keeps phrases together. After placing short Pop / Drop / Glitch clips or when a render looks blank, run check_render on their itemIds (black tail, static entrance).
 7. Report what you placed, where, and any warnings.
 Keeping Resolve responsive: send place / place_stack / get_frame / remove_placed calls ONE AT A TIME (wait for each result; never several in one batch). Never read or change a placed clip's Fusion composition with a Resolve script (GetFusionCompByIndex, GetToolList, GetInput, SetInput): a script read of a follower-driven text freezes Resolve for good. The sizes and fonts actually applied are in place's "inspector" result and in inspect_placed; enabled subtitles are in list_subtitles (enabled / activeOnly).
 Show the user your plan before placing more than about 10 clips.
@@ -125,7 +129,7 @@ const TOOLS = [
     {
         name: 'verify_placed',
         description: 'Blank-render check: renders each clip placed this session (or the given ids) at two frames and reports how many came out blank. Use after placing to judge the Fusion wake settings.',
-        inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } } })
+        inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } }, content: { type: 'boolean', description: 'Also run check_render on the same clips (black / frozen frames in the real composite)' }, step: { type: 'integer', minimum: 1 } })
     },
     { name: 'get_rules', description: 'The editing rules every placement follows (allowed emoji tags, forced font and text colour, MultiText emphasis font/colour, video layer policy, safe area, MultiText emphasis, sound, free-text notes).', inputSchema: S() },
     {
@@ -193,7 +197,7 @@ const TOOLS = [
         name: 'set_layout',
         description: 'Read a safe-zone reference image (PNG, ideally the timeline\'s size, e.g. 1080x1920): transparent or white = safe area, black = off-limits, dark lines (solid or dashed) across the safe area = guides, dark boxes = zones (e.g. a head box) text must not cover. Saved in the rules, so every place call fits text inside it. Without image: rename the current layout\'s guides/zones. image: "default" restores the built-in social-media 9:16 safe zone (the default; guides eye, captions, graphics; zone head). image: null clears it.',
         inputSchema: S({
-            image: { type: ['string', 'null'], description: 'Path of the PNG, "default" for the built-in social 9:16 safe zone, or null to clear' },
+            image: { type: ['string', 'null'], description: 'Path of the PNG, "default" for the built-in social 9:16 safe zone, "tiktok" / "reels" / "shorts" for that app\'s own UI zones (top / bottom / right column covered; equal side margins so captions stay centred; guides eye, captions, graphics, bottom), or null to clear' },
             guideNames: { type: 'array', items: { type: 'string' }, description: 'Names for the horizontal guides, top to bottom (read the labels on the image), e.g. ["eye","captions","graphics"]' },
             verticalNames: { type: 'array', items: { type: 'string' }, description: 'Names for the vertical guides, left to right' },
             zoneNames: { type: 'array', items: { type: 'string' }, description: 'Names for the zones, top to bottom, e.g. ["head"]' },
@@ -262,35 +266,6 @@ const TOOLS = [
         }, ['subtitle', 'presetId'])
     },
     {
-        name: 'spotlight',
-        description: 'Spotlight: a big glowing word BEHIND the speaker with the room dimmed (the speaker is cut out of the footage automatically with Robust Video Matting and placed over the word as a PNG-sequence clip on the track above the footage; captions that would end up under it are lifted above it). Make one for a subtitle (or startFrame / endFrame), change a placed one (itemId + settings) or remove it (itemId + remove: true). The word defaults to the subtitle\'s strongest word (a name / number / longest non-filler word); pass word to choose it, wordOn: false for no word. Size and height are automatic (the word fills `width` % of the frame and the head covers `overlap` % of the capitals) unless size / y are given. Takes ~0.15 s per frame. Use it for big topic words, names and reveals, sparingly (one per section).',
-        inputSchema: S({
-            subtitle: subtitleArg,
-            startFrame: { type: 'integer', description: 'First timeline frame (instead of subtitle)' },
-            endFrame: { type: 'integer', description: 'Last timeline frame, inclusive (with startFrame)' },
-            itemId: { type: 'string', description: 'A placed spotlight\'s cut-out clip id (from an earlier result) to change or remove' },
-            remove: { type: 'boolean' },
-            word: { type: 'string' },
-            wordOn: { type: 'boolean', description: 'false = spotlight only, no word' },
-            caps: { type: 'boolean', description: 'Capitals (default true)' },
-            font: { type: 'string', description: 'Default "DM Serif Display"' },
-            style: { type: 'string', description: 'Default "Italic"' },
-            color: { type: 'array', items: { type: 'number' }, description: 'Text colour [r, g, b] 0..1 (default white)' },
-            glowColor: { type: 'array', items: { type: 'number' }, description: 'Glow colour [r, g, b] 0..1 (default pink [1, 0.3, 0.75])' },
-            glow: { type: 'number', minimum: 0, maximum: 100, description: 'Default 70' },
-            dim: { type: 'number', minimum: 0, maximum: 100, description: 'How much darker the room gets (default 55)' },
-            vig: { type: 'number', minimum: 0, maximum: 100, description: 'Edge vignette (default 50)' },
-            anim: { type: 'string', enum: ['zoom', 'rise', 'fade', 'pop', 'blur', 'flicker', 'spread', 'none'], description: 'Entry: zoom (default, settles from 130%), rise (from behind the head), fade, pop, blur, flicker (neon), spread (letters close in), none' },
-            inF: { type: 'integer', minimum: 1, maximum: 60, description: 'Entry length in frames (default 12)' },
-            outF: { type: 'integer', minimum: 0, maximum: 60, description: 'Fade-out frames at the end (default 8, 0 = cut)' },
-            size: { type: 'number', minimum: 0, maximum: 0.6, description: 'Text+ size; 0 = auto (fit width)' },
-            width: { type: 'number', minimum: 30, maximum: 100, description: 'Auto size: % of the frame width (default 86)' },
-            x: { type: 'number', minimum: 0, maximum: 1, description: 'Horizontal centre (default 0.5)' },
-            y: { type: ['number', 'null'], minimum: 0, maximum: 1, description: 'Vertical centre of the capitals, 0 = top; null = auto from the head' },
-            overlap: { type: 'number', minimum: 0, maximum: 80, description: 'Auto height: % of the capitals hidden behind the head (default 45)' }
-        }, [])
-    },
-    {
         name: 'measure_text',
         description: 'The REAL rendered geometry of text lines: renders them as one temporary clip (same preset, textSize and Line Spacing) over the subtitle\'s end frame, measures each line\'s glyph top/bottom/centre (0..1 of the frame height) and the pitch between lines, then removes the clip. Use it instead of estimating text heights or gaps.',
         inputSchema: S({
@@ -330,7 +305,9 @@ const TOOLS = [
         description: 'Re-split consecutive subtitles into phrases by thought, when Resolve\'s cuts break a thought apart (e.g. subtitles "If this is the bar then it\'s" + "fine, but the bar is this." -> phrases "If this is the bar then" + "it\'s fine, but the bar is this."). The phrases must spell the subtitles\' words in order (punctuation may differ). Each word is timed inside its own subtitle by its length; returns each phrase\'s startFrame / endFrame and anchor subtitle, ready for place.',
         inputSchema: S({
             subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Consecutive subtitle numbers' },
-            phrases: { type: 'array', items: { type: 'string' }, description: 'The text as it should read, one phrase per clip, in order' }
+            phrases: { type: 'array', items: { type: 'string' }, description: 'The text as it should read, one phrase per clip, in order' },
+            snap: { type: 'boolean', description: 'Default true: each cut between two phrases moves onto the real speech pause next to it (measured with ffmpeg on the dialogue), or onto a word gap when transcribe_words has timed this audio. false = the estimate only.' },
+            audioTrack: { type: 'integer', minimum: 1, description: 'Audio track of the dialogue (default: the lowest track with sound there)' }
         }, ['subtitles', 'phrases'])
     },
     {
@@ -404,12 +381,198 @@ const TOOLS = [
             minWords: { type: 'integer', minimum: 1, description: 'Fewest words per block (default: SUBTITLE TRIMMING in the Prompt tab, else 1)' },
             maxWords: { type: 'integer', minimum: 1, description: 'Most words per block (default: SUBTITLE TRIMMING, else 3)' },
             minChars: { type: 'integer', minimum: 1, description: 'Fewest characters per block, spaces included (default: SUBTITLE TRIMMING, else 1)' },
-            maxChars: { type: 'integer', minimum: 1, description: 'Most characters per block, spaces included (default: SUBTITLE TRIMMING, else 20)' }
+            maxChars: { type: 'integer', minimum: 1, description: 'Most characters per block, spaces included (default: SUBTITLE TRIMMING, else 20)' },
+            media: { type: 'string', description: 'The recording the .srt belongs to (video or audio). Given, every new cut between two phrases is moved onto the real speech pause next to it (measured with ffmpeg), or onto the gap between two words when transcribe_words has timed this file, instead of the estimated median.' },
+            mediaOffset: { type: 'number', description: 'Seconds to add to the .srt times to get the media time (default 0: the .srt starts with the file)' },
+            maxShift: { type: 'number', description: 'Furthest a cut may move onto a pause, seconds (default 0.35)' }
         }, ['path', 'groups'])
+    },
+    {
+        name: 'find_pauses',
+        description: 'Speech pauses measured with ffmpeg (the level every 10 ms; threshold 22 dB under the speech level, so it follows the mic). On the timeline: the dialogue clips under the range (audioTrack, else the lowest audio track with sound), answered in timeline frames with timecodes. Use it to put cuts between phrases on real pauses (regroup does this by itself), to see where a speaker breathes, or to find dead air. Runs in the MCP process; Resolve is only asked which files are where.',
+        inputSchema: S({ subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Analyse these subtitles\' span (first start to last end)' },
+            startFrame: { type: 'integer', description: 'First timeline frame (default: the timeline start)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame (default: the timeline end)' },
+            path: { type: 'string', description: 'Analyse this media file instead of the timeline (times in seconds then)' },
+            start: { type: 'number', description: 'With path: seconds into the file to start (default 0)' },
+            duration: { type: 'number', description: 'With path: seconds to analyse (default: to the end)' },
+            audioTrack: { type: 'integer', minimum: 1 },
+            minPause: { type: 'number', description: 'Shortest pause, seconds (default 0.15)' },
+            noiseDb: { type: 'number', description: 'Fixed threshold in dBFS instead of the automatic one' } })
+    },
+    {
+        name: 'find_cuts',
+        description: 'Shot changes and how bright each shot is. On the timeline: every footage clip on every video track in the range: the edit points between clips plus the shot changes inside a clip (ffmpeg scdet), merged per frame; shots lists each stretch between cuts with meanLuma (0-255) and bright: true for light B-roll (cream / white cutaways where white text disappears: use the accent colour and the empty top space, and split a caption that crosses a cut at the cut frame) and dark: true. Takes about 1 s per 20 s of 4K footage.',
+        inputSchema: S({ subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Analyse these subtitles\' span (first start to last end)' },
+            startFrame: { type: 'integer', description: 'First timeline frame (default: the timeline start)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame (default: the timeline end)' },
+            path: { type: 'string', description: 'Analyse this media file instead of the timeline (times in seconds then)' },
+            start: { type: 'number', description: 'With path: seconds into the file to start (default 0)' },
+            duration: { type: 'number', description: 'With path: seconds to analyse (default: to the end)' },
+            threshold: { type: 'number', description: 'scdet threshold 0-100 (default 10; lower finds softer cuts)' } })
+    },
+    {
+        name: 'find_beats',
+        description: 'The beat grid of the music (onset envelope in three bands, tempo by autocorrelation, phase by comb, each beat moved onto a measured hit when there is one: supported). On the timeline: the music clips (audioTrack, else the highest audio track holding audio-only files). Speech, ambience or free-time music has no steady pulse: tempoBpm null, nothing invented. Use it to land animation in-points, pops and sound hits on the beat.',
+        inputSchema: S({ subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Analyse these subtitles\' span (first start to last end)' },
+            startFrame: { type: 'integer', description: 'First timeline frame (default: the timeline start)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame (default: the timeline end)' },
+            path: { type: 'string', description: 'Analyse this media file instead of the timeline (times in seconds then)' },
+            start: { type: 'number', description: 'With path: seconds into the file to start (default 0)' },
+            duration: { type: 'number', description: 'With path: seconds to analyse (default: to the end)' },
+            audioTrack: { type: 'integer', minimum: 1 },
+            minBpm: { type: 'number', description: 'Default 60' },
+            maxBpm: { type: 'number', description: 'Default 200' } })
+    },
+    {
+        name: 'transcribe_words',
+        description: 'Word timings from a local speech engine (mlx-whisper, faster-whisper or openai-whisper; the audio never leaves the machine). On the timeline: the dialogue under the range, in timeline frames. Results are cached, and regroup / chop_srt use cached timings by themselves to cut between words. Without an engine it says how to install one; install: true sets up mlx-whisper in ~/.el-subtitle-animator/asr-venv (ask the user first: it downloads about 1.6 GB of model weights on first use). A long range takes minutes.',
+        inputSchema: S({ subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Analyse these subtitles\' span (first start to last end)' },
+            startFrame: { type: 'integer', description: 'First timeline frame (default: the timeline start)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame (default: the timeline end)' },
+            path: { type: 'string', description: 'Analyse this media file instead of the timeline (times in seconds then)' },
+            start: { type: 'number', description: 'With path: seconds into the file to start (default 0)' },
+            duration: { type: 'number', description: 'With path: seconds to analyse (default: to the end)' },
+            audioTrack: { type: 'integer', minimum: 1 },
+            engine: { type: 'string', enum: ['mlx-whisper', 'faster-whisper', 'whisper'] },
+            model: { type: 'string', description: 'Engine model (default: large-v3-turbo / turbo)' },
+            language: { type: 'string', description: 'e.g. "en", "zh" (default: detected)' },
+            install: { type: 'boolean', description: 'Install the engine first (only when the user agreed)' },
+            status: { type: 'boolean', description: 'Only report which engines are installed' } })
+    },
+    {
+        name: 'check_render',
+        description: 'Render check of placed clips: Resolve\'s composited frames of each clip (and 3 frames after it) are exported and measured with ffmpeg blackdetect / freezedetect. flags: black (black frames, e.g. the black tail of a short Pop / Drop / Glitch clip), static (nothing moves for the whole clip: the animation did not render), staticStart (the entrance did not play), frozen (a hold or a stalled render). ok: false when black / static / staticStart. Give itemIds (from place), or subtitles / startFrame-endFrame (at most 2 minutes). About 0.1 s per frame; step = every nth frame (default: up to 90 per clip).',
+        inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } }, subtitles: { type: 'array', items: { type: 'integer', minimum: 1 } }, startFrame: { type: 'integer' }, endFrame: { type: 'integer' }, step: { type: 'integer', minimum: 1 } })
+    },
+    {
+        name: 'break_lines',
+        description: 'Phrase-aware line breaks for a multi-line caption: breaks after punctuation, never leaves an article / preposition / joiner hanging at a line end (it opens the next line), keeps a number with its unit ("$13K per month"), balances the lines and avoids a one-word last line. Returns text with "\\n" ready for place. Runs locally.',
+        inputSchema: S({ text: { type: 'string' }, lines: { type: 'integer', minimum: 1, maximum: 6, description: 'Exactly this many lines' }, maxLines: { type: 'integer', minimum: 1, maximum: 6, description: 'At most (default 2)' }, maxChars: { type: 'integer', minimum: 4, description: 'Soft line width in characters: the fewest lines that fit are used' } }, ['text'])
+    },
+    {
+        name: 'spotlight',
+        description: 'Spotlight: a big glowing word BEHIND the speaker with the room dimmed (the speaker is cut out of the footage automatically with Robust Video Matting and placed over the word as a PNG-sequence clip on the track above the footage; captions that would end up under it are lifted above it). Make one for a subtitle (or startFrame / endFrame), change a placed one (itemId + settings) or remove it (itemId + remove: true). The word defaults to the subtitle\'s strongest word (a name / number / longest non-filler word); pass word to choose it, wordOn: false for no word. Size and height are automatic (the word fills `width` % of the frame and the head covers `overlap` % of the capitals) unless size / y are given. Takes ~0.15 s per frame. Use it for big topic words, names and reveals, sparingly (one per section).',
+        inputSchema: S({
+            subtitle: subtitleArg,
+            startFrame: { type: 'integer', description: 'First timeline frame (instead of subtitle)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame, inclusive (with startFrame)' },
+            itemId: { type: 'string', description: 'A placed spotlight\'s cut-out clip id (from an earlier result) to change or remove' },
+            remove: { type: 'boolean' },
+            word: { type: 'string' },
+            wordOn: { type: 'boolean', description: 'false = spotlight only, no word' },
+            caps: { type: 'boolean', description: 'Capitals (default true)' },
+            font: { type: 'string', description: 'Default "DM Serif Display"' },
+            style: { type: 'string', description: 'Default "Italic"' },
+            color: { type: 'array', items: { type: 'number' }, description: 'Text colour [r, g, b] 0..1 (default white)' },
+            glowColor: { type: 'array', items: { type: 'number' }, description: 'Glow colour [r, g, b] 0..1 (default pink [1, 0.3, 0.75])' },
+            glow: { type: 'number', minimum: 0, maximum: 100, description: 'Default 70' },
+            dim: { type: 'number', minimum: 0, maximum: 100, description: 'How much darker the room gets (default 55)' },
+            vig: { type: 'number', minimum: 0, maximum: 100, description: 'Edge vignette (default 50)' },
+            anim: { type: 'string', enum: ['zoom', 'rise', 'fade', 'pop', 'blur', 'flicker', 'spread', 'none'], description: 'Entry: zoom (default, settles from 130%), rise (from behind the head), fade, pop, blur, flicker (neon), spread (letters close in), none' },
+            inF: { type: 'integer', minimum: 1, maximum: 60, description: 'Entry length in frames (default 12)' },
+            outF: { type: 'integer', minimum: 0, maximum: 60, description: 'Fade-out frames at the end (default 8, 0 = cut)' },
+            size: { type: 'number', minimum: 0, maximum: 0.6, description: 'Text+ size; 0 = auto (fit width)' },
+            width: { type: 'number', minimum: 30, maximum: 100, description: 'Auto size: % of the frame width (default 86)' },
+            x: { type: 'number', minimum: 0, maximum: 1, description: 'Horizontal centre (default 0.5)' },
+            y: { type: ['number', 'null'], minimum: 0, maximum: 1, description: 'Vertical centre of the capitals, 0 = top; null = auto from the head' },
+            overlap: { type: 'number', minimum: 0, maximum: 80, description: 'Auto height: % of the capitals hidden behind the head (default 45)' }
+        }, [])
+    },
+    {
+        name: 'auto_cut',
+        description: 'Rough cut of a talking-head timeline (the panel\'s Cut tab). Every clip on the source video track is listened to: pauses longer than maxPause are shortened to pauseKeep, silence at clip heads/tails trimmed, and retakes (an earlier attempt of a line said again), stutters ("I think I think") and optionally fillers are found in Resolve\'s own transcription (textSource "transcription", transcribed first if needed) or the subtitle track. Without build it only analyses and returns the plan (before/after length, each drop with its id and text). With build: true it makes a NEW timeline "<source> (cut)" from the kept pieces (video + its audio, transforms copied, voice levelled to lufs, markers at every retake/stutter/filler); the source timeline is never edited. Pass ignore: [drop ids] to keep drops the user wants. Omitted options use the Cut tab\'s last values.',
+        inputSchema: S({
+            track: { type: 'integer', minimum: 1, description: 'Source video track (default 1)' },
+            style: { type: 'string', enum: ['tight', 'natural', 'gentle', 'custom'], description: 'Pause style: tight (reels: pauses > 0.26 s -> 0.18 s), natural (interviews, default: > 0.5 s -> 0.3 s), gentle (> 1 s -> 0.5 s), custom (use the numbers)' },
+            maxPause: { type: 'number', description: 'custom: shorten pauses longer than this (s)' },
+            pauseKeep: { type: 'number', description: 'custom: what is left of a shortened pause (s)' },
+            sentenceKeep: { type: 'number', description: 'custom: left after a sentence end (s)' },
+            headLead: { type: 'number', description: 'custom: kept before a clip\'s first word (s)' },
+            tailKeep: { type: 'number', description: 'custom: kept after a clip\'s last word (s)' },
+            retakes: { type: 'boolean', description: 'Drop earlier attempts of a line said again, and the talk up to the kept attempt' },
+            outtakes: { type: 'boolean', description: 'Drop between-take talk ("Wait, sorry.", "Okay, I go again.")' },
+            stutters: { type: 'boolean' }, fillers: { type: 'boolean' },
+            script: { type: 'string', description: 'The script text: keep only the last complete take of each sentence, drop everything else (best for scripted reads). Empty string = off' },
+            textSource: { type: 'string', enum: ['transcription', 'subtitles', 'none'], description: 'Where the words come from' },
+            transcribe: { type: 'boolean', description: 'Let Resolve transcribe clips with no transcription' },
+            level: { type: 'boolean', description: 'Level the voice to `lufs` on the cut timeline' },
+            lufs: { type: 'number', description: 'Target loudness (default -16)' },
+            markers: { type: 'boolean', description: 'Marker at every retake / stutter / filler cut' },
+            markPauses: { type: 'number', description: 'Also mark pauses at least this long (s); 0 = off' },
+            subtitles: { type: 'boolean', description: 'Create subtitles from the cut audio (Resolve speech to text)' },
+            open: { type: 'boolean', description: 'Leave the cut timeline open (default true)' },
+            name: { type: 'string', description: 'Name of the new timeline (default "<source> (cut)")' },
+            ignore: { type: 'array', items: { type: 'string' }, description: 'Drop ids (from the analysis) to keep in the cut' },
+            build: { type: 'boolean', description: 'Make the cut timeline (default false: analyse only)' },
+            reanalyse: { type: 'boolean', description: 'With build: analyse again first (default true)' },
+            status: { type: 'boolean', description: 'Only read the progress' },
+            cancel: { type: 'boolean', description: 'Stop the running analysis / build' }
+        })
+    },
+    {
+        name: 'match_cut',
+        description: 'News-article match cut: news articles that use `word` are screenshotted, lined up so the word stays at the same size in the same spot, rendered at the timeline\'s size and frame rate, and placed at the playhead (top free video layer, clicks on a free audio track). Saved in "<footage folder>/El Subtitle Animator MatchCut/<word>/" next to "El Subtitle Animator SFX". Same as the panel\'s header "Match Cut" button; omitted options use the panel\'s last values. Takes 1-4 minutes: returns { running } after `wait` seconds, then call again with status: true. Big paywalled sites (Reuters, WSJ, NYT, Bloomberg) are skipped because they block automated browsers.',
+        inputSchema: S({
+            word: { type: 'string', description: 'Word or short phrase to lock in place' },
+            count: { type: 'integer', minimum: 2, maximum: 40, description: 'Articles to cut between (default 12)' },
+            startFrames: { type: 'number', description: 'Frames per article at the start (default 6)' },
+            endFrames: { type: 'number', description: 'Frames per article near the end (default 2)' },
+            hold: { type: 'number', description: 'Seconds the last article holds (default 1.2)' },
+            highlight: { type: 'boolean', description: 'Marker behind the word' },
+            highlightColor: { type: 'string', description: 'Marker colour #rrggbb (default matcha #8ccf8e)' },
+            sfx: { type: 'boolean', description: 'Click on every cut' },
+            place: { type: 'boolean', description: 'Place at the playhead (default true); false = render the MP4 only' },
+            wait: { type: 'number', description: 'Seconds to wait for the result (default 150)' },
+            status: { type: 'boolean', description: 'Only read the running / last run' },
+            cancel: { type: 'boolean', description: 'Stop the running match cut' }
+        })
     }
 ];
 
-const LOCAL_TOOLS = { read_srt: readSrtTool, chop_srt: chopSrtTool };
+const LOCAL_TOOLS = {
+    read_srt: readSrtTool, chop_srt: chopSrtTool,
+    find_pauses: (a) => mediaTool('pauses', a), find_cuts: (a) => mediaTool('cuts', a), find_beats: (a) => mediaTool('beats', a),
+    transcribe_words: transcribeTool,
+    break_lines: (a) => LINES.breakLines(a.text, { lines: a.lines, maxLines: a.maxLines, maxChars: a.maxChars })
+};
+
+// ------------------------------------------------------------------ media analysis (ffmpeg, in this process)
+
+// A file (path) is measured directly; otherwise the panel says which clips are under the range and their source
+// mapping (timeline_media), and the heavy work runs here, so a long scan never holds up Resolve's panel.
+async function mediaTool(kind, args) {
+    if (args.path) {
+        const o = { start: args.start, duration: args.duration };
+        if (kind === 'pauses') return Object.assign({ path: args.path, unit: 'seconds' }, await MEDIA.findPauses(args.path, Object.assign(o, { minPause: args.minPause, noiseDb: args.noiseDb })));
+        if (kind === 'beats') return Object.assign({ path: args.path, unit: 'seconds' }, await MEDIA.findBeats(args.path, Object.assign(o, { minBpm: args.minBpm, maxBpm: args.maxBpm })));
+        const c = await MEDIA.sceneCuts(args.path, Object.assign(o, { threshold: args.threshold }));
+        const info = await MEDIA.probeMedia(args.path).catch(() => ({}));
+        const from = args.start || 0, to = args.duration ? from + args.duration : (info.duration || (c.luma.length ? c.luma[c.luma.length - 1].t + 0.5 : from));
+        return { path: args.path, unit: 'seconds', cuts: c.cuts.map(x => x.t), shots: MEDIA.shotsFromCuts(from, to, c.cuts.map(x => x.t), c.luma) };
+    }
+    const media = await callPlugin('timeline_media', pickRange(args));
+    const res = await MEDIA.analyseTimeline(kind, media, args);
+    return Object.assign({ unit: 'timeline frames', range: media.label, timeline: media.timeline }, res);
+}
+
+function pickRange(a) {
+    const r = {};
+    for (const k of ['subtitles', 'startFrame', 'endFrame']) if (a[k] !== undefined) r[k] = a[k];
+    return r;
+}
+
+async function transcribeTool(args) {
+    if (args.status) return MEDIA.asrStatus();
+    let installed = null;
+    if (args.install) installed = await MEDIA.installAsr(args.engine);
+    if (args.path) {
+        const w = await MEDIA.transcribeWords(args.path, { start: args.start, duration: args.duration, engine: args.engine, model: args.model, language: args.language });
+        return { installed, unit: 'seconds', engine: w.engine, model: w.model, cached: w.cached, words: w.words };
+    }
+    const r = await mediaTool('words', args);
+    return Object.assign({ installed }, r);
+}
 
 // ------------------------------------------------------------------ .srt chopping (local, no panel needed)
 
@@ -553,7 +716,7 @@ function timeGroup(srcBlocks, phrases) {
     return out;
 }
 
-function chopSrtTool(args) {
+async function chopSrtTool(args) {
     const src = path.resolve(args.path);
     const blocks = parseSrt(fs.readFileSync(src, 'utf8'));
     const groups = args.groups || [];
@@ -600,6 +763,9 @@ function chopSrtTool(args) {
         });
     }
 
+    let snap = null;
+    if (args.media) snap = await snapChopCuts(out, args, warnings);
+
     const dest = args.outPath ? path.resolve(args.outPath) : path.join(path.dirname(src), path.basename(src, path.extname(src)) + ' chopped.srt');
     if (dest === src && !args.overwrite) throw new Error('outPath is the source file. Pass overwrite: true to replace it, or choose another path.');
     fs.writeFileSync(dest, out.map(b => b.n + '\n' + msToSrtTime(b.startMs) + ' --> ' + msToSrtTime(b.endMs) + '\n' + b.text + '\n').join('\n'));
@@ -611,8 +777,34 @@ function chopSrtTool(args) {
         limits: limitsOut(lim),
         autoCut,
         warnings,
+        snap,
         result: out.map(b => ({ n: b.n, start: msToSrtTime(b.startMs), end: msToSrtTime(b.endMs), text: b.text }))
     };
+}
+
+// Moves every cut between two back-to-back blocks onto the measured pause (or word gap) next to it.
+async function snapChopCuts(out, args, warnings) {
+    const off = Number(args.mediaOffset) || 0;
+    const lim = Number.isFinite(args.maxShift) ? args.maxShift : 0.35;
+    const from = out[0].startMs / 1000 + off, to = out[out.length - 1].endMs / 1000 + off;
+    let p;
+    try { p = await MEDIA.findPauses(args.media, { start: Math.max(0, from - 1), duration: to - from + 2 }); }
+    catch (e) { warnings.push('Cuts not moved onto pauses: ' + e.message); return null; }
+    if (p.quiet) warnings.push('The recording is very quiet (speech around ' + p.speechDb + ' dBFS): pauses may be wrong.');
+    const words = MEDIA.cachedWords(args.media, from, to);
+    let moved = 0, byWord = 0;
+    for (let i = 0; i < out.length - 1; i++) {
+        const a = out[i], b = out[i + 1];
+        if (b.startMs - a.endMs > 40) continue;        // a gap in the source already
+        const c = (a.endMs + b.startMs) / 2000 + off;
+        const s = MEDIA.snapCuts([c], p.pauses, words, lim)[0];
+        if (!s.by || s.to === c) continue;
+        const ms = Math.round((s.to - off) * 1000);
+        if (ms <= a.startMs + 120 || ms >= b.endMs - 120) continue;
+        a.endMs = ms; b.startMs = ms;
+        moved++; if (s.by === 'word') byWord++;
+    }
+    return { media: path.resolve(args.media), speechDb: p.speechDb, thresholdDb: p.thresholdDb, pauses: p.pauses.length, cutsMoved: moved, ontoWordGaps: byWord, wordTimings: !!words };
 }
 
 // ------------------------------------------------------------------ talking to the plugin
@@ -681,7 +873,7 @@ async function onMessage(msg) {
                 if (!TOOLS.some(t => t.name === name)) return fail(id, -32602, 'Unknown tool ' + name);
                 try {
                     const args = (params && params.arguments) || {};
-                    const result = LOCAL_TOOLS[name] ? LOCAL_TOOLS[name](args) : await callPlugin(name, args);
+                    const result = LOCAL_TOOLS[name] ? await LOCAL_TOOLS[name](args) : await callPlugin(name, args);
                     return reply(id, { content: toContent(result) });
                 } catch (e) {
                     return reply(id, { content: [{ type: 'text', text: String(e && e.message || e) }], isError: true });

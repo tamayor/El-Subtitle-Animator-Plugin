@@ -39,3 +39,15 @@ test('regroup refuses phrases that do not spell the subtitles', () => {
     assert.throws(() => regroup(SUBS, []), /Give the phrases/);
     assert.throws(() => regroup(SUBS, ['...']), /Phrase 1 is empty/);
 });
+
+test('regroup moves a cut onto a measured pause', () => {
+    const subs = [{ index: 1, text: 'If this is the bar then it\'s', start: 0, end: 50 }, { index: 2, text: 'fine, but the bar is this.', start: 50, end: 100 }];
+    const plain = regroup(subs, ['If this is the bar then', 'it\'s fine, but the bar is this.']);
+    const cut = plain[0].endFrame;
+    const snapped = regroup(subs, ['If this is the bar then', 'it\'s fine, but the bar is this.'], { pauses: [{ start: cut - 6, end: cut - 2, mid: cut - 4 }] });
+    assert.equal(snapped[0].endFrame, cut - 4, 'the cut sits in the pause');
+    assert.equal(snapped[1].startFrame, cut - 4);
+    assert.equal(snapped[0].snapped, 'pause');
+    const far = regroup(subs, ['If this is the bar then', 'it\'s fine, but the bar is this.'], { pauses: [{ start: 2, end: 4, mid: 3 }] });
+    assert.equal(far[0].endFrame, cut, 'a pause too far away is ignored');
+});

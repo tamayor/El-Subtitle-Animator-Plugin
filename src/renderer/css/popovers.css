@@ -363,3 +363,4 @@ body.tag-dragging * {
 .fx-row select { width: 110px; }
 .fx-sep { height: 1px; background: var(--line); margin: 5px 4px; }
 .fx-actions { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 0; font-size: 11px; color: var(--dim); }
+

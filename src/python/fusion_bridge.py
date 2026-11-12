@@ -1902,6 +1902,33 @@ def op_live_frame(a):
     }
 
 
+def op_timeline_frames(a):
+    """Render check (MCP check_render / the Cut tab): the composited timeline frames from..to (every `step`-th) as
+    small JPEGs f00000.jpg, f00001.jpg ... in `dir`, through the timeline's own ExportFrame (Resolve's render path, the
+    same as get_frame: no script reads a comp). ffmpeg then measures them (blackdetect / freezedetect)."""
+    project = resolve().GetProjectManager().GetCurrentProject()
+    tl = project.GetCurrentTimeline() if project else None
+    if not tl:
+        raise RuntimeError("Open a timeline in Resolve")
+    start = int(tl.GetStartFrame() or 0)
+    f0, f1 = int(a["from"]), int(a["to"])
+    step = max(1, int(a.get("step") or 1))
+    out_dir = a["dir"]
+    max_dim = int(a.get("maxDim") or 480)
+    os.makedirs(out_dir, exist_ok=True)
+    n, failed = 0, []
+    for f in range(f0, f1 + 1, step):
+        fp = os.path.join(out_dir, "f%05d.jpg" % n)
+        r = tl.ExportFrame(max(0, f - start), {"outputType": "file", "filePath": fp, "maxDimension": max_dim, "quality": 80})
+        if not r or not r.get("success") or not os.path.exists(fp):
+            failed.append(f)
+            if len(failed) > 3 and n == 0:
+                raise RuntimeError((r or {}).get("error") or "Resolve did not export the frames")
+            continue
+        n += 1
+    return {"count": n, "failed": failed, "step": step}
+
+
 def output_tool(comp):
     """The tool whose image the clip shows: the MediaOut's source, else the tool named Template."""
     for t in tool_list(comp):
@@ -5326,7 +5353,98 @@ def op_spot_remove(a):
 
 
 
-OPS = {"glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
+# ------------------------------------------------------------------ Cut tab (src/main/auto-cut.js)
+
+def _cut_media(a):
+    """{media pool item id: item} for the clips on video track a["track"] of the current timeline whose media id is in
+    a["mediaIds"]."""
+    want = set(str(x) for x in (a.get("mediaIds") or []))
+    tl = timeline()
+    found = {}
+    for it in tl.GetItemListInTrack("video", int(a.get("track") or 1)) or []:
+        try:
+            mpi = it.GetMediaPoolItem()
+            uid = str(mpi.GetUniqueId()) if mpi else None
+        except Exception:
+            continue
+        if uid and uid in want and uid not in found:
+            found[uid] = mpi
+    return found
+
+
+def op_cut_words(a):
+    """Resolve's own transcription of each clip: {"media": {id: {"words": [[start TC, end TC, text]]} or None}}."""
+    out = {}
+    for uid, mpi in _cut_media(a).items():
+        try:
+            tr = mpi.GetTranscription()
+        except Exception:
+            tr = None
+        segs = (tr or {}).get("segments") or []
+        words = []
+        for seg in segs:
+            for w in seg.get("words") or []:
+                t = str(w.get("text") or "").strip()
+                if t and t != "(...)":
+                    words.append([w.get("start"), w.get("end"), t])
+        out[uid] = {"words": words, "language": (tr or {}).get("language")} if words else None
+    return {"media": out}
+
+
+def op_cut_transcribe(a):
+    """Transcribes the clips that have no transcription yet (Resolve's speech to text), and waits for the job."""
+    project = resolve().GetProjectManager().GetCurrentProject()
+    started = 0
+    for uid, mpi in _cut_media(a).items():
+        try:
+            if mpi.TranscribeAudio():
+                started += 1
+        except Exception:
+            continue
+        deadline = time.time() + 30 * 60
+        while time.time() < deadline:
+            try:
+                st = project.GetTranscribeAudioStatus() or {}
+            except Exception:
+                break
+            if st.get("JobStatus") in (None, "", "Inactive", "Complete", "Cancelled") or st.get("Error"):
+                break
+            time.sleep(1.0)
+    return {"started": started}
+
+
+def op_cut_subtitles(a):
+    """Subtitles from the audio of the cut timeline (Resolve's Create Subtitles from Audio)."""
+    tl = timeline()
+    if a.get("timeline") and tl.GetName() != a["timeline"]:
+        return {"ok": False, "error": "the cut timeline is not the current one"}
+    try:
+        return {"ok": bool(tl.CreateSubtitlesFromAudio({}))}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def op_markers_clear(a):
+    """Removes the plugin's own timeline markers: the "ELSA ..." ones of the Cut tab's Measure (kind = only that
+    measurement) and, with all, the "... cut" ones a Cut build left (custom data "elsa-cut")."""
+    tl = timeline()
+    if a.get("timeline") and tl.GetName() != a["timeline"]:        # another timeline than the open one
+        proj = resolve().GetProjectManager().GetCurrentProject()
+        tl = next((t for t in (proj.GetTimelineByIndex(i) for i in range(1, int(proj.GetTimelineCount() or 0) + 1)) if t and t.GetName() == a["timeline"]), None) if proj else None
+        if not tl:
+            return {"removed": 0, "error": "timeline not found"}
+    kind, removed = str(a.get("kind") or ""), 0
+    for f, m in list((tl.GetMarkers() or {}).items()):
+        name, note = str(m.get("name") or ""), str(m.get("note") or "")
+        mine = name.startswith("ELSA ") and (not kind or note.startswith(kind))
+        if a.get("all") and (str(m.get("customData") or "") == "elsa-cut" or re.match(r"^(Retake|Outtake|Stutter|Filler|Pause [\d.]+ s) cut$", name)):
+            mine = True
+        if mine and tl.DeleteMarkerAtFrame(f):
+            removed += 1
+    return {"removed": removed}
+
+
+OPS = {"markers_clear": op_markers_clear, "timeline_frames": op_timeline_frames, "cut_words": op_cut_words, "cut_transcribe": op_cut_transcribe, "cut_subtitles": op_cut_subtitles, "glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
        "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track,
        "spot_source": op_spot_source, "spot_place": op_spot_place, "spot_set": op_spot_set, "spot_get": op_spot_get, "spot_remove": op_spot_remove}
 
@@ -5334,7 +5452,7 @@ OPS = {"glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_re
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the
 # renders (they already took their time, the panel retries itself), not the watchers (the next tick comes anyway), and
 # never once a wake has run (a second attempt would wake - re-render - the whole comp again).
-NO_RETRY = {"track_frames", "spot_place", "spot_remove", "capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
+NO_RETRY = {"timeline_frames", "cut_transcribe", "cut_subtitles", "track_frames", "spot_place", "spot_remove", "capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
 
 
 def handle(req):

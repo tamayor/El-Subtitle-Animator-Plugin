@@ -24,6 +24,8 @@
     <link rel="stylesheet" href="./css/create-tab.css">
     <link rel="stylesheet" href="./css/create-tabs.css">
     <link rel="stylesheet" href="./css/prompt-tab.css">
+    <link rel="stylesheet" href="./css/cut-tab.css">
+    <link rel="stylesheet" href="./css/cut-tools.css">
     <link rel="stylesheet" href="./css/text-style.css">
     <link rel="stylesheet" href="./css/tags.css">
     <link rel="stylesheet" href="./css/popovers.css">
@@ -69,11 +71,17 @@
     <script src="./js/ui/fusion-fixes.js" defer></script>
     <script src="./js/library/preset-list.js" defer></script>
     <script src="./js/library/effect-list.js" defer></script>
+    <script src="./js/library/match-cut-card.js" defer></script>
     <script src="./js/library/presets-tabs.js" defer></script>
     <script src="./js/library/create-tab.js" defer></script>
     <script src="./js/library/boilerplates.js" defer></script>
     <script src="./js/library/create-tabs.js" defer></script>
     <script src="./js/library/prompt-tab.js" defer></script>
+    <script src="./js/library/cut-plan.js" defer></script>
+    <script src="./js/library/cut-wave.js" defer></script>
+    <script src="./js/library/cut-tab.js" defer></script>
+    <script src="./js/library/cut-tools-view.js" defer></script>
+    <script src="./js/library/cut-tools.js" defer></script>
     <script src="./js/library/text-style.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
@@ -138,6 +146,7 @@
     </header>
 
     <nav class="tabs">
+        <button id="tabBtnCut" class="tab" aria-label="Cut" title="Cut: rough-cut the recording into a new timeline (pauses, retakes, stutters)"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.4 10.6 12 2.5M10.6 10.6 4 2.5"/></svg></span><span class="tab-txt">Cut</span></button>
         <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
         <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
         <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
@@ -362,7 +371,7 @@
                     </details>
                 </section>
 
-                <!-- Effect presets: Glitch / Wiggle / Stop Motion as Resolve effects on any clip (js/library/effect-list.js) -->
+                <!-- Effect presets: Glitch / Wiggle / Stop Motion as Resolve effects on any clip (js/library/effect-list.js); Spotlight and Match Cut make their own clip -->
                 <section id="fxSection">
                     <div class="row between preset-header-row">
                         <div class="preset-header-left">
@@ -670,6 +679,301 @@
 
             </div>
 
+        </div>
+    </div>
+
+    <!-- ============================ CUT: rough cut into a new timeline (js/library/cut-tab.js, src/main/auto-cut.js) ============================ -->
+    <div id="tabCut" class="hidden">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <!-- Cut: Rough cut (steps 1-5) / Measure (ffmpeg measurements) sub-tabs; the buttons reuse .presets-tabs (cutSubTab in js/library/cut-tab.js) -->
+                <div id="cutWrap" class="cut-wrap" data-cut="rough">
+                    <div class="presets-head cut-head">
+                        <span class="label">Cut</span>
+                        <div class="presets-tabs" role="tablist">
+                            <button type="button" class="presets-tab on" data-cut="rough" role="tab" aria-selected="true"
+                                title="Shorten pauses and take out retakes, into a new “(cut)” timeline">Rough cut</button>
+                            <button type="button" class="presets-tab" data-cut="measure" role="tab" aria-selected="false"
+                                title="Measure the footage and sound: pauses, shot changes, beats, words, black or frozen frames">Measure</button>
+                        </div>
+                    </div>
+
+                <section class="cr" id="cutRough">
+                    <div class="cr-head">
+                        <span class="cr-sub">Shortens pauses, trims heads and tails and takes out retakes and stutters. The
+                            result is a new “(cut)” timeline; the original is left alone.</span>
+                    </div>
+                    <div id="cutEngine" class="cut-engine hidden"></div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">1</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Source</div>
+                            <div class="cut-grid">
+                                <label class="cut-f"><span>Video track</span>
+                                    <select id="cutTrack" title="The video track whose clips are cut (their own audio goes with them)"></select></label>
+                                <label class="cut-f"><span>Words from</span>
+                                    <select id="cutText" title="Retakes and stutters are found in these words">
+                                        <option value="transcription">Resolve transcription</option>
+                                        <option value="subtitles">Subtitle track</option>
+                                        <option value="none">No words (pauses only)</option>
+                                    </select></label>
+                            </div>
+                            <div class="cut-checks">
+                                <label><input id="cut_transcribe" type="checkbox"> Transcribe <span class="cr-sub">clips Resolve has not transcribed yet</span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">2</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Pauses</div>
+                            <div class="cut-grid">
+                                <label class="cut-f"><span>Style</span>
+                                    <select id="cutStyle">
+                                        <option value="tight">Tight: reels, shorts</option>
+                                        <option value="natural">Natural: interviews</option>
+                                        <option value="gentle">Gentle: long form</option>
+                                        <option value="custom">Custom</option>
+                                    </select></label>
+                            </div>
+                            <div id="cutViz" class="cut-viz" title="Drag the gaps (or the Shorten-over bracket) to change the values"></div>
+                            <!-- after Analyse: the clip's real waveform with the cuts on it (js/library/cut-wave.js) takes the sample's place -->
+                            <div id="cutWave" class="cut-wave hidden">
+                                <div class="cw-head">
+                                    <select id="cwPick" class="hidden" title="The clip whose waveform is shown"></select>
+                                    <span id="cwName" class="cw-name"></span>
+                                    <span id="cwTime" class="cw-time"></span>
+                                    <span class="grow"></span>
+                                    <button id="cwPlay" type="button" class="ghost hidden" title="Stop listening">■ Stop</button>
+                                    <button id="cwReset" type="button" class="ghost hidden" title="Remove your own cuts and keeps on this clip">Undo my edits</button>
+                                    <span class="cw-zoom">
+                                        <button id="cwOut" type="button" title="Zoom out">−</button>
+                                        <button id="cwFit" type="button" title="Show the whole clip">Fit</button>
+                                        <button id="cwIn" type="button" title="Zoom in (or pinch on the waveform)">+</button>
+                                    </span>
+                                </div>
+                                <canvas id="cwOver" class="cw-over hidden" title="The whole clip. Drag to scroll."></canvas>
+                                <canvas id="cwMain" class="cw-main"></canvas>
+                                <div class="cw-after" title="The kept pieces back to back: what the cut timeline plays">
+                                    <span>After</span><canvas id="cwAfter"></canvas><span id="cwAfterT"></span>
+                                </div>
+                                <div class="cw-legend">
+                                    <span><i style="background:#8ccf8e"></i>kept</span>
+                                    <span><i style="background:#e5604f"></i>pause, head, tail</span>
+                                    <span><i style="background:#f0a0c8"></i>retake, outtake</span>
+                                    <span><i style="background:#e8c86a"></i>stutter</span>
+                                    <span><i style="background:#b9a2f0"></i>filler</span>
+                                    <span><i style="background:#d9925a"></i>no words</span>
+                                    <span><i style="background:#8fb2d6"></i>your cut</span>
+                                </div>
+                                <div class="cr-sub">Click a shaded part to keep it, a kept part to cut it, or drag to cut a range
+                                    (Option-drag keeps it). Double-click to listen to the cut there (Option: the original).</div>
+                            </div>
+                            <details class="cut-more" id="cutNumsBox">
+                                <summary>Exact values <span class="cr-sub">in seconds</span></summary>
+                                <div id="cutNums" class="cut-grid cut-nums">
+                                    <label class="cut-f" title="Shorten over: a pause longer than this many seconds is shortened; shorter pauses are left alone. Lower = tighter cut. Drag the field left / right or type."><span>Shorten over</span><input id="cut_maxPause" type="number" min="0.1" max="5" step="0.02"></label>
+                                    <label class="cut-f" title="Leave: what is left of a shortened pause, in seconds (60 % after the words, 40 % before the next ones). Lower = snappier, higher = more breathing room."><span>Leave</span><input id="cut_pauseKeep" type="number" min="0.04" max="3" step="0.02"></label>
+                                    <label class="cut-f" title="After a sentence: what is left of a pause after a full stop, question or exclamation, in seconds, so a new thought gets a beat. Needs words (Resolve transcription or subtitles); without them Leave is used."><span>After a sentence</span><input id="cut_sentenceKeep" type="number" min="0.04" max="3" step="0.02"></label>
+                                    <label class="cut-f" title="Head: silence kept before each clip's first word, in seconds. Everything before it is trimmed."><span>Head</span><input id="cut_headLead" type="number" min="0" max="3" step="0.02"></label>
+                                    <label class="cut-f" title="Tail: silence kept after each clip's last word, in seconds. Everything after it is trimmed."><span>Tail</span><input id="cut_tailKeep" type="number" min="0" max="3" step="0.02"></label>
+                                </div>
+                                <div class="cut-sub-head"><span class="label">What counts as silence</span>
+                                    <span class="cr-sub">change these when a cut eats into words; Analyse again after</span></div>
+                                <div class="cut-grid cut-nums cut-det">
+                                    <label class="cut-f" title="Silence level: sound up to this many dB over the room tone counts as silence and can be cut. Lower = only very silent parts are cut, soft word endings and breaths stay."><span>Silence level (dB over room)</span><input id="cut_pauseDb" type="number" min="4" max="30" step="1"></label>
+                                    <label class="cut-f" title="Voice level: a sound this many dB under your voice is not speech (an off-mic murmur, a rustle) and may be cut. Higher = more quiet sounds are kept as speech."><span>Not voice when under (dB)</span><input id="cut_voiceDb" type="number" min="6" max="45" step="1"></label>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">3</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Take out <span class="cr-opt">needs words</span></div>
+                            <div class="cut-checks">
+                                <label><input id="cut_retakes" type="checkbox"> Retakes <span class="cr-sub">keep the last attempt of a line, and cut the talk before it</span></label>
+                                <label><input id="cut_outtakes" type="checkbox"> Outtakes <span class="cr-sub">“Wait, sorry.” “Okay, I go again.” between takes</span></label>
+                                <label><input id="cut_stutters" type="checkbox"> Stutters <span class="cr-sub">“I think I think”</span></label>
+                                <label><input id="cut_fillers" type="checkbox"> Fillers <span class="cr-sub">um, uh (when transcribed)</span></label>
+                                <label title="Kept pieces in which Resolve's transcription heard no words: murmurs, breaths, off-mic talk, and what is left beside a taken-out line. Only with Words from: Resolve transcription. Shown on the waveform; click one there to keep it."><input id="cut_wordless" type="checkbox"> Sounds without words <span class="cr-sub">murmurs, off-mic talk, leftovers beside a taken-out line</span></label>
+                            </div>
+                            <details class="cut-more cut-script" id="cutScriptBox">
+                                <summary>Script <span class="cr-sub">optional: paste it for scripted reads (ads, pieces to camera)</span></summary>
+                                <textarea id="cutScript" rows="5" spellcheck="false" placeholder="Paste the script. Each sentence is found in the recording and only its last complete take is kept; everything else (chatter, false starts, pickups) is cut."></textarea>
+                                <div id="cutScriptNote" class="cr-sub"></div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num" id="cutNum4">4</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Analyse <span class="cr-opt">changes nothing</span></div>
+                            <div class="pr-bar">
+                                <button id="cutAnalyze" class="primary">Analyse</button>
+                                <span class="cr-sub cut-stale-note">Settings changed since this analysis: Analyse again to see the new plan.</span>
+                            </div>
+                            <div id="cutRunSlot4">
+                                <!-- progress + status: cutRunTo() moves this block under the step that is running (4 or 5) -->
+                                <div id="cutRun" class="cut-run">
+                                    <div class="cut-run-row">
+                                        <span id="cutMsg" class="cut-msg"></span>
+                                        <button id="cutCancel" class="ghost hidden">Cancel</button>
+                                    </div>
+                                    <div class="cut-bar hidden" id="cutBarWrap"><i id="cutBar"></i></div>
+                                    <div id="cutStatus" class="status"></div>
+                                </div>
+                            </div>
+                            <div id="cutResult" class="cut-result hidden">
+                                <div id="cutHeadline" class="cut-headline"></div>
+                                <div id="cutClips" class="cut-clips"></div>
+                                <div id="cutWarn" class="cut-warn"></div>
+                                <div id="cutDropsWrap" class="hidden">
+                                    <div class="cut-sub-head"><span class="label">Taken out</span>
+                                        <span class="cr-sub">untick a line to keep it in the cut</span></div>
+                                    <div id="cutDrops" class="cut-drops"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cr-step last" id="cutStepBuild">
+                        <div class="cr-num" id="cutNum5">5</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Build <span class="cr-opt">new timeline</span></div>
+                            <div class="cr-sub cut-lock-note">Analyse first: Build uses its plan.</div>
+                            <div class="cut-lockable">
+                                <div class="cut-checks cut-checks-2">
+                                    <label><input id="cut_level" type="checkbox"> Level the voice to
+                                        <input id="cut_lufs" type="number" min="-30" max="-8" step="1" class="cut-inline"> LUFS</label>
+                                    <label><input id="cut_copyTransform" type="checkbox"> Keep each clip’s zoom / position</label>
+                                    <label><input id="cut_markers" type="checkbox"> Marker at every retake / stutter cut</label>
+                                    <label>Mark pauses longer than <input id="cut_markPauses" type="number" min="0" max="10" step="0.5" class="cut-inline"> s <span class="cr-sub">0 = off</span></label>
+                                    <label><input id="cut_subtitles" type="checkbox"> Create subtitles from the cut <span class="cr-sub">ready for the Use tab</span></label>
+                                    <label><input id="cut_open" type="checkbox"> Open the cut timeline when done</label>
+                                </div>
+                                <div class="pr-bar">
+                                    <input id="cutName" type="text" placeholder="Timeline name (default: source + “(cut)”)" spellcheck="false">
+                                    <button id="cutBuild" class="primary">Build cut timeline</button>
+                                </div>
+                            </div>
+                            <div id="cutRunSlot5"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Measure: measurements of the footage and sound (js/library/cut-tools.js, src/main/cut-tools.js) -->
+                <section class="cr" id="ctSection">
+                    <div class="cr-head">
+                        <span class="cr-sub">Measures the clips under a range with ffmpeg and draws what it finds over the
+                            waveform. Nothing on the timeline changes.</span>
+                    </div>
+                    <div id="ctEngine" class="cut-engine hidden"></div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">1</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Range</div>
+                            <div class="cut-grid">
+                                <label class="cut-f"><span>Range</span>
+                                    <select id="ctRange">
+                                        <option value="all">Whole timeline</option>
+                                        <option value="tc">From / to timecode</option>
+                                    </select></label>
+                                <label class="cut-f ct-tcf"><span>From</span><input id="ctFrom" type="text" placeholder="01:00:00:00" spellcheck="false"></label>
+                                <label class="cut-f ct-tcf"><span>To</span><input id="ctTo" type="text" placeholder="01:00:30:00" spellcheck="false"></label>
+                                <label class="cut-f"><span>Audio track</span>
+                                    <select id="ctAudio" title="Dialogue for pauses and words, music for beats. Auto: the lowest track with sound (dialogue) or the highest track of audio-only files (music)"></select></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cr-step">
+                        <div class="cr-num">2</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Measure</div>
+                            <div class="ct-actions">
+                                <button class="ct-run" data-kind="pauses" title="Speech pauses: where a cut between two phrases belongs"><b>Pauses</b><span>where a cut between phrases belongs</span></button>
+                                <button class="ct-run" data-kind="cuts" title="Shot changes in and between clips, and how bright each shot is (light B-roll hides white text)"><b>Shot changes</b><span>cuts and light B-roll</span></button>
+                                <button class="ct-run" data-kind="beats" title="The music’s tempo and beats, to land animations and hits on the beat"><b>Beats</b><span>the music’s tempo and grid</span></button>
+                                <button class="ct-run" data-kind="words" title="Word timings from a local speech engine (cached; regroup and chopping use them)"><b>Words</b><span>word timings (speech engine)</span></button>
+                                <button class="ct-run" data-kind="render" title="Black or frozen frames in the composited picture (at most 2 minutes)"><b>Render check</b><span>black or frozen frames</span></button>
+                            </div>
+                            <div class="cut-run">
+                                <div class="cut-run-row">
+                                    <span id="ctMsg" class="cut-msg"></span>
+                                    <button id="ctCancel" class="ghost hidden">Cancel</button>
+                                </div>
+                                <div class="cut-bar hidden" id="ctBarWrap"><i id="ctBar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cr-step last">
+                        <div class="cr-num" id="ctNum3">3</div>
+                        <div class="cr-body">
+                            <div class="cr-title">Results</div>
+                            <div id="ctResult" class="hidden">
+                                <div id="ctHeadline" class="cut-headline"></div>
+                                <div id="ctWarn" class="cut-warn"></div>
+                                <!-- the results over the range's waveform (js/library/cut-tools-view.js) -->
+                                <div id="ctView" class="cut-wave">
+                                    <div class="cw-head">
+                                        <span id="ctvName" class="cw-time"></span>
+                                        <span class="grow"></span>
+                                        <span class="cw-zoom">
+                                            <button id="ctvOut" type="button" title="Zoom out">−</button>
+                                            <button id="ctvFit" type="button" title="Show the whole range">Fit</button>
+                                            <button id="ctvIn" type="button" title="Zoom in (or pinch on the waveform)">+</button>
+                                        </span>
+                                    </div>
+                                    <!-- pause settings: the pauses are worked out in the panel from the waveform, so these show at once -->
+                                    <!-- pause settings, as in Resolve's Remove Silence: the pauses are worked out in the panel from the
+                                         waveform, so a change shows at once (ctvPauses in js/library/cut-tools-view.js) -->
+                                    <div id="ctMinWrap" class="ct-sliders hidden">
+                                        <label class="ct-sl" title="Threshold: sound quieter than this is silence. Lower = only very silent parts go (soft word endings and breaths stay). Auto: 22 dB under your voice.">
+                                            <span>Threshold</span><input id="ctSilDb" type="range" min="-80" max="-10" step="0.5" value="-46"><b id="ctSilDbV"></b>
+                                            <button id="ctSilAuto" type="button" class="ghost" title="Back to the level measured from your voice">Auto</button></label>
+                                        <label class="ct-sl" title="Pre head: frames of the silence kept before the next words start">
+                                            <span>Pre head</span><input id="ctPre" type="range" min="0" max="25" step="1" value="2"><b id="ctPreV"></b></label>
+                                        <label class="ct-sl" title="Post tail: frames of the silence kept after the words end">
+                                            <span>Post tail</span><input id="ctPost" type="range" min="0" max="25" step="1" value="4"><b id="ctPostV"></b></label>
+                                        <label class="ct-sl" title="Minimum to strip: a pause is only taken out when at least this many frames would go">
+                                            <span>Minimum to strip</span><input id="ctMinStrip" type="range" min="1" max="75" step="1" value="6"><b id="ctMinStripV"></b></label>
+                                    </div>
+                                    <canvas id="ctvOver" class="cw-over hidden" title="The whole range. Drag to scroll."></canvas>
+                                    <canvas id="ctvMain" class="cw-main ctv-main"></canvas>
+                                    <div class="cw-legend">
+                                        <span><i style="background:#e5604f"></i>pause</span>
+                                        <span><i style="background:#eff5f0"></i>shot change</span>
+                                        <span><i style="background:#e8c86a"></i>light B-roll</span>
+                                        <span><i style="background:#b9a2f0"></i>beat</span>
+                                        <span><i style="background:#f07b8e"></i>black or static frames</span>
+                                    </div>
+                                    <div class="cr-sub">Click to move Resolve’s playhead there. Each thing you measure is added to this picture.</div>
+                                </div>
+                                <div id="ctRows" class="ct-rows"></div>
+                                <div class="pr-bar">
+                                    <button id="ctMark" title="Put these results on Resolve’s timeline as markers (named “ELSA …”). Pause markers then follow the settings: change Threshold, Pre head, Post tail or Minimum to strip and they move with the shading.">Add markers</button>
+                                    <button id="ctClear" class="ghost" title="Remove this plugin’s markers from the timeline">Clear markers</button>
+                                    <span id="ctDelWrap" class="ct-del hidden">
+                                        <button id="ctDelete" title="Takes every pause that has a marker out of the cut (as marked: Pre head and Post tail are already left out of it) and clears the markers. Delete a marker in Resolve first to keep that pause. The result is a new timeline next to this one (Resolve’s scripting cannot trim clips in place); this one stays as your undo.">Delete marked pauses</button>
+                                    </span>
+                                    <span class="grow"></span>
+                                    <button id="ctCopy" class="ghost" title="Copy the results as text">Copy</button>
+                                </div>
+                            </div>
+                            <div class="cr-sub ct-empty">Pick a measurement in step 2; its results are drawn over the waveform here.</div>
+                            <div id="ctStatus" class="status"></div>
+                        </div>
+                    </div>
+                </section>
+                </div>
+            </div>
         </div>
     </div>
 

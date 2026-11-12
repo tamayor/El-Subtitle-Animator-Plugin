@@ -106,6 +106,35 @@ contextBridge.exposeInMainWorld('sa', {
     cancelColor: () => ipcRenderer.invoke('color:cancel'),
     pickColor: (hex) => ipcRenderer.invoke('color:pick', hex),
 
+    // Match Cut (header button): news-article match cut of one word, placed at the playhead
+    matchCutDefaults: () => ipcRenderer.invoke('matchcut:defaults'),
+    matchCutRun: (opts) => ipcRenderer.invoke('matchcut:run', opts || {}),
+    matchCutCancel: () => ipcRenderer.invoke('matchcut:cancel'),
+    matchCutOpen: () => ipcRenderer.invoke('matchcut:open'),
+    onMatchCutProgress: (cb) => ipcRenderer.on('matchcut:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
+
+    // Cut tab
+    cutDefaults: () => ipcRenderer.invoke('cut:defaults'),
+    cutPrefs: (p) => ipcRenderer.invoke('cut:prefs', p || {}),
+    cutAnalyze: (opts) => ipcRenderer.invoke('cut:analyze', opts || {}),
+    cutBuild: (opts) => ipcRenderer.invoke('cut:build', opts || {}),
+    cutCancel: () => ipcRenderer.invoke('cut:cancel'),
+    cutInstall: () => ipcRenderer.invoke('cut:install'),
+    cutListen: (opts) => ipcRenderer.invoke('cut:listen', opts || {}),
+    onCutProgress: (cb) => ipcRenderer.on('cut:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
+    // Cut tab "Analyse media" (cut-tools.js)
+    cutToolsStatus: () => ipcRenderer.invoke('cuttools:status'),
+    cutToolsRun: (opts) => ipcRenderer.invoke('cuttools:run', opts || {}),
+    cutToolsCheck: (opts) => ipcRenderer.invoke('cuttools:check', opts || {}),
+    cutToolsCancel: () => ipcRenderer.invoke('cuttools:cancel'),
+    cutToolsInstall: (opts) => ipcRenderer.invoke('cuttools:install', opts || {}),
+    cutToolsMarkers: (opts) => ipcRenderer.invoke('cuttools:markers', opts || {}),
+    cutToolsWave: (opts) => ipcRenderer.invoke('cuttools:wave', opts || {}),
+    cutToolsGoto: (opts) => ipcRenderer.invoke('cuttools:goto', opts || {}),
+    cutToolsPlayhead: () => ipcRenderer.invoke('cuttools:playhead'),
+    cutToolsDeletePauses: (opts) => ipcRenderer.invoke('cuttools:deletePauses', opts || {}),
+    onCutToolsProgress: (cb) => ipcRenderer.on('cuttools:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
+
     // Window and app
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
     getFusionFixes: () => ipcRenderer.invoke('fusion:getFixes'),

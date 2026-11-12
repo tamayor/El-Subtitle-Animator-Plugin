@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>El Subtitle Animator</title>
+<meta name="description" content="The subtitle animation tool for DaVinci Resolve Studio. Make, store and customise your own presets, and let Claude drive it over MCP.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131614'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%238ccf8e' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='21' r='2.6' fill='%23f07b8e'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/fx.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#131614" stroke="#28312b"/><path d="M8 11h16M8 16h10M8 21h13" stroke="#8ccf8e" stroke-width="2.6" stroke-linecap="round"/><circle cx="24" cy="21" r="2.6" fill="#f07b8e"/></svg>
+      El Subtitle Animator
+    </a>
+    <div class="links">
+      <a href="#tool">The tool</a><a href="#features">Features</a><a href="#demo">Demo</a><a href="#presets">Presets</a><a href="#timing">Timing</a><a href="#rules">Configure</a><a href="#mcp">MCP</a><a href="#faq">FAQ</a><a href="#pricing">Pricing</a>
+    </div>
+    <button class="btn" id="theme" aria-label="Toggle theme">◐</button>
+    <a class="btn primary" href="#pricing">Get the tool</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="pill"><i></i> Built for DaVinci Resolve Studio</div>
+    <h1>The subtitle animation <span class="grad">tool.</span><br>Not a preset pack.</h1>
+    <p class="lead">Make your own animations, store them in a library, customise every detail, and connect it all to Claude over MCP. Presets are just what you build with it.</p>
+    <div class="cta">
+      <a class="btn primary" href="#pricing">Get El Subtitle Animator</a>
+      <a class="btn" href="#tool">See how it works</a>
+    </div>
+    <small>macOS · DaVinci Resolve Studio · Workflow Integration plugin</small>
+
+    <div class="win reveal">
+      <div class="bar"><i></i><i></i><i></i><span>Use · Preview in Resolve</span></div>
+      <div class="stage"><div class="cap" id="cap"></div></div>
+      <div class="presetbar" id="chips" role="tablist" aria-label="Preview style"></div>
+    </div>
+  </div>
+</header>
+
+<section id="tool">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">What it is</div>
+      <h2>A workshop, not a shelf of templates.</h2>
+      <p class="lead">Most subtitle packs hand you finished looks you can't change. El Subtitle Animator gives you the machinery to build, keep and reshape your own, inside DaVinci Resolve Studio.</p>
+    </div>
+    <div class="verbs reveal">
+      <div><b>Make</b><p>Turn any Text+ or MultiText clip, or a .comp / .setting file, into a preset.</p></div>
+      <div><b>Store</b><p>A searchable library with tags, emoji, previews, default sounds and one-click revert.</p></div>
+      <div><b>Customise</b><p>Fonts, colours, rows, highlight pills, timing, sound layers, safe zones. Change it on top of the tool.</p></div>
+      <div><b>Automate</b><p>Write your editing rules once. Claude places the whole timeline through MCP.</p></div>
+    </div>
+    <div class="versus reveal">
+      <div class="no"><h3>A preset pack</h3><ul><li>Fixed looks you can't extend</li><li>Breaks when your font or brand changes</li><li>One download, no workflow</li></ul></div>
+      <div class="yes"><h3>El Subtitle Animator</h3><ul><li>Build and save unlimited presets of your own</li><li>Rules override font and colour across every preset</li><li>Live preview, sounds, layouts and AI placement in one panel</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="features">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">Features</div>
+      <h2>Everything between the SRT and the finished edit.</h2>
+    </div>
+    <div class="bento">
+      <div class="cardx s4 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Live preview, right on your timeline</h3>
+        <p>Pick a preset in the panel and see it as a real clip in Resolve. Edit text, position, size, style, timing and sounds, and the clip follows. Placed clips keep a fully working Edit-page Inspector.</p>
+        <div class="tags"><span>Stage preview</span><span>Drag to place</span><span>Timing bar</span><span>Clip controls</span></div>
+      </div>
+      <div class="cardx s2 reveal">
+        <div class="ico r"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h13"/></svg></div>
+        <h3>MultiText rows</h3>
+        <p>Upper, Emphasis and Lower rows with row gaps, justify, per-row timing and highlight boxes.</p>
+      </div>
+      <div class="cardx s2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 12h3l3-7 4 14 3-7h5"/></svg></div>
+        <h3>Sound effects</h3>
+        <p>Trim and fade, layered sounds, level matching, pitch variation on repeats, assigned per preset.</p>
+      </div>
+      <div class="cardx s2 reveal">
+        <div class="ico r"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></svg></div>
+        <h3>Safe-zone layouts</h3>
+        <p>Give it a reference image. Captions stay inside the safe area and off the zones you mark.</p>
+      </div>
+      <div class="cardx s2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M5 21c1-4 4-6 7-6s6 2 7 6"/></svg></div>
+        <h3>Face avoidance</h3>
+        <p>Set a rule and text is placed on empty space instead of across a face.</p>
+      </div>
+      <div class="cardx s2 reveal">
+        <div class="ico r"><svg viewBox="0 0 24 24"><path d="M12 3l2.5 6L21 10l-5 4.5L17.5 21 12 17.5 6.5 21 8 14.5 3 10l6.5-1z"/></svg></div>
+        <h3>Effect presets</h3>
+        <p>Glitch, Wiggle, Stop Motion, Transform and Track Subject, on any clip.</p>
+      </div>
+      <div class="cardx s3 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h9"/></svg></div>
+        <h3>Subtitle trimming and regrouping</h3>
+        <p>Chop long subtitles by word and character limits, or regroup mid-thought cuts so no word is stranded. Works on .srt files without Resolve open.</p>
+      </div>
+      <div class="cardx s3 reveal">
+        <div class="ico r"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 10h16"/></svg></div>
+        <h3>Highlight boxes and pills</h3>
+        <p>Soft, outline and solid pills, markers and underlines. Colour, width, height and offset are all adjustable, or auto-balanced.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap demo">
+    <div class="demo-copy reveal">
+      <div class="eyebrow">See it at work</div>
+      <h2>It stays out of your way. Until you reach for it.</h2>
+      <p class="lead">The panel collapses to a slim bar while you edit. Move your cursor onto it and it opens: pick a preset, tweak the text, hit Start, apply it to the next caption. Move away and it folds back.</p>
+      <ul class="demo-steps">
+        <li><b>Pick</b> a preset from your library</li>
+        <li><b>Edit</b> the caption text live</li>
+        <li><b>Start</b> a preview right on the Resolve timeline</li>
+        <li><b>Apply</b> and jump to the next caption</li>
+      </ul>
+      <p class="demo-note mono">The real panel, running with demo subtitles.</p>
+    </div>
+    <div class="demo-stage reveal" id="demostage">
+      <div class="shadow">
+        <div class="appwin" id="appwin" tabindex="0" aria-label="El Subtitle Animator window. Hover to open it and play the demo.">
+          <div class="tbar"><i></i><i></i><i></i>El Subtitle Animator</div>
+          <div class="strip"><b>✱</b><span>Subtitling<em></em></span></div>
+          <video id="appvid" src="assets/app-demo.mp4" poster="assets/app-demo-poster.jpg" muted loop playsinline preload="auto"></video>
+          <div class="edge"></div>
+        </div>
+      </div>
+      <div class="hint mono" id="hint"><i></i><span>Hover to open the app</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="presets">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">Presets</div>
+      <h2>Your library. Your looks.</h2>
+      <p class="lead">Build once, reuse forever. Everything you make stays editable, and the original is always one click away.</p>
+    </div>
+    <div class="steps reveal">
+      <div class="step"><h3>Select</h3><p>Pick a clip on the timeline, or load a .comp or .setting file.</p></div>
+      <div class="step"><h3>Save</h3><p>Name it in the Create tab. It joins your Library with a rendered preview.</p></div>
+      <div class="step"><h3>Tag</h3><p>Group by mood and structure with tags and emoji, then set a default sound.</p></div>
+      <div class="step"><h3>Refine</h3><p>Save variants anytime. Revert to the original if you overshoot.</p></div>
+    </div>
+    <p class="eyebrow" style="margin-bottom:14px">Included to start you off</p>
+    <div class="pgrid reveal" id="pgrid"></div>
+  </div>
+</section>
+
+<section class="alt" id="timing">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">Animation timing</div>
+      <h2>Set when it starts.<br>Set how long it takes.</h2>
+      <p class="lead">Every clip gets a timing bar. Drag the start to choose the frame the animation begins, and drag the end to stretch or squeeze the whole animation to fit. The clip then holds the finished text until it ends.</p>
+    </div>
+
+    <div class="viz reveal" id="viz">
+      <div class="vz-top mono"><span>Interactive: drag the handles on the timeline</span><span id="vzNat">Detected natural length: 36 frames</span></div>
+      <div class="vz-stage" id="vzStage" aria-live="off"></div>
+      <div class="vz-track" id="vzTrack">
+        <div class="vz-hold" id="vzHold"></div>
+        <div class="vz-span" id="vzSpan"><i class="tb-h s" id="vzHs" role="slider" tabindex="0" aria-label="Animation Start" aria-valuemin="0" aria-valuemax="60"></i><i class="tb-h e" id="vzHe" role="slider" tabindex="0" aria-label="Animation Frames" aria-valuemin="1" aria-valuemax="90"></i></div>
+        <div class="vz-ticks" id="vzTicks"></div>
+        <div class="vz-play" id="vzPlay"></div>
+      </div>
+      <div class="vz-lab mono"><span>Frame 0</span><span>Clip is 90 frames (3 s at 30 fps)</span><span>Frame 90</span></div>
+      <div class="vz-ctl">
+        <div class="vz-read mono"><span>Animation Start <em id="vzSv">10</em></span><span>Animation Frames <em id="vzEv">46</em></span></div>
+        <button class="btn" id="vzReset" type="button">Frames = 0 (preset's own timing)</button>
+      </div>
+      <p class="vz-note" id="vzNote"></p>
+    </div>
+
+    <div class="tgrid">
+      <div class="cardx reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <h3>Text+ presets</h3>
+        <p>Animation Start and Animation Frames scale the whole animation: the per-letter motion, the delay between letters and the text's own keyframes. Set Animation Frames to 0 to go back to the preset's own timing.</p>
+      </div>
+      <div class="cardx reveal">
+        <div class="ico r"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h13"/></svg></div>
+        <h3>MultiText presets</h3>
+        <p>Each row has its own Start and End: Upper, Emphasis and Lower. The sounds and the highlight box follow those numbers, so moving a row moves everything tied to it.</p>
+      </div>
+      <div class="cardx reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></div>
+        <h3>Detected when you save</h3>
+        <p>Animate a clip with keyframes in Resolve and save it. At the moment of saving I read the keyframes: for Text+ the frame the last letter lands on, for MultiText each row's first and last keyframe. You never type a frame number.</p>
+      </div>
+    </div>
+
+    <div class="onlyin reveal">
+      <b>Detection reads keyframes, and it works best on the Boilerplate and the built-in presets.</b>
+      They have a known structure: named tools, a retiming node and timing controls, so every part I look for is where I expect it. A Fusion comp built from scratch is read on a best-effort basis, only if it happens to have that shape. Anything I can't read is saved exactly as you built it.
+    </div>
+
+    <div class="lgrid">
+      <div class="lim reveal">
+        <div class="lh"><span class="wi">!</span><h3>If you don't use the Boilerplate</h3></div>
+        <ul>
+          <li>Detection is best-effort. It needs one Text+ or MultiText at the top level of the comp, with the animation made of keyframes.</li>
+          <li>Motion driven only by expressions has no keyframes to read, so the slider stays at the preset's own timing.</li>
+          <li>Keyframes must count from the clip's first frame. Keyframes that start later give wrong numbers.</li>
+          <li>Animation inside a Group or Macro is not retimed.</li>
+          <li>Word-by-word typing presets have their own Typing Start and Typing Frames instead.</li>
+          <li>MultiText rows are only read from followers named UpperFollower, EmphasisFollower and LowerFollower. Rename them and the rows are not detected.</li>
+        </ul>
+      </div>
+      <div class="lim reveal">
+        <div class="lh"><span class="wi">!</span><h3>Limits of the Boilerplate itself</h3></div>
+        <ul>
+          <li>Keep the tool names: Template, Follower1, AnimTime, MediaOut1, the three row followers and Highlight. The app finds the parts by name.</li>
+          <li>Do not delete the Animation Frames or Seg controls on Template. The timing bar and the sounds depend on them.</li>
+          <li>The Text+ Boilerplate has one Follower. Keep the whole animation inside the first one to two seconds.</li>
+          <li>MultiText reads the three row followers only. The highlight box follows the Emphasis row and is not read on its own.</li>
+          <li>Effects added after the text, such as glitch or wiggle, keep their own speed and are not stretched.</li>
+          <li>On a very short clip the animation is cut at the clip's last frame, so keep the clip longer than the animation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="rules">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">Configure</div>
+      <h2>Set the rules once. Every preset obeys.</h2>
+      <p class="lead">The Prompt tab holds your editing rules: allowed tags, forced font and colour, emphasis style, layer range, trimming, highlight boxes and layouts. Try a few below.</p>
+    </div>
+    <div class="split tabpane on reveal" style="display:grid">
+      <div class="panel">
+        <div class="live"><span id="rv"><em id="rvE">Your brand</em> in every caption</span></div>
+        <div class="row"><label>Text size <em id="o1">48</em></label><input type="range" id="sz" min="24" max="72" value="48"></div>
+        <div class="row"><label>Highlight box padding <em id="o2">0.2em</em></label><input type="range" id="pad" min="0" max="50" value="20"></div>
+        <div class="row"><label>Emphasis colour</label><div class="sw" id="sw"></div></div>
+        <div class="row"><label>Font</label><div class="sw" id="fonts" style="gap:6px"></div></div>
+      </div>
+      <ul>
+        <li><b>Override font and colour</b> across all presets without editing each one.</li>
+        <li><b>Allowed tags</b> keep your library to the looks that suit this video.</li>
+        <li><b>Layer range</b> places titles on the tracks you choose.</li>
+        <li><b>Highlight box</b> size, offset and auto-balance.</li>
+        <li><b>Subtitle trimming</b> by word and character limits.</li>
+        <li><b>Layouts</b> from a safe-zone reference image.</li>
+        <li><b>Your notes</b>, written in plain language, become instructions for the AI.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="wrap">
+    <div class="head reveal">
+      <div class="eyebrow">Connected</div>
+      <h2>Plug it into Claude with MCP.</h2>
+      <p class="lead">A local MCP server exposes the whole tool. Claude reads your rules, reads the subtitles, plans the edit, places clips one at a time and checks the frames it produced.</p>
+    </div>
+    <div class="flow reveal">
+      <div class="node r">Claude<small>Claude Code · MCP client</small></div><span class="arrow">⇄</span>
+      <div class="node m">el-subtitle-animator<small>stdio MCP server</small></div><span class="arrow">⇄</span>
+      <div class="node">Panel<small>local, token-secured</small></div><span class="arrow">⇄</span>
+      <div class="node">DaVinci Resolve Studio<small>timeline</small></div>
+    </div>
+    <div class="mcp">
+      <div class="term reveal">
+        <div class="bar">claude</div>
+<pre><span class="u">› /elsa-prompt-auto</span>
+<span class="d">Reading rules… 8 allowed presets, font locked, layer V3–V4.</span>
+<span class="a">● list_subtitles</span> <span class="d">214 subtitles</span>
+<span class="a">● regroup</span> <span class="d">fixed 9 mid-thought cuts</span>
+<span class="a">● Plan: animate ~45% of lines, vary presets</span>
+<span class="a">● place</span> <span class="d">"Stop scrolling." → Pop Up</span>
+<span class="a">● get_frame</span> <span class="d">checked, inside safe zone</span>
+<span class="a">● place</span> <span class="d">"This is the $5,000 mistake" → Highlight Select</span>
+<span class="a">● verify_placed</span> <span class="d">96 clips, all rendering</span></pre>
+        <div class="bar" style="border-top:1px solid var(--line2);border-bottom:0">$ claude mcp add el-subtitle-animator -- node ".../mcp/el-sa-mcp.js"</div>
+      </div>
+      <div class="toolgroups reveal">
+        <div class="tg"><b>Rules and layout</b><div><span>get_rules</span><span>set_rules</span><span>reset_rules</span><span>get_layout</span><span>set_layout</span><span>status</span></div></div>
+        <div class="tg"><b>Discovery</b><div><span>list_presets</span><span>list_tags</span><span>list_subtitles</span><span>get_frame</span><span>get_tracks</span></div></div>
+        <div class="tg"><b>Placing</b><div><span>place</span><span>place_stack</span><span>measure_text</span><span>regroup</span></div></div>
+        <div class="tg"><b>Editing placed clips</b><div><span>adjust_highlights</span><span>adjust_rows</span><span>list_placed</span><span>inspect_placed</span><span>remove_placed</span><span>repair_inspector</span><span>verify_placed</span></div></div>
+        <div class="tg"><b>SRT files · no Resolve needed</b><div><span>read_srt</span><span>chop_srt</span></div></div>
+      </div>
+    </div>
+    <p class="lead reveal" style="margin-top:28px;font-size:15px">Two ready-made skills: <b class="mono">/elsa-prompt</b> follows your subtitle clip colours; <b class="mono">/elsa-prompt-auto</b> chooses what to animate itself. The panel must be open in Resolve for MCP to connect.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="head c reveal">
+      <div class="eyebrow">For anyone</div>
+      <h2>If you edit in DaVinci Resolve Studio, it fits.</h2>
+      <p class="lead">One tool, any style. You bring the look; it handles the animating.</p>
+    </div>
+    <div class="persons">
+      <div class="cardx reveal"><h3>Solo creators</h3><p>Build a signature caption style and apply it to every video in minutes, not hours.</p></div>
+      <div class="cardx reveal"><h3>Freelance editors</h3><p>Keep a preset library per client and let rules swap fonts and colours instantly.</p></div>
+      <div class="cardx reveal"><h3>Agencies and social teams</h3><p>Share one look across editors and let Claude do the first pass of the whole timeline.</p></div>
+      <div class="cardx reveal"><h3>Podcasters and educators</h3><p>Highlight the key term, number or takeaway without hand-keyframing a single word.</p></div>
+      <div class="cardx reveal"><h3>Motion-curious editors</h3><p>Open the Fusion comp behind a preset, tweak it, and save it as your own.</p></div>
+      <div class="cardx reveal"><h3>Vertical and widescreen</h3><p>Layouts adapt placement to the safe zones of the timeline you are cutting.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="head c reveal"><div class="eyebrow">Requirements</div><h2>Good to know.</h2></div>
+    <div class="faq reveal">
+      <details open><summary>What do I need?</summary><p>DaVinci Resolve Studio on macOS (tested on 21.2), because Workflow Integration plugins are not in the free version. Python 3 (the copy bundled with Resolve works) and External scripting set to Local in Resolve's preferences.</p></details>
+      <details><summary>Is this a preset pack?</summary><p>No. It is a tool for creating, storing and customising presets. A starter set is included so you can see how it works, and you can edit, duplicate or replace every one.</p></details>
+      <details><summary>Do I need Claude to use it?</summary><p>No. The panel works on its own. MCP adds hands-off placement for people who want an AI to do the first pass.</p></details>
+      <details><summary>How do I install it?</summary><p>Run the included installer, restart Resolve, then open Workspace › Workflow Integrations › El Subtitle Animator.</p></details>
+      <details><summary>Does it edit my footage?</summary><p>No. It adds animated title clips and sounds on free tracks and switches off the plain subtitle underneath. Remove a placed clip and the subtitle comes back.</p></details>
+      <details><summary>Does it detect my animation's length when I save?</summary><p>Any animation made of keyframes can be read when you save it, but it works best on the built-in presets and the Boilerplate, which have a known structure. A comp built from scratch is read on a best-effort basis, and what I can't read is saved with its own timing.</p></details>
+      <details><summary>Windows or Linux?</summary><p>Currently macOS only.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="pricing">
+  <div class="wrap">
+    <div class="head c reveal"><div class="eyebrow">Pricing</div><h2>Pay once. Keep every update.</h2>
+      <p class="lead">One-time payment, no subscription. Every tier includes the full tool and the latest code base with every update, forever.</p></div>
+    <div class="tiers reveal">
+      <div class="price">
+        <div class="mono tier">STARTER</div>
+        <div class="amt">$99<small> one-time</small></div>
+        <p class="sub">The full tool with one preset of each kind to start building from.</p>
+        <ul>
+          <li>1 Text+ preset built in</li>
+          <li>1 MultiText preset built in</li>
+          <li>Full panel: Use, Library, Create, Prompt</li>
+          <li>MCP server and Claude skills</li>
+          <li>Unlimited presets of your own</li>
+          <li>Sample prompt for using the app with Claude</li>
+          <li>Latest code base on every update</li>
+        </ul>
+        <!-- TODO: replace # with checkout link -->
+        <a class="btn" href="#">Get Starter</a>
+      </div>
+      <div class="price">
+        <div class="badge">Hot 🔥</div>
+        <div class="mono tier">ALL PRESETS</div>
+        <div class="amt">$139<small> one-time</small></div>
+        <p class="sub">Everything in Starter plus the entire preset library.</p>
+        <ul>
+          <li>All built-in Text+ and MultiText presets</li>
+          <li>Sounds, tags and previews included</li>
+          <li>Full panel, MCP server and Claude skills</li>
+          <li>Unlimited presets of your own</li>
+          <li>Sample prompt for using the app with Claude</li>
+          <li>Latest code base on every update</li>
+        </ul>
+        <!-- TODO: replace # with checkout link -->
+        <a class="btn" href="#">Get All Presets</a>
+      </div>
+      <div class="price feat">
+        <div class="badge">The one I use</div>
+        <div class="mono tier">COMPLETE</div>
+        <div class="amt">$149<small> one-time</small></div>
+        <p class="sub">All presets plus the effect presets for any clip.</p>
+        <ul>
+          <li>Everything in All Presets</li>
+          <li>Effect presets: Glitch, Wiggle, Stop Motion, Transform, Track Subject</li>
+          <li>Full panel, MCP server and Claude skills</li>
+          <li>Unlimited presets of your own</li>
+          <li>Sample prompt for using the app with Claude</li>
+          <li>Latest code base on every update</li>
+        </ul>
+        <!-- TODO: replace # with checkout link -->
+        <a class="btn primary" href="#">Get Complete</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top">El Subtitle Animator</a>
+    <span>Made for DaVinci Resolve Studio on macOS · Not affiliated with Blackmagic Design</span>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+<script src="js/fx.js"></script>
+</body>
+</html>

@@ -374,6 +374,21 @@
     "sfxFilePath:function",
     "useOriginalSfx:function"
   ],
+  "spotlight.js": [
+    "ANIMS:object",
+    "DEFAULTS:object",
+    "layout:function",
+    "pickWord:function",
+    "spotCancel:function",
+    "spotEngine:function",
+    "spotGet:function",
+    "spotInfo:function",
+    "spotInstall:function",
+    "spotRemove:function",
+    "spotRun:function",
+    "spotSet:function",
+    "spotSource:function"
+  ],
   "stack.js": [
     "measureText:function",
     "placeStack:function"

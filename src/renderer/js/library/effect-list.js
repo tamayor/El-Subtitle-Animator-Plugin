@@ -196,7 +196,9 @@ function fxPlayheadIn(clip) {
     const rel = f - Number(clip.start);
     return rel >= 0 && rel < Number(clip.frames) ? rel : null;
 }
-function fxFrameRange(e, st, p, clip, last) {
+// opts (Spotlight): { init(last) -> {s, e}, send(s, e, last) on release only, read(s, e, last) -> html, title,
+// dflt(last) -> {s, e} for double-click }. Without opts it is the Transform's Start / End frame bar.
+function fxFrameRange(e, st, p, clip, last, opts) {
     if (!last) {
         const box = document.createElement('div'); box.className = 'fxr fxr-off';
         box.title = 'Select a clip on the timeline to set where the move starts and ends';
@@ -210,10 +212,11 @@ function fxFrameRange(e, st, p, clip, last) {
     const r = { s: Math.max(0, Math.min(last - 1, Math.round(Number(p.InF)) || 0)), e: 0 };
     const out = Math.round(Number(p.OutF)) || 0;
     r.e = Math.max(r.s + 1, Math.min(last, out > 0 ? out : last));
+    if (opts) { const i = opts.init(last); r.s = Math.max(0, Math.min(last - 1, i.s)); r.e = Math.max(r.s + 1, Math.min(last, i.e)); }
     let active = 'e', drag = null, sendT = null;
     const box = document.createElement('div'); box.className = 'fxr';
     const bar = document.createElement('div'); bar.className = 'fxr-bar'; bar.tabIndex = 0;
-    bar.title = 'Drag a head to set where the move starts or ends, drag between them to shift it. Snaps to the playhead (P). Double-click: the whole clip';
+    bar.title = opts && opts.title ? opts.title : 'Drag a head to set where the move starts or ends, drag between them to shift it. Snaps to the playhead (P). Double-click: the whole clip';
     const mk = (cls, parent) => { const x = document.createElement('div'); x.className = cls; (parent || bar).appendChild(x); return x; };
     mk('fxr-track');
     const range = mk('fxr-range');
@@ -230,11 +233,13 @@ function fxFrameRange(e, st, p, clip, last) {
         const at = fxPlayheadIn(clip);
         ph.classList.toggle('hidden', at === null);
         if (at !== null) { ph.style.left = pct(at); phLab.textContent = String(at); }
+        if (opts) { read.innerHTML = opts.read(r.s, r.e, last); return; }
         read.innerHTML = 'Start <b>' + r.s + '</b> · End <b>' + r.e + '</b>' + (r.e >= last ? ' (last)' : '') + ' <span class="fxr-len">/ ' + last + ' f</span>';
     };
     const glide = () => { bar.classList.add('glide'); clearTimeout(bar._g); bar._g = setTimeout(() => bar.classList.remove('glide'), 220); };
     const send = (now) => {
         clearTimeout(sendT);
+        if (opts) { if (now) opts.send(r.s, r.e, last); return; }      // re-keyed on release only
         const v = { InF: r.s, OutF: r.e >= last ? 0 : r.e };
         if (now) fxSendParams(e, st, v, true); else sendT = setTimeout(() => fxSendParams(e, st, v, false), 60);
     };
@@ -295,7 +300,7 @@ function fxFrameRange(e, st, p, clip, last) {
     };
     bar.addEventListener('pointerup', end);
     bar.addEventListener('pointercancel', end);
-    bar.addEventListener('dblclick', () => { r.s = 0; r.e = last; glide(); paint(); send(true); });
+    bar.addEventListener('dblclick', () => { if (opts && opts.dflt) { const q = opts.dflt(last); r.s = q.s; r.e = q.e; } else { r.s = 0; r.e = last; } glide(); paint(); send(true); });
     bar.addEventListener('keydown', (x) => {
         const step = x.shiftKey ? 5 : 1;
         let part = x.altKey ? 'm' : (active === 's' ? 's' : 'e');
@@ -592,6 +597,17 @@ function fxFillCard(c, e) {
         fxPut(f.val, 'textContent', fxStrengthLabel(v0, e));
     }
     // Options: rebuilt only when what they show changed, and never while one of their fields is being typed in
+    if (e.spot) {
+        const clip = fxUI.clips.find(x => x.effects && x.effects[e.id]);
+        const sig = JSON.stringify([st, clip ? [clip.id, clip.spot] : null, spotUI.running, spotUI.ready]);
+        const ae = document.activeElement;
+        const typing = !!ae && f.optsAt.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT');
+        if (sig !== f.optsSig && !fxUI.sliding && !typing) {
+            f.optsSig = sig;
+            f.optsAt.textContent = '';
+            f.optsAt.appendChild(fxSpotOptions(e, st, clip));
+        }
+    }
     if (e.track) {
         const clip = fxUI.clips.find(x => x.effects && x.effects[e.id]);
         const sig = JSON.stringify([fxParamsShown(e), st, clip ? [clip.id, clip.track] : null]);
@@ -618,6 +634,8 @@ function fxFillCard(c, e) {
 // the card flips back. Each effect has its own pending flag, so other cards stay clickable meanwhile.
 async function fxToggle(e) {
     if (fxUI.pending[e.id]) return;
+    // Spotlight makes its own clip at the playhead (no clip needs to be selected); off = remove the selected one
+    if (e.spot) { fxSpotToggle(e); return; }
     if (!fxUI.clips.length) await fxRefresh(true);
     if (!fxUI.clips.length) { setStatus('Select a clip on the timeline first.', 'bad'); return; }
     // the Resolve preview clip is a temporary text preset: it is replaced / removed, so an effect on it would be lost
@@ -1043,4 +1061,196 @@ async function fxTrackOpen(e) {
         enterPreview(r);
         setStatus(src.target.name + ' now follows the subject.', 'ok');
     });
+}
+
+// ---- Spotlight (src/main/spotlight.js): a big word behind the speaker. Switching the card on makes one at the playhead
+// (the moment = In / Out marks, else the subtitle there); selecting a Spotlight cut-out clip shows its settings, which
+// re-key it at once (no matting again); switching off removes the selected Spotlight.
+const spotUI = { info: null, ready: null, running: false, timer: null, pending: {} };
+function spotNext() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('spot.next') || 'null'); } catch (err) { saved = null; }
+    const d = (spotUI.info && spotUI.info.defaults) || {};
+    const o = Object.assign({}, d, saved && typeof saved === 'object' ? saved : {});
+    delete o.word; delete o.y;          // per moment: the word comes from the subtitle, the height from the head
+    return o;
+}
+function spotRemember(vals) {
+    const keep = Object.assign({}, spotNext(), vals);
+    delete keep.word; delete keep.y;
+    try { localStorage.setItem('spot.next', JSON.stringify(keep)); } catch (err) { /* no storage */ }
+}
+async function spotEnsureInfo() {
+    if (!spotUI.info) { try { spotUI.info = await window.sa.spotInfo(); } catch (err) { spotUI.info = { anims: [], defaults: {} }; } }
+    if (spotUI.ready === null) { try { spotUI.ready = !!(await window.sa.spotEngine()).ready; } catch (err) { spotUI.ready = false; } }
+}
+function spotProgressText(p) {
+    if (!p) return '';
+    if (p.phase === 'install') return p.text || 'Installing…';
+    if (p.phase === 'frames') return 'Reading frames ' + p.done + ' / ' + p.total;
+    if (p.phase === 'matte') return 'Cutting out the speaker ' + p.done + ' / ' + p.total;
+    if (p.phase === 'place') return 'Placing…';
+    return '';
+}
+if (window.sa && window.sa.onSpotProgress) window.sa.onSpotProgress((p) => { const t = spotProgressText(p); if (t) setStatus('Spotlight: ' + t, 'busy'); });
+
+async function fxSpotToggle(e) {
+    await spotEnsureInfo();
+    const clip = fxUI.clips.find(x => x.effects && x.effects[e.id]);
+    if (clip) { await spotRemoveClip(clip); return; }
+    await spotMake(e, {});
+}
+async function spotMake(e, extra) {
+    if (spotUI.running) return;
+    await spotEnsureInfo();
+    if (!spotUI.ready) {
+        setStatus('Spotlight needs its matting engine (about 60 MB, once): press Install on the Spotlight card.', 'bad');
+        fxShow(e.id, true); renderEffects();
+        return;
+    }
+    spotUI.running = true; renderEffects();
+    let r = null;
+    // the bridge reads the playhead itself
+    try { r = await window.sa.spotRun({ settings: Object.assign(spotNext(), extra || {}) }); } catch (err) { r = { error: String(err && err.message || err) }; }
+    spotUI.running = false;
+    if (r && r.needInstall) { spotUI.ready = false; setStatus('Install the matting engine first (Spotlight card).', 'bad'); }
+    else if (!r || r.error || r.busy) setStatus(r && r.busy ? 'Busy placing - try again in a moment.' : ((r && r.error) || 'Could not make the spotlight'), 'bad');
+    else if (r.cancelled) setStatus('Spotlight cancelled.', 'ok');
+    else {
+        const w = r.settings && r.settings.word ? '"' + String(r.settings.word).toUpperCase() + '"' : 'no word';
+        const moved = (r.moved || []).length ? ' · lifted ' + r.moved.length + ' caption' + (r.moved.length === 1 ? '' : 's') + ' above it' : '';
+        setStatus('Spotlight ' + w + ' on V' + r.track + ' (' + (r.range[1] - r.range[0] + 1) + ' frames, from the ' + r.why + ')' + moved + '. Select the cut-out clip to change it.', 'ok');
+    }
+    await fxRefresh(true);
+    renderEffects();
+}
+async function spotRemoveClip(clip) {
+    if (spotUI.pending[clip.id]) return;
+    spotUI.pending[clip.id] = true;
+    let r = null;
+    try { r = await window.sa.spotRemove(clip.id); } catch (err) { r = { error: String(err && err.message || err) }; }
+    delete spotUI.pending[clip.id];
+    if (!r || r.error) setStatus((r && r.error) || 'Could not remove it', 'bad');
+    else setStatus('Spotlight removed' + (r.restored ? ' (' + r.restored + ' caption' + (r.restored === 1 ? '' : 's') + ' put back)' : '') + '.', 'ok');
+    await fxRefresh(true);
+}
+// a change on a placed spotlight: re-keyed after 350 ms of quiet (sliders send on release only)
+function spotSend(clip, vals, now) {
+    spotRemember(vals);
+    if (!clip) return;
+    clip.spot = Object.assign({}, clip.spot || {}, vals);
+    spotUI.queued = Object.assign(spotUI.queued || {}, vals);
+    clearTimeout(spotUI.timer);
+    const go = async () => {
+        const v = spotUI.queued; spotUI.queued = null;
+        if (!v) return;
+        let r = null;
+        try { r = await window.sa.spotSet(clip.id, v, !!v._addEffect); } catch (err) { r = { error: String(err && err.message || err) }; }
+        if (!r || r.error || r.busy) setStatus(r && r.busy ? 'Busy - try again in a moment.' : ((r && r.error) || 'Could not change the spotlight'), 'bad');
+        else if (r.settings && r.settings.fontWarning) setStatus(r.settings.fontWarning, 'bad');
+    };
+    if (now) go(); else spotUI.timer = setTimeout(go, 350);
+}
+
+function fxSpotOptions(e, st, clip) {
+    const d = document.createElement('div');
+    d.className = 'fx-opts fx-spot-opts';
+    for (const ev of ['click', 'mousedown', 'pointerdown']) d.addEventListener(ev, (x) => x.stopPropagation());
+    if (!spotUI.info || spotUI.ready === null) { spotEnsureInfo().then(() => { const c = document.querySelector('#fxGrid .fx-card[data-id="' + e.id + '"]'); if (c) { c._fx.optsSig = null; fxFillCard(c, e); } }); d.textContent = 'Loading…'; return d; }
+    const note = (t) => { const x = document.createElement('div'); x.className = 'fx-note'; x.textContent = t; d.appendChild(x); return x; };
+    if (!spotUI.ready) {
+        note('Spotlight cuts the speaker out of the footage with Robust Video Matting (free, runs on this Mac). It installs once into the app\'s own folder: about 60 MB, needs internet.');
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small fx-track-btn'; b.textContent = 'Install matting engine';
+        b.addEventListener('click', async () => {
+            b.disabled = true; spotUI.running = true;
+            let r = null;
+            try { r = await window.sa.spotInstall(); } catch (err) { r = { error: String(err && err.message || err) }; }
+            spotUI.running = false;
+            if (r && r.ready) { spotUI.ready = true; setStatus('Matting engine ready.', 'ok'); } else { b.disabled = false; setStatus((r && r.error) || 'Install failed', 'bad'); }
+            renderEffects();
+        });
+        d.appendChild(b);
+        return d;
+    }
+    const placed = st === 'on' && clip;
+    const p = placed ? Object.assign(spotNext(), clip.spot || {}) : spotNext();
+    const send = (vals, now) => { if (placed) spotSend(clip, vals, now); else spotRemember(vals); };
+    note(placed ? 'Selected spotlight: changes re-key it straight away.'
+        : (spotUI.running ? 'Making the spotlight…' : 'Switch on (or Make) to put one at the playhead: the moment is the In / Out marks, else the subtitle there. The word comes from the subtitle unless you type one.'));
+    const row = (label, el, tip) => { const r = document.createElement('label'); r.className = 'fx-strength'; if (tip) r.title = tip; const c = document.createElement('span'); c.className = 'fx-strength-cap'; c.textContent = label; r.append(c, el); d.appendChild(r); return r; };
+    const text = (k, ph, w) => { const i = document.createElement('input'); i.type = 'text'; i.value = p[k] || ''; i.placeholder = ph || ''; i.style.flex = '1'; i.style.minWidth = '0'; if (w) i.style.maxWidth = w; i.addEventListener('change', () => send({ [k]: i.value.trim() }, true)); return i; };
+    const check = (k, label, tip) => { const l = document.createElement('label'); l.className = 'fx-check'; if (tip) l.title = tip; const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = p[k] !== false; cb.addEventListener('change', () => send({ [k]: cb.checked }, true)); l.append(cb, document.createTextNode(label)); return l; };
+    const slider = (k, label, min, max, fmt, tip, step) => {
+        const rng = document.createElement('input'); rng.type = 'range'; rng.min = String(min); rng.max = String(max); rng.step = String(step || 1);
+        const v0 = Number(p[k]); rng.value = String(Number.isFinite(v0) ? v0 : min);
+        const val = document.createElement('span'); val.className = 'fx-strength-val'; val.textContent = fmt ? fmt(Number(rng.value)) : rng.value;
+        rng.addEventListener('pointerdown', () => { fxUI.sliding = true; });
+        for (const ev of ['pointerup', 'pointercancel']) rng.addEventListener(ev, () => { fxUI.sliding = false; });
+        rng.addEventListener('input', () => { val.textContent = fmt ? fmt(Number(rng.value)) : rng.value; });
+        rng.addEventListener('change', () => send({ [k]: Number(rng.value) }, true));
+        const r = row(label, rng, tip); r.appendChild(val); return { r, rng, val };
+    };
+    const colour = (k, label) => { const i = document.createElement('input'); i.type = 'color'; const c = Array.isArray(p[k]) ? p[k] : [1, 1, 1]; i.value = fxHex(c[0], c[1], c[2]); i.addEventListener('change', () => send({ [k]: fxRgb(i.value) }, true)); const l = document.createElement('label'); l.className = 'fx-check'; l.append(i, document.createTextNode(label)); return l; };
+
+    // word
+    const wr = document.createElement('div'); wr.className = 'fx-opt-row';
+    wr.append(check('wordOn', 'Word', 'Off = spotlight only (dimmed room, no word)'), text('word', placed ? '' : 'auto (from the subtitle)'), check('caps', 'CAPS'));
+    d.appendChild(wr);
+    const fr = document.createElement('div'); fr.className = 'fx-opt-row';
+    fr.append(text('font', 'Font', '58%'), text('style', 'Style', '38%'));
+    d.appendChild(fr);
+    const cr = document.createElement('div'); cr.className = 'fx-opt-row';
+    cr.append(colour('color', 'Text'), colour('glowColor', 'Glow'));
+    d.appendChild(cr);
+    // animation
+    const sel = document.createElement('select');
+    for (const a of (spotUI.info.anims || [])) { const o = document.createElement('option'); o.value = a.id; o.textContent = a.name; o.title = a.tip; if (a.id === p.anim) o.selected = true; sel.appendChild(o); }
+    sel.addEventListener('change', () => send({ anim: sel.value }, true));
+    row('Entry', sel, 'How the word comes in (it fades out at the end)');
+    // In / Out on one bar: left head = where the entry ends, right head = where the fade out starts
+    const last = placed && Number(clip.frames) > 1 ? Number(clip.frames) - 1 : 50;
+    const d0 = (spotUI.info && spotUI.info.defaults) || { inF: 12, outF: 8 };
+    const io = fxFrameRange(e, st, p, placed ? clip : null, last, {
+        title: 'Left head: where the entry ends (In). Right head: where the fade out starts (Out). Drag between them to shift both. Double-click: default',
+        init: (L) => ({ s: Math.max(1, Math.round(Number(p.inF)) || d0.inF), e: L - Math.max(0, Math.round(Number(p.outF)) || 0) }),
+        dflt: (L) => ({ s: d0.inF, e: L - d0.outF }),
+        send: (s0, e0, L) => send({ inF: Math.max(1, s0), outF: L - e0 }, true),
+        read: (s0, e0, L) => 'In <b>' + Math.max(1, s0) + '</b> f · Out <b>' + (L - e0 ? (L - e0) + '</b> f' : 'cut</b>') +
+            (placed ? ' <span class="fxr-len">/ ' + (L + 1) + ' f</span>' : ' <span class="fxr-len">(preview on 2 s)</span>')
+    });
+    const ior = document.createElement('div'); ior.className = 'fx-opt-row'; ior.appendChild(io);
+    d.appendChild(ior);
+    slider('glow', 'Glow', 0, 100);
+    slider('dim', 'Dim room', 0, 100, null, 'How much darker the room gets around the speaker');
+    slider('vig', 'Vignette', 0, 100, null, 'Extra darkening towards the edges');
+    // placement: auto (fit + from the head) or by hand
+    const size = slider('size', 'Size', 0, 0.6, (v) => v > 0 ? v.toFixed(3) : 'Auto', 'Text+ size. Auto = fills the Width below', 0.005);
+    slider('width', 'Width %', 40, 100, null, 'Auto size: how much of the frame width the word fills');
+    const ypos = slider('y', 'Height', 0, 1, (v) => (v * 100).toFixed(0) + '%', 'Where the middle of the word sits (0% = top). Double-click: auto (from the head)', 0.005);
+    if (p.y === null || p.y === undefined) { ypos.rng.value = String(placed && Number.isFinite(Number(clip.spot && clip.spot.cy)) ? clip.spot.cy : 0.2); ypos.val.textContent = 'Auto'; }
+    ypos.rng.addEventListener('dblclick', () => { ypos.val.textContent = 'Auto'; send({ y: null }, true); });
+    size.rng.addEventListener('dblclick', () => { size.rng.value = '0'; size.val.textContent = 'Auto'; send({ size: 0 }, true); });
+    slider('overlap', 'Behind head', 0, 70, (v) => v + '%', 'Auto height: how much of the letters the head covers');
+    slider('x', 'Left / right', 0, 1, (v) => (v * 100).toFixed(0) + '%', 'Horizontal centre of the word (50% = centred)', 0.005);
+    const br = document.createElement('div'); br.className = 'fx-opt-row';
+    const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'btn small fx-track-btn';
+    mk.textContent = spotUI.running ? 'Working…' : (placed ? 'Make another at playhead' : 'Make at playhead');
+    mk.disabled = spotUI.running;
+    mk.addEventListener('click', () => spotMake(e, {}));
+    br.appendChild(mk);
+    if (spotUI.running) {
+        const cx = document.createElement('button'); cx.type = 'button'; cx.className = 'btn small fx-track-btn'; cx.textContent = 'Cancel';
+        cx.addEventListener('click', () => window.sa.spotCancel());
+        br.appendChild(cx);
+    }
+    if (placed) {
+        const up = document.createElement('button'); up.type = 'button'; up.className = 'btn small fx-track-btn'; up.textContent = 'Update';
+        up.title = 'Re-key the spotlight (also adds the effect to a cut-out made before Resolve was restarted)';
+        up.addEventListener('click', () => spotSend(clip, { _addEffect: 1 }, true));
+        const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn small fx-track-btn'; rm.textContent = 'Remove';
+        rm.addEventListener('click', () => spotRemoveClip(clip));
+        br.append(up, rm);
+    }
+    d.appendChild(br);
+    return d;
 }

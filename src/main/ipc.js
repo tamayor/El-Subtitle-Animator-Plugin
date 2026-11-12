@@ -30,6 +30,7 @@ const { captureFromSelection, makePreview, previewData, scanClip } = require('./
 const { listSubtitles } = require('./resolve');
 const { fxGet, fxList, fxParam, fxSet, fxSetTags, fxStrength } = require('./effect-presets');
 const { trackCancel, trackEngine, trackInstall, trackRun, trackSettings, trackSource } = require('./subject-track');
+const { spotCancel, spotEngine, spotGet, spotInfo, spotInstall, spotRemove, spotRun, spotSet, spotSource } = require('./spotlight');
 const {
     addSfxOriginal, listSfxOriginals, readSfx, removeSfxOriginal, saveAttachedClip, saveSfxClip, useOriginalSfx
 } = require('./sfx');
@@ -67,6 +68,15 @@ const SAFE_HANDLERS = {
     'track:run': trackRun,
     'track:cancel': trackCancel,
     'track:settings': trackSettings,
+    'spot:info': spotInfo,
+    'spot:engine': spotEngine,
+    'spot:install': spotInstall,
+    'spot:source': spotSource,
+    'spot:run': spotRun,
+    'spot:cancel': spotCancel,
+    'spot:get': spotGet,
+    'spot:set': spotSet,
+    'spot:remove': spotRemove,
     'controls:get': clipControls,
     'controls:set': setClipControls,
     'controls:rows': clipRows,

@@ -3920,14 +3920,14 @@ def op_track_frames(a):
     out_dir = a["outDir"]
     os.makedirs(out_dir, exist_ok=True)
     s0 = int(sub.GetStart())
-    max_dim = int(a.get("maxDim") or 640)
+    max_dim = int(a.get("maxDim") or 640) if not a.get("full") else 0      # full: timeline size (Spotlight cut-outs)
     cancel = a.get("cancelPath")
     n = 0
     for f in range(int(a["from"]), int(a["to"]) + 1):
         if cancel and os.path.exists(cancel):
             raise Cancelled("cancelled")
         fp = os.path.join(out_dir, "f%d.jpg" % f)
-        r = sub.ExportFrame(f - s0, {"outputType": "file", "filePath": fp, "maxDimension": max_dim})
+        r = sub.ExportFrame(f - s0, {"outputType": "file", "filePath": fp, "maxDimension": max_dim, "quality": 95})
         if not r or not r.get("success"):
             raise RuntimeError((r or {}).get("error") or "Resolve could not export a frame")
         n += 1
@@ -4337,6 +4337,9 @@ def fx_state(items, fresh=False):
         iid = str(it.GetUniqueId())
         frames, start = fx_clip_frames(it), fx_clip_start(it)
         enabled = {k: bool(e.GetIsEnabled()) for k, e in have.items()}
+        se = spot_effect(it)      # a Spotlight cut-out clip (spotlight.js), shown on the Spotlight card
+        if se is not None:
+            enabled["Spotlight"] = bool(se.GetIsEnabled())
         tr = have.get("Transform")
         if tr is not None and not fx_is_ofx(tr):
             b = _fx_bakes.get(iid)
@@ -4350,7 +4353,8 @@ def fx_state(items, fresh=False):
             vals = {"strength": dict([(k, fx_get_strength(e, k)) for k, e in have.items() if k in FX_STRENGTH_TOOL] +
                                      ([("StopMotion", hold)] if hold else [])),
                     "params": {k: fx_get_params(e, k) for k, e in have.items() if k in FX_PARAMS},
-                    "track": track_summary(have["Track"], it) if "Track" in have else None}
+                    "track": track_summary(have["Track"], it) if "Track" in have else None,
+                    "spot": spot_summary(it) if se is not None else None}
             _fx_reads[iid] = (now, key, vals)
         else:
             vals = r[2]
@@ -4358,7 +4362,7 @@ def fx_state(items, fresh=False):
             if len(cache) > 300:
                 cache.pop(next(iter(cache)))
         out.append({"id": iid, "name": it.GetName(), "effects": enabled,
-                    "strength": vals["strength"], "params": vals["params"], "track": vals.get("track"),
+                    "strength": vals["strength"], "params": vals["params"], "track": vals.get("track"), "spot": vals.get("spot"),
                     "frames": frames, "start": start,
                     "inNodes": sorted(fx_in_nodes(it)),
                     "stopMotionKind": ("ofx" if fx_is_ofx(have["StopMotion"]) else "fusion") if "StopMotion" in have else None})
@@ -4883,14 +4887,454 @@ def op_glass_gc(a):
     return {"removed": n, "captions": len(ent)}
 
 
+# ------------------------------------------------------------------ Spotlight (big word behind the speaker)
+# spotlight.js drives it: spot_source finds the footage and the moment, track_frames exports its frames, the app's venv
+# mattes the person (Robust Video Matting -> RGBA PNG cut-outs), spot_place imports that sequence as ONE clip on a
+# track above the footage (captions that would end up under it are lifted above it) and adds ELSA Spotlight to it, and
+# spot_apply keys the word / glow / dim. Everything the panel can change is stored on SpotWord (SPOT_DATA), so a
+# change re-keys without matting again. Writes into the effect comp only on explicit actions (never from a poll).
+SPOT_NAME = "ELSA Spotlight"
+SPOT_DATA = "ELSA_Spot"
+SPOT_BIN = "ELSA Spotlight"
+SPOT_ANIMS = ("zoom", "rise", "fade", "pop", "blur", "flicker", "spread", "none")
+
+
+def spot_effect(it):
+    try:
+        for e in it.GetEffects("fusion") or []:
+            if (e.GetInfo() or {}).get("name") == SPOT_NAME:
+                return e
+    except Exception:
+        pass
+    return None
+
+
+def spot_read(it):
+    e = spot_effect(it)
+    if e is None:
+        return None, None
+    try:
+        t = e.GetFusionComp().FindTool("SpotWord")
+        raw = t.GetData(SPOT_DATA) if t is not None else None
+        d = json.loads(raw) if raw else {}
+    except Exception:
+        d = {}
+    return e, (d if isinstance(d, dict) else {})
+
+
+def _is_media(it):
+    try:
+        return it.GetMediaPoolItem() is not None
+    except Exception:
+        return False
+
+
+def spot_footage(tl, frame, items):
+    """The footage to cut the subject from: a selected media clip, else the topmost enabled media clip at `frame`
+    that is not itself a spotlight cut-out."""
+    for it in items or []:
+        if _is_media(it) and spot_effect(it) is None:
+            return it
+    for t in range(tl.GetTrackCount("video"), 0, -1):
+        try:
+            if not tl.GetIsTrackEnabled("video", t):
+                continue
+        except Exception:
+            pass
+        for it in tl.GetItemListInTrack("video", t) or []:
+            try:
+                if not (int(it.GetStart()) <= frame < int(it.GetEnd())) or not _is_media(it) or spot_effect(it) is not None:
+                    continue
+                if hasattr(it, "GetClipEnabled") and not it.GetClipEnabled():
+                    continue
+                if (it.GetMediaPoolItem().GetClipProperty("Type") or "").lower().startswith("audio"):
+                    continue
+            except Exception:
+                continue
+            return it
+    return None
+
+
+def spot_subtitle_at(tl, frame):
+    """(start, end, text) of the enabled subtitle under `frame`, else None."""
+    try:
+        n = tl.GetTrackCount("subtitle")
+    except Exception:
+        n = 0
+    for t in range(1, n + 1):
+        try:
+            if not tl.GetIsTrackEnabled("subtitle", t):
+                continue
+        except Exception:
+            pass
+        for it in tl.GetItemListInTrack("subtitle", t) or []:
+            try:
+                s, e = int(it.GetStart()), int(it.GetEnd())
+                if s <= frame < e:
+                    return s, e, str(it.GetName() or "")
+            except Exception:
+                continue
+    return None
+
+
+def spot_playhead(tl):
+    """The playhead as a timeline frame (the same count as GetStart: the timecode's frames)."""
+    try:
+        tc = tl.GetCurrentTimecode()
+        parts = [int(x) for x in tc.replace(";", ":").split(":")]
+        fps = int(round(float(tl.GetSetting("timelineFrameRate") or 25)))
+        return ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * fps + parts[3]
+    except Exception:
+        return int(tl.GetStartFrame())
+
+
+def op_spot_source(a):
+    """{frame?, from?, to?, items?} -> the footage, the moment [lo, hi] (given; else the timeline's In / Out marks; else
+    the subtitle under the playhead, at least 1.5 s; else 3 s from the playhead), its picture and the subtitle text there."""
+    tl = timeline()
+    fps = float(tl.GetSetting("timelineFrameRate") or 25)
+    frame = a.get("frame")
+    if frame is None:
+        frame = spot_playhead(tl)
+    frame = int(frame)
+    lo, hi = a.get("from"), a.get("to")
+    sub = spot_subtitle_at(tl, frame)
+    why = "given"
+    if lo is None or hi is None:
+        mk = {}
+        try:
+            mk = (tl.GetMarkInOut() or {}).get("video") or {}
+        except Exception:
+            mk = {}
+        if "in" in mk and "out" in mk and int(mk["out"]) > int(mk["in"]) and int(mk["in"]) <= frame <= int(mk["out"]):
+            lo, hi, why = int(mk["in"]), int(mk["out"]), "in / out marks"
+        elif sub:
+            lo, hi, why = sub[0], max(sub[1] - 1, sub[0] + int(fps * 1.5)), "subtitle"
+        else:
+            lo, hi, why = frame, frame + int(fps * 3) - 1, "3 s from the playhead"
+    lo, hi = int(lo), int(hi)
+    foot = spot_footage(tl, (lo + hi) // 2, fx_targets(a) if not a.get("from") else [])
+    if foot is None:
+        raise RuntimeError("There is no video at the playhead to cut the speaker from.")
+    lo = max(lo, int(foot.GetStart()))
+    hi = min(hi, int(foot.GetEnd()) - 1)
+    if hi - lo < 4:
+        raise RuntimeError("The moment is too short (pick at least 5 frames over the footage).")
+    if hi - lo + 1 > int(fps * 20):
+        hi = lo + int(fps * 20) - 1
+    anchor = min(hi, max(lo, frame))
+    r = foot.ExportFrame(anchor - int(foot.GetStart()), {"outputType": "encodedString", "encodedImageFormat": "jpg", "maxDimension": int(a.get("maxDim") or 540)})
+    try:
+        tr = int(foot.GetTrackTypeAndIndex()[1])
+    except Exception:
+        tr = None
+    return {"footage": {"id": str(foot.GetUniqueId()), "name": foot.GetName(), "track": tr, "start": int(foot.GetStart())},
+            "range": [lo, hi], "why": why, "anchor": anchor, "fps": fps,
+            "data": (r or {}).get("data") if r and r.get("success") else None,
+            "subtitle": sub[2] if sub and sub[0] <= anchor < sub[1] else (spot_subtitle_at(tl, lo) or (0, 0, ""))[2],
+            "width": int(tl.GetSetting("timelineResolutionWidth") or 1920), "height": int(tl.GetSetting("timelineResolutionHeight") or 1080)}
+
+
+def _track_busy(tl, t, s, e, skip=None):
+    for it in tl.GetItemListInTrack("video", t) or []:
+        try:
+            if skip is not None and str(it.GetUniqueId()) == skip:
+                continue
+            if int(it.GetStart()) < e and int(it.GetEnd()) > s:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def spot_pick_track(tl, foot_track, s, e):
+    """The track for the cut-out: right above the footage (V<foot+1>) when it is free there. Otherwise the first free
+    track higher up, and the titles / text in between that overlap the moment are lifted above it (so the dim and the
+    subject never cover a caption). Returns (track, moved [{id, from, to}], notes)."""
+    n = tl.GetTrackCount("video")
+    moved, notes = [], []
+    t = foot_track + 1
+    while t <= n and _track_busy(tl, t, s, e):
+        t += 1
+    if t > n:
+        tl.AddTrack("video")
+        n += 1
+    # anything between the footage and the cut-out that overlaps the moment and is a title / text (no media) goes up
+    for k in range(t - 1, foot_track, -1):
+        for it in list(tl.GetItemListInTrack("video", k) or []):
+            try:
+                if not (int(it.GetStart()) < e and int(it.GetEnd()) > s) or _is_media(it):
+                    continue
+                if "adjustment" in str(it.GetName() or "").lower():
+                    continue
+                cs, ce = int(it.GetStart()), int(it.GetEnd())
+                dest = t + 1
+                while dest <= n and _track_busy(tl, dest, cs, ce):
+                    dest += 1
+                if dest > n:
+                    tl.AddTrack("video")
+                    n += 1
+                if it.SetPosition({"trackIndex": dest, "startFrame": cs}):
+                    moved.append({"id": str(it.GetUniqueId()), "from": k, "to": dest})
+                else:
+                    notes.append("%s on V%d stays under the spotlight (Resolve did not move it)" % (it.GetName(), k))
+            except Exception:
+                continue
+    return t, moved, notes
+
+
+def spot_bin(mp):
+    root = mp.GetRootFolder()
+    for f in root.GetSubFolderList() or []:
+        if f.GetName() == SPOT_BIN:
+            return f
+    return mp.AddSubFolder(root, SPOT_BIN)
+
+
+def _ease_out(u):
+    return 1 - (1 - u) ** 3
+
+
+def _back_out(u):
+    c1 = 1.70158
+    return 1 + (c1 + 1) * (u - 1) ** 3 + c1 * (u - 1) ** 2
+
+
+def spot_curves(s, dur):
+    """Per clip frame: {size, dy, blur, word, glow, spacing, dim}. Entry over InF frames (anim), exit fade over OutF."""
+    anim = s.get("anim") if s.get("anim") in SPOT_ANIMS else "zoom"
+    inf = max(1, int(s.get("inF") or 12))
+    outf = max(0, int(s.get("outF") if s.get("outF") is not None else 8))
+    dim_in = max(4, inf)
+    flick = [0, 1, 0, 0, 1, 0.15, 1, 0.4, 1, 0.8, 1]
+    out = {k: [] for k in ("size", "dy", "blur", "word", "glow", "spacing", "dim")}
+    for i in range(dur):
+        u = min(1.0, i / float(inf))
+        e = _ease_out(u)
+        size, dy, blur, sp = 1.0, 0.0, 0.0, 1.0
+        a = 1.0
+        if anim == "zoom":
+            size, a = 1.3 - 0.3 * e, min(1.0, u * 1.6)
+        elif anim == "rise":
+            dy, a = -0.07 * (1 - e), min(1.0, u * 2.0)
+        elif anim == "fade":
+            a = e
+        elif anim == "pop":
+            size, a = 0.55 + 0.45 * _back_out(u), min(1.0, u * 3.0)
+        elif anim == "blur":
+            blur, a = 40.0 * (1 - e), e
+        elif anim == "flicker":
+            k = min(len(flick) - 1, int(u * (len(flick) - 1) + 1e-6))
+            a = flick[k] if u < 1 else 1.0
+        elif anim == "spread":
+            sp, a = 1.0 + 0.7 * (1 - e), e
+        o = 1.0
+        if outf > 0 and i > dur - 1 - outf:
+            o = max(0.0, (dur - 1 - i) / float(outf))
+            o = o * o * (3 - 2 * o)
+        dk = min(1.0, i / float(dim_in))
+        dk = dk * dk * (3 - 2 * dk)
+        out["size"].append(size)
+        out["dy"].append(dy)
+        out["blur"].append(blur)
+        out["word"].append(a * o)
+        out["glow"].append(a * o)
+        out["spacing"].append(sp)
+        out["dim"].append(dk * o)
+    return out
+
+
+def _key_input(comp, tool, inp, vals, rs, scale=1.0, add=0.0):
+    """Keys tool.inp (a number) with one key per frame where it moves, flat stretches as their two end keys."""
+    keys = {}
+    n = len(vals)
+    for i, v in enumerate(vals):
+        if 0 < i < n - 1 and vals[i - 1] == v and vals[i + 1] == v:
+            continue
+        keys[rs + i] = {1: v * scale + add}
+    if len(set(vals)) <= 1:
+        sp = _fx_modifier(tool, inp, "BezierSpline")
+        if sp is not None:
+            tool.SetInput(inp, None)
+        tool.SetInput(inp, vals[0] * scale + add if vals else add)
+        return
+    sp = _fx_modifier(tool, inp, "BezierSpline")
+    if sp is None:
+        sp = comp.BezierSpline()
+        setattr(tool, inp, sp)
+    sp.SetKeyFrames(keys, True)
+
+
+def spot_apply(e, it, s):
+    """Writes the settings `s` (resolved by spotlight.js: word, font, style, size, cx, cy (0..1, top-left origin),
+    color, glowColor, glow, dim, vig, anim, inF, outF) into the effect and keys the animation; stores them."""
+    comp = e.GetFusionComp()
+    T = comp.FindTool
+    w = T("SpotWord")
+    if w is None:
+        raise RuntimeError("The Spotlight effect on this clip is damaged; remove it and make it again")
+    ca = comp.GetAttrs() or {}
+    rs = int(ca.get("COMPN_RenderStart") or 0)
+    dur = int(it.GetDuration())
+    word = str(s.get("word") or "")
+    if s.get("caps", True):
+        word = word.upper()
+    cx, cy = float(s.get("cx", 0.5)), 1.0 - float(s.get("cy", 0.2))      # Fusion: y up from the bottom
+    col = s.get("color") or [1, 1, 1]
+    gcol = s.get("glowColor") or [1, 0.3, 0.75]
+    glow = max(0.0, min(100.0, float(s.get("glow", 70))))
+    cur = spot_curves(s, dur)
+    on = 1.0 if word.strip() else 0.0
+    with LOCKED(comp):
+        w.SetInput("StyledText", word)
+        if s.get("font"):
+            w.SetInput("Font", str(s["font"]))
+        if s.get("style"):
+            w.SetInput("Style", str(s["style"]))
+        w.SetInput("Size", float(s.get("size", 0.3)))
+        w.SetInput("Center", {1: cx, 2: cy})
+        for i, k in enumerate(("Red1", "Green1", "Blue1")):
+            w.SetInput(k, float(col[i]))
+        xf = T("SpotXf")
+        xf.SetInput("Pivot", {1: cx, 2: cy})
+        xy = _fx_modifier(xf, "Center", "XYPath")
+        if xy is None:
+            xy = comp.XYPath()
+            xf.Center = xy
+        sx = _fx_modifier(xy, "X", "BezierSpline")
+        if sx is None:
+            sx = comp.BezierSpline()
+            xy.X = sx
+        sx.SetKeyFrames({rs: {1: 0.5}, rs + dur - 1: {1: 0.5}}, True)
+        _key_input(comp, xy, "Y", cur["dy"], rs, 1.0, 0.5)
+        _key_input(comp, xf, "Size", cur["size"], rs)
+        _key_input(comp, T("SpotWordBlur"), "XBlurSize", cur["blur"], rs)
+        _key_input(comp, w, "CharacterSpacing", cur["spacing"], rs)
+        _key_input(comp, T("SpotWordM"), "Blend", cur["word"], rs, on)
+        _key_input(comp, T("SpotGlowM"), "Blend", cur["glow"], rs, on * min(1.0, glow / 60.0))
+        T("SpotGlowBlur").SetInput("XBlurSize", 12.0 + glow * 0.45)
+        gt = T("SpotGlowTint")
+        boost = 1.2 + glow / 40.0
+        for i, k in enumerate(("GainRed", "GainGreen", "GainBlue")):
+            gt.SetInput(k, float(gcol[i]) * boost)
+        _key_input(comp, T("SpotDim"), "TopLeftAlpha", cur["dim"], rs, max(0.0, min(100.0, float(s.get("dim", 45)))) / 100.0 * 0.8)
+        _key_input(comp, T("SpotVigBg"), "TopLeftAlpha", cur["dim"], rs, max(0.0, min(100.0, float(s.get("vig", 50)))) / 100.0 * 0.75)
+        w.SetData(SPOT_DATA, json.dumps(s))
+    return True
+
+
+def spot_summary(it):
+    """The panel's copy of a spotlight's settings (without the matte statistics)."""
+    _, d = spot_read(it)
+    return {k: v for k, v in (d or {}).items() if k not in ("stats", "moved")}
+
+
+def op_spot_place(a):
+    """{footage, from, to, seq (path with %05d), count, settings, stats}: imports the cut-out sequence as one clip
+    over the footage, lifts the captions in the way, adds ELSA Spotlight and keys it."""
+    tl = timeline()
+    proj = resolve().GetProjectManager().GetCurrentProject()
+    mp = proj.GetMediaPool()
+    foot = find_item(str(a["footage"]))
+    lo, hi = int(a["from"]), int(a["to"])
+    count = int(a["count"])
+    ftrack = int(foot.GetTrackTypeAndIndex()[1])
+    cur_folder = mp.GetCurrentFolder()
+    try:
+        mp.SetCurrentFolder(spot_bin(mp))
+        clips = mp.ImportMedia([{"FilePath": a["seq"], "StartIndex": 0, "EndIndex": count - 1}])
+    finally:
+        try:
+            mp.SetCurrentFolder(cur_folder)
+        except Exception:
+            pass
+    if not clips:
+        raise RuntimeError("Resolve could not import the subject cut-out")
+    mpi = clips[0]
+    try:
+        mpi.SetClipProperty("Clip Name", "Spotlight " + str(a.get("label") or "")[:40])
+    except Exception:
+        pass
+    track, moved, notes = spot_pick_track(tl, ftrack, lo, hi + 1)
+    placed = mp.AppendToTimeline([{"mediaPoolItem": mpi, "startFrame": 0, "endFrame": count, "trackIndex": track, "recordFrame": lo, "mediaType": 1}])
+    it = placed[0] if placed else None
+    if it is None or int(it.GetStart()) != lo or int(it.GetTrackTypeAndIndex()[1]) != track:
+        if it is not None:
+            tl.DeleteClips([it], False)
+        raise RuntimeError("Resolve could not put the cut-out on V%d at frame %d" % (track, lo))
+    e = it.AddEffect("fusion", FX_PREFIX + SPOT_NAME)
+    if e is None:
+        return {"item": str(it.GetUniqueId()), "track": track, "moved": moved, "notes": notes, "needRestart": True}
+    s = dict(a.get("settings") or {})
+    s["stats"] = a.get("stats") or {}
+    s["dir"] = a.get("dir")
+    s["moved"] = moved
+    spot_apply(e, it, s)
+    return {"item": str(it.GetUniqueId()), "track": track, "moved": moved, "notes": notes, "start": lo, "frames": int(it.GetDuration())}
+
+
+def op_spot_set(a):
+    """{item, settings}: re-keys a spotlight with new settings (merged into the stored ones)."""
+    it = find_item(str(a["item"]))
+    e, d = spot_read(it)
+    if e is None:
+        if a.get("addEffect"):
+            e = it.AddEffect("fusion", FX_PREFIX + SPOT_NAME)
+        if e is None:
+            raise RuntimeError("This clip has no Spotlight effect (restart Resolve once if it was just installed)")
+    s = dict(d or {})
+    s.update(a.get("settings") or {})
+    spot_apply(e, it, s)
+    return {"item": str(it.GetUniqueId()), "settings": s}
+
+
+def op_spot_get(a):
+    """The spotlight among the selected clips (or `item`): {item, settings, start, frames}; else {footage} when a
+    media clip is selected."""
+    tl = timeline()
+    items = [find_item(str(a["item"]))] if a.get("item") else (tl.GetSelectedClips() or [])
+    for it in items:
+        e, d = spot_read(it)
+        if e is not None:
+            return {"item": str(it.GetUniqueId()), "settings": d, "start": int(it.GetStart()), "frames": int(it.GetDuration()), "name": it.GetName()}
+    return {"item": None}
+
+
+def op_spot_remove(a):
+    """{item}: deletes the cut-out clip and its Media Pool clip, puts lifted captions back; returns its folder."""
+    tl = timeline()
+    it = find_item(str(a["item"]))
+    e, d = spot_read(it)
+    if e is None:
+        raise RuntimeError("That clip is not a Spotlight")
+    mpi = it.GetMediaPoolItem()
+    tl.DeleteClips([it], False)
+    back = 0
+    for m in (d or {}).get("moved") or []:
+        try:
+            c = find_item(str(m["id"]))
+            if not _track_busy(tl, int(m["from"]), int(c.GetStart()), int(c.GetEnd()), skip=str(m["id"])) and c.SetPosition({"trackIndex": int(m["from"]), "startFrame": int(c.GetStart())}):
+                back += 1
+        except Exception:
+            continue
+    try:
+        if mpi is not None:
+            resolve().GetProjectManager().GetCurrentProject().GetMediaPool().DeleteClips([mpi])
+    except Exception:
+        pass
+    return {"removed": True, "dir": (d or {}).get("dir"), "restored": back}
+
+
+
 OPS = {"glitch_bursts": op_glitch_bursts, "glass_sync": op_glass_sync, "glass_remove": op_glass_remove, "glass_gc": op_glass_gc, "highlight_box": op_highlight_box, "multitext_rows": op_multitext_rows, "row_times": op_row_times, "set_output": op_set_output, "preview_bg": op_preview_bg, "scan": op_scan, "set_boxes": op_set_boxes, "capture": op_capture, "live_frame": op_live_frame, "link_clips": op_link_clips, "refresh": op_refresh, "ping": op_ping, "fonts": op_fonts, "config": op_config, "set_text": op_set_text, "set_audio_volume": op_set_audio_volume,
-       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track}
+       "timing_get": op_timing_get, "timing_set": op_timing_set, "tools": op_tools, "copy_inputs": op_copy_inputs, "key_followers": op_key_followers, "seg_watch": op_seg_watch, "seg_sweep": op_seg_sweep, "controls_get": op_controls_get, "controls_set": op_controls_set, "gradient_set": op_gradient_set, "mt_rows_get": op_mt_rows_get, "mt_rows_set": op_mt_rows_set, "probe_render": op_probe_render, "read_style": op_read_style, "fx_get": op_fx_get, "fx_set": op_fx_set, "fx_strength": op_fx_strength, "fx_param": op_fx_param, "track_source": op_track_source, "track_frames": op_track_frames, "fx_bake_track": op_fx_bake_track,
+       "spot_source": op_spot_source, "spot_place": op_spot_place, "spot_set": op_spot_set, "spot_get": op_spot_get, "spot_remove": op_spot_remove}
 
 
 # Operations run a second time when the first attempt fails quickly (a stale handle, Resolve mid-update). Not the
 # renders (they already took their time, the panel retries itself), not the watchers (the next tick comes anyway), and
 # never once a wake has run (a second attempt would wake - re-render - the whole comp again).
-NO_RETRY = {"track_frames", "capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
+NO_RETRY = {"track_frames", "spot_place", "spot_remove", "capture", "live_frame", "probe_render", "seg_watch", "seg_sweep", "ping", "config", "fonts"}
 
 
 def handle(req):

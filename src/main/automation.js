@@ -900,6 +900,29 @@ const TOOLS = {
     // A group of consecutive subtitles as a stack, spaced from the real rendered text (see stack.js).
     async place_stack(args) { return STACK.placeStack(TOOLS, args); },
 
+    // Big word behind the speaker (spotlight.js): make one for a subtitle / frame range, change or remove a placed one.
+    async spotlight(args) {
+        args = args || {};
+        await waitFree(10000);
+        const SP = require('./spotlight');
+        const keys = Object.keys(SP.DEFAULTS);
+        const settings = {};
+        for (const k of keys) if (args[k] !== undefined) settings[k] = args[k];
+        if (args.itemId) {
+            if (args.remove) return await SP.spotRemove(null, args.itemId);
+            return await SP.spotSet(null, args.itemId, settings);
+        }
+        let from = args.startFrame, to = args.endFrame;
+        if ((from === undefined || to === undefined) && args.subtitle) {
+            const sub = await subtitleAt(await currentTimeline(), args.subtitle);
+            from = sub.start; to = sub.end - 1;
+        }
+        if (!Number.isFinite(Number(from)) || !Number.isFinite(Number(to))) throw new Error('Pass subtitle, or startFrame and endFrame');
+        const r = await SP.spotRun(null, { from: Math.round(Number(from)), to: Math.round(Number(to)), frame: Math.round(Number(from)), settings });
+        if (r && r.needInstall) throw new Error('The matting engine is not installed yet: open the panel, Use tab > Effect Preset > Spotlight > Install matting engine');
+        return r;
+    },
+
     // used by stack.js (not callable over HTTP: handle() only dispatches names without an underscore prefix)
     _timeline: currentTimeline,
     _subtitle: subtitleAt,

@@ -262,6 +262,35 @@ const TOOLS = [
         }, ['subtitle', 'presetId'])
     },
     {
+        name: 'spotlight',
+        description: 'Spotlight: a big glowing word BEHIND the speaker with the room dimmed (the speaker is cut out of the footage automatically with Robust Video Matting and placed over the word as a PNG-sequence clip on the track above the footage; captions that would end up under it are lifted above it). Make one for a subtitle (or startFrame / endFrame), change a placed one (itemId + settings) or remove it (itemId + remove: true). The word defaults to the subtitle\'s strongest word (a name / number / longest non-filler word); pass word to choose it, wordOn: false for no word. Size and height are automatic (the word fills `width` % of the frame and the head covers `overlap` % of the capitals) unless size / y are given. Takes ~0.15 s per frame. Use it for big topic words, names and reveals, sparingly (one per section).',
+        inputSchema: S({
+            subtitle: subtitleArg,
+            startFrame: { type: 'integer', description: 'First timeline frame (instead of subtitle)' },
+            endFrame: { type: 'integer', description: 'Last timeline frame, inclusive (with startFrame)' },
+            itemId: { type: 'string', description: 'A placed spotlight\'s cut-out clip id (from an earlier result) to change or remove' },
+            remove: { type: 'boolean' },
+            word: { type: 'string' },
+            wordOn: { type: 'boolean', description: 'false = spotlight only, no word' },
+            caps: { type: 'boolean', description: 'Capitals (default true)' },
+            font: { type: 'string', description: 'Default "DM Serif Display"' },
+            style: { type: 'string', description: 'Default "Italic"' },
+            color: { type: 'array', items: { type: 'number' }, description: 'Text colour [r, g, b] 0..1 (default white)' },
+            glowColor: { type: 'array', items: { type: 'number' }, description: 'Glow colour [r, g, b] 0..1 (default pink [1, 0.3, 0.75])' },
+            glow: { type: 'number', minimum: 0, maximum: 100, description: 'Default 70' },
+            dim: { type: 'number', minimum: 0, maximum: 100, description: 'How much darker the room gets (default 55)' },
+            vig: { type: 'number', minimum: 0, maximum: 100, description: 'Edge vignette (default 50)' },
+            anim: { type: 'string', enum: ['zoom', 'rise', 'fade', 'pop', 'blur', 'flicker', 'spread', 'none'], description: 'Entry: zoom (default, settles from 130%), rise (from behind the head), fade, pop, blur, flicker (neon), spread (letters close in), none' },
+            inF: { type: 'integer', minimum: 1, maximum: 60, description: 'Entry length in frames (default 12)' },
+            outF: { type: 'integer', minimum: 0, maximum: 60, description: 'Fade-out frames at the end (default 8, 0 = cut)' },
+            size: { type: 'number', minimum: 0, maximum: 0.6, description: 'Text+ size; 0 = auto (fit width)' },
+            width: { type: 'number', minimum: 30, maximum: 100, description: 'Auto size: % of the frame width (default 86)' },
+            x: { type: 'number', minimum: 0, maximum: 1, description: 'Horizontal centre (default 0.5)' },
+            y: { type: ['number', 'null'], minimum: 0, maximum: 1, description: 'Vertical centre of the capitals, 0 = top; null = auto from the head' },
+            overlap: { type: 'number', minimum: 0, maximum: 80, description: 'Auto height: % of the capitals hidden behind the head (default 45)' }
+        }, [])
+    },
+    {
         name: 'measure_text',
         description: 'The REAL rendered geometry of text lines: renders them as one temporary clip (same preset, textSize and Line Spacing) over the subtitle\'s end frame, measures each line\'s glyph top/bottom/centre (0..1 of the frame height) and the pitch between lines, then removes the clip. Use it instead of estimating text heights or gaps.',
         inputSchema: S({

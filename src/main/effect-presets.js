@@ -24,9 +24,12 @@ const EFFECTS = [
     { id: 'StopMotion', name: 'Stop Motion', tags: ['stop motion', 'choppy', 'frames'], tip: 'DaVinci Resolve\'s Stop Motion: frames are held for a choppy, hand-made look, glitch / wiggle included. Zoomed or panned clips get DaVinci\'s own Stop Motion (set the same Frame Repeat in Resolve\'s Inspector > Effects)', ofx: 'Resolve FX/Resolve FX Temporal/Stop Motion', repeat: true },
     // Glass: the frosted half of the "Glass Blur (ML)" text preset. Not in the panel's list (hidden): the bridge adds it
     // to the footage clip(s) under a Glass Blur caption and fills it from the caption (fusion_bridge.glass_sync).
-    { id: 'Glass', name: 'Glass', tags: [], tip: 'Frosted glass behind a Glass Blur caption', hidden: true }
+    { id: 'Glass', name: 'Glass', tags: [], tip: 'Frosted glass behind a Glass Blur caption', hidden: true },
+    // Spotlight: lives on the subject cut-out clip that spotlight.js makes. Its card makes / edits / removes that clip
+    // (the panel never adds this effect to the selected clip itself), so it is not in ORDER.
+    { id: 'Spotlight', name: 'Spotlight', tags: ['spotlight', 'behind', 'word', 'title', 'glow', 'subject'], tip: 'A big glowing word BEHIND the speaker, the room dimmed: the speaker is cut out automatically (Robust Video Matting) and put over the word', spot: true },
 ];
-const ORDER = EFFECTS.filter(e => !e.hidden).map(e => e.id);
+const ORDER = EFFECTS.filter(e => !e.hidden && !e.spot).map(e => e.id);
 const DEFAULT_STRENGTH = 25;
 const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
@@ -311,7 +314,38 @@ function glass() {
     ]);
 }
 
-const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass };
+// Spotlight: the big word BEHIND the speaker. Lives on the subject cut-out clip (spotlight.js: a PNG sequence of the
+// footage where the person is, transparent elsewhere, on a track above the footage). The clip's own picture is the
+// subject, so the effect paints, under it: a full-frame dim (+ soft vignette) -> the word's coloured glow (added) ->
+// the word. Over the footage the result is: room darker, word glowing, head in front of the letters.
+// No expressions: the bridge (spot_apply) keys the entry / exit animation and the fades; the settings are kept on
+// SpotWord (SetData) so the panel can change one and re-key.
+function spotlight() {
+    const bg = (name, a, x, y, extra) => tool(name, 'Background', ['UseFrameFormatSettings = Input { Value = 1, }', 'TopLeftRed = Input { Value = 0, }',
+        'TopLeftGreen = Input { Value = 0, }', 'TopLeftBlue = Input { Value = 0, }', 'TopLeftAlpha = Input { Value = ' + a + ', }'].concat(extra || []), x, y);
+    return group('ELSASpotlight', ['SpotOut', 'Foreground'], 'SpotOut', [], [
+        bg('SpotDim', 0, 0, -180),
+        tool('SpotVig', 'EllipseMask', ['Invert = Input { Value = 1, }', 'SoftEdge = Input { Value = 0.35, }',
+            'Width = Input { Value = 1.05, }', 'Height = Input { Value = 1.05, }', 'Center = Input { Value = { 0.5, 0.55 }, }'], 110, -240),
+        bg('SpotVigBg', 0, 110, -180, ['EffectMask = Input { SourceOp = "SpotVig", Source = "Mask", }']),
+        tool('SpotDimM', 'Merge', [inp('Background', 'SpotDim'), inp('Foreground', 'SpotVigBg')], 110, -120),
+        tool('SpotWord', 'TextPlus', ['UseFrameFormatSettings = Input { Value = 1, }', 'StyledText = Input { Value = "", }',
+            'Font = Input { Value = "DM Serif Display", }', 'Style = Input { Value = "Italic", }', 'Size = Input { Value = 0.2, }',
+            'Center = Input { Value = { 0.5, 0.8 }, }', 'CharacterSpacing = Input { Value = 1, }', 'Red1 = Input { Value = 1, }', 'Green1 = Input { Value = 1, }', 'Blue1 = Input { Value = 1, }'], 330, -300),
+        tool('SpotWordBlur', 'Blur', [inp('Input', 'SpotWord'), 'XBlurSize = Input { Value = 0, }'], 330, -240),
+        tool('SpotXf', 'Transform', [inp('Input', 'SpotWordBlur'), 'Center = Input { Value = { 0.5, 0.5 }, }', 'Pivot = Input { Value = { 0.5, 0.8 }, }', 'Size = Input { Value = 1, }'], 330, -180),
+        tool('SpotGlowBlur', 'Blur', [inp('Input', 'SpotXf'), 'XBlurSize = Input { Value = 30, }'], 440, -180),
+        // the glow's colour; alpha 0 so its Merge ADDS light (a neon halo) instead of covering
+        tool('SpotGlowTint', 'ColorGain', [inp('Input', 'SpotGlowBlur'), 'GainRed = Input { Value = 2.2, }', 'GainGreen = Input { Value = 0.6, }',
+            'GainBlue = Input { Value = 1.6, }', 'GainAlpha = Input { Value = 0, }'], 440, -120),
+        tool('SpotGlowM', 'Merge', [inp('Background', 'SpotDimM'), inp('Foreground', 'SpotGlowTint'), 'Blend = Input { Value = 0, }'], 220, -60),
+        tool('SpotWordM', 'Merge', [inp('Background', 'SpotGlowM'), inp('Foreground', 'SpotXf'), 'Blend = Input { Value = 0, }'], 220, 0),
+        // the clip's own picture (the cut-out subject) goes over everything
+        tool('SpotOut', 'Merge', [inp('Background', 'SpotWordM')], 110, 60)
+    ]);
+}
+
+const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass, Spotlight: spotlight };
 
 // Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
 function installEffects() {
@@ -330,7 +364,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
+function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track || !!e.spot, spot: !!e.spot, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;

@@ -242,3 +242,27 @@ class Process(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpotlightCurves(unittest.TestCase):
+    """spot_curves: the entry / exit keys of the Spotlight word (fusion_bridge)."""
+
+    def test_every_entry_ends_fully_in_and_fades_out(self):
+        for anim in fb.SPOT_ANIMS:
+            c = fb.spot_curves({"anim": anim, "inF": 10, "outF": 6}, 50)
+            self.assertEqual(len(c["word"]), 50)
+            mid = 30
+            self.assertAlmostEqual(c["word"][mid], 1.0, msg=anim)
+            self.assertAlmostEqual(c["size"][mid], 1.0, msg=anim)
+            self.assertAlmostEqual(c["dy"][mid], 0.0, msg=anim)
+            self.assertAlmostEqual(c["blur"][mid], 0.0, msg=anim)
+            self.assertAlmostEqual(c["spacing"][mid], 1.0, msg=anim)
+            self.assertAlmostEqual(c["word"][-1], 0.0, msg=anim)
+            self.assertAlmostEqual(c["dim"][-1], 0.0, msg=anim)
+
+    def test_zoom_starts_big_and_rise_starts_low(self):
+        z = fb.spot_curves({"anim": "zoom", "inF": 10, "outF": 0}, 30)
+        self.assertGreater(z["size"][0], 1.2)
+        self.assertEqual(z["word"][-1], 1.0)      # outF 0 = cut, no fade
+        r = fb.spot_curves({"anim": "rise", "inF": 10}, 30)
+        self.assertLess(r["dy"][0], -0.05)

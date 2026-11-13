@@ -29,38 +29,10 @@ canvas, select, input[type="text"], input[type="number"], textarea { max-width: 
 
 
 /* Placement options drawer & legacy menu */
-.place-options-list {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 2px 0;
-}
-
-.place-options-list label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: var(--radius-md);
-    font-size: var(--font-md);
-    cursor: pointer;
-    transition: background 0.15s ease;
-    color: var(--text);
-}
-
-.place-options-list label:hover {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-.place-options-list input[type="checkbox"] {
-    accent-color: var(--matcha);
-    margin: 0;
-    cursor: pointer;
-}
-
-.place-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 8px; font-size: var(--font-md); color: var(--text); }
+/* Settings sheet > Placement rows (the row itself is .inset-row, css/primitives.css) */
+.place-range { flex-wrap: wrap; }
 .place-range-fields { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.place-range input[type="number"] { width: 46px; padding: 3px 5px; font-size: var(--font-md); background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.16); border-radius: var(--radius-md); }
+.place-range input[type="number"] { width: 46px; padding: 3px 5px; font-size: var(--font-md); background: var(--surface-raised); color: inherit; border: 1px solid transparent; border-radius: var(--radius-md); }
 .place-range select { padding: 3px 6px; font-size: var(--font-md); border-radius: var(--radius-md); max-width: 60%; }
 .place-range.hidden { display: none; }
 

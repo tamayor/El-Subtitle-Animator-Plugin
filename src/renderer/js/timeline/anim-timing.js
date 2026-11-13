@@ -112,6 +112,8 @@ function renderTiming() {
     const card = $('timingCard');
     if (!card) return;
     const i = tmState.info;
+    // data-selected = the clip's id while it is selected in Resolve, not just under the playhead (use-dock.js)
+    if (i && i.selected) card.dataset.selected = String(i.itemId); else delete card.dataset.selected;
     // nothing selected, or a clip whose preset has no timing slider: no card at all (an empty "No timing slider" card
     // only made the bottom dock taller)
     if (!i || i.noSlider) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint(); return; }

@@ -56,6 +56,8 @@ const CUT_KIND = { retake: 'Retake', outtake: 'Outtake', stutter: 'Stutter', fil
 function initCutTab() {
     const wrap = $('cutWrap');
     if (wrap) cutTabs = bindTabGroup(wrap, { key: 'cut', values: CUT_TABS, buttons: '.presets-tab[data-cut]', storageKey: 'cutTab' });
+    rememberDetails($('cutNumsBox'), 'sa.cutNumsOpen');      // Exact values
+    rememberDetails($('cutScriptBox'), 'sa.cutScriptOpen');  // Script
     if (!window.sa || !window.sa.cutDefaults) return;
     const tr = $('cutTrack');
     for (let i = 1; i <= 12; i++) { const o = document.createElement('option'); o.value = i; o.textContent = 'V' + i; tr.appendChild(o); }

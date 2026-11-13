@@ -63,6 +63,7 @@ function initPromptTab() {
     });
     ta.addEventListener('scroll', () => { const pre = $('promptHilite'); if (pre) { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; } });
     $('promptCopy').addEventListener('click', copyJobPrompt);
+    bindProxyMenu($('promptMore'), $('promptMoreItems'));   // ⋯ next to the saved-prompt picker: Save as default, Reset, Restore built-in
     $('promptSaveDefault').addEventListener('click', () => {
         clearTimeout(pbSaveTimer);
         saveJobPromptDefault(pb.full);

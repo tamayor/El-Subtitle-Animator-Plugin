@@ -5,42 +5,30 @@
 body.compact { padding: 6px 8px 36px; }
 
 body.compact header {
-    flex-direction: row;
-    align-items: center;
     gap: 6px;
     margin-bottom: 8px;
-    padding-bottom: 6px;
 }
-body.compact .header-brand { display: none; }
+body.compact .header-brand { flex: none; }
+body.compact .header-brand h1,
+body.compact .header-brand .version-badge { display: none; }
 body.compact header .tabs { flex: 1 1 auto; min-width: 0; margin: 0; padding: 2px; gap: 2px; border-radius: var(--radius-lg); }
 body.compact .tab { padding: 4px 0; font-size: var(--font-md); border-radius: var(--radius-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-body.compact .header-bar { flex: none; gap: 2px; }
+body.compact .header-bar { flex: none; gap: 0; }
 
-/* connection: a dot (timeline name in its tooltip) */
-body.compact .header-bar #conn {
+/* connection: only the dot (timeline name in its tooltip) */
+body.compact #conn {
     flex: none;
-    width: 9px;
-    height: 9px;
+    width: 11px;
+    height: 11px;
     padding: 0;
-    margin: 0 3px;
     font-size: 0;
-    border-radius: 50%;
 }
-body.compact .header-bar #conn.on { background: var(--matcha); box-shadow: 0 0 0 2px var(--matcha-tint); }
-body.compact .header-bar #conn.off { background: var(--strawberry); box-shadow: 0 0 0 2px var(--strawberry-tint); }
+body.compact #conn::before { left: 2px; }
 
-body.compact #pin { width: 24px; height: 24px; flex: none; }
-body.compact #pin svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
-body.compact #autoCollapse { width: 24px; height: 24px; flex: none; }
-body.compact #autoCollapse svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
-body.compact #fusionFixesBtn { padding: 3px 5px; font-size: var(--font-sm); }
-body.compact #rescan { width: 24px; height: 24px; padding: 0; font-size: 0; }
-body.compact #rescan::before { content: "\21BB"; font-size: 14px; line-height: 24px; }
+body.compact header .icon-btn { width: 24px; height: 24px; flex: none; }
+body.compact header .icon-btn svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
 
-/* very narrow: the Fusion button becomes "Fx" */
 @media (max-width: 400px) {
-    body.compact #fusionFixesBtn { font-size: 0; }
-    body.compact #fusionFixesBtn::before { content: "Fx"; font-size: var(--font-sm); }
     body.compact .tab { font-size: 11.5px; }
 }
 
@@ -81,6 +69,8 @@ body.compact .fx-target { margin: 0 0 4px; }
 /* ---------- upper dock (selected preset + Start) ---------- */
 body.compact .use-dock { margin-bottom: 8px; border-radius: var(--radius-xl); }
 body.compact .use-dock-bar.stage-live { padding: 4px 6px; gap: 6px; border-radius: var(--radius-xl); }
+body.compact .use-customize { padding: 5px 7px; }
+body.compact .use-customize > span { display: none; }
 body.compact .use-dock-name { padding: 2px 8px; font-size: 11.5px; }
 body.compact .use-dock-bar .stage-live-btns button { min-width: 56px; padding: 5px 12px; font-size: var(--font-md); }
 body.compact .use-dock-body:not(.hidden) { padding: 6px 8px 8px; gap: 6px; }

@@ -16,8 +16,7 @@ const state = {
     selectedId: null,      // the item picked in the Use tab
     createId: null,        // the item opened in the Create tab
     use: null,             // working copy of the picked item's alignment (edits here are for one use only)
-    adjustOpen: false,     // is the alignment panel in the Use tab expanded
-    placeOpen: false,      // is the placement panel in the Use tab expanded
+    adjustOpen: true,      // is Preset Set Up (Settings sheet > Style) expanded
     styleOpen: false,      // is the Text Style panel (manual font / colour override) in the Use tab expanded
     useViewMode: 'list',   // preset viewing mode: 'list', 'grid', or 'gallery'
     autoRender: true,      // Use tab: render the selected preset with the subtitle in Resolve after every change (off = Render button)
@@ -44,23 +43,7 @@ const state = {
     draft: { animPath: null, fromSelection: false, sfxPath: null }   // what the Create tab is building
 };
 
-// The Text tab is a pop-up menu holding Create / Library / Use.
-function closeTextMenu() {
-    const m = $('tabTextMenu');
-    if (m) m.classList.add('hidden');
-    const b = $('tabBtnText');
-    if (b) b.setAttribute('aria-expanded', 'false');
-}
-function toggleTextMenu() {
-    const m = $('tabTextMenu'), b = $('tabBtnText');
-    if (!m.classList.contains('hidden')) { closeTextMenu(); return; }
-    const r = b.getBoundingClientRect();
-    m.style.left = Math.max(8, Math.min(r.left + r.width / 2 - 70, window.innerWidth - 148)) + 'px';
-    m.style.top = (r.bottom + 4) + 'px';
-    m.classList.remove('hidden');
-    b.setAttribute('aria-expanded', 'true');
-}
-
+// The six main tabs are always visible in the tab bar: Use, Library, Create, Cut, Broll, Prompt.
 function setTab(t) {
     stopPreview();
     state.tab = t;
@@ -76,9 +59,10 @@ function setTab(t) {
     $('tabBtnPrompt').classList.toggle('on', t === 'prompt');
     $('tabBtnCut').classList.toggle('on', t === 'cut');
     $('tabBtnBroll').classList.toggle('on', t === 'broll');
-    $('tabBtnText').classList.toggle('on', t === 'apply' || t === 'library' || t === 'create');
-    closeTextMenu();
-    document.body.className = 'tab-' + t;
+    // only the tab-* class changes: compact, dock-on and the collapse classes on <body> stay
+    const bodyCls = document.body.classList;
+    [...bodyCls].filter(c => c.startsWith('tab-')).forEach(c => bodyCls.remove(c));
+    bodyCls.add('tab-' + t);
     renderTimelines();
     redrawStages();
 }

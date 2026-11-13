@@ -5,9 +5,9 @@
     display: flex;
     flex-direction: column;
     margin: 0 0 4px;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-xl);
+    background: var(--surface-pop);
+    border: 0;
+    border-radius: var(--radius-card);
     box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.35);
     overflow: hidden;
 }
@@ -44,7 +44,7 @@ body:not(.tab-apply) .bottom-dock { display: none !important; }
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-inner) transparent;
 }
-/* the bar: a tiny Real-time render switch in the corner (always shown in the Use tab; details in its tooltip) */
+/* the bar: a tiny Real-time render switch in the corner (shown while cards are docked; details in its tooltip) */
 .dock-bar {
     flex: none;
     display: flex;

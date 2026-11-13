@@ -23,6 +23,11 @@ async function initApp() {
         initCreateDraft();        // library/create-tab.js: default sound, new preset draft, Save
         initSfxOriginals();       // library/settings.js: the SFX Originals library
         initHeader();             // pin, folders, re-read subtitles
+        // ui/settings-sheet.js: the header gear's Style | Placement | App sheet (its alignment timeline is measured when shown)
+        initSettingsSheet({
+            onShow: () => { renderTimelines(); redrawStages(); },
+            escapeBlocked: () => colorPanelBusy      // Esc closes the macOS Colors panel first (design/color-fields.js)
+        });
         bindLibTools();
         initBoilerplates();
         initTagsSection();        // library/tags.js
@@ -53,21 +58,12 @@ function initWindowEvents() {
     });
 }
 
-// The main tab bar (Use / Library / Create via the Text menu, Prompt, Cut, B-roll) and the tabs that wire themselves.
+// The main tab bar (Use, Library, Create, Cut, Broll, Prompt) and the tabs that wire themselves.
 function initMainTabs() {
     $('tabBtnApply').addEventListener('click', () => setTab('apply'));
     $('tabBtnLibrary').addEventListener('click', () => setTab('library'));
     $('tabBtnCreate').addEventListener('click', () => setTab('create'));
     $('tabBtnPrompt').addEventListener('click', () => setTab('prompt'));
-    $('tabBtnText').addEventListener('click', (e) => {
-        e.stopPropagation();
-        // From another main tab, Text lands on Use (the default) and opens the menu.
-        if (state.tab !== 'apply' && state.tab !== 'library' && state.tab !== 'create') setTab('apply');
-        toggleTextMenu();
-    });
-    document.addEventListener('click', (e) => { if (!e.target.closest('#tabTextMenu')) closeTextMenu(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTextMenu(); });
-    window.addEventListener('resize', closeTextMenu);
     initPromptTab();
     $('tabBtnCut').addEventListener('click', () => { setTab('cut'); cutTabShown(); cutToolsShown(); });
     initCutTab();
@@ -76,10 +72,11 @@ function initMainTabs() {
     initBrollTab();
 }
 
-// Header buttons: pin on top, open folders, re-read the subtitles.
+// Header and Settings sheet controls: keep on top, open folders, re-read the subtitles.
 function initHeader() {
     $('pin').addEventListener('click', async () => takeLib(await window.sa.setOnTop(state.lib.alwaysOnTop === false)));
     $('openFolder').addEventListener('click', () => window.sa.openFolder());
+    bindProxyMenu($('libMore'), $('libMoreItems'));   // Library toolbar ⋯: fonts folder, library folder
     if ($('openFontsFolder')) $('openFontsFolder').addEventListener('click', () => window.sa.openFontsFolder());
     $('rescan').addEventListener('click', async () => { state.live = await window.sa.poll(true); renderLive(); setStatus('Subtitles re-read.', 'ok'); });
 }

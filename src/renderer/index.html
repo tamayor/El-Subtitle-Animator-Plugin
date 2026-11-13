@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="./css/base.css">
     <link rel="stylesheet" href="./css/sections.css">
     <link rel="stylesheet" href="./css/cards.css">
+    <link rel="stylesheet" href="./css/primitives.css">
     <link rel="stylesheet" href="./css/alignment-timeline.css">
     <link rel="stylesheet" href="./css/tabs.css">
     <link rel="stylesheet" href="./css/stage.css">
@@ -54,6 +55,7 @@
     <script src="./js/ui/status.js" defer></script>
     <script src="./js/ui/tabs.js" defer></script>
     <script src="./js/ui/inspector-row.js" defer></script>
+    <script src="./js/ui/settings-sheet.js" defer></script>
     <script src="./js/core/waveforms.js" defer></script>
     <script src="./js/design/fonts.js" defer></script>
     <script src="./js/design/templates.js" defer></script>
@@ -165,66 +167,41 @@
         <div class="header-brand">
             <h1>El Subtitle Animator</h1>
             <span id="appVersion" class="version-badge" title="Click to update version (or edit package.json)">v1.0.0</span>
+            <!-- connection: a green / red dot and the active timeline's name (renderLive in js/library/settings.js) -->
+            <span id="conn" class="pill off">Connecting…</span>
         </div>
         <div class="header-bar">
-            <button id="pin" class="icon-btn on" title="Pinned above DaVinci Resolve (click to unpin)"
-            aria-label="Pin window">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
-                <path
-                    d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 1 1-.707-.708l3.182-3.182L2.398 7.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z" />
-            </svg>
-        </button>
-            <button id="autoCollapse" class="icon-btn" title="Auto-collapse: when you click away from the panel it shrinks to this bar; hover it to open it again"
-            aria-label="Auto-collapse" aria-pressed="false">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 3.5l4 3 4-3" /><path d="M4 12.5l4-3 4 3" />
-            </svg>
-        </button>
-            <button id="fusionFixesBtn" class="ghost" title="Fusion fixes: how placed titles are woken so they render (lighter settings lag less)">Fusion</button>
-            <span id="conn" class="pill off">Connecting…</span>
-        <button id="rescan" class="ghost" title="Re-read the subtitle track">Rescan</button>
+            <button id="rescan" class="icon-btn" title="Rescan: re-read the subtitle track" aria-label="Rescan the subtitle track">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>
+            </button>
+            <button id="settingsBtn" class="icon-btn" title="Settings: Style, Placement and App" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsSheet"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
         </div>
     </header>
 
-    <nav class="tabs">
+<nav class="tabs">
+        <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use: put a preset on the subtitle"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
+        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library: edit your saved presets"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
+        <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create: make a new text + sound preset"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
         <button id="tabBtnCut" class="tab" aria-label="Cut" title="Cut: rough-cut the recording into a new timeline (pauses, retakes, stutters)"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.4 10.6 12 2.5M10.6 10.6 4 2.5"/></svg></span><span class="tab-txt">Cut</span></button>
         <button id="tabBtnBroll" class="tab" aria-label="Broll" title="Broll: motion-graphic overlays (Remotion) rendered for this timeline and placed over the footage"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 6v4l3.5-2z"/></svg></span><span class="tab-txt">Broll</span></button>
-        <button id="tabBtnText" class="tab on" aria-label="Text" aria-haspopup="menu" aria-expanded="false" title="Text: Create, Library and Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10M8 3.5v9.5"/></svg></span><span class="tab-txt">Text</span></button>
-        <div id="tabTextMenu" class="tab-menu hidden" role="menu">
-            <button id="tabBtnCreate" class="tab-menu-item" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg><span>Create</span></button>
-            <button id="tabBtnLibrary" class="tab-menu-item" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg><span>Library</span></button>
-            <button id="tabBtnApply" class="tab-menu-item on" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg><span>Use</span></button>
-        </div>
-        <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
+        <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt: the job prompt for Claude"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
     </nav>
 
-    <!-- ============================ USE: apply what you have already made ============================ -->
-    <div id="tabApply">
-        <div class="tab-columns">
-            <div class="tab-col-main">
-                <section id="subCard">
-                    <div class="row between">
-                        <span class="label">Subtitle</span>
-                        <span id="subMeta" class="meta">–</span>
-                    </div>
-                    <textarea id="subText" rows="3"
-                        placeholder="Click a subtitle, or move the playhead onto one"></textarea>
-                    <div class="hint" id="subHint"></div>
-                </section>
-
-                <!-- Upper dock (sticky nav bar, Use tab, between Subtitle and Text Preset): selected preset, Settings toggle (Preset Set Up / Text Style / Placement) + timeline preview Start -->
-                <div id="useDockU" class="use-dock hidden">
-                    <div id="stageLiveU" class="use-dock-bar stage-live">
-                        <button type="button" id="useDockCog" class="use-dock-cog" aria-expanded="false" aria-controls="useDockBodyU" aria-label="Settings"
-                            title="Settings: Preset Set Up, Text Style and Placement"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-                        <span id="useDockName" class="use-dock-name" title="Selected preset"></span>
-                        <div class="stage-live-btns">
-                            <button type="button" id="liveRemoveU" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove</button>
-                            <button type="button" id="liveApplyU" class="live-apply" title="Start timeline preview for the selected text preset">Start</button>
-                        </div>
-                        <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
-                    </div>
-                    <div id="useDockBodyU" class="use-dock-body hidden">
+    <!-- ============================ SETTINGS sheet (header gear): Style | Placement | App (js/ui/settings-sheet.js) ============================ -->
+    <div id="settingsBackdrop" class="sheet-backdrop hidden"></div>
+    <aside id="settingsSheet" class="sheet hidden no-preset" role="dialog" aria-label="Settings" data-st="style">
+        <div class="sheet-head">
+            <div class="seg wide" role="tablist">
+                <button type="button" class="on" data-st="style" role="tab" aria-selected="true">Style</button>
+                <button type="button" data-st="placement" role="tab" aria-selected="false">Placement</button>
+                <button type="button" data-st="app" role="tab" aria-selected="false">App</button>
+            </div>
+            <button type="button" id="settingsClose" class="more-btn" aria-label="Close settings" title="Close">×</button>
+        </div>
+        <div class="sheet-body">
+            <!-- Style: the selected preset's set-up and the font / colour override -->
+            <div class="sheet-pane" data-st="style">
+                <div class="sheet-note">Pick a preset on the Use tab to set it up here.</div>
                         <div id="adjustWrapU" class="adjust-wrap open">
                             <button id="adjustToggle" class="adjust" aria-expanded="true">
                                 <span class="chev">▾</span>
@@ -242,41 +219,99 @@
                             </button>
                             <div id="styleBodyU" class="adjust-body hidden"></div>
                         </div>
-                        <div id="placeWrapU" class="adjust-wrap">
-                            <button type="button" id="placeToggleU" class="adjust" aria-expanded="false">
-                                <span class="chev">▸</span>
-                                <span class="adj-title">Placement</span>
-                                <span id="placeSummaryU" class="adj-sum">Default (top layer)</span>
-                            </button>
-                            <div id="placeBodyU" class="adjust-body hidden">
-                                <div class="place-options-list">
-                                    <div class="place-range" title="Clip track: keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
-                                        <span>Clip track</span>
-                                        <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
-                                    </div>
-                                    <div class="place-range place-audio" title="Audio track: which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as clip track: the same numbers as Clip track (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
-                                        <span>Audio track</span>
-                                        <select id="placeAudioMode">
-                                            <option value="any">Any free track</option>
-                                            <option value="same">Same as clip track</option>
-                                            <option value="own">Own range</option>
-                                        </select>
-                                    </div>
-                                    <div id="placeAudioOwn" class="place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
-                                        <span>Audio range</span>
-                                        <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
-                                    </div>
-                                    <label title="Normally locked tracks are ignored when looking for the top layer. Tick this to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><input type="checkbox" id="placeLocked"> <span>Add on top of locked tracks</span></label>
-                                    <label title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Tick this to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><input type="checkbox" id="placeDisabledTrack"> <span>Add on top of disabled tracks</span></label>
-                                    <label title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Tick this to count disabled clips as occupying their layer."><input type="checkbox" id="placeDisabledClip"> <span>Add on top of disabled clips</span></label>
-                                    <label title="Tick this if Resolve's Loop is already switched on. Preview in Resolve toggles Loop (Playback > Loop/Unloop) once when it starts and once when it ends, and a toggle cannot read its own state."><input type="checkbox" id="placeLoopOn"> <span>Resolve's Loop is already on</span></label>
-                                    <label title="Instead of the top layer, put the Text+ on the lowest layer that is empty during the subtitle (filling gaps). Locked and disabled tracks are still never used."><input type="checkbox" id="placeFirstEmpty"> <span>Place on the first empty layer</span></label>
-                                </div>
-                            </div>
-                        </div>
+                <div class="inset-caption">Text Style is forced on every preset you add to the timeline yourself.</div>
+            </div>
+
+            <!-- Placement: which tracks a placed clip and its sound go on (js/timeline/placement-menu.js) -->
+            <div class="sheet-pane hidden" data-st="placement">
+                <div class="inset-title">Track routing</div>
+                <div class="inset-group">
+                    <div class="inset-row place-range" title="Clip track: keep the Text+ between these video tracks. It always starts at the From track and moves up past a track that is locked, disabled or busy there. When every track of the range is taken (e.g. stacked captions), the next free track above it is used, or a new one is added. Leave To empty for no upper limit (∞).">
+                        <span>Clip tracks</span>
+                        <span class="place-range-fields">V<input type="number" id="placeRangeFrom" min="2" step="1" placeholder="2"> to V<input type="number" id="placeRangeTo" min="2" step="1" placeholder="∞"></span>
+                    </div>
+                    <div class="inset-row place-range place-audio" title="Audio track: which audio tracks the sound effects go on. Any free track: the lowest free audio track (A1 up). Same as clip track: the same numbers as Clip track (V3 to V5 puts sounds on A3 to A5). Own range: its own A tracks. A range starts at its first track and moves up past a track that is locked or busy; when all are taken, the next free track above it is used, or a new one is added.">
+                        <span>Audio tracks</span>
+                        <select id="placeAudioMode">
+                            <option value="any">Any free track</option>
+                            <option value="same">Same as clip tracks</option>
+                            <option value="own">Own range</option>
+                        </select>
+                    </div>
+                    <div id="placeAudioOwn" class="inset-row place-range hidden" title="Keep the sound effects between these audio tracks. Leave To empty for no upper limit (∞).">
+                        <span>Audio range</span>
+                        <span class="place-range-fields">A<input type="number" id="placeAudioFrom" min="1" step="1" placeholder="1"> to A<input type="number" id="placeAudioTo" min="1" step="1" placeholder="∞"></span>
                     </div>
                 </div>
+                <div class="inset-caption"><span id="placeSummaryU">Default (top layer)</span>. A range starts at its first track and moves up past a busy one; leave “to” empty for no upper limit.</div>
 
+                <div class="inset-title">Layer rules</div>
+                <div class="inset-group">
+                    <label class="inset-row" title="Instead of the top layer, put the Text+ on the lowest layer that is empty during the subtitle (filling gaps). Locked and disabled tracks are still never used."><span>Place on first empty layer</span><input type="checkbox" class="switch" id="placeFirstEmpty"></label>
+                    <label class="inset-row" title="Normally locked tracks are ignored when looking for the top layer. Turn this on to treat a locked track as occupied, so the Text+ is placed above it (it is never put on the locked track itself)."><span>Add on top of locked tracks</span><input type="checkbox" class="switch" id="placeLocked"></label>
+                    <label class="inset-row" title="Normally a disabled (switched-off) track is ignored when looking for the top layer. Turn this on to count it as occupied, so the Text+ goes above it (never onto the disabled track itself, where it would be invisible)."><span>Add on top of disabled tracks</span><input type="checkbox" class="switch" id="placeDisabledTrack"></label>
+                    <label class="inset-row" title="Normally a disabled clip (switched off in its row) is ignored, as if the layer were empty. Turn this on to count disabled clips as occupying their layer."><span>Add on top of disabled clips</span><input type="checkbox" class="switch" id="placeDisabledClip"></label>
+                </div>
+                <div class="inset-caption">Normally the text goes on the top layer and ignores locked or disabled tracks and clips. It is never put on a locked or disabled track itself.</div>
+            </div>
+
+            <!-- App: Resolve behaviour and the panel window -->
+            <div class="sheet-pane hidden" data-st="app">
+                <div class="inset-title">Resolve</div>
+                <div class="inset-group">
+                    <div class="inset-row">
+                        <span class="ir-text"><span>Fusion fixes</span><span class="ir-sub">How placed titles are woken so they render</span></span>
+                        <button id="fusionFixesBtn" type="button" title="Fusion fixes: how placed titles are woken so they render (lighter settings lag less)">Open…</button>
+                    </div>
+                    <label class="inset-row" title="Turn this on if Resolve's Loop is already switched on. Preview in Resolve toggles Loop (Playback > Loop/Unloop) once when it starts and once when it ends, and a toggle cannot read its own state.">
+                        <span class="ir-text"><span>Resolve Loop is already on</span><span class="ir-sub">Keeps the preview's Loop toggle in sync</span></span>
+                        <input type="checkbox" class="switch" id="placeLoopOn"></label>
+                    <label class="inset-row" title="Real-time render: Resolve renders the preview after every change, including each time the playhead lands on another subtitle. Turn off so the timeline doesn't stutter while you jump around (press Render in the viewer when you want a preview).">
+                        <span class="ir-text"><span>Real-time render</span><span class="ir-sub">Renders in Resolve after every change; turn off if the timeline stutters</span></span>
+                        <input type="checkbox" class="switch" id="settingsRealtime" checked></label>
+                </div>
+
+                <div class="inset-title">Window</div>
+                <div class="inset-group">
+                    <label class="inset-row">
+                        <span class="ir-text"><span>Auto-collapse</span><span class="ir-sub">Shrinks to a bar when you click away; hover it to open</span></span>
+                        <input type="checkbox" class="switch" id="autoCollapse" aria-label="Auto-collapse"></label>
+                    <label class="inset-row">
+                        <span class="ir-text"><span>Keep on top</span><span class="ir-sub">Pins the panel above DaVinci Resolve</span></span>
+                        <input type="checkbox" class="switch" id="pin" aria-label="Keep on top" checked></label>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ============================ USE: apply what you have already made ============================ -->
+    <div id="tabApply">
+        <div class="tab-columns">
+            <div class="tab-col-main">
+                <section id="subCard">
+                    <div class="row between">
+                        <span class="label">Subtitle</span>
+                        <span id="subMeta" class="meta">–</span>
+                    </div>
+                    <textarea id="subText" rows="3"
+                        placeholder="Click a subtitle, or move the playhead onto one"></textarea>
+                    <div class="hint" id="subHint"></div>
+                </section>
+
+                <!-- Action bar (sticky, Use tab): selected preset, Customize (Animation timing + Clip controls drawer) and the timeline preview Start. js/app/use-dock.js -->
+                <div id="useDockU" class="use-dock no-preset">
+                    <div id="stageLiveU" class="use-dock-bar stage-live">
+                        <span id="useDockName" class="use-dock-name" title="Selected preset"></span>
+                        <button type="button" id="useCustomizeBtn" class="use-customize" aria-expanded="false" aria-controls="useDockBodyU"
+                            title="Customize: this clip's animation timing and clip controls"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h6M13 4.5h.5M2.5 11.5h.5M7.5 11.5h6"/><circle cx="10.75" cy="4.5" r="1.75"/><circle cx="5.25" cy="11.5" r="1.75"/></svg><span>Customize</span><i class="use-customize-dot" aria-hidden="true"></i></button>
+                        <div class="stage-live-btns">
+                            <button type="button" id="liveRemoveU" class="live-remove hidden" title="Delete the preview clip from the timeline">Remove</button>
+                            <button type="button" id="liveApplyU" class="live-apply" title="Start timeline preview for the selected text preset">Start</button>
+                        </div>
+                        <div class="stage-live-txt"><b>Timeline Preview</b><span>Previews and plays directly on DaVinci Resolve's timeline at the playhead.</span></div>
+                    </div>
+                    <div id="useDockBodyU" class="use-dock-body hidden">
+                        <div class="use-customize-empty">Select a placed clip on the timeline (or start a preview) to adjust its timing and controls here.</div>
                 <div id="timingHome" hidden></div>
                 <section id="timingCard" class="timing-card hidden">
                     <div class="row between tm-head">
@@ -375,6 +410,8 @@
                     <div id="mtHostU" class="mt-panel cc-mt hidden"></div>
                     <div id="clipCtlBody" class="cc-body"></div>
                 </section>
+                    </div>
+                </div>
 
                 <!-- Presets: Text / Effects sub-tabs (js/library/presets-tabs.js) -->
                 <div id="presetsWrap" class="presets-wrap" data-pt="text">
@@ -486,9 +523,11 @@
                 <section>
                     <div class="row between">
                         <span class="label">Your library</span>
-                        <div class="row gap-sm">
-                            <button type="button" id="openFontsFolder" class="ghost" title="Open the folder containing all fonts saved with your presets">Fonts</button>
-                            <button type="button" id="openFolder" class="ghost">Open folder</button>
+                        <button type="button" id="libMore" class="more-btn" title="More: fonts folder, library folder" aria-label="More library actions">⋯</button>
+                        <!-- the ⋯ menu's actions (bindProxyMenu, js/ui/popovers.js) -->
+                        <div id="libMoreItems" class="hidden">
+                            <button type="button" id="openFontsFolder" title="Open the folder containing all fonts saved with your presets">Open fonts folder</button>
+                            <button type="button" id="openFolder" title="Open the library folder in Finder">Open library folder</button>
                         </div>
                     </div>
                     <div id="tagsWrap" class="adjust-wrap tags-wrap">
@@ -792,8 +831,8 @@
                                         <option value="none">No words (pauses only)</option>
                                     </select></label>
                             </div>
-                            <div class="cut-checks">
-                                <label><input id="cut_transcribe" type="checkbox"> Transcribe <span class="cr-sub">clips Resolve has not transcribed yet</span></label>
+                            <div class="inset-group">
+                                <label class="inset-row"><span class="ir-text"><span>Transcribe</span><span class="ir-sub">Clips Resolve has not transcribed yet</span></span><input id="cut_transcribe" type="checkbox" class="switch"></label>
                             </div>
                         </div>
                     </div>
@@ -845,7 +884,9 @@
                                     (Option-drag keeps it). Double-click to listen to the cut there (Option: the original).</div>
                             </div>
                             <details class="cut-more" id="cutNumsBox">
-                                <summary>Exact values <span class="cr-sub">in seconds</span></summary>
+                                <summary>Exact values</summary>
+                                <div class="inset-title">Pause timing <span class="ir-sub">seconds</span></div>
+                                <div class="inset-group pad">
                                 <div id="cutNums" class="cut-grid cut-nums">
                                     <label class="cut-f" title="Shorten over: a pause longer than this many seconds is shortened; shorter pauses are left alone. Lower = tighter cut. Drag the field left / right or type."><span>Shorten over</span><input id="cut_maxPause" type="number" min="0.1" max="5" step="0.02"></label>
                                     <label class="cut-f" title="Leave: what is left of a shortened pause, in seconds (60 % after the words, 40 % before the next ones). Lower = snappier, higher = more breathing room."><span>Leave</span><input id="cut_pauseKeep" type="number" min="0.04" max="3" step="0.02"></label>
@@ -853,12 +894,15 @@
                                     <label class="cut-f" title="Head: silence kept before each clip's first word, in seconds. Everything before it is trimmed."><span>Head</span><input id="cut_headLead" type="number" min="0" max="3" step="0.02"></label>
                                     <label class="cut-f" title="Tail: silence kept after each clip's last word, in seconds. Everything after it is trimmed."><span>Tail</span><input id="cut_tailKeep" type="number" min="0" max="3" step="0.02"></label>
                                 </div>
-                                <div class="cut-sub-head"><span class="label">What counts as silence</span>
-                                    <span class="cr-sub">change these when a cut eats into words; Analyse again after</span></div>
-                                <div class="cut-grid cut-nums cut-det">
-                                    <label class="cut-f" title="Silence level: sound up to this many dB over the room tone counts as silence and can be cut. Lower = only very silent parts are cut, soft word endings and breaths stay."><span>Silence level (dB over room)</span><input id="cut_pauseDb" type="number" min="4" max="30" step="1"></label>
-                                    <label class="cut-f" title="Voice level: a sound this many dB under your voice is not speech (an off-mic murmur, a rustle) and may be cut. Higher = more quiet sounds are kept as speech."><span>Not voice when under (dB)</span><input id="cut_voiceDb" type="number" min="6" max="45" step="1"></label>
                                 </div>
+                                <div class="inset-title">Audio detection <span class="ir-sub">dB</span></div>
+                                <div class="inset-group pad">
+                                <div class="cut-grid cut-nums cut-det">
+                                    <label class="cut-f" title="Silence level: sound up to this many dB over the room tone counts as silence and can be cut. Lower = only very silent parts are cut, soft word endings and breaths stay."><span>Silence level (over room)</span><input id="cut_pauseDb" type="number" min="4" max="30" step="1"></label>
+                                    <label class="cut-f" title="Voice level: a sound this many dB under your voice is not speech (an off-mic murmur, a rustle) and may be cut. Higher = more quiet sounds are kept as speech."><span>Not voice when under</span><input id="cut_voiceDb" type="number" min="6" max="45" step="1"></label>
+                                </div>
+                                </div>
+                                <div class="inset-caption">Change the detection when a cut eats into words, then Analyse again.</div>
                             </details>
                         </div>
                     </div>
@@ -867,13 +911,14 @@
                         <div class="cr-num">3</div>
                         <div class="cr-body">
                             <div class="cr-title">Take out <span class="cr-opt">needs words</span></div>
-                            <div class="cut-checks">
-                                <label><input id="cut_retakes" type="checkbox"> Retakes <span class="cr-sub">keep the last attempt of a line, and cut the talk before it</span></label>
-                                <label><input id="cut_outtakes" type="checkbox"> Outtakes <span class="cr-sub">“Wait, sorry.” “Okay, I go again.” between takes</span></label>
-                                <label><input id="cut_stutters" type="checkbox"> Stutters <span class="cr-sub">“I think I think”</span></label>
-                                <label><input id="cut_fillers" type="checkbox"> Fillers <span class="cr-sub">um, uh (when transcribed)</span></label>
-                                <label title="Kept pieces in which Resolve's transcription heard no words: murmurs, breaths, off-mic talk, and what is left beside a taken-out line. Only with Words from: Resolve transcription. Shown on the waveform; click one there to keep it."><input id="cut_wordless" type="checkbox"> Sounds without words <span class="cr-sub">murmurs, off-mic talk, leftovers beside a taken-out line</span></label>
+                            <div class="inset-group">
+                                <label class="inset-row"><span class="ir-text"><span>Retakes</span><span class="ir-sub">Keeps the last attempt of a line</span></span><input id="cut_retakes" type="checkbox" class="switch"></label>
+                                <label class="inset-row"><span class="ir-text"><span>Outtakes</span><span class="ir-sub">“Wait, sorry.” “Okay, I go again.”</span></span><input id="cut_outtakes" type="checkbox" class="switch"></label>
+                                <label class="inset-row"><span class="ir-text"><span>Stutters</span><span class="ir-sub">“I think I think”</span></span><input id="cut_stutters" type="checkbox" class="switch"></label>
+                                <label class="inset-row"><span class="ir-text"><span>Fillers</span><span class="ir-sub">um, uh</span></span><input id="cut_fillers" type="checkbox" class="switch"></label>
+                                <label class="inset-row" title="Kept pieces in which Resolve's transcription heard no words: murmurs, breaths, off-mic talk, and what is left beside a taken-out line. Only with Words from: Resolve transcription. Shown on the waveform; click one there to keep it."><span class="ir-text"><span>Sounds without words</span><span class="ir-sub">Murmurs, off-mic talk</span></span><input id="cut_wordless" type="checkbox" class="switch"></label>
                             </div>
+                            <div class="inset-caption">Retakes also cut the talk before the kept attempt. Everything taken out is shown on the waveform after Analyse; click a part there to keep it.</div>
                             <details class="cut-more cut-script" id="cutScriptBox">
                                 <summary>Script <span class="cr-sub">optional: paste it for scripted reads (ads, pieces to camera)</span></summary>
                                 <textarea id="cutScript" rows="5" spellcheck="false" placeholder="Paste the script. Each sentence is found in the recording and only its last complete take is kept; everything else (chatter, false starts, pickups) is cut."></textarea>
@@ -920,14 +965,13 @@
                             <div class="cr-title">Build <span class="cr-opt">new timeline</span></div>
                             <div class="cr-sub cut-lock-note">Analyse first: Build uses its plan.</div>
                             <div class="cut-lockable">
-                                <div class="cut-checks cut-checks-2">
-                                    <label><input id="cut_level" type="checkbox"> Level the voice to
-                                        <input id="cut_lufs" type="number" min="-30" max="-8" step="1" class="cut-inline"> LUFS</label>
-                                    <label><input id="cut_copyTransform" type="checkbox"> Keep each clip’s zoom / position</label>
-                                    <label><input id="cut_markers" type="checkbox"> Marker at every retake / stutter cut</label>
-                                    <label>Mark pauses longer than <input id="cut_markPauses" type="number" min="0" max="10" step="0.5" class="cut-inline"> s <span class="cr-sub">0 = off</span></label>
-                                    <label><input id="cut_subtitles" type="checkbox"> Create subtitles from the cut <span class="cr-sub">ready for the Use tab</span></label>
-                                    <label><input id="cut_open" type="checkbox"> Open the cut timeline when done</label>
+                                <div class="inset-group">
+                                <div class="inset-row"><label class="ir-text" for="cut_level">Level the voice</label><span class="ir-end"><input id="cut_lufs" type="number" min="-30" max="-8" step="1" class="cut-inline"> LUFS</span><input id="cut_level" type="checkbox" class="switch"></div>
+                                <label class="inset-row"><span>Keep each clip’s zoom and position</span><input id="cut_copyTransform" type="checkbox" class="switch"></label>
+                                <label class="inset-row"><span>Markers at retake and stutter cuts</span><input id="cut_markers" type="checkbox" class="switch"></label>
+                                <div class="inset-row"><label class="ir-text" for="cut_markPauses"><span>Mark long pauses</span><span class="ir-sub">Longer than this; 0 = off</span></label><span class="ir-end"><input id="cut_markPauses" type="number" min="0" max="10" step="0.5" class="cut-inline"> s</span></div>
+                                <label class="inset-row"><span class="ir-text"><span>Create subtitles from the cut</span><span class="ir-sub">Ready for the Use tab</span></span><input id="cut_subtitles" type="checkbox" class="switch"></label>
+                                <label class="inset-row"><span>Open the cut timeline when done</span><input id="cut_open" type="checkbox" class="switch"></label>
                                 </div>
                                 <div class="pr-bar">
                                     <input id="cutName" type="text" placeholder="Timeline name (default: source + “(cut)”)" spellcheck="false">
@@ -1093,14 +1137,12 @@
                                 <div class="br-setup">
                                     <div class="br-form">
                                         <div id="brFields" class="cut-grid br-fields"></div>
-                                        <details class="br-more">
-                                            <summary>Position, size and timing</summary>
-                                            <div id="brCommon" class="cut-grid br-fields"></div>
-                                        </details>
-                                        <div class="br-sub-bar">
-                                            <label class="br-land-toggle" title="Automatically fill this effect's text fields from the subtitle under the playhead as you scrub or switch effects"><input id="brFromSub" type="checkbox"> <span>Fill from subtitle at playhead</span> <span class="cr-sub br-fill-mode" id="brFromSubMode">auto</span></label>
-                                            <button id="brClearEdits" type="button" class="ghost br-clear-edits hidden" title="Forget the fields you typed in, so Fill from subtitle fills them again">Clear edits</button>
-                                            <label class="br-land-toggle" title="Times the animation to the speech (word transcription when available, else subtitle timing). Predict keys, Quote card, Marker highlight, Tag stack and Receipt printer (word by word) bring each word in as it is spoken; the others land their build on the key word. The In bar is set by this while it is ticked."><input id="brLand" type="checkbox"> <span>Land on the spoken word</span> <span class="cr-sub">words come in as they are said</span></label>
+                                        <div class="inset-group br-toggles">
+                                            <div class="inset-row" title="Automatically fill this effect's text fields from the subtitle under the playhead as you scrub or switch effects">
+                                                <label class="ir-text" for="brFromSub"><span>Fill from subtitle</span><span class="ir-sub br-fill-mode" id="brFromSubMode">auto</span></label>
+                                                <button id="brClearEdits" type="button" class="ghost br-clear-edits hidden" title="Forget the fields you typed in, so Fill from subtitle fills them again">Clear edits</button>
+                                                <input id="brFromSub" type="checkbox" class="switch"></div>
+                                            <label class="inset-row" title="Times the animation to the speech (word transcription when available, else subtitle timing). Predict keys, Quote card, Marker highlight, Tag stack and Receipt printer (word by word) bring each word in as it is spoken; the others land their build on the key word. The In bar is set by this while it is ticked."><span class="ir-text"><span>Land on spoken word</span><span class="ir-sub">Words come in as they are said</span></span><input id="brLand" type="checkbox" class="switch"></label>
                                         </div>
                                         <div id="brFromSubMsg" class="br-fill-msg hidden"></div>
                                         <div class="br-row">
@@ -1136,16 +1178,23 @@
                                     <div class="cut-f br-detected" id="brDetWrap" title="Follows the playhead in Resolve: this is the subtitle the clip goes on"><span>Goes on</span><div id="brDetected" class="br-detected-box">—</div></div>
                                     <label class="cut-f" id="brSubWrap"><span>Subtitle #</span><input id="brSub" type="number" min="1" step="1"></label>
                                 </div>
-                                <div class="cut-grid br-place-nums">
-                                    <label class="cut-f" id="brSecWrap"><span>Seconds</span><input id="brSec" type="number" min="0.5" max="12" step="0.1" placeholder="effect's"></label>
-                                    <label class="cut-f"><span>Track</span><input id="brTrack" type="number" min="0" step="1" placeholder="auto (V2+)"></label>
-                                    <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic to the end)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
-                                </div>
+                                <details class="cut-more br-more" id="brMoreBox">
+                                    <summary>Placement &amp; timing</summary>
+                                    <div class="inset-group pad">
+                                        <div class="cut-grid br-place-nums">
+                                            <label class="cut-f" id="brSecWrap"><span>Seconds</span><input id="brSec" type="number" min="0.5" max="12" step="0.1" placeholder="effect's"></label>
+                                            <label class="cut-f"><span>Track</span><input id="brTrack" type="number" min="0" step="1" placeholder="auto (V2+)"></label>
+                                            <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic to the end)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
+                                        </div>
+                                        <!-- the effect's position, size and timing fields (js/library/broll/form.js) -->
+                                        <div id="brCommon" class="cut-grid br-fields"></div>
+                                    </div>
+                                </details>
                                 <div id="brEnterWrap" class="br-enter-wrap" title="Animation In: left head = where it starts, right head = where it has landed (the gap is its length). Drag the middle to move it. Red line: Resolve playhead inside this clip. Double-click: defaults.">
                                     <div id="brRangeMount"></div>
                                 </div>
-                                <div class="cut-checks">
-                                    <label id="brDraftWrap" title="Renders at half size so it is quicker to make and to scrub in Resolve's viewer. The clip is set to Fit (fills the frame, a little soft) and coloured orange. Finalize it in Placed before you export."><input id="brDraft" type="checkbox"> Draft (fast, half size) <span class="cr-sub">check it in the timeline, Finalize before export</span></label>
+                                <div class="inset-group">
+                                    <label id="brDraftWrap" class="inset-row" title="Renders at half size so it is quicker to make and to scrub in Resolve's viewer. The clip is set to Fit (fills the frame, a little soft) and coloured orange. Finalize it in Placed before you export."><span class="ir-text"><span>Draft, half size</span><span class="ir-sub">Quick to render; Finalize it in Placed before export</span></span><input id="brDraft" type="checkbox" class="switch"></label>
                                 </div>
                                 <div class="pr-bar">
                                     <button id="brPlace" class="primary">Render &amp; place</button>
@@ -1207,34 +1256,31 @@
         <div class="tab-columns">
             <div class="tab-col-main">
                 <section class="cr">
-                    <div class="cr-head">
-                        <span class="label">Job prompt for Claude</span>
-                        <span class="cr-sub">Set each key in SETTINGS (timeline, scope, sizes, spacing, presets), add
-                            keys with + Add key or from the MCP menu at the bottom, then copy the whole prompt into
-                            Claude. "+ if" adds a condition to a key; "note" adds a special note under it.</span>
-                    </div>
-                    <div class="pr-bar">
-                        <button id="promptCopy" class="primary">Copy prompt</button>
-                        <button id="promptSaveDefault" class="ghost" title="Make the current prompt your default">Save as default</button>
-                        <button id="promptReset" class="ghost" title="Put your default back">Reset to default</button>
-                        <button id="promptBuiltIn" class="ghost hidden" title="Drop your saved default and go back to the built-in prompt">Restore built-in</button>
-                        <span class="grow"></span>
-                        <span id="promptEdited" class="pr-edited hidden">edited</span>
-                        <div class="pr-mode">
+                    <div class="pr-bar pr-top">
+                        <div class="pr-mode" role="tablist">
                             <button id="promptModeBuilder" class="on" title="Edit SETTINGS key by key">Builder</button>
                             <button id="promptModeText" title="Edit the whole prompt as plain text">Text</button>
                         </div>
+                        <span id="promptEdited" class="pr-edited hidden">edited</span>
+                        <span class="grow"></span>
+                        <button id="promptCopy" class="primary">Copy prompt</button>
                     </div>
                     <div class="pr-saved">
-                        <span class="pb-add-label">Saved prompts</span>
                         <div class="pr-saved-row">
-                            <select id="promptSavedSel" title="Load a saved prompt exactly as it was saved"></select>
+                            <select id="promptSavedSel" aria-label="Saved prompts" title="Saved prompts: load a prompt exactly as it was saved"></select>
                             <button id="promptSavedToggle" class="icon-btn" title="Save or delete prompts"
                                 aria-label="Save or delete prompts" aria-expanded="false" aria-controls="promptSavedEdit">
                                 <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
                                     <path d="M2 1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.4a1 1 0 0 0-.3-.7l-2.4-2.4a1 1 0 0 0-.7-.3H2zm1 1h1.5v3h6V2h.3L13 4.2V14h-1V9.5a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V14H3V2zm2.5 0h4v2h-4V2zM5 10h6v4H5v-4z" />
                                 </svg>
                             </button>
+                            <button type="button" id="promptMore" class="more-btn" title="More: save as default, reset" aria-label="More prompt actions">⋯</button>
+                        </div>
+                        <!-- the ⋯ menu's actions (bindProxyMenu, js/ui/popovers.js) -->
+                        <div id="promptMoreItems" class="hidden">
+                            <button id="promptSaveDefault" title="Make the current prompt your default">Save as default</button>
+                            <button id="promptReset" title="Put your default back">Reset to default</button>
+                            <button id="promptBuiltIn" class="hidden" title="Drop your saved default and go back to the built-in prompt">Restore built-in</button>
                         </div>
                         <div id="promptSavedEdit" class="pr-saved-edit hidden">
                             <input id="promptSavedTitle" type="text" placeholder="Title" spellcheck="false">
@@ -1261,6 +1307,7 @@
                         <textarea id="promptText" spellcheck="false" wrap="soft"></textarea>
                     </div>
                     <div id="promptStatus" class="status"></div>
+                    <div class="inset-caption pr-help">Set each key in SETTINGS, add keys with + Add key or from the MCP list, then copy the whole prompt into Claude. “+ if” adds a condition to a key; “note” adds a special note under it.</div>
                 </section>
             </div>
         </div>

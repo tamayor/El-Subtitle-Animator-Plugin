@@ -1,28 +1,62 @@
-// Use tab: the upper dock. The cog button in the dock bar opens / closes Preset Set Up, Text Style and Placement under
-// the bar (click, not hover); the open state is remembered. Start / Remove keep their ids (live-preview.js drives them).
+// Use tab: the action bar. It shows the selected preset, Customize and the timeline preview Start / Remove (those keep
+// their ids: live-preview.js drives them). Customize opens a drawer under the bar with the selected clip's Animation
+// timing and Clip controls. It opens by itself when you select a placed clip in Resolve (or pick a MultiText preset,
+// whose Upper / Emphasize / Lower split lives here) and closes again afterwards; a clip that is only under the playhead
+// does not open it, so it stays still during playback. Opening or closing it by hand is remembered (open = stays open).
+// (Preset Set Up, Text Style and Placement are in the Settings sheet, js/ui/settings-sheet.js.)
 (function () {
+    const AUTO_CLOSE_MS = 800;      // clicking from one clip to the next does not close it in between
     let open = false;
+    let auto = false;               // opened by itself: closes by itself too
+    let wantKey = '';               // what asked for it at the last check: the selected clip's id and / or 'mt'; '' = nothing
+    let closeTimer = 0;
 
-    function show(on) {
+    function show(on, save) {
         open = !!on;
         const body = document.getElementById('useDockBodyU');
         if (body) body.classList.toggle('hidden', !open);
-        const cog = document.getElementById('useDockCog');
-        if (cog) {
-            cog.classList.toggle('on', open);
-            cog.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const btn = document.getElementById('useCustomizeBtn');
+        if (btn) {
+            btn.classList.toggle('on', open);
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
-        store.set('sa.useDockOpen', open ? '1' : '0');
+        if (save) store.set('sa.useCustomizeOpen', open ? '1' : '0');
+    }
+    // The button shows a dot while the drawer has something in it (a clip's timing or controls) and it is closed.
+    function syncHas() {
+        const body = document.getElementById('useDockBodyU'), btn = document.getElementById('useCustomizeBtn');
+        if (!body || !btn) return;
+        const has = [...body.children].some(c => c.tagName === 'SECTION' && !c.classList.contains('hidden'));
+        btn.classList.toggle('has', has);
+        body.classList.toggle('empty', !has);
+        // by itself only for a clip selected in Resolve (the cards carry data-selected) or the MultiText split
+        const shown = (el) => !!el && !el.classList.contains('hidden');
+        const mt = document.getElementById('mtHostU');
+        const ids = [...body.children].filter(c => c.tagName === 'SECTION' && shown(c) && c.dataset.selected).map(c => c.dataset.selected);
+        if (shown(mt) && body.contains(mt) && shown(mt.closest('section'))) ids.push('mt');
+        const key = [...new Set(ids)].join(',');
+        if (key === wantKey) return;
+        wantKey = key;
+        clearTimeout(closeTimer);
+        if (key) {                  // a clip was selected, or another one: open (again, if it was closed by hand for the last one)
+            if (!open) { auto = true; show(true, false); }
+        } else if (auto) {
+            closeTimer = setTimeout(() => { if (!wantKey && auto) { auto = false; show(false, false); } }, AUTO_CLOSE_MS);
+        }
     }
     function init() {
         const dock = document.getElementById('useDockU');
         if (!dock) return;
-        let saved = false;
-        saved = store.get('sa.useDockOpen') === '1';
-        show(saved);
+        show(store.get('sa.useCustomizeOpen') === '1', false);
         syncTip();
-        const cog = document.getElementById('useDockCog');
-        if (cog) cog.addEventListener('click', (e) => { e.stopPropagation(); show(!open); });
+        const btn = document.getElementById('useCustomizeBtn');
+        if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); auto = false; clearTimeout(closeTimer); show(!open, true); });
+        const body = document.getElementById('useDockBodyU');
+        if (body) {
+            // cards come and go (no clip selected, docked at the bottom): only their own class / presence matters
+            new MutationObserver(syncHas).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-selected'] });
+            syncHas();
+        }
     }
     // The Timeline Preview status line is hidden; its text (live-preview.js keeps it current) is the Start/Remove buttons' tooltip area.
     function syncTip() {
@@ -36,7 +70,6 @@
         put();
         new MutationObserver(put).observe(txt, { childList: true, subtree: true, characterData: true });
     }
-    window.setUseDockOpen = show;
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 

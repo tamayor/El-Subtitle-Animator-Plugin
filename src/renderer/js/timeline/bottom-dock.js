@@ -50,12 +50,13 @@ function dockPut(card, on, home) {
     dockRefresh();
 }
 
-// The dock always shows its bar (Real-time render); the resize grip and scroll area only while it holds a visible card.
+// The dock shows only while it holds a visible card (its bar has the Real-time render switch, which is also in the
+// Settings sheet: App > Resolve).
 function dockRefresh() {
     const dock = $('bottomDock'), scroll = $('dockScroll');
     if (!dock || !scroll) return;
     const shown = [...scroll.children].some(c => !c.classList.contains('hidden'));
-    dock.classList.remove('hidden');
+    dock.classList.toggle('hidden', !shown);
     dock.classList.toggle('empty', !shown);
     document.body.classList.toggle('dock-on', shown);
     dockPad();

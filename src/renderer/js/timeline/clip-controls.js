@@ -329,6 +329,8 @@ function ccSyncCard() {
 function ccRender(info) {
     const card = $('clipCtlCard');
     if (!card) return;
+    // data-selected = the clip's id while it is selected in Resolve, not just under the playhead (use-dock.js)
+    if (info && !info.none && info.selected) card.dataset.selected = String(info.itemId); else delete card.dataset.selected;
     const hasGrad = !!(info && !info.none && info.gradient && info.gradient.length);
     if (!info || info.none || ((!info.controls || !info.controls.length) && !hasGrad)) {
         ccState.itemId = null;

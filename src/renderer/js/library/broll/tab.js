@@ -200,6 +200,7 @@ function initBrollTab() {
         key: 'br', values: BR_TABS, buttons: '.presets-tab[data-br]', storageKey: 'brTab', restoreFires: true,
         onChange: (t) => { if (t === 'placed') brLoadPlaced(); }
     });
+    rememberDetails($('brMoreBox'), 'sa.brMoreOpen');   // Placement & timing
     $('brPlace').addEventListener('click', () => brPlace(false));
     $('brPlaceNew').addEventListener('click', () => brPlace(true));
     $('brStopEdit').addEventListener('click', () => brEdit(null));

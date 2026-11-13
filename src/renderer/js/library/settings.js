@@ -4,7 +4,9 @@
 function renderSettings() {
     const a = selected();
     $('settings').classList.add('hidden');   // the Use-tab settings box is empty now (its controls live in the sticky header): never show it
-    if ($('useDockU')) $('useDockU').classList.toggle('hidden', !a);   // the sticky nav bar needs a selected preset
+    // no preset: the action bar keeps only Customize (a selected clip's timing and controls still show in its drawer)
+    if ($('useDockU')) $('useDockU').classList.toggle('no-preset', !a);
+    if ($('settingsSheet')) $('settingsSheet').classList.toggle('no-preset', !a);
     if ($('useDockName')) $('useDockName').textContent = a ? a.name : '';
     if (!a) return;
     syncUse(false);
@@ -28,7 +30,7 @@ function setAdjustOpen(wanted) {
         const chev = $('adjustToggle').querySelector('.chev');
         if (chev) chev.textContent = open ? '▾' : '▸';
     }
-    if (open) renderTimeline(CTX.U);
+    if (open && ctxVisible(CTX.U)) renderTimeline(CTX.U);   // drawn when the Settings sheet shows it (it has no width while hidden)
 }
 
 function setTdOpen(open) {
@@ -263,7 +265,7 @@ function renderPin() {
     const on = state.lib.alwaysOnTop !== false;
     const btn = $('pin');
     if (!btn) return;
-    btn.classList.toggle('on', on);
+    btn.checked = on;                 // a switch in the Settings sheet (App > Window)
     btn.title = on
         ? 'Pinned above DaVinci Resolve (click to unpin)'
         : 'Pin panel above DaVinci Resolve';

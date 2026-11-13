@@ -1,49 +1,35 @@
-/* Use tab: the upper dock (js/app/use-dock.js), a sticky nav bar at the top of the Use tab (above Text Presets). Settings toggle on the left opens Preset Set Up / Text Style /
-   Placement under the bar; the timeline preview Start (and Remove) sit in the bar's right corner. */
+/* Use tab: the action bar (js/app/use-dock.js), sticky at the top of the Use tab. Selected preset on the left, then
+   Customize and the timeline preview Start (and Remove). Customize opens a drawer under the bar with the selected
+   clip's Animation timing and Clip controls. */
 
 .use-dock {
     position: sticky;
     top: 0;
     z-index: 50;
-    margin: 0 0 12px;
-    background: var(--bg);
-    border: 1px solid rgba(255, 255, 255, .16);
-    border-radius: 12px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+    margin: 0 0 var(--space-5);
+    background: var(--surface-pop);
+    border: 0;
+    border-radius: var(--radius-card);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
 }
 
 .use-dock-bar.stage-live {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "cog name btns";
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "name customize btns";
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
     border: 0;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, .03);
+    border-radius: var(--radius-card);
+    background: none;
 }
-
-.use-dock-toggle {
-    grid-area: toggle;
-    justify-self: start;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border-radius: var(--radius-lg);
-    border: 1px solid rgba(255, 255, 255, .16);
-    background: rgba(255, 255, 255, .07);
-    color: inherit;
-    font-size: var(--font-lg);
-    font-weight: 600;
-    cursor: pointer;
-}
-.use-dock-toggle:hover { background: rgba(255, 255, 255, .12); }
-.use-dock-toggle.pinned { border-color: var(--strawberry-border, rgba(240, 123, 142, .4)); background: rgba(240, 123, 142, .12); }
-.use-dock-toggle .chev { color: var(--matcha, #7bc98a); font-size: var(--font-sm); }
 
 .use-dock.hidden { display: none; }
+/* no preset selected: nothing to name or start. The bar stays only for a selected clip's timing / controls. */
+.use-dock.no-preset .use-dock-name,
+.use-dock.no-preset .stage-live-btns { display: none; }
+.use-dock.no-preset:not(:has(.use-dock-body > section:not(.hidden))) { display: none; }
 .use-dock-name {
     grid-area: name;
     justify-self: start;
@@ -51,26 +37,53 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--strawberry-border, rgba(240, 123, 142, .48));
-    color: var(--strawberry, #f07b8e);
-    font-size: var(--font-md);
+    color: var(--text);
+    font-size: var(--font-lg);
     font-weight: 600;
 }
 .use-dock-name:empty { display: none; }
 
-.use-dock-bar .stage-live-btns { grid-area: btns; justify-self: end; gap: 6px; }
-.use-dock-bar .stage-live-btns button { flex: none; min-width: 74px; padding: 7px 16px; }
+.use-dock-bar .stage-live-btns { grid-area: btns; justify-self: end; gap: var(--space-3); }
+.use-dock-bar .stage-live-btns button { flex: none; min-width: 74px; padding: 7px 16px; border-color: transparent; }
+.use-dock-bar .stage-live-btns .live-apply { background: var(--matcha); color: var(--matcha-ink); }
+.use-dock-bar .stage-live-btns .live-apply:hover { background: var(--matcha-hover); filter: none; }
 
-/* The Timeline Preview status is the bar's hover tooltip (use-dock.js copies it into the bar's title). */
+/* The Timeline Preview status is the bar's hover tooltip (use-dock.js copies it into the buttons' title). */
 .use-dock-bar .stage-live-txt { display: none; }
 
+/* Customize: opens / closes the drawer. A dot shows while a clip's controls wait inside a closed drawer. */
+.use-customize {
+    grid-area: customize;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 7px var(--space-5);
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: var(--dim);
+    font-size: var(--font-md);
+    font-weight: 500;
+}
+.use-customize:hover { background: var(--surface-hover); color: var(--text); }
+.use-customize.on { background: var(--surface-raised); color: var(--text); }
+.use-customize-dot {
+    display: none;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--matcha);
+}
+.use-customize.has:not(.on) .use-customize-dot { display: block; }
+
 .use-dock-body {
-    display: grid;
-    gap: 8px;
-    padding: 8px 10px 10px;
-    border-top: 1px solid rgba(240, 123, 142, .2);
+    display: block;
+    padding: var(--space-2) var(--space-5) var(--space-5);
+    border-top: 1px solid var(--hairline);
     max-height: 60vh;
     overflow-y: auto;
     opacity: 1;
@@ -78,9 +91,9 @@
     transition: max-height 0.28s cubic-bezier(.2, .7, .2, 1), padding 0.28s cubic-bezier(.2, .7, .2, 1),
         opacity 0.2s ease, transform 0.28s cubic-bezier(.2, .7, .2, 1), border-color 0.2s ease;
 }
-/* closed: collapsed instead of display:none, so opening and closing animate */
+/* closed: collapsed instead of display:none, so opening and closing animate and the cards inside keep their width */
 .use-dock-body.hidden {
-    display: grid;
+    display: block;
     max-height: 0;
     padding-top: 0;
     padding-bottom: 0;
@@ -94,23 +107,18 @@
     .use-dock-body { transition: none; }
 }
 
-/* Cog: click opens / closes Preset Set Up, Text Style and Placement (js/app/use-dock.js). */
-.use-dock-cog {
-    grid-area: cog;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border-radius: var(--radius-lg);
-    border: 1px solid rgba(255, 255, 255, .16);
-    background: rgba(255, 255, 255, .07);
-    color: var(--dim);
-    cursor: pointer;
+/* the cards inside lose their own frame: the drawer is the frame */
+.use-dock-body > section {
+    margin: 0;
+    padding: var(--space-4) 0 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
 }
-.use-dock-cog svg { transition: transform 0.25s ease; }
-.use-dock-cog:hover { color: var(--text); background: rgba(255, 255, 255, .12); }
-.use-dock-cog.on { color: var(--matcha, #7bc98a); border-color: var(--matcha-border, rgba(123, 201, 138, .45)); background: var(--matcha-tint, rgba(123, 201, 138, .12)); }
-.use-dock-cog.on svg { transform: rotate(60deg); }
-body.compact .use-dock-cog { width: 26px; height: 26px; }
+.use-dock-body > section:not(.hidden) ~ section:not(.hidden) {
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--hairline);
+}
+.use-customize-empty { display: none; padding: var(--space-4) 0 0; font-size: var(--font-md); color: var(--dim); }
+.use-dock-body.empty > .use-customize-empty { display: block; }

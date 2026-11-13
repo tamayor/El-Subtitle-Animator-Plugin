@@ -47,7 +47,8 @@ const CTX = {
 };
 
 function ctxVisible(ctx) {
-    if (ctx.s === 'U') return state.tab === 'apply' && state.adjustOpen && !!state.use;
+    // Use: Preset Set Up lives in the Settings sheet (Style pane), reachable from every tab
+    if (ctx.s === 'U') return settingsSheetPane() === 'style' && state.adjustOpen && !!state.use;
     return state.tab === 'library' && state.createAdjustOpen !== false && !!libEntry(state.createId);
 }
 

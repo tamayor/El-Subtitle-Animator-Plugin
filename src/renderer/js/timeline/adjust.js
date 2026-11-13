@@ -11,7 +11,8 @@ function fillAdjust(ctx) {
 
 // Real-time render (Use tab): whether Resolve renders the selected preset with the subtitle after every change,
 // including each time the playhead lands on another subtitle. Off keeps Resolve free while you jump around the
-// timeline; the Render button then renders on demand. Shown both by the scrub view and in the bottom dock.
+// timeline; the Render button then renders on demand. Shown by the scrub view, in the bottom dock's bar (while cards
+// are docked there) and in the Settings sheet (App > Resolve).
 if (store.get('sa.autoRender') === '0') state.autoRender = false;
 function syncAutoRenderUI() {
     const on = state.autoRender !== false;
@@ -23,6 +24,8 @@ function syncAutoRenderUI() {
     }
     if (renderBtn) renderBtn.classList.toggle('hidden', on);
     if (dockChk) dockChk.checked = on;
+    const setChk = $('settingsRealtime');
+    if (setChk) setChk.checked = on;
 }
 function setAutoRender(on) {
     state.autoRender = !!on;
@@ -99,6 +102,8 @@ function bindAdjust(ctx) {
         if (state.scrubLoop && state.scrubLoop[S]) stopScrubLoop(ctx); else { stopPreview(); startScrubLoop(ctx); }
     });
     // Use tab only: whether the subtitle render in Resolve happens after every change or on demand
+    const setChk = $('settingsRealtime');
+    if (S === 'U' && setChk) { setChk.addEventListener('change', () => setAutoRender(setChk.checked)); syncAutoRenderUI(); }
     const autoBtn = $('scrubAuto' + S), renderBtn = $('scrubRender' + S);
     if (S === 'U' && autoBtn && renderBtn) {
         autoBtn.addEventListener('click', () => setAutoRender(!state.autoRender));

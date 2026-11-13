@@ -43,6 +43,10 @@ Feature folders (one concern per file; add to the file that owns the concern, or
 | Sub-tab bar | `bindTabGroup(root, { key, values, buttons, storageKey, onChange, panes })` (`js/ui/tabs.js`); see `presets-tabs.js`, `create-tabs.js`, `brSubTab`, `cutSubTab`, `.rv-tabs` | toggling `.on` / `aria-selected` / `data-*` / pane `.hidden` by hand |
 | Slider row (caption + range + value read-out) | `sliderRow({ label, min, max, value, format, tip, onInput, onChange, onReset, onGrab, onRelease, setup, cls })` (`js/ui/inspector-row.js`) | another `.fx-strength` row built by hand |
 | Popover, menu, confirm | `openPop`, `openConfirmPop`, `closePop` (`js/ui/popovers.js`) | a custom show/hide dropdown |
+| A `⋯` menu of secondary actions | `bindProxyMenu(btn, holder)` (`js/ui/popovers.js`): the real buttons stay in a `.hidden` holder with their ids and handlers | a row of ghost buttons beside the primary action |
+| Mode switch (segmented control) | `.seg` (or the existing `.presets-tabs`, `.pr-mode`) + `bindTabGroup` (`css/primitives.css`) | a new pill-bar style |
+| On / off option | `<label class="inset-row">` text + `<input type="checkbox" class="switch">` inside an `.inset-group`, with `.inset-title` / `.inset-caption` (`css/primitives.css`) | a bare checkbox with its explanation inline |
+| App-wide setting | a row in the Settings sheet (`#settingsSheet`, panes Style / Placement / App; `openSettingsSheet(pane)` in `js/ui/settings-sheet.js`) | a new header button |
 | Frame range bar, word lane | `frameRangeBar`, `wordLane` (`js/components/frame-range.js`), the reference component shape | a new range bar |
 | Prompt text format | `parseJobPrompt`, `serializeJobPrompt`, `pbParse*` / `pbJoin*`, `pbSplitFont(v, fonts)` (`js/library/prompt/parser.js`); prompt upgrades in `prompt/migrations.js` | parsing prompt text inside UI code |
 
@@ -63,6 +67,10 @@ Rules for panel code:
 - No inline `style="..."` in `index.html` or template strings. Use a class (`.hidden`, `.row.gap-sm`, `.svg-defs`, a feature class).
 - Feature CSS lays out and scopes. It doesn't redeclare `.ghost`, input focus rings or card borders.
 - Highlights use the app palette tokens `--matcha` / `--strawberry`; the Cut tab kinds are `--cut-*` / `--mark-*`.
+- Surfaces read by tone, not outlines (plan: `../APPLE_UI_DESIGN_PLAN.md`): `--bg` → `--card` → `--card-inner` (inset group) →
+  `--surface-raised` (a control on an inset group); `--surface-pop` for sheets and popovers. Dividers inside a group are
+  `--hairline`. One `button.primary` (matcha fill) per view; selection is matcha; `--strawberry` is for destructive
+  actions and `--playhead` for playheads.
 
 ## Main process: what to use
 

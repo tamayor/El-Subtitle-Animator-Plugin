@@ -3,19 +3,16 @@
 /* ---------- clean sectioning & open-section highlights ---------- */
 section {
     background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 13px;
-    margin-bottom: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    border: 1px solid transparent;      /* tonal surface: the card reads by contrast, not by an outline */
+    border-radius: var(--radius-card);
+    padding: 14px;
+    margin-bottom: var(--space-5);
     transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 section.active-section {
     position: relative;
-    background: linear-gradient(180deg, rgba(240, 123, 142, 0.07) 0%, var(--card) 90px);
-    border-color: var(--strawberry-border);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(240, 123, 142, 0.18);
+    border-color: var(--matcha-border);
 }
 
 .sec-head {
@@ -25,7 +22,7 @@ section.active-section {
     gap: 8px;
     padding-bottom: 8px;
     margin-bottom: 8px;
-    border-bottom: 1px solid rgba(240, 123, 142, 0.2);
+    border-bottom: 1px solid var(--hairline);
     flex-wrap: wrap;
 }
 
@@ -40,8 +37,8 @@ section.active-section {
 .layout-modes-bar {
     display: inline-flex;
     align-items: center;
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid var(--line);
+    background: var(--seg-track);
+    border: 0;
     border-radius: var(--radius-lg);
     padding: 2px;
     gap: 2px;
@@ -80,23 +77,22 @@ section.active-section {
 
 .layout-mode-btn.on {
     color: var(--text-bright);
-    background: var(--card-inner);
-    border-color: var(--strawberry-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-seg);
     -webkit-text-fill-color: var(--text-bright);
 }
 
 .layout-mode-btn.on svg {
-    color: var(--strawberry);
+    color: var(--matcha);
     opacity: 1;
 }
 
 .active-badge {
     font-size: var(--font-sm);
     font-weight: 600;
-    color: var(--strawberry-hover);
-    background: var(--strawberry-tint);
-    border: 1px solid var(--strawberry-border);
+    color: var(--matcha);
+    background: var(--matcha-tint);
+    border: 0;
     padding: 2px 9px;
     border-radius: 99px;
     max-width: 65%;
@@ -134,7 +130,7 @@ section.active-section {
 }
 
 section.active-section>.sec-head .label {
-    color: var(--strawberry);
+    color: var(--matcha);
 }
 
 .meta {
@@ -181,7 +177,7 @@ select {
     width: 100%;
     background: var(--card-inner);
     color: var(--text);
-    border: 1px solid var(--line);
+    border: 1px solid var(--hairline);
     border-radius: var(--radius-lg);
     padding: 8px 10px;
     font: inherit;
@@ -198,9 +194,9 @@ select:focus {
 }
 
 button {
-    background: #252c27;
+    background: var(--surface-raised);
     color: var(--text);
-    border: 1px solid var(--line);
+    border: 1px solid transparent;
     border-radius: var(--radius-lg);
     padding: 7px 11px;
     font: inherit;
@@ -211,8 +207,7 @@ button {
 }
 
 button:hover {
-    background: #2f3832;
-    border-color: #3a463e;
+    background: var(--surface-raised-hover);
 }
 
 button.ghost {
@@ -224,7 +219,7 @@ button.ghost {
 
 button.ghost:hover {
     color: var(--text);
-    background: rgba(140, 207, 142, 0.1);
+    background: var(--surface-hover);
 }
 
 button.icon-btn {
@@ -242,7 +237,7 @@ button.icon-btn {
 
 button.icon-btn:hover {
     color: var(--text);
-    background: rgba(140, 207, 142, 0.1);
+    background: var(--surface-hover);
 }
 
 button.icon-btn.on {
@@ -256,14 +251,13 @@ button.primary {
     padding: 12px;
     font-size: 14px;
     font-weight: 600;
-    background: linear-gradient(135deg, var(--matcha) 0%, #78c27b 100%);
+    background: var(--matcha);
     color: var(--matcha-ink);
     border: 0;
-    box-shadow: 0 2px 10px rgba(140, 207, 142, 0.22);
 }
 
 button.primary:hover {
-    background: linear-gradient(135deg, var(--matcha-hover) 0%, #8cd48e 100%);
+    background: var(--matcha-hover);
 }
 
 button:disabled {

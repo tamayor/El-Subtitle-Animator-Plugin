@@ -1,6 +1,6 @@
-// The placement drawer below Alignment (track / lock options, remembered per computer).
+// Placement (Settings sheet > Placement; track / lock options, remembered per computer).
 
-// ---- Placement drawer below Alignment (all unchecked by default; remembered per computer)
+// ---- Placement options (all off by default; remembered per computer). loopOn is shown under App > Resolve.
 const PLACE_IDS = { locked: 'placeLocked', disabledTrack: 'placeDisabledTrack', disabledClip: 'placeDisabledClip', firstEmpty: 'placeFirstEmpty', loopOn: 'placeLoopOn' };
 // Clip track range: "Clip track V<from> to V<to>" (to empty = no upper limit). null = not set.
 const PLACE_RANGE_IDS = { rangeFrom: 'placeRangeFrom', rangeTo: 'placeRangeTo' };
@@ -23,17 +23,6 @@ function placeOptions() {
     return o;
 }
 function placeRangeActive(o) { return !!(o.rangeFrom || o.rangeTo); }
-function setPlaceOpen(wanted) {
-    state.placeOpen = !!wanted;
-    const body = $('placeBodyU'), wrap = $('placeWrapU'), toggle = $('placeToggleU');
-    if (body) body.classList.toggle('hidden', !state.placeOpen);
-    if (wrap) wrap.classList.toggle('open', state.placeOpen);
-    if (toggle) {
-        toggle.setAttribute('aria-expanded', state.placeOpen ? 'true' : 'false');
-        const chev = toggle.querySelector('.chev');
-        if (chev) chev.textContent = state.placeOpen ? '▾' : '▸';
-    }
-}
 // The main process keeps a copy, so placements made through Claude (MCP) follow the same settings.
 function pushPlaceOptions() {
     try { if (window.sa && window.sa.setPlaceOptions) window.sa.setPlaceOptions(placeOptions()).catch(() => { }); } catch (e) { /* optional */ }
@@ -84,7 +73,8 @@ function bindPlacementMenu() {
         const range = placeRangeActive(o);
         const own = $('placeAudioOwn');
         if (own) own.classList.toggle('hidden', o.audioMode !== 'own');
-        const n = Object.keys(PLACE_IDS).filter(k => o[k]).length + (range ? 1 : 0) + (o.audioMode !== 'any' ? 1 : 0);
+        // loopOn is saved with these but is shown under App > Resolve: it is not a Placement option
+        const n = Object.keys(PLACE_IDS).filter(k => k !== 'loopOn' && o[k]).length + (range ? 1 : 0) + (o.audioMode !== 'any' ? 1 : 0);
         const summary = $('placeSummaryU');
         const rangeTxt = range ? 'V' + (o.rangeFrom || 2) + '–' + (o.rangeTo ? 'V' + o.rangeTo : '∞') : '';
         if (summary) {
@@ -94,12 +84,6 @@ function bindPlacementMenu() {
         }
         if ($('placeBtn')) $('placeBtn').textContent = 'Placement' + (n ? ' (' + n + ')' : '') + ' ▴';
     };
-    if ($('placeToggleU')) {
-        $('placeToggleU').addEventListener('click', (e) => {
-            e.stopPropagation();
-            setPlaceOpen(!state.placeOpen);
-        });
-    }
     const btn = $('placeBtn'), menu = $('placeMenu');
     if (btn && menu) {
         const setOpen = (open) => { menu.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };

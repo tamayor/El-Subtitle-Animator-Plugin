@@ -31,6 +31,17 @@ Notable changes to El Subtitle Animator. The plugin's version is in `package.jso
 - **Match Cut** effect card and MCP tool `match_cut` (`src/main/match-cut.js`, `src/python/news_match_cut.py`): a
   news-article match cut of one word, placed at the playhead.
 
+### Changed
+
+- **Panel layout, Apple-style pass** (plan: `../APPLE_UI_DESIGN_PLAN.md`): a one-row header (status dot + timeline name,
+  Rescan, Settings gear); the six tabs are always visible (the Text menu is gone); a Settings sheet
+  `Style | Placement | App` holds Preset Set Up, Text Style, Placement, Fusion fixes, Resolve Loop, Real-time render,
+  Auto-collapse and Keep on top. The Use tab's action bar has **Customize**: a drawer with Animation timing and Clip
+  controls that opens when a placed clip is selected. Cut and Broll options are grouped switch rows; Library and Prompt
+  keep their secondary actions in `⋯` menus; `Exact values`, `Script` and `Placement & timing` remember open / closed.
+  Surfaces read by tone instead of outlines and selection is matcha. Shared pieces: `css/primitives.css`,
+  `js/ui/settings-sheet.js`, `bindProxyMenu`, `rememberDetails`. Switching tabs no longer drops compact mode.
+
 ### Fixed
 
 - Rough cut Build left the endFrame test piece's audio at the head of the cut (it played twice); markers are now off

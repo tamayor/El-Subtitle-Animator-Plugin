@@ -18,39 +18,60 @@ body {
     padding: 14px 14px 44px;
 }
 
+/* One row: title + connection on the left, Rescan and Settings on the right. */
 header {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--line-soft);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
 }
 
-/* second header row: connected timeline, pin, rescan */
 .header-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    min-width: 0;
-}
-
-.header-bar #conn {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: center;
+    gap: var(--space-1);
+    flex: none;
 }
 
 .header-brand {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-4);
     min-width: 0;
+    flex: 1 1 auto;
 }
+
+/* connection: a status dot and the active timeline's name (renderLive sets .on / .off and the text) */
+#conn {
+    position: relative;
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0 0 0 13px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--dim);
+    font-size: var(--font-sm);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#conn::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    margin-top: -3.5px;
+    border-radius: 50%;
+    background: var(--strawberry);
+}
+#conn.on::before { background: var(--matcha); }
+#conn.on,
+#conn.off { color: var(--dim); background: none; border: 0; }
 
 h1 {
     font-size: 15px;

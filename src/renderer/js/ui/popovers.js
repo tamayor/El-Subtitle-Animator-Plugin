@@ -38,6 +38,29 @@ function openPop(anchor, cls, build) {
     return el;
 }
 
+// A "more" (⋯) menu whose items are the buttons inside `source` (a hidden holder in the page). Each button keeps its
+// own id, label, title and click handler; picking an item clicks it. Buttons with .hidden are left out, disabled ones
+// are shown disabled, and .danger is carried over.
+function bindProxyMenu(btn, source) {
+    if (!btn || !source) return;
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPop(btn, 'pop-menu', (pop) => {
+            pop.setAttribute('role', 'menu');
+            const srcs = [...source.querySelectorAll('button')].filter(b => !b.classList.contains('hidden'));
+            for (const src of srcs) {
+                const item = createEl('button', { class: 'pop-item' + (src.classList.contains('danger') ? ' danger' : ''), type: 'button', role: 'menuitem', title: src.title || '' },
+                    [createEl('span', 'pop-label', src.textContent.trim())]);
+                item.disabled = src.disabled;
+                item.addEventListener('click', () => { closePop(); src.click(); });
+                pop.appendChild(item);
+            }
+            if (!srcs.length) pop.appendChild(createEl('div', 'pop-empty', 'Nothing to do here'));
+        });
+    });
+}
+
 function openConfirmPop(anchor, opts) {
     const { title = 'Confirm', message = '', confirmText = 'Delete', danger = true, onConfirm } = opts || {};
     return openPop(anchor, 'pop-confirm', (el) => {

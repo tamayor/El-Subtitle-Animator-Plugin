@@ -1,0 +1,219 @@
+/* Shared Apple-style primitives used by every tab: segmented control, grouped inset rows, toggle switch, the "more"
+   (⋯) button and the Settings sheet. Feature CSS lays these out; it does not restyle them. */
+
+/* ---------- segmented control (mode switchers). Buttons carry .on; js/ui/tabs.js bindTabGroup drives them ---------- */
+.seg,
+.presets-tabs,
+.pr-mode {
+    display: inline-flex;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    background: var(--seg-track);
+    border: 0;
+    border-radius: var(--radius-lg);
+    flex: none;
+}
+
+.seg > button,
+.presets-tabs > .presets-tab,
+.pr-mode > button {
+    border: 0;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: var(--font-md);
+    font-weight: 500;
+    line-height: 1.3;
+    padding: var(--space-2) var(--space-5);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.seg > button:hover,
+.presets-tabs > .presets-tab:hover,
+.pr-mode > button:hover {
+    color: var(--text);
+    background: transparent;
+}
+
+.seg > button.on,
+.presets-tabs > .presets-tab.on,
+.pr-mode > button.on {
+    background: var(--surface-raised);
+    color: var(--text);
+    box-shadow: var(--shadow-seg);
+}
+
+.seg.wide { display: flex; }
+.seg.wide > button { flex: 1; }
+
+/* ---------- toggle switch: a checkbox with class .switch (same element, same events) ---------- */
+input[type=checkbox].switch {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 18px;
+    margin: 0;
+    border-radius: var(--radius-pill);
+    background: var(--switch-off);
+    cursor: pointer;
+    transition: background-color var(--dur-med) var(--ease);
+}
+
+input[type=checkbox].switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--switch-knob);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    transition: transform var(--dur-med) var(--ease);
+}
+
+input[type=checkbox].switch:checked { background: var(--matcha); }
+input[type=checkbox].switch:checked::after { transform: translateX(12px); }
+input[type=checkbox].switch:focus-visible { outline: 2px solid var(--matcha-border); outline-offset: 2px; }
+input[type=checkbox].switch:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- grouped inset rows (System Settings lists): one tonal group, hairlines between rows ---------- */
+.inset-title {
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--dim);
+    padding: 0 var(--space-5);
+    margin: var(--space-5) 0 var(--space-3);
+}
+.inset-title:first-child { margin-top: 0; }
+
+.inset-group {
+    background: var(--card-inner);
+    border-radius: var(--radius-xl);
+    margin: 0 0 var(--space-4);
+}
+.inset-group.pad { padding: var(--space-5); }
+.inset-group.pad > :last-child { margin-bottom: 0; }
+
+.inset-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-5);
+    min-height: 38px;
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--font-md);
+    color: var(--text);
+}
+label.inset-row { cursor: pointer; }
+.inset-row.hidden { display: none; }
+.inset-row + .inset-row { border-top: 1px solid var(--hairline); }
+
+.ir-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+.ir-sub {
+    font-size: var(--font-sm);
+    color: var(--dim);
+    line-height: 1.35;
+}
+.ir-end {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: none;
+    color: var(--dim);
+    white-space: nowrap;
+}
+
+/* a quiet explanation under a group */
+.inset-caption {
+    font-size: var(--font-sm);
+    color: var(--dim);
+    line-height: 1.4;
+    padding: 0 var(--space-5);
+    margin: 0 0 var(--space-5);
+}
+.inset-caption:last-child { margin-bottom: 0; }
+
+/* ---------- "more" (⋯) button; its menu is built by bindProxyMenu (js/ui/popovers.js) ---------- */
+button.more-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    flex: none;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--dim);
+    font-size: 16px;
+    line-height: 1;
+    letter-spacing: 1px;
+}
+button.more-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+/* ---------- Settings sheet (header gear): Style | Placement | App (js/ui/settings-sheet.js) ---------- */
+.sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    background: var(--backdrop);
+    animation: sheetFade var(--dur-med) var(--ease);
+}
+.sheet {
+    position: fixed;
+    top: var(--sheet-top, 44px);
+    right: var(--space-4);
+    z-index: var(--z-sheet);
+    display: flex;
+    flex-direction: column;
+    width: min(380px, calc(100vw - 16px));
+    max-height: calc(100vh - var(--sheet-top, 44px) - 8px);
+    background: var(--surface-pop);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-pop);
+    animation: sheetIn var(--dur-med) cubic-bezier(.2, .8, .2, 1);
+}
+.sheet.hidden,
+.sheet-backdrop.hidden { display: none; }
+@keyframes sheetIn {
+    from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes sheetFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+    .sheet, .sheet-backdrop { animation: none; }
+}
+
+.sheet-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+}
+.sheet-head .seg { flex: 1; }
+.sheet-body {
+    overflow-y: auto;
+    padding: var(--space-2) var(--space-5) var(--space-6);
+}
+.sheet-pane.hidden { display: none; }
+.sheet-pane .adjust-wrap { margin-bottom: var(--space-4); }
+.sheet-note { font-size: var(--font-md); color: var(--dim); padding: var(--space-4) var(--space-5); }
+/* no preset selected (renderSettings sets .no-preset): a note instead of an empty Preset Set Up */
+.sheet:not(.no-preset) .sheet-note,
+.sheet.no-preset #adjustWrapU { display: none; }
+
+/* ---------- Use tab: the Text | Effects bar already names the list, so the lists' own headings are not repeated ---------- */
+#presetsWrap .preset-header-left > .label { display: none; }
+#presetsWrap .preset-header-left { flex: 1 1 auto; }

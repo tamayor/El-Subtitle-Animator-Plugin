@@ -3,16 +3,10 @@
 /* ---------- collapsible alignment drawer & preview stage ---------- */
 .adjust-wrap {
     margin-top: 10px;
-    border: 1px solid var(--line);
+    border: 0;
     border-radius: var(--radius-xl);
     background: var(--card-inner);
     overflow: hidden;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.adjust-wrap.open {
-    border-color: var(--matcha-border);
-    box-shadow: 0 0 0 1px rgba(140, 207, 142, 0.18);
 }
 
 .adjust {
@@ -24,20 +18,19 @@
     background: transparent;
     border: 0;
     border-radius: 0;
-    padding: 9px 11px;
+    padding: 10px 12px;
 }
 
 .adjust:hover {
-    background: rgba(140, 207, 142, 0.07);
+    background: var(--surface-hover);
 }
 
 .adjust-wrap.open .adjust {
-    background: var(--matcha-tint);
-    border-bottom: 1px solid var(--matcha-border);
+    border-bottom: 1px solid var(--hairline);
 }
 
 .adjust .chev {
-    color: var(--matcha);
+    color: var(--dim);
     width: 12px;
     font-weight: 700;
 }
@@ -47,7 +40,7 @@
 }
 
 .adjust-wrap.open .adjust .adj-title {
-    color: var(--matcha-hover);
+    color: var(--text);
 }
 
 .adjust .adj-sum {

@@ -7,11 +7,11 @@
    ===================================================================== */
 .pcard {
     margin-top: 10px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
+    border: 0;
+    border-radius: var(--radius-card);
     background: var(--card-inner);
 }
-.pc-sec + .pc-sec { border-top: 1px solid var(--line-soft); }
+.pc-sec + .pc-sec { border-top: 1px solid var(--hairline); }
 .pc-head {
     display: flex;
     align-items: center;
@@ -55,7 +55,7 @@
 
 /* inset list (like a grouped table in System Settings) */
 .pc-list {
-    border: 1px solid var(--line-soft);
+    border: 0;
     border-radius: var(--radius-xl);
     background: var(--card);
 }
@@ -67,7 +67,7 @@
     padding: 8px 10px;
     min-height: 46px;
 }
-.pc-row + .pc-row, .pc-item + .pc-item { border-top: 1px solid var(--line-soft); }
+.pc-row + .pc-row, .pc-item + .pc-item { border-top: 1px solid var(--hairline); }
 .pc-row-sub {
     min-height: 0;
     padding: 5px 10px 7px 46px;

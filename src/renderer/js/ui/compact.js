@@ -37,15 +37,14 @@ function setCompactPref(v) {
 }
 
 // Auto-collapse (src/main/window.js does the window side): out of focus, the window shrinks to the header bar; hovering
-// it opens it again. The header button switches it on/off (saved as sa.autoCollapse, on by default).
+// it opens it again. The Settings sheet's switch (App > Window) turns it on/off (saved as sa.autoCollapse, on by default).
 function autoCollapseOn() {
     return store.get('sa.autoCollapse') !== '0';
 }
 function syncAutoCollapse(on) {
     const btn = $('autoCollapse');
     if (btn) {
-        btn.classList.toggle('on', on);
-        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.checked = on;             // a switch in the Settings sheet (App > Window)
         btn.title = on
             ? 'Auto-collapse is on: when you click away from the panel it shrinks to this bar; hover it to open it again (click to turn off)'
             : 'Auto-collapse is off: click so the panel shrinks to this bar when you click away from it';

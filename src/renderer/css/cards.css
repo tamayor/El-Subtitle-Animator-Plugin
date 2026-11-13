@@ -11,8 +11,8 @@
 .card {
     position: relative;
     background: var(--card-inner);
-    border: 1px solid var(--line);
-    border-radius: 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-xl);
     padding: 10px 9px 9px;
     cursor: pointer;
     min-height: 58px;
@@ -25,13 +25,12 @@
 }
 
 .card.sel {
-    border-color: var(--strawberry);
-    background: linear-gradient(180deg, var(--strawberry-tint) 0%, rgba(240, 123, 142, 0.05) 100%);
-    box-shadow: 0 0 0 1px var(--strawberry-border);
+    border-color: var(--matcha);
+    background: var(--matcha-tint);
 }
 
 .card.sel .nm {
-    color: #ffd6dc;
+    color: var(--text);
 }
 
 .card.over {
@@ -115,7 +114,7 @@
 
 input[type=range] {
     width: 100%;
-    accent-color: var(--strawberry);
+    accent-color: var(--matcha);
 }
 
 .check {

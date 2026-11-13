@@ -1,11 +1,5 @@
 /* Use tab: Presets section with Text / Effects sub-tabs (js/library/presets-tabs.js) */
 .presets-head { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
-.presets-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-lg); }
-.presets-tab {
-    border: 0; background: transparent; color: var(--dim);
-    font: inherit; font-size: var(--font-sm); padding: 3px 12px; border-radius: var(--radius-md); cursor: pointer;
-}
-.presets-tab:hover { color: var(--text, inherit); }
-.presets-tab.on { background: var(--matcha); color: #14301a; }
+/* the Text | Effects bar is the shared segmented control (css/primitives.css) */
 #presetsWrap[data-pt="text"] > #fxSection { display: none; }
 #presetsWrap[data-pt="fx"] > #presetSection { display: none; }

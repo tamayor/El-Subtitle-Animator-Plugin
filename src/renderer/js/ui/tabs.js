@@ -14,6 +14,17 @@
 //
 // The bar stays controlled by its buttons: it never reads `state` itself.
 
+// A <details> that remembers whether the user left it open (per computer). Only a click on its summary is saved, so
+// code that opens it for a reason (`el.open = true`) does not change what is remembered.
+function rememberDetails(el, storageKey) {
+    if (!el || !storageKey) return;
+    const saved = store.get(storageKey, null);
+    if (saved === '1') el.open = true;
+    else if (saved === '0') el.open = false;
+    const summary = el.querySelector(':scope > summary');
+    if (summary) summary.addEventListener('click', () => setTimeout(() => store.set(storageKey, el.open ? '1' : '0'), 0));
+}
+
 function bindTabGroup(root, opts) {
     const o = opts || {};
     const key = o.key;

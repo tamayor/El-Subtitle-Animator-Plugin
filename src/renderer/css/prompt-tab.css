@@ -127,26 +127,7 @@ body.tab-prompt {
 }
 
 /* ---------------------------------------------------------------- Builder / Text switch */
-.pr-mode {
-    display: inline-flex;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-}
-
-.pr-mode button {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: var(--dim);
-    padding: 5px 12px;
-    font-size: var(--font-md);
-}
-
-.pr-mode button.on {
-    background: var(--matcha-tint);
-    color: var(--matcha);
-}
+/* Builder | Text is the shared segmented control (css/primitives.css) */
 
 /* In Builder mode the text box holds only the rules, so it doesn't need the whole window. */
 #tabPrompt:not(.pr-mode-text) #promptText {
@@ -222,7 +203,7 @@ body.tab-prompt {
     padding: 5px 8px;
     font-size: var(--font-md);
     border-radius: 7px;
-    background: var(--card);
+    background: var(--card-inner);
 }
 
 #promptBuilder input[type=text].pb-key {
@@ -570,7 +551,10 @@ body.tab-prompt {
 }
 
 #promptBuilder .pb-range input[type=number].pb-range-in {
-    width: 72px;
+    flex: 1 1 0;
+    width: 0;               /* shrinks with the value column instead of running under the row's buttons */
+    min-width: 34px;
+    max-width: 72px;
     padding: 5px 8px;
     font-size: var(--font-md);
     color: var(--warn);
@@ -744,11 +728,15 @@ body.tab-prompt {
     align-items: center;
     gap: 8px;
     margin-bottom: 10px;
-    padding: 8px 10px;
-    border: 1px solid var(--matcha-border);
-    border-radius: var(--radius-xl);
-    background: var(--matcha-tint);
+    padding: 0;
+    border: 0;
+    background: none;
 }
+
+/* top bar: Builder | Text on the left, Copy prompt (the tab's one primary action) on the right */
+.pr-top { margin-bottom: var(--space-5); }
+.pr-top button.primary { width: auto; flex: none; padding: 8px 18px; font-size: var(--font-lg); }
+.pr-help { margin-top: var(--space-5); padding: 0; }
 
 .pr-saved select,
 .pr-saved input[type=text] {

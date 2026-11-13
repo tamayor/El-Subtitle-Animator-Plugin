@@ -16,10 +16,12 @@ body.tab-cut { padding-bottom: 24px; }
 .cut-f { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-sm); color: var(--dim); min-width: 0; }
 .cut-f select, .cut-f input { width: 100%; box-sizing: border-box; }
 
-.cut-checks { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; font-size: var(--font-md); }
-.cut-checks label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.cut-checks .cr-sub { font-size: var(--font-sm); }
+/* options are grouped inset rows with switches (css/primitives.css) */
 input.cut-inline { width: 56px; }
+#tabCut .inset-group { margin-bottom: var(--space-5); }
+#tabCut .cr-step .inset-group:last-child { margin-bottom: 0; }
+#tabCut .inset-title .ir-sub { font-weight: 400; margin-left: var(--space-2); }
+#tabCut .inset-group.pad .cut-grid { margin-bottom: 0; }
 
 .cut-msg { font-size: var(--font-sm); color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cut-bar { height: 3px; border-radius: var(--radius-xs); background: var(--line); overflow: hidden; margin: 0 0 8px; }
@@ -61,7 +63,7 @@ input.cut-inline { width: 56px; }
 #tabCut input[type=number] {
     background: var(--card-inner);
     color: var(--text);
-    border: 1px solid var(--line);
+    border: 1px solid var(--hairline);
     border-radius: var(--radius-md);
     padding: 5px 7px;
     font: inherit;
@@ -69,13 +71,15 @@ input.cut-inline { width: 56px; }
     font-variant-numeric: tabular-nums;
     cursor: ew-resize;
 }
+/* inside a (darker) inset group the field is the raised surface */
+#tabCut .inset-group input[type=number] { background: var(--surface-raised); border-color: transparent; }
 #tabCut input[type=number]:focus { outline: none; border-color: var(--matcha-border); cursor: text; }
 
 /* pause visualiser (cutViz in js/library/cut-tab.js) */
 .cut-viz {
     margin: 2px 0 10px;
     padding: 6px 6px 2px;
-    border: 1px solid var(--line);
+    border: 0;
     border-radius: var(--radius-lg);
     background: var(--card-inner);
     user-select: none;
@@ -114,8 +118,7 @@ input.cut-inline { width: 56px; }
 #tabCut .cr-step { padding-bottom: 16px; }
 #tabCut .cr-step.last { padding-bottom: 0; }
 #tabCut .cr-title { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
-#tabCut .cr-step .cut-grid:last-child,
-#tabCut .cr-step .cut-checks:last-child { margin-bottom: 0; }
+#tabCut .cr-step .cut-grid:last-child { margin-bottom: 0; }
 
 /* optional parts of a step (exact values, script) */
 .cut-more { margin: 0; font-size: var(--font-md); }
@@ -124,7 +127,6 @@ input.cut-inline { width: 56px; }
 .cut-more > summary::before { content: '▸'; color: var(--dim); transition: transform .15s; }
 .cut-more[open] > summary::before { transform: rotate(90deg); }
 .cut-more[open] > summary { margin-bottom: 8px; }
-.cut-checks + .cut-more { margin-top: -4px; }
 
 /* progress + status of the running step */
 .cut-run-row { display: flex; align-items: center; gap: 8px; }
@@ -143,9 +145,6 @@ input.cut-inline { width: 56px; }
 #cutRough.has-plan .cut-lock-note { display: none; }
 #cutRough:not(.has-plan) .cut-lockable { opacity: .4; pointer-events: none; }
 #cutRough:not(.has-plan) #cutNum5 { opacity: .5; }
-@media (min-width: 620px) {
-    .cut-checks-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
-}
 
 /* narrow panel: less indent */
 body.compact #tabCut .cr-step { gap: 8px; }
@@ -154,10 +153,12 @@ body.compact #tabCut .cr-step { gap: 8px; }
 .cut-engine.hidden { display: none; }
 /* the step buttons are button-sized, not the full-width primary */
 #tabCut .pr-bar button.primary { width: auto; flex: none; padding: 8px 18px; font-size: var(--font-lg); }
+/* one primary action at a time: once there is a fresh plan, Build is the next step and Analyse steps back */
+#cutRough.has-plan:not(.stale) #cutAnalyze { background: var(--surface-raised); color: var(--text); }
 
 /* ---------------------------------------------------------------- the real waveform (js/library/cut-wave.js) */
 .cut-viz.hidden { display: none; }
-.cut-wave { margin: 2px 0 10px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--card-inner); user-select: none; }
+.cut-wave { margin: 2px 0 10px; padding: 8px; border: 0; border-radius: var(--radius-lg); background: var(--card-inner); user-select: none; }
 .cut-wave canvas { display: block; width: 100%; }
 .cut-wave canvas.hidden { display: none; }
 .cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: var(--font-md); min-width: 0; }

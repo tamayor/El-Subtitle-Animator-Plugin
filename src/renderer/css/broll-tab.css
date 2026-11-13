@@ -73,18 +73,17 @@ body.tab-broll { padding-bottom: 24px; }
 .br-slider-val { font-size: var(--font-sm); color: var(--dim); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
 .br-checks-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 2px; }
 .br-check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: var(--font-md); white-space: nowrap; cursor: pointer; }
-.br-more { margin: 4px 0 8px; font-size: var(--font-md); }
-.br-more summary { cursor: pointer; color: var(--dim); margin-bottom: 8px; }
+.br-more { margin: 4px 0 10px; }
+.br-more .inset-group.pad { display: flex; flex-direction: column; gap: var(--space-4); }
+.br-more .cut-grid { margin: 0; }
+.br-more #brCommon:empty { display: none; }
+#tabBroll .inset-group input[type=number],
+#tabBroll .inset-group select { background: var(--surface-raised); border-color: transparent; }
+.br-toggles { margin: var(--space-4) 0 var(--space-3); }
 .br-row { display: flex; gap: 6px; flex-wrap: wrap; }
-#tabBroll button.ghost { border: 1px solid var(--line); background: var(--card-inner); border-radius: var(--radius-md); padding: 5px 10px; }
-#tabBroll button.ghost:hover:not(:disabled) { border-color: var(--matcha-border); }
-.br-sub-bar {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
-    margin: 8px 0 6px; padding: 7px 10px; border-radius: var(--radius-lg);
-    border: 1px solid var(--line); background: var(--card-inner);
-}
+#tabBroll button.ghost { border: 0; background: var(--surface-raised); border-radius: var(--radius-md); padding: 5px 10px; }
+#tabBroll button.ghost:hover:not(:disabled) { color: var(--text); }
 .br-land-note { margin: 2px 7px 0; font-size: 10.5px; color: var(--matcha); }
-.br-land-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-md); color: var(--text); cursor: pointer; }
 .br-place-nums { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 6px; }
 .br-enter-wrap { margin: 8px 0 4px; }
 .br-fill-mode[data-edited] { color: var(--strawberry); font-weight: 600; }

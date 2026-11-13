@@ -36,10 +36,11 @@ if [ -d "$OLD_DEST" ]; then
 fi
 sudo mkdir -p "$DEST"
 # Only what the plugin needs at runtime: manifest.xml, package.json, main.js and src/ (dev-only files left by
-# older installs are removed from the plugin folder).
+# older installs are removed from the plugin folder). Top-level folders are excluded with a leading "/": a bare
+# 'broll' would also drop src/renderer/js/library/broll/ (the B-roll tab's scripts).
 sudo rsync -a --delete --delete-excluded \
     --exclude '.git' --exclude '.gitignore' --exclude '.DS_Store' --exclude '__pycache__' \
-    --exclude 'node_modules' --exclude 'broll' --exclude '_archive' --exclude '_debug' --exclude 'tools' --exclude 'mcp' --exclude 'test' \
+    --exclude 'node_modules' --exclude '/broll' --exclude '/_archive' --exclude '/_debug' --exclude '/tools' --exclude '/mcp' --exclude '/test' \
     --exclude '*.command' --exclude '*.md' --exclude 'README.txt' --exclude 'eslint.config.mjs' \
     --exclude '.editorconfig' --exclude 'requirements-dev.txt' \
     --exclude 'package-lock.json' \

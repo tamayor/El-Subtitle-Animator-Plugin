@@ -66,7 +66,7 @@ const JXA_HELPER = [
     "function say(t) { sout.writeData($(t + '\\n').dataUsingEncoding($.NSUTF8StringEncoding)); }",
     // Preload AppKit and the Colors panel (hidden) before saying READY: the window-server connection and the panel's
     // own loading (~250 ms) happen here, in the background, instead of after your click.
-    "try { var NSApp0 = $.NSApplication.sharedApplication; NSApp0.setActivationPolicy(1);",
+    "try { var NSApp0 = $.NSApplication.sharedApplication; NSApp0.setActivationPolicy(1); NSApp0.finishLaunching;",
     "  var p0 = $.NSColorPanel.sharedColorPanel; p0.setShowsAlpha(false); p0.setMode(1); p0.setContentSize($.NSMakeSize(264, 372)); p0.center; } catch (e) { }",
     "say('READY');",
     "while (true) {",

@@ -37,6 +37,15 @@ function hideColorLoading() {
 }
 if (window.sa && window.sa.onColorLive) window.sa.onColorLive(() => hideColorLoading());
 
+// Closing the Colors panel never depends on its own close button: clicking back into the app (after it has opened) or
+// pressing Esc closes it, keeping the colour picked so far.
+function closeColorPanel() {
+    if (!colorPanelBusy || Date.now() - colorPanelSince < 600) return;
+    try { window.sa.cancelColor(); } catch (err) { /* ignore */ }
+}
+window.addEventListener('focus', closeColorPanel);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeColorPanel(); }, true);
+
 document.addEventListener('click', async (e) => {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
@@ -65,7 +74,7 @@ document.addEventListener('click', async (e) => {
     setStatus('Opening the colour picker…', '');
     window.addEventListener('blur', () => setStatus(/^Win/i.test(navigator.platform || '')
         ? 'Pick a color in the Windows Color dialog and press OK.'
-        : 'Pick a color in the macOS Colors panel: it applies as you pick. Close the panel (or click the color box again) when done.', ''), { once: true });
+        : 'Pick a color in the macOS Colors panel: it applies as you pick. Click back into the app (or press Esc) when done.', ''), { once: true });
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
     state.colorPicking = false;

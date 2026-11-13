@@ -18,7 +18,7 @@ let colorPanelOpen = false, colorChild = null;
 function isColorPanelOpen() { return colorPanelOpen; }
 const COLOR_CANCEL_FILE = path.join(APP_DATA_DIR, 'color-helper.cancel');
 // Closes the open Colors panel (the colour picked so far is kept). The helper is asked through a file it checks every
-// 60 ms, so it stays warm for the next click; only if it does not answer is it restarted.
+// 30 ms, so it stays warm for the next click; only if it does not answer is it restarted.
 function cancelNativeColor() {
     try { if (colorChild) colorChild.kill('SIGTERM'); } catch (e) { /* ignore */ }
     if (colorViaHelper && jxa) {
@@ -87,18 +87,42 @@ const JXA_HELPER = [
     "      if (a.length >= 5 && a[3] >= 0) panel.setFrameTopLeftPoint($.NSMakePoint(a[3], a[4])); else panel.center;",
     "      try { fm.removeItemAtPathError(CANCEL, null); } catch (e) { }",
     "      panel.makeKeyAndOrderFront(null); panel.orderFrontRegardless; NSApp.activateIgnoringOtherApps(true); say('SHOWN');",
-    "      var last = '', cur = '';",
-    "      while (panel.isVisible) {",
+    "      var last = '', cur = '', wasDown = false, closeHit = false;",
+    // isVisible is not to be trusted while macOS is still activating this helper (it read false while the panel was on
+    // screen, the pick ended at once and the panel stayed up with nothing running it, so even its close button did
+    // nothing). The pick ends only on: the close button (watched below), the app asking (cancel file), or the panel
+    // being seen visible and then staying hidden for 0.5 s. Unseen after 1 s: it is put in front again.
+    "      var since = Date.now(), seen = false, hiddenAt = 0, refronted = false, why = '';",
+    "      while (true) {",
+    "        var vis = panel.isVisible;",
+    "        if (vis) { seen = true; hiddenAt = 0; }",
+    "        else if (seen) { if (!hiddenAt) hiddenAt = Date.now(); else if (Date.now() - hiddenAt > 500) { why = 'panel closed'; break; } }",
+    "        else if (!refronted && Date.now() - since > 1000) { refronted = true; panel.orderFrontRegardless; }",
     // a click on the colour box again (or on another box) asks the panel to close through this file: no helper restart
-    "        if (fm.fileExistsAtPath(CANCEL)) { try { fm.removeItemAtPathError(CANCEL, null); } catch (e) { } panel.orderOut(null); break; }",
-    "        var ev = NSApp.nextEventMatchingMaskUntilDateInModeDequeue(4294967295, $.NSDate.dateWithTimeIntervalSinceNow(0.06), $.NSDefaultRunLoopMode, true);",
+    "        if (fm.fileExistsAtPath(CANCEL)) { try { fm.removeItemAtPathError(CANCEL, null); } catch (e) { } panel.orderOut(null); why = 'asked by the app'; break; }",
+    // While this helper is not the active app the panel's clicks (its close button too) do not get through: watch the
+    // mouse ourselves. A press on the panel makes it active; a click on its close button (top-left corner) closes it.
+    "        var down = (Number($.NSEvent.pressedMouseButtons) & 1) === 1;",
+    "        if (down && !wasDown) {",
+    "          var m = $.NSEvent.mouseLocation, f = panel.frame, top = f.origin.y + f.size.height;",
+    "          var inPanel = m.x >= f.origin.x && m.x <= f.origin.x + f.size.width && m.y >= f.origin.y && m.y <= top;",
+    "          closeHit = inPanel && m.x <= f.origin.x + 24 && m.y >= top - 26;",
+    "          if (inPanel && !panel.isKeyWindow) { NSApp.activateIgnoringOtherApps(true); panel.makeKeyAndOrderFront(null); }",
+    "        }",
+    "        if (!down && wasDown && closeHit) { closeHit = false; panel.orderOut(null); why = 'close button'; break; }",
+    "        wasDown = down;",
+    "        var ev = NSApp.nextEventMatchingMaskUntilDateInModeDequeue(4294967295, $.NSDate.dateWithTimeIntervalSinceNow(0.03), $.NSDefaultRunLoopMode, true);",
     "        if (ev) NSApp.sendEvent(ev);",
     "        var c = panel.color.colorUsingColorSpace($.NSColorSpace.sRGBColorSpace);",
     "        cur = [c.redComponent, c.greenComponent, c.blueComponent].map(function (x) { return Math.round(x * 65535); }).join(',');",
     "        if (cur !== last) { last = cur; say('LIVE ' + cur); }",
     "      }",
+    // never leave a panel on screen once the pick has ended: hide it, let a pending activation land, hide it again
+    "      panel.orderOut(null);",
+    "      for (var k = 0; k < 6; k++) { var ev2 = NSApp.nextEventMatchingMaskUntilDateInModeDequeue(4294967295, $.NSDate.dateWithTimeIntervalSinceNow(0.03), $.NSDefaultRunLoopMode, true); if (ev2) NSApp.sendEvent(ev2); panel.orderOut(null); }",
+    "      say('END ' + why + ' after ' + (Date.now() - since) + ' ms, seen=' + seen);",
     "      say('COLOR ' + (cur || a.join(',')));",
-    "    } catch (e) { say('ERR ' + e); }",
+    "    } catch (e) { try { $.NSColorPanel.sharedColorPanel.orderOut(null); } catch (e2) { } say('ERR ' + e); }",
     "  }",
     "}"
 ].join('\n');
@@ -106,6 +130,10 @@ let jxa = null, jxaReady = false, jxaWait = null, jxaBuf = '';
 function jxaLine(line) {
     line = line.trim(); if (!line) return;
     if (line === 'READY') { jxaReady = true; return; }
+    if (line.indexOf('END ') === 0) {      // why the pick ended, for the B-roll colour trace
+        try { fs.appendFileSync(path.join(APP_DATA_DIR, 'broll-trace.log'), new Date().toISOString() + ' helper ' + line + '\n'); } catch (e) { /* ignore */ }
+        return;
+    }
     if (jxaWait) jxaWait(line);
 }
 function startJxaHelper() {
@@ -125,24 +153,27 @@ function startJxaHelper() {
 }
 function stopJxaHelper() { try { if (jxa) jxa.kill('SIGTERM'); } catch (e) { /* ignore */ } jxa = null; jxaReady = false; }
 // resolves null when the helper cannot be used (caller falls back), otherwise {hex} / {cancelled}
-function pickViaHelper(c, onLive) {
+// Every colour box in the app opens this one Colors panel. A slow or crashed helper is waited for / restarted once, so
+// the other pickers (the "choose color" dialog, then the web picker) only appear when the helper cannot run at all.
+function pickViaHelper(c, onLive, retried) {
     return new Promise((resolve) => {
         if (!jxa) startJxaHelper();
         const t0 = Date.now();
+        const retry = () => { stopJxaHelper(); if (retried) return resolve(null); setTimeout(() => pickViaHelper(c, onLive, true).then(resolve), 300); };
         const go = () => {
-            if (!jxa) return resolve(null);
-            if (!jxaReady) { if (Date.now() - t0 > 6000) { stopJxaHelper(); return resolve(null); } return setTimeout(go, 50); }
+            if (!jxa) return retry();
+            if (!jxaReady) { if (Date.now() - t0 > 12000) return retry(); return setTimeout(go, 50); }
             let shown = false, done = false;
             const fin = (v) => { if (done) return; done = true; clearTimeout(st); jxaWait = null; resolve(v); };
-            const st = setTimeout(() => { if (!shown) { stopJxaHelper(); fin(null); } }, 4000);
+            const st = setTimeout(() => { if (!shown) { done = true; jxaWait = null; retry(); } }, 6000);
             jxaWait = (line) => {
                 if (line === 'SHOWN') { shown = true; clearTimeout(st); return; }
-                if (line === 'CANCEL') return fin({ cancelled: true, shown });
-                if (line.indexOf('ERR') === 0) { if (!shown) { stopJxaHelper(); return fin(null); } return fin({ cancelled: true, shown }); }
+                if (line === 'CANCEL') { if (!shown) { done = true; clearTimeout(st); jxaWait = null; return retry(); } return fin({ cancelled: true, shown }); }
+                if (line.indexOf('ERR') === 0) { if (!shown) { done = true; clearTimeout(st); jxaWait = null; return retry(); } return fin({ cancelled: true, shown }); }
                 if (line.indexOf('LIVE ') === 0) { try { onLive && onLive(line.slice(5)); } catch (e) { /* ignore */ } return; }
                 if (line.indexOf('COLOR ') === 0) return fin({ rgb: line.slice(6) });
             };
-            try { jxa.stdin.write('SHOW ' + c.join(' ') + '\n'); } catch (e) { stopJxaHelper(); fin(null); }
+            try { jxa.stdin.write('SHOW ' + c.join(' ') + '\n'); } catch (e) { done = true; clearTimeout(st); jxaWait = null; retry(); }
         };
         go();
     });

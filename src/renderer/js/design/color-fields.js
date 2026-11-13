@@ -1,7 +1,7 @@
 // Colour boxes (macOS Colors panel / Windows Color dialog / web picker), double-click-to-reset and hex fields.
 
-// Every colour box opens macOS's own Colors panel (your saved swatches, the magnifier, the sliders). Hold Option to get the
-// web colour picker instead. If the system panel cannot open, the web picker is used.
+// Every colour box in the app opens the same picker: macOS's own Colors panel (your saved swatches, the magnifier, the
+// sliders), live as you pick. Only if it cannot open at all is the web colour picker used.
 let colorReopen = null, colorLastTarget = null;
 let colorPanelBusy = false, colorPanelUntil = 0, colorPanelSince = 0, colorLiveTarget = null, colorLiveApplied = false, colorLiveTimer = 0, colorLiveLast = 0;
 if (window.sa && window.sa.onColorLive) window.sa.onColorLive((hex) => {
@@ -48,7 +48,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeColor
 
 document.addEventListener('click', async (e) => {
     const t = e.target;
-    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || e.altKey || !window.sa || !window.sa.pickColor) return;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || !window.sa || !window.sa.pickColor) return;
     e.preventDefault();
     e.stopPropagation();
     // one panel only: further clicks (and the click a label passes on to its box) are ignored while it is open

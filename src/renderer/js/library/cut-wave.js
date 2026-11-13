@@ -139,7 +139,7 @@ function cwDraw() {
     const css = getComputedStyle(document.documentElement);
     const col = n => css.getPropertyValue(n).trim();
     const bg = col('--card-inner') || '#121614', dim = col('--dim') || '#8c9c90', text = col('--text') || '#eff5f0',
-        line = col('--line') || '#28312b', matcha = col('--matcha') || '#8ccf8e';
+        line = col('--line') || '#28312b', matcha = col('--matcha') || '#8ccf8e', playhead = col('--playhead') || '#ff4d3d';
     const v = cwView(c);
     const zoomed = v.d < c.dur - 0.01;
 
@@ -226,7 +226,7 @@ function cwDraw() {
         g.fillStyle = cwUI.drag.keep ? CW_COL.mkeep : CW_COL.manual; g.globalAlpha = 0.3;
         g.fillRect(X(a), CW.W0 - 2, X(b) - X(a), CW.STRIP - CW.W0 + 7); g.globalAlpha = 1;
     }
-    if (cwUI.play && cwUI.play.id === c.id && cwUI.play.t !== null) { g.fillStyle = text; g.fillRect(Math.round(X(cwUI.play.t)), CW.W0 - 4, 1.5, CW.STRIP - CW.W0 + 11); }
+    if (cwUI.play && cwUI.play.id === c.id && cwUI.play.t !== null) { g.fillStyle = playhead; g.fillRect(Math.round(X(cwUI.play.t)) - 1, CW.W0 - 4, 2, CW.STRIP - CW.W0 + 11); }
 
     // overview: the whole clip, with the part in view
     if (zoomed) {

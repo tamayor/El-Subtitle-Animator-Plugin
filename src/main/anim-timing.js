@@ -226,7 +226,9 @@ function rangesFor(info, length, fps) {
         // texts left empty (e.g. "Highlight Select" with only the emphasis filled) get no lane
         const all = info.ranges || [];
         const filled = all.filter(r => !r.empty);
-        return (filled.length ? filled : all).map(r => {
+        // lanes top to bottom in reading order (Upper, Emphasis, Lower), not layer order
+        const ordered = require('./word-fit').readingOrder((filled.length ? filled : all).map(r => ({ ...r, n: Number(r.key), name: r.label })));
+        return ordered.map(r => {
             const start = clamp(r.start, 0);
             return {
                 key: String(r.key), label: r.label || null, hasStart: true,
@@ -463,7 +465,7 @@ async function fitClipToWords(event, itemId) {
 
     if (kind === 'segments') {
         const rows = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
-        const plan = WF.planRows(rows.filter(r => String(r.text || '').trim()).map(r => ({ key: String(r.n), text: r.text })), spoken.words, length);
+        const plan = WF.planRows(WF.readingOrder(rows.filter(r => String(r.text || '').trim())).map(r => ({ key: String(r.n), text: r.text })), spoken.words, length);
         if (!plan || !plan.ranges.length) return { error: 'Could not match the rows\' text to the spoken words' };
         const r = await setClipTiming(event, itemId, plan.ranges, true);
         if (r.error) return r;
@@ -502,7 +504,7 @@ async function fitClipToWords(event, itemId) {
 }
 
 // Word-lane segments for the Animation timing card: from the clip's fitted curve when fitted, else from the cached
-// spoken words. Returns { ok, itemId, target, editable, segs }.
+// spoken words. Returns { ok, itemId, target, editable, segs }; a MultiText clip gets rows (its words per row) instead.
 async function clipWordLane(event, itemId) {
     if (!itemId) return { ok: false };
     const WF = require('./word-fit');
@@ -513,6 +515,12 @@ async function clipWordLane(event, itemId) {
     if (!info || !info.kind) return { ok: true, itemId: String(itemId), editable: false, segs: [] };
     let spoken = { words: [] };
     try { spoken = await spokenWordsFor(start, end, { cachedOnly: true }); } catch (e) { /* none yet */ }
+    if (info.kind === 'segments') {
+        // MultiText: each row's words go inside that row's own range on the bar (rows: [{ key, spoken, words }])
+        const got = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
+        const rows = WF.readingOrder(got.filter(r => String(r.text || '').trim())).map(r => ({ key: String(r.n), text: r.text }));
+        return { ok: true, itemId: String(itemId), target: 'rows', editable: false, segs: [], rows: WF.rowWordFractions(rows, spoken.words) };
+    }
     const out = WF.wordSegsFromInfo(info, spoken.words, length);
     return { ok: true, itemId: String(itemId), target: info.target || null, editable: !!out.editable, segs: out.segs };
 }

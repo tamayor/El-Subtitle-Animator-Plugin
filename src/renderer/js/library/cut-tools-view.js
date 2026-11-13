@@ -188,7 +188,7 @@ function ctvDraw() {
     if (!M) return;
     const css = getComputedStyle(document.documentElement);
     const col = n => css.getPropertyValue(n).trim();
-    const bg = col('--card-inner') || '#121614', dim = col('--dim') || '#8c9c90', text = col('--text') || '#eff5f0', line = col('--line') || '#28312b', matcha = col('--matcha') || '#8ccf8e';
+    const bg = col('--card-inner') || '#121614', dim = col('--dim') || '#8c9c90', text = col('--text') || '#eff5f0', line = col('--line') || '#28312b', matcha = col('--matcha') || '#8ccf8e', playhead = col('--playhead') || '#ff4d3d';
     const g = M.g, w = M.w, v = ctvView();
     const X = f => (f - v.a) / v.d * w;
     const items = ctvItems().filter(i => i.b >= v.a && i.a <= v.a + v.d);
@@ -288,7 +288,7 @@ function ctvDraw() {
     // Resolve's playhead: a red line with a head, as on the timeline
     if (ctv.playF !== null && ctv.playF >= v.a && ctv.playF <= v.a + v.d) {
         const x = Math.round(X(ctv.playF));
-        g.fillStyle = '#ff4d3d';
+        g.fillStyle = playhead;
         g.fillRect(x - 1, 0, 2, CTV.H);
         g.beginPath(); g.moveTo(x - 6, 0); g.lineTo(x + 6, 0); g.lineTo(x + 6, 6); g.lineTo(x, 12); g.lineTo(x - 6, 6); g.closePath(); g.fill();
     }
@@ -302,7 +302,7 @@ function ctvDraw() {
             O.g.fillStyle = 'rgba(255,255,255,0.12)'; O.g.strokeStyle = text; O.g.lineWidth = 1;
             const x0 = (v.a - R.from) / full * O.w, ww = Math.max(4, v.d / full * O.w);
             if (zoomed) { O.g.fillRect(x0, 0, ww, 20); O.g.strokeRect(x0 + 0.5, 0.5, ww - 1, 19); }
-            if (ctv.playF !== null && ctv.playF >= R.from && ctv.playF <= R.to) { O.g.fillStyle = '#ff4d3d'; O.g.fillRect(Math.round((ctv.playF - R.from) / full * O.w) - 1, 0, 2, 20); }
+            if (ctv.playF !== null && ctv.playF >= R.from && ctv.playF <= R.to) { O.g.fillStyle = playhead; O.g.fillRect(Math.round((ctv.playF - R.from) / full * O.w) - 1, 0, 2, 20); }
         }
     }
     void bg;

@@ -91,6 +91,7 @@ function tmBuildLanes() {
         const def = tmEl('div', 'tm-default', area);
         def.title = 'The preset\'s own timing';
         tmEl('div', 'tm-range', area);
+        tmEl('div', 'tm-row-words', area);               // MultiText: this row's words, inside its own range
         const ph = tmEl('div', 'tm-mark tm-playhead hidden', area);
         if (n === 0) tmEl('span', 'tm-ph-label', ph);
         const s = tmEl('div', 'tm-knob tm-start' + (r.hasStart ? '' : ' hidden'), area);
@@ -159,6 +160,7 @@ function renderTiming() {
         ph.classList.toggle('hot', snap === 'playhead');
         def.classList.toggle('hot', snap === 'default');
     });
+    tmPaintRowWords();
     $('timingEnd').textContent = i.length + ' f';
 
     // readouts
@@ -190,6 +192,50 @@ function renderTiming() {
         : 'Heads snap to the playhead, the preset timing (dashed) and each other. Arrow keys: 1 frame (Shift: 5), Alt: move the whole range' +
           (i.ranges.length > 1 ? ', Up / Down: the other text.' : '.');
     if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint();
+}
+
+// MultiText: each row's words drawn inside that row's range (shares a / b of it, from tmState.wordLane.rows), so they
+// move and stretch with the row's heads: dragging a word drags the row, the first word's in is the row's start and
+// the last word's out its end. Strawberry = where the row starts, matcha = where it ends, as on the heads.
+function tmPaintRowWords() {
+    const i = tmState.info, w = tmState.wordLane, bar = $('timingBar');
+    const rows = i && w && w.itemId === i.itemId && Array.isArray(w.rows) ? w.rows : null;
+    const byKey = new Map((rows || []).map(r => [String(r.key), r]));
+    const any = !!rows && i.ranges.some(r => { const x = byKey.get(String(r.key)); return x && x.words.length; });
+    bar.classList.toggle('row-words', any);
+    bar.querySelectorAll('.tm-lane').forEach((lane, n) => {
+        const box = lane.querySelector('.tm-row-words');
+        const r = i.ranges[n];
+        const row = any && r ? byKey.get(String(r.key)) : null;
+        const words = row ? row.words : [];
+        const key = words.length ? r.start + ':' + r.end + ':' + i.length + ':' + JSON.stringify(words) : '';
+        if (box.dataset.key === key) { tmRowWordNow(box, i.playhead); return; }
+        box.dataset.key = key;
+        box.textContent = '';
+        if (!words.length) return;
+        const span = r.end - r.start;
+        words.forEach((x, k) => {
+            const s = r.start + x.a * span, e = r.start + x.b * span;
+            const el = tmEl('div', 'tm-rw' + (k === 0 ? ' first' : '') + (k === words.length - 1 ? ' last' : '') +
+                (row.spoken && x.matched === false ? ' guessed' : ''), box);
+            el.dataset.s = String(s); el.dataset.e = String(e);
+            el.style.left = tmPct(s);
+            el.style.width = (Math.max(0, tmFrac(e) - tmFrac(s)) * 100) + '%';
+            el.textContent = x.label;
+            el.title = '“' + x.label + '” · ' + Math.round(s) + '–' + Math.round(e) + ' f' +
+                (!row.spoken ? ' (spread by letters: no word timings yet)' : x.matched === false ? ' (not heard: placed between its neighbours)' : ' (as it is said)');
+        });
+        tmRowWordNow(box, i.playhead);
+        lane.title = (r.label || 'Row') + ': ' + words.map(x => x.label).join(' ') + ' · drag the words to move the row, its heads to stretch it';
+    });
+}
+
+// The word being said: the one under the playhead in each row lights up.
+function tmRowWordNow(box, ph) {
+    for (const el of box.children) {
+        const on = ph != null && ph >= Number(el.dataset.s) && ph < Number(el.dataset.e);
+        if (el.classList.contains('now') !== on) el.classList.toggle('now', on);
+    }
 }
 
 function tmEsc(s) {
@@ -479,13 +525,15 @@ async function tmLoadWordLane(force) {
                 target: r.target,
                 editable: !!r.editable,
                 segs: Array.isArray(r.segs) ? r.segs : [],
-                hadWords: !!(r.segs && r.segs.length),
+                rows: Array.isArray(r.rows) ? r.rows : null,
+                hadWords: !!(r.segs && r.segs.length) || !!(r.rows && r.rows.some(x => x.spoken)),
                 at: Date.now()
             };
         }
     } catch (e) { /* tried again on the next clip */ }
     tmState.wordLaneAsking = null;
     if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint();
+    if (tmState.info && tmState.info.ranges) tmPaintRowWords();
 }
 async function tmSendWords(wake) {
     const i = tmState.info, w = tmState.wordLane;

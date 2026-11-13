@@ -567,6 +567,7 @@
     "setOnTop:function"
   ],
   "word-fit.js": [
+    "alignRows:function",
     "alignWords:function",
     "frameAtKeys:function",
     "planAnimKeys:function",
@@ -575,6 +576,8 @@
     "planRows:function",
     "planStepKeys:function",
     "planTypingKeys:function",
+    "readingOrder:function",
+    "rowWordFractions:function",
     "speedRange:function",
     "textWords:function",
     "wordSegsFromInfo:function"

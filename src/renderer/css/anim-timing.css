@@ -1,7 +1,8 @@
 /* Use tab: Animation timing bar (js/timeline/anim-timing.js). One lane per range (one for a Text+ preset, one per
    text for a MultiText like "Highlight Select"). Each lane: a start head and an end head with the range between them
    (drag it to move the animation), the preset's own timing as a dashed ghost, and the playhead. Heads snap with an
-   ease-in-out glide. */
+   ease-in-out glide. The track, range, triangle heads and red playhead come from css/frame-range.css, the same
+   look as the Effect presets and B-roll frame ranges. */
 
 .timing-card .tm-bar {
     --tm-ease: cubic-bezier(0.65, 0, 0.35, 1);
@@ -16,7 +17,7 @@
 }
 .timing-card .tm-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: 8px; }
 
-.timing-card .tm-lane { display: flex; align-items: center; gap: 8px; height: 30px; }
+.timing-card .tm-lane { display: flex; align-items: center; gap: 8px; height: 24px; }
 .timing-card .tm-lane-label {
     flex: none;
     width: 58px;
@@ -30,17 +31,6 @@
 .timing-card .tm-lane.active .tm-lane-label { color: var(--matcha); }
 .timing-card .tm-area { position: relative; flex: 1; align-self: stretch; margin: 0 7px; cursor: ew-resize; }
 
-.timing-card .tm-track {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 50%;
-    height: 6px;
-    margin-top: -3px;
-    border-radius: 3px;
-    background: var(--card-inner);
-    border: 1px solid var(--line);
-}
 /* the preset's own timing */
 .timing-card .tm-default {
     position: absolute;
@@ -55,68 +45,49 @@
 }
 .timing-card .tm-default.hot { border-color: var(--matcha); opacity: 1; filter: drop-shadow(0 0 4px var(--matcha)); }
 
-/* the animation: from its start to its end */
-.timing-card .tm-range {
+/* MultiText: each row's words under its line, inside the row's own range (anim-timing.js tmPaintRowWords). The lane
+   grows to fit them; the line, heads and dashed preset timing move to the lane's top part. */
+.timing-card .tm-row-words { position: absolute; left: 0; right: 0; top: 17px; height: 14px; pointer-events: none; }
+.timing-card .tm-bar:not(.row-words) .tm-row-words { display: none; }
+.timing-card .tm-bar.row-words .tm-lane { height: 34px; }
+.timing-card .tm-bar.row-words .tm-track,
+.timing-card .tm-bar.row-words .tm-range { top: 9px; }
+.timing-card .tm-bar.row-words .tm-knob { top: 9px; }
+.timing-card .tm-bar.row-words .tm-default { top: 3px; height: 12px; margin-top: 0; }
+.timing-card .tm-rw {
     position: absolute;
-    top: 50%;
-    height: 8px;
-    margin-top: -4px;
-    border-radius: 4px;
-    background: linear-gradient(90deg, var(--matcha-tint), var(--matcha));
-    pointer-events: none;
+    top: 0;
+    bottom: 0;
+    box-sizing: border-box;
+    padding: 0 3px 0 4px;
+    background: var(--card-inner);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 9.5px;
+    line-height: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: left 0.2s var(--tm-ease), width 0.2s var(--tm-ease);
 }
-.timing-card .tm-range.movable { height: 10px; margin-top: -5px; }
-.timing-card .tm-area:hover .tm-range.movable { box-shadow: 0 0 0 1px var(--matcha-border); }
-.timing-card .tm-bar.dragging .tm-range { box-shadow: 0 0 0 1px var(--matcha); }
-
-.timing-card .tm-knob {
-    position: absolute;
-    top: 50%;
-    width: 12px;
-    height: 20px;
-    margin: -10px 0 0 -6px;
-    border-radius: 4px;
-    background: var(--matcha);
-    border: 2px solid var(--matcha-ink);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
-    pointer-events: none;
-    transition: transform 0.15s var(--tm-ease);
-}
-/* the start head is a hollow bracket, the end head solid */
-.timing-card .tm-knob.tm-start { background: var(--card); border-color: var(--matcha); }
-.timing-card .tm-knob.on { transform: scale(1.12); box-shadow: 0 0 0 2px var(--matcha-tint), 0 1px 4px rgba(0, 0, 0, 0.45); }
-.timing-card .tm-lane:not(.active) .tm-knob { opacity: 0.8; }
+.timing-card .tm-rw::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.timing-card .tm-rw.first::before { width: 2px; background: var(--strawberry); }
+.timing-card .tm-rw.last::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 2px; background: var(--matcha); }
+.timing-card .tm-lane.active .tm-rw { color: var(--text); }
+.timing-card .tm-lane.dragging .tm-rw { background: var(--matcha-tint); transition: none; }
+.timing-card .tm-bar:not(.glide) .tm-rw { transition: none; }
+/* the word being said (under the playhead) and words the speech did not have (placed between their neighbours) */
+.timing-card .tm-rw.now { color: var(--text); background: var(--playhead); background: color-mix(in srgb, var(--playhead) 28%, var(--card-inner)); border-color: var(--playhead); font-weight: 600; }
+.timing-card .tm-rw.guessed { font-style: italic; opacity: 0.7; }
 
 /* glide: on a snap, and on every change that does not come from the pointer */
 .timing-card .tm-bar.glide .tm-knob { transition: left 0.2s var(--tm-ease), transform 0.15s var(--tm-ease); }
 .timing-card .tm-bar.glide .tm-range { transition: left 0.2s var(--tm-ease), width 0.2s var(--tm-ease); }
 
-.timing-card .tm-mark {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 0;
-    pointer-events: none;
-    transition: left 0.2s var(--tm-ease);
-}
-.timing-card .tm-playhead { border-left: 2px solid var(--strawberry); }
-.timing-card .tm-playhead span {
-    position: absolute;
-    bottom: 100%;
-    left: 0;
-    transform: translateX(-50%);
-    padding: 0 4px;
-    border-radius: 4px;
-    background: var(--strawberry);
-    color: var(--strawberry-ink);
-    font-size: 9.5px;
-    font-weight: 600;
-    line-height: 14px;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-}
-.timing-card .tm-mark.hot { filter: drop-shadow(0 0 4px var(--strawberry)); }
-
+/* track, range, heads and playhead: shared with the frame range bar (css/frame-range.css) */
+.timing-card .tm-mark { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; transition: left 0.2s var(--tm-ease); }
+.timing-card .tm-lane:not(.active) .tm-knob { opacity: 0.8; }
 .timing-card .tm-scale {
     display: flex;
     justify-content: space-between;
@@ -198,17 +169,14 @@
     font-variant-numeric: tabular-nums;
 }
 .timing-card.compact .tm-mini b { color: var(--matcha); font-weight: 600; }
-.timing-card.compact .tm-mini .ph { color: var(--strawberry); }
+.timing-card.compact .tm-mini .ph { color: var(--playhead); }
 .timing-card.compact .tm-bar { order: 1; flex: 1 1 180px; min-width: 0; gap: 2px; margin: 0; }
 /* several texts: the lanes get the full width, the readout and tools go under them */
 .timing-card.compact .tm-bar.labelled { flex-basis: 100%; }
 .timing-card.compact .tm-lane { height: 18px; gap: 6px; }
 .timing-card.compact .tm-lane-label { width: 52px; font-size: 9.5px; }
-.timing-card.compact .tm-track { height: 4px; margin-top: -2px; }
-.timing-card.compact .tm-range,
-.timing-card.compact .tm-range.movable { height: 6px; margin-top: -3px; }
+/* the track, range and heads stay the thin shared ones (css/frame-range.css) in every view */
 .timing-card.compact .tm-default { height: 10px; margin-top: -5px; }
-.timing-card.compact .tm-knob { width: 9px; height: 14px; margin: -7px 0 0 -4.5px; border-width: 1.5px; border-radius: 3px; }
 .timing-card.compact .tm-playhead span { display: none; }
 .timing-card.compact #timingDockBtn { display: inline-grid; }
 

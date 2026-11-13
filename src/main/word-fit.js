@@ -19,7 +19,7 @@
 
 module.exports = {
     textWords, alignWords, planAnimKeys, planStepKeys, planTypingKeys, planLinear, planRows, speedRange,
-    frameAtKeys, wordSegsFromInfo, planFromWordSegs
+    frameAtKeys, wordSegsFromInfo, planFromWordSegs, rowWordFractions, readingOrder, alignRows
 };
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
@@ -142,21 +142,109 @@ function planLinear(kind, spoken, length) {
     return { start, end: Math.max(start + 1, Math.round(clampTo(endF, length))) };
 }
 
-// MultiText rows: rows [{ key, text }] in reading order -> [{ key, start, end }]
-function planRows(rows, spoken, length) {
+// MultiText rows in the order they are read: Upper, then Emphasis / Emphasize, then Lower (the layer numbers are not
+// that order: "Highlight Select" is Emphasize = 1, Upper = 2). Rows with other names keep their place after the
+// named ones, by layer number. Aligning in layer order matched "human and" first and pushed "in the" past it.
+// rows [{ n, name, ... }] -> a new sorted array
+function readingOrder(rows) {
+    const rank = (nm) => {
+        const s = String(nm || '').trim().toLowerCase();
+        if (/^(upper|top)\b/.test(s)) return 0;
+        if (/^(emphasi[sz]e?|emph|middle|main)\b/.test(s)) return 1;
+        if (/^(lower|bottom)\b/.test(s)) return 2;
+        return 3;
+    };
+    return (Array.isArray(rows) ? rows : []).map((r, i) => ({ r, i })).sort((x, y) =>
+        (rank(x.r.name) - rank(y.r.name)) || ((Number(x.r.n) || x.i) - (Number(y.r.n) || y.i))).map(x => x.r);
+}
+
+// Each MultiText row's own group of words found in the speech: the row is matched on its own, at the spoken position
+// where most of its words come in order, so a row lands on what it says even when the rows are not said in layer
+// order (or a word of another row was left out). Ties go to the place right after the row before it, then the
+// earliest. A row with nothing matched there falls back to its share of one alignment of all the rows in order.
+// rows [{ key, text }] in reading order -> [{ key, words: tw, times: [{ start, end, matched }], matched }] or null
+function alignRows(rows, spoken) {
+    const sp = (spoken || []).filter(x => Number.isFinite(x.start)).slice().sort((a, b) => a.start - b.start);
+    if (!sp.length) return null;
+    const list = (Array.isArray(rows) ? rows : []).map(r => ({ key: String(r.key), words: textWords(r.text).words }));
     const all = [], owner = [];
-    rows.forEach((r, k) => { for (const w of textWords(r.text).words) { all.push(w); owner.push(k); } });
-    const al = alignWords(all, spoken);
-    if (!al) return null;
-    const out = [];
-    rows.forEach((r, k) => {
-        const idx = owner.map((o, j) => o === k ? j : -1).filter(j => j >= 0);
-        if (!idx.length) return;
-        const start = Math.round(clampTo(al.times[idx[0]].start, length - 1));
-        const end = Math.round(clampTo(al.times[idx[idx.length - 1]].end, length));
-        out.push({ key: r.key, start, end: Math.max(start + 1, end) });
+    list.forEach((r, k) => r.words.forEach(w => { all.push(w); owner.push(k); }));
+    if (!all.length) return null;
+    const whole = alignWords(all, sp);
+    let after = 0;           // spoken index just past the row before
+    return list.map((r, k) => {
+        const n = r.words.length;
+        if (!n) return { key: r.key, words: r.words, times: [], matched: 0 };
+        let best = null;
+        for (let q = 0; q < sp.length; q++) {
+            const al = alignWords(r.words, sp.slice(q, q + n + 4));
+            if (!al || !al.matched) continue;
+            // the alignment must start on a word it matched (else it is only spread over this window)
+            if (!al.times[0].matched && al.times.findIndex(t => t.matched) > 1) continue;
+            const score = al.matched * 1000 - (q >= after ? q - after : 500 + (after - q));
+            if (!best || score > best.score) best = { score, al, q };
+        }
+        let times, matched;
+        if (best) {
+            times = best.al.times; matched = best.al.matched;
+            const lastSp = sp.findIndex(x => x.start >= times[n - 1].start);
+            after = lastSp >= 0 ? lastSp + 1 : after;
+        } else {
+            const idx = owner.map((o, j) => o === k ? j : -1).filter(j => j >= 0);
+            times = idx.map(j => whole.times[j]); matched = times.filter(t => t.matched).length;
+        }
+        return { key: r.key, words: r.words, times, matched };
     });
-    return { ranges: out, matched: al.matched, words: all.length };
+}
+
+// MultiText rows: rows [{ key, text }] in reading order -> [{ key, start, end }], each row from the start of its first
+// word to the end of its last one (alignRows).
+function planRows(rows, spoken, length) {
+    const got = alignRows(rows, spoken);
+    if (!got) return null;
+    const out = [];
+    let matched = 0, words = 0;
+    for (const r of got) {
+        words += r.words.length;
+        if (!r.times.length) continue;
+        matched += r.matched;
+        const start = Math.round(clampTo(r.times[0].start, length - 1));
+        const end = Math.round(clampTo(r.times[r.times.length - 1].end, length));
+        out.push({ key: r.key, start, end: Math.max(start + 1, end) });
+    }
+    return { ranges: out, matched, words };
+}
+
+// MultiText rows on the timing card: each row's words as shares of that row's own range, so they ride along when its
+// heads move. rows [{ key, text }] in reading order -> [{ key, spoken, words: [{ label, a, b }] }] (a / b: 0..1 of the
+// row's range). With spoken words, each word sits where it is said within its row's spoken span (the span Fit to
+// words gives the row); without them the row's letters are spread evenly (the row's reveal at one even speed).
+function rowWordFractions(rows, spoken) {
+    const list = (Array.isArray(rows) ? rows : []).map(r => ({ key: String(r.key), ...textWords(r.text) }));
+    const got = Array.isArray(spoken) && spoken.length ? alignRows(rows, spoken) : null;
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    return list.map((r, k) => {
+        if (!r.words.length) return { key: r.key, spoken: false, words: [] };
+        const t = got && got[k] && got[k].times.length === r.words.length ? got[k].times : null;
+        if (t) {
+            const s0 = t[0].start, s1 = Math.max(t[t.length - 1].end, s0 + 0.001);
+            const span = s1 - s0;
+            return {
+                key: r.key, spoken: true,
+                words: r.words.map((w, n) => {
+                    const a = clamp01((t[n].start - s0) / span);
+                    // a word lasts to the next one's start (the row has no gaps of its own), the last one to the end
+                    const b = n + 1 < t.length ? clamp01((t[n + 1].start - s0) / span) : 1;
+                    return { label: w.w, a, b: Math.max(a, b), matched: !!t[n].matched };
+                })
+            };
+        }
+        const L = Math.max(1, r.letters);
+        return {
+            key: r.key, spoken: false,
+            words: r.words.map((w, n) => ({ label: w.w, a: w.at / L, b: n + 1 < r.words.length ? r.words[n + 1].at / L : 1 }))
+        };
+    });
 }
 
 // The speed the fitted keys play the text at, slowest .. fastest (1 = the preset's own speed)

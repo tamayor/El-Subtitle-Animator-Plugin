@@ -1,6 +1,8 @@
 /* Frame range bar (js/components/frame-range.js): Effect presets Transform Start / End, Spotlight In / Out, B-roll
-   animation In. Styled like the Animation timing bar (css/anim-timing.css): hollow start head, solid end head, the
-   range between them, the red playhead with its frame. */
+   animation In. The head / track / range / playhead rules below are shared with the Use tab's Animation timing bar
+   (css/anim-timing.css), so every two-head slider in the app looks the same: triangle heads pointing at each other
+   (strawberry start, matcha end, a strawberry-to-matcha line between),
+   the range between them, Resolve's red playhead with its frame. */
 .fxr {
     flex: 1;
     min-width: 0;
@@ -26,55 +28,86 @@
     border-radius: 6px;
 }
 
-.fxr-track {
+/* ---- the one two-head slider look, shared with the Use tab's Animation timing bar (.timing-card .tm-*) ---- */
+.fxr-track,
+.timing-card .tm-track {
     position: absolute;
     left: 0;
     right: 0;
     top: 50%;
-    height: 2px;
-    margin-top: -1px;
+    height: 1px;
+    margin-top: -0.5px;
     border-radius: 1px;
     background: var(--line);
     border: none;
 }
 
-.fxr-range {
+.fxr-range,
+.timing-card .tm-range {
     position: absolute;
     top: 50%;
-    height: 2px;
-    margin-top: -1px;
+    height: 1px;
+    margin-top: -0.5px;
     border-radius: 1px;
     pointer-events: none;
-    background: linear-gradient(90deg, var(--matcha-tint), var(--matcha));
+    background: linear-gradient(90deg, var(--strawberry), var(--matcha));
 }
 
 .fxr-bar:hover .fxr-range,
-.fxr-bar.dragging .fxr-range {
-    box-shadow: 0 0 0 1px var(--matcha-border);
+.fxr-bar.dragging .fxr-range,
+.timing-card .tm-area:hover .tm-range.movable,
+.timing-card .tm-bar.dragging .tm-range {
+    box-shadow: 0 0 3px var(--matcha-border);
 }
 
-.fxr-knob {
+/* Heads: two triangles pointing at each other. The flat side sits on the frame: the start head points right (into the
+   range), the end head points left. */
+.fxr-knob,
+.timing-card .tm-knob {
     position: absolute;
     top: 50%;
-    width: 8px;
-    height: 18px;
-    margin: -9px 0 0 -4px;
-    border-radius: 3px;
-    background: var(--matcha);
-    border: 2px solid var(--matcha-ink);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    width: 6px;
+    height: 12px;
+    margin: -6px 0 0 -0.5px;
+    background: none;
+    border: none;
+    border-radius: 0;
     pointer-events: none;
-    transition: transform 0.15s var(--fxr-ease);
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+    transform-origin: 0 50%;
+    transition: transform 0.15s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
-.fxr-knob.fxr-start {
-    background: var(--card);
-    border-color: var(--matcha);
+.fxr-knob::before,
+.timing-card .tm-knob::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--strawberry);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
-.fxr-knob.on {
-    transform: scale(1.12);
-    box-shadow: 0 0 0 2px var(--matcha-tint), 0 1px 4px rgba(0, 0, 0, 0.45);
+.fxr-knob.fxr-end,
+.timing-card .tm-knob.tm-end {
+    margin-left: -5.5px;
+    transform-origin: 100% 50%;
+}
+
+.fxr-knob.fxr-end::before,
+.timing-card .tm-knob.tm-end::before {
+    background: var(--matcha);
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+
+.fxr-knob.on,
+.timing-card .tm-knob.on {
+    transform: scale(1.25);
+    filter: drop-shadow(0 0 3px var(--strawberry)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+.fxr-knob.fxr-end.on,
+.timing-card .tm-knob.tm-end.on {
+    filter: drop-shadow(0 0 3px var(--matcha)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
 }
 
 .fxr-bar.glide .fxr-knob {
@@ -85,26 +118,29 @@
     transition: left 0.2s var(--fxr-ease), width 0.2s var(--fxr-ease);
 }
 
-.fxr-ph {
+/* Playhead: Resolve's red, with its frame in a tag on top */
+.fxr-ph,
+.timing-card .tm-playhead {
     position: absolute;
     top: -2px;
     bottom: -2px;
     width: 0;
-    border-left: 2px solid var(--strawberry);
+    border-left: 2px solid var(--playhead);
     pointer-events: none;
     transition: left 0.15s linear;
     z-index: 1;
 }
 
-.fxr-ph span {
+.fxr-ph span,
+.timing-card .tm-playhead span {
     position: absolute;
     bottom: 100%;
     left: 0;
     transform: translateX(-50%);
     padding: 0 4px;
     border-radius: 4px;
-    background: var(--strawberry);
-    color: var(--strawberry-ink);
+    background: var(--playhead);
+    color: var(--playhead-ink);
     font-size: 9.5px;
     font-weight: 600;
     line-height: 13px;
@@ -112,8 +148,9 @@
     font-variant-numeric: tabular-nums;
 }
 
-.fxr-ph.hot {
-    filter: drop-shadow(0 0 4px var(--strawberry));
+.fxr-ph.hot,
+.timing-card .tm-mark.hot {
+    filter: drop-shadow(0 0 4px var(--playhead));
 }
 
 .fxr-ph.hidden {

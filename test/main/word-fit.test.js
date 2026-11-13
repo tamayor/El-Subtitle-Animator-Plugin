@@ -131,3 +131,50 @@ test('every word has its own adjustable out (step with room to pop, typing)', ()
     assert.deepStrictEqual(typBack.segs.map(g => [g.s, g.e]), typSegs.map(g => [g.s, g.e]));
     assert.strictEqual(typPlan.end, 37);
 });
+
+test('rowWordFractions puts each MultiText row\'s words inside its own range, where they are said', () => {
+    const rows = WF.rowWordFractions([{ key: '1', text: 'So yeah,' }, { key: '2', text: 'watch this' }], spoken);
+    assert.deepStrictEqual(rows.map(r => r.key), ['1', '2']);
+    assert.ok(rows.every(r => r.spoken));
+    // row 1 spans 2..14: "So" 2..8 -> 0..0.5, "yeah," 8..14 -> 0.5..1
+    assert.deepStrictEqual(rows[0].words.map(w => [w.label, +w.a.toFixed(2), +w.b.toFixed(2)]), [['So', 0, 0.5], ['yeah,', 0.5, 1]]);
+    // row 2 spans 30..50: "this" starts at 41
+    assert.strictEqual(+rows[1].words[1].a.toFixed(2), 0.55);
+    assert.strictEqual(rows[1].words[1].b, 1);
+});
+
+test('rowWordFractions without spoken words spreads each row by its letters', () => {
+    const [r] = WF.rowWordFractions([{ key: '3', text: 'ab cd' }], []);
+    assert.strictEqual(r.spoken, false);
+    assert.deepStrictEqual(r.words.map(w => [w.label, w.a, w.b]), [['ab', 0, 0.6], ['cd', 0.6, 1]]);
+});
+
+test('MultiText rows are fitted in reading order, not layer order (Highlight Select: Emphasize = layer 1)', () => {
+    const layers = [{ n: 1, name: 'Emphasize', text: 'human and' }, { n: 2, name: 'Upper', text: 'in the' }];
+    assert.deepStrictEqual(WF.readingOrder(layers).map(r => r.name), ['Upper', 'Emphasize']);
+    const said = [{ w: 'in', start: 0, end: 2 }, { w: 'the', start: 2, end: 6 }, { w: 'human', start: 7, end: 14 }, { w: 'and', start: 14, end: 20 }];
+    const plan = WF.planRows(WF.readingOrder(layers).map(r => ({ key: String(r.n), text: r.text })), said, 22);
+    const by = Object.fromEntries(plan.ranges.map(r => [r.key, [r.start, r.end]]));
+    assert.deepStrictEqual(by['2'], [0, 6]);       // Upper "in the"
+    assert.deepStrictEqual(by['1'], [7, 20]);      // Emphasize "human and"
+    assert.strictEqual(plan.matched, 4);
+    // unknown names keep layer order after the named rows
+    assert.deepStrictEqual(WF.readingOrder([{ n: 2, name: 'Text 2' }, { n: 3, name: 'Lower' }, { n: 1, name: 'Text 1' }]).map(r => r.n), [3, 1, 2]);
+});
+
+test('alignRows finds each row\'s own words in the speech, whatever order the rows come in', () => {
+    const said = [{ w: 'in', start: 0, end: 2 }, { w: 'the', start: 2, end: 6 }, { w: 'human', start: 7, end: 14 }, { w: 'and', start: 14, end: 20 }];
+    // layer order (wrong reading order): each row still lands on its own words
+    const plan = WF.planRows([{ key: '1', text: 'human and' }, { key: '2', text: 'in the' }], said, 22);
+    const by = Object.fromEntries(plan.ranges.map(r => [r.key, [r.start, r.end]]));
+    assert.deepStrictEqual(by, { '1': [7, 20], '2': [0, 6] });
+    assert.strictEqual(plan.matched, 4);
+    // a filler between the rows is skipped
+    const um = [{ w: 'so', start: 0, end: 3 }, { w: 'um', start: 4, end: 9 }, { w: 'watch', start: 10, end: 15 }, { w: 'this', start: 16, end: 20 }];
+    const p2 = WF.planRows([{ key: 'u', text: 'So' }, { key: 'e', text: 'watch this' }], um, 30);
+    assert.deepStrictEqual(p2.ranges.map(r => [r.key, r.start, r.end]), [['u', 0, 3], ['e', 10, 20]]);
+    // the same word in two rows: the second takes the later one
+    const rep = [{ w: 'no', start: 0, end: 4 }, { w: 'means', start: 5, end: 9 }, { w: 'no', start: 12, end: 18 }];
+    const p3 = WF.planRows([{ key: 'a', text: 'no means' }, { key: 'b', text: 'no' }], rep, 30);
+    assert.deepStrictEqual(p3.ranges.map(r => [r.key, r.start, r.end]), [['a', 0, 9], ['b', 12, 18]]);
+});

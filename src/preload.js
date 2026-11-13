@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('sa', {
     fitClipToWords: (itemId) => ipcRenderer.invoke('timing:fitWords', itemId),
     wordTimingStatus: (itemId, force) => ipcRenderer.invoke('timing:wordsStatus', itemId, !!force),
     activateWordTimings: (itemId) => ipcRenderer.invoke('timing:wordsActivate', itemId),
+    clipWordLane: (itemId) => ipcRenderer.invoke('timing:wordLane', itemId),
+    setClipWordTimings: (itemId, segs, wake) => ipcRenderer.invoke('timing:setWordTimings', itemId, segs, !!wake),
     boilerplateList: () => ipcRenderer.invoke('boilerplate:list'),
     insertBoilerplate: (id) => ipcRenderer.invoke('boilerplate:insert', id),
     fxList: () => ipcRenderer.invoke('fx:list'),

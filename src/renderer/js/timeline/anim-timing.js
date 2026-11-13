@@ -7,7 +7,7 @@
 
 const tmState = {
     info: null, dragging: null, active: { lane: 0, part: 'e' }, sendTimer: null, sentAt: 0, glideTimer: null, busy: false,
-    builtFor: ''
+    builtFor: '', wordLane: null, wordLaneAsking: null, wordLaneCtl: null, wordDragging: false, wordSendTimer: null, wordSentAt: 0
 };
 const TM_SNAP_PX = 12;          // magnet radius
 const TM_HEAD_PX = 11;          // grab radius of a head
@@ -113,7 +113,7 @@ function renderTiming() {
     const i = tmState.info;
     // nothing selected, or a clip whose preset has no timing slider: no card at all (an empty "No timing slider" card
     // only made the bottom dock taller)
-    if (!i || i.noSlider) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); return; }
+    if (!i || i.noSlider) { card.classList.add('hidden'); document.body.classList.remove('tm-docked'); if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint(); return; }
     card.classList.remove('hidden');
     document.body.classList.toggle('tm-docked', tmView() === 'docked');
     const bare = !!i.noSlider;
@@ -189,6 +189,7 @@ function renderTiming() {
         ? 'Drag a head to change where the animation starts or ends; drag between them to move it. Move the playhead over this clip to snap to it.'
         : 'Heads snap to the playhead, the preset timing (dashed) and each other. Arrow keys: 1 frame (Shift: 5), Alt: move the whole range' +
           (i.ranges.length > 1 ? ', Up / Down: the other text.' : '.');
+    if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint();
 }
 
 function tmEsc(s) {
@@ -241,7 +242,8 @@ function tmFrameAt(clientX, laneIdx, part, grab) {
 async function tmSend(wake) {
     const i = tmState.info;
     if (!i || !i.ranges) return;
-    if (i.fitted) {         // moving a head replaces the Fit to words curve (fusion_bridge op_timing_set)
+    const wasFitted = !!i.fitted;
+    if (wasFitted) {        // moving a head replaces the Fit to words curve (fusion_bridge op_timing_set)
         i.fitted = false;
         tmState.unfitAt = Date.now();
         tmRenderWords();
@@ -258,6 +260,7 @@ async function tmSend(wake) {
             else if (q.rows) setStatus('Re-spaced ' + q.rows + ' per-row sound' + (q.rows === 1 ? '' : 's') + ' to the new animation timing.', 'ok');
             else if (q.moved) setStatus('Moved ' + q.moved + ' row sound' + (q.moved === 1 ? '' : 's') + ' with the animation start.', 'ok');
         }
+        if (wasFitted && wake) tmLoadWordLane(true);
     } catch (e) { setStatus('Could not set the timing: ' + e.message, 'bad'); }
 }
 function tmQueue() {
@@ -392,6 +395,23 @@ function initAnimTiming() {
     });
     $('timingFitWords').addEventListener('click', tmFitWords);
     $('timingWordsActivate').addEventListener('click', tmActivateWords);
+    const wlMount = $('timingWordLaneMount');
+    if (wlMount && typeof wordLane === 'function') {
+        tmState.wordLaneCtl = wordLane({
+            last: () => (tmState.info && tmState.info.length) || 1,
+            playhead: () => (tmState.info ? tmState.info.playhead : null),
+            lane: () => {
+                const i = tmState.info, w = tmState.wordLane;
+                if (!i || i.noSlider || !w || w.itemId !== i.itemId || !Array.isArray(w.segs) || !w.segs.length) return null;
+                return { editable: !!w.editable, segs: w.segs };
+            },
+            laneEdit: tmWordLaneEdit,
+            laneReset: tmWordLaneReset,
+            onDrag: (on) => { tmState.wordDragging = on; }
+        });
+        tmState.wordLaneCtl.el.classList.add('tm-word-lane');
+        wlMount.replaceWith(tmState.wordLaneCtl.el);
+    }
     $('timingCompactBtn').addEventListener('click', () => setTimingView(tmView() === 'full' ? 'compact' : 'full'));
     $('timingDockBtn').addEventListener('click', () => setTimingView('docked'));
     $('timingUndockBtn').addEventListener('click', () => setTimingView('compact'));
@@ -440,6 +460,76 @@ async function tmCheckWords(force) {
     } catch (e) { /* asked again on the next clip */ }
     tmState.wordsAsking = null;
     tmRenderWords();
+    const wl = tmState.wordLane;
+    if (!wl || wl.itemId !== i.itemId || (tmState.words && tmState.words.available && !wl.hadWords) || force) {
+        tmLoadWordLane(!!force);
+    }
+}
+async function tmLoadWordLane(force) {
+    const i = tmState.info;
+    if (!i || !i.itemId || i.noSlider || tmState.wordDragging) return;
+    if (!force && tmState.wordLane && tmState.wordLane.itemId === i.itemId && Date.now() - tmState.wordLane.at < 60000) return;
+    if (tmState.wordLaneAsking === i.itemId) return;
+    tmState.wordLaneAsking = i.itemId;
+    try {
+        const r = await window.sa.clipWordLane(i.itemId);
+        if (r && r.ok) {
+            tmState.wordLane = {
+                itemId: r.itemId,
+                target: r.target,
+                editable: !!r.editable,
+                segs: Array.isArray(r.segs) ? r.segs : [],
+                hadWords: !!(r.segs && r.segs.length),
+                at: Date.now()
+            };
+        }
+    } catch (e) { /* tried again on the next clip */ }
+    tmState.wordLaneAsking = null;
+    if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint();
+}
+async function tmSendWords(wake) {
+    const i = tmState.info, w = tmState.wordLane;
+    if (!i || !w || w.itemId !== i.itemId || !Array.isArray(w.segs) || !w.segs.length) return;
+    tmState.wordSentAt = Date.now();
+    tmState.sentAt = Date.now();
+    try {
+        const res = await window.sa.setClipWordTimings(i.itemId, w.segs, !!wake);
+        if (res && res.error) setStatus(res.error, 'bad');
+        else if (res && res.ok) {
+            if (i.ranges && i.ranges[0]) {
+                if (i.ranges[0].hasStart && Number.isFinite(res.start)) i.ranges[0].start = res.start;
+                if (Number.isFinite(res.end)) i.ranges[0].end = res.end;
+            }
+            i.fitted = true;
+            tmState.unfitAt = 0;
+            renderTiming();
+            tmRenderWords();
+        }
+    } catch (e) { setStatus('Could not set the word timing: ' + e.message, 'bad'); }
+}
+function tmWordLaneEdit(idx, s, e, final) {
+    const i = tmState.info, w = tmState.wordLane;
+    if (!i || !w || !w.segs || !w.segs[idx]) return;
+    w.segs[idx] = { ...w.segs[idx], s, e };
+    w.at = Date.now();
+    i.fitted = true;
+    tmState.unfitAt = 0;
+    if (i.ranges && i.ranges[0]) {
+        if (i.ranges[0].hasStart) i.ranges[0].start = Math.round(w.segs[0].s);
+        i.ranges[0].end = Math.max((i.ranges[0].hasStart ? i.ranges[0].start : 0) + 1, Math.round(w.segs[w.segs.length - 1].e));
+    }
+    renderTiming();
+    tmRenderWords();
+    clearTimeout(tmState.wordSendTimer);
+    if (final) {
+        tmSendWords(true);
+    } else {
+        const wait = Math.max(0, TM_SEND_MS - (Date.now() - tmState.wordSentAt));
+        tmState.wordSendTimer = setTimeout(() => tmSendWords(false), wait);
+    }
+}
+function tmWordLaneReset() {
+    tmFitWords();
 }
 async function tmActivateWords() {
     const i = tmState.info;
@@ -481,6 +571,7 @@ async function tmFitWords() {
             setStatus(msg, 'ok');
             tmState.sentAt = 0;
             if (r.mode !== 'rows' && r.mode !== 'range' && tmState.info && tmState.info.itemId === i.itemId) { tmState.info.fitted = true; tmState.unfitAt = 0; }
+            tmLoadWordLane(true);
         }
     } catch (e) { setStatus('Could not fit the timing: ' + e.message, 'bad'); }
     tmState.fitting = false;
@@ -495,13 +586,13 @@ const tmPace = { sig: '', changedAt: 0 };
 async function tmTick() {
     const onUse = document.body.classList.contains('tab-apply');
     let delay = 300;
-    if (!state.idle && onUse && !document.hidden && !tmState.dragging && !tmState.busy && !state.busy) {
+    if (!state.idle && onUse && !document.hidden && !tmState.dragging && !tmState.wordDragging && !tmState.busy && !state.busy) {
         tmState.busy = true;
         try {
             const r = await window.sa.clipTiming({});
             // the timeline frame under the playhead, for any clip (the Transform effect's Start / End bar, effect-list.js)
             if (r && r.ok && Number.isFinite(Number(r.frame))) tmState.frame = Number(r.frame);
-            if (!tmState.dragging && r && r.ok) {
+            if (!tmState.dragging && !tmState.wordDragging && r && r.ok) {
                 if (r.none) tmState.info = null;
                 else if (r.noSlider) tmState.info = { noSlider: true, itemId: r.itemId, name: r.name };
                 else {

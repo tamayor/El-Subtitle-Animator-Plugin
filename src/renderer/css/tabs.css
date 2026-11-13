@@ -128,3 +128,34 @@ body.tab-library {
 .tab > .tab-txt { opacity: 0; white-space: nowrap; }
 .tab:hover > .tab-ico { opacity: 0; }
 .tab:hover > .tab-txt { opacity: 1; }
+
+/* Text tab pop-up: Create / Library / Use. Fixed so the compact header's overflow can't clip it. */
+.tab-menu {
+    position: fixed;
+    z-index: 1000;
+    width: 140px;
+    padding: 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.tab-menu.hidden { display: none; }
+.tab-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 9px;
+    color: var(--dim);
+    font-weight: 600;
+    text-align: left;
+}
+.tab-menu-item:hover { background: #1c221e; color: var(--text); }
+.tab-menu-item.on { background: var(--matcha); color: var(--matcha-ink); }

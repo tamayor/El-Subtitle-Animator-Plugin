@@ -44,6 +44,23 @@ const state = {
     draft: { animPath: null, fromSelection: false, sfxPath: null }   // what the Create tab is building
 };
 
+// The Text tab is a pop-up menu holding Create / Library / Use.
+function closeTextMenu() {
+    const m = $('tabTextMenu');
+    if (m) m.classList.add('hidden');
+    const b = $('tabBtnText');
+    if (b) b.setAttribute('aria-expanded', 'false');
+}
+function toggleTextMenu() {
+    const m = $('tabTextMenu'), b = $('tabBtnText');
+    if (!m.classList.contains('hidden')) { closeTextMenu(); return; }
+    const r = b.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(r.left + r.width / 2 - 70, window.innerWidth - 148)) + 'px';
+    m.style.top = (r.bottom + 4) + 'px';
+    m.classList.remove('hidden');
+    b.setAttribute('aria-expanded', 'true');
+}
+
 function setTab(t) {
     stopPreview();
     state.tab = t;
@@ -59,6 +76,8 @@ function setTab(t) {
     $('tabBtnPrompt').classList.toggle('on', t === 'prompt');
     $('tabBtnCut').classList.toggle('on', t === 'cut');
     $('tabBtnBroll').classList.toggle('on', t === 'broll');
+    $('tabBtnText').classList.toggle('on', t === 'apply' || t === 'library' || t === 'create');
+    closeTextMenu();
     document.body.className = 'tab-' + t;
     renderTimelines();
     redrawStages();

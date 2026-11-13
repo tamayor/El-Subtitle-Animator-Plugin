@@ -38,7 +38,7 @@ const { syncLiveTransform, updateLatest } = require('./timeline-sync');
 const { fitWidth, setAutoCollapse, setLayoutMode, setOnTop } = require('./window');
 const { FIX_DEFAULTS, getFixes, setFixes } = require('./fusion-fixes');
 const { PERF_DEFAULTS, getPerf, perfReset, perfSummary, record, setPerf } = require('./perf');
-const { clipTiming, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings } = require('./anim-timing');
+const { clipTiming, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, clipWordLane, setClipWordTimings } = require('./anim-timing');
 const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } = require('./clip-controls');
 const { boilerplateList, insertBoilerplate } = require('./boilerplates');
 const { matchCutCancel, matchCutDefaults, matchCutOpen, matchCutRun } = require('./match-cut');
@@ -61,6 +61,8 @@ const SAFE_HANDLERS = {
     'timing:fitWords': fitClipToWords,
     'timing:wordsStatus': wordTimingStatus,
     'timing:wordsActivate': activateWordTimings,
+    'timing:wordLane': clipWordLane,
+    'timing:setWordTimings': setClipWordTimings,
     'boilerplate:list': () => boilerplateList(),
     'boilerplate:insert': insertBoilerplate,
     'fx:list': fxList,

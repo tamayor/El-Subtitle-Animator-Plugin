@@ -16,7 +16,10 @@
 //
 // Words: [{ w, start, end }] in frames from the clip's start (fractions allowed).
 
-module.exports = { textWords, alignWords, planAnimKeys, planStepKeys, planTypingKeys, planLinear, planRows, speedRange };
+module.exports = {
+    textWords, alignWords, planAnimKeys, planStepKeys, planTypingKeys, planLinear, planRows, speedRange,
+    frameAtKeys, wordSegsFromInfo, planFromWordSegs
+};
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
 
@@ -227,4 +230,224 @@ function planTypingKeys(text, spoken, length) {
     if (keys[keys.length - 1][0] < length) keys.push([length, 1]);
     return { keys: keys.map(k => [r2(k[0]), Math.round(k[1] * 10000) / 10000]), frames: frames.map(Math.round),
         start: Math.round(frames[0]), end: Math.max(Math.round(frames[0]) + 1, Math.round(frames[n - 1])), matched: al.matched, words: n };
+}
+
+// Inverse of keys [[clip frame, own time], ...]: clip frame where own time tt is reached.
+function frameAtKeys(keys, tt) {
+    if (!Array.isArray(keys) || !keys.length) return 0;
+    if (tt <= keys[0][1]) return keys[0][0];
+    for (let i = 1; i < keys.length; i++) {
+        const [f0, v0] = keys[i - 1], [f1, v1] = keys[i];
+        if (tt <= v1) return f0 + (f1 - f0) * (v1 > v0 ? (tt - v0) / (v1 - v0) : 0);
+    }
+    const last = keys[keys.length - 1];
+    return last[0] + (tt - last[1]);
+}
+
+function longestAnimTerm(terms) {
+    if (!Array.isArray(terms) || !terms.length) return null;
+    const len = (t) => (Number(t.a) || 0) + (Number(t.delay) || 0) * Math.max(0, textWords(t.text).letters - 1);
+    return terms.slice().sort((x, y) => len(y) - len(x))[0];
+}
+
+// Word-lane segments [{ s, e, label }] for the Animation timing card from either the clip's fitted curve or spoken words.
+function wordSegsFromInfo(info, spoken, length) {
+    const L = Math.max(1, Math.round(Number(length) || 1));
+    const clampS = (v) => Math.max(0, Math.min(L - 1, Math.round(v)));
+    const clampE = (s, v) => Math.max(s + 1, Math.min(L, Math.round(v)));
+    const sp = Array.isArray(spoken) ? spoken : [];
+    const target = info && info.target;
+
+    if (target === 'animtime') {
+        const term = longestAnimTerm(info.terms);
+        const { words: tw, letters } = textWords(term && term.text);
+        const D = Number(term && term.delay) || 0;
+        if (tw.length && letters >= 2 && D > 0) {
+            if (info.fitted && Array.isArray(info.keys) && info.keys.length >= 2) {
+                return {
+                    editable: true,
+                    segs: tw.map((w, j) => {
+                        const s = clampS(frameAtKeys(info.keys, D * w.at));
+                        const endAt = j === tw.length - 1 ? letters - 1 : Math.min(letters - 1, w.at + w.w.length);
+                        const e = clampE(s, frameAtKeys(info.keys, D * endAt));
+                        return { s, e, label: w.w };
+                    })
+                };
+            }
+            const al = sp.length ? alignWords(tw, sp) : null;
+            if (al) {
+                return {
+                    editable: true,
+                    segs: tw.map((w, j) => {
+                        const s = clampS(al.times[j].start);
+                        return { s, e: clampE(s, al.times[j].end), label: w.w };
+                    })
+                };
+            }
+        }
+    } else if (target === 'step') {
+        const units = Array.isArray(info.units) ? info.units : [];
+        const pop = Number(info.pop) || 6;
+        if (units.length) {
+            let starts = null;
+            if (info.fitted && Array.isArray(info.keys) && info.keys.length >= 2) {
+                starts = units.map(u => clampS(frameAtKeys(info.keys, Number(u.own) || 0)));
+            } else if (sp.length) {
+                const plan = planStepKeys(units, sp, L, pop);
+                if (plan && plan.keys.length >= units.length) starts = units.map((_, k) => clampS(plan.keys[k][0]));
+            }
+            if (starts) {
+                return {
+                    editable: true,
+                    segs: units.map((u, k) => {
+                        const s = starts[k];
+                        const nextS = k + 1 < starts.length ? starts[k + 1] : s + pop;
+                        return { s, e: clampE(s, nextS), label: u.text };
+                    })
+                };
+            }
+        }
+    } else if (target === 'typing') {
+        const tw = textWords(info.text).words;
+        if (tw.length) {
+            let frames = null;
+            if (info.fitted && Array.isArray(info.frames) && info.frames.length === tw.length) {
+                frames = info.frames.map(f => clampS(f));
+            } else if (sp.length) {
+                const plan = planTypingKeys(info.text, sp, L);
+                if (plan && plan.frames.length === tw.length) frames = plan.frames.map(f => clampS(f));
+            }
+            if (frames) {
+                return {
+                    editable: true,
+                    segs: tw.map((w, k) => {
+                        const s = frames[k];
+                        const nextS = k + 1 < frames.length ? frames[k + 1] : s + 6;
+                        return { s, e: clampE(s, nextS), label: w.w };
+                    })
+                };
+            }
+        }
+    }
+
+    if (info && info.kind !== 'segments' && sp.length) {
+        return {
+            editable: false,
+            segs: sp.map(w => {
+                const s = clampS(w.start);
+                return { s, e: clampE(s, w.end), label: w.w };
+            })
+        };
+    }
+    return { editable: false, segs: [] };
+}
+
+// Converts edited word-lane segments [{ s, e }] back into { target, keys, frames, start, end } for op_word_fit_set.
+function planFromWordSegs(info, segs, length) {
+    const L = Math.max(1, Math.round(Number(length) || 1));
+    const list = Array.isArray(segs) ? segs : [];
+    const target = info && info.target;
+    if (!target || !list.length) return null;
+
+    if (target === 'animtime') {
+        const term = longestAnimTerm(info.terms);
+        const { words: tw, letters } = textWords(term && term.text);
+        const D = Number(term && term.delay) || 0;
+        if (!tw.length || letters < 2 || !(D > 0) || list.length !== tw.length) return null;
+        const minStep = 0.25;
+        const keys = [];
+        for (let j = 0; j < tw.length; j++) {
+            let s = clampTo(Number(list[j].s) || 0, L);
+            const e = Math.max(s + minStep, clampTo(Number(list[j].e) || (s + 1), L));
+            const vS = D * tw[j].at;
+            if (keys.length) {
+                const last = keys[keys.length - 1];
+                if (vS <= last[1]) continue;
+                if (s < last[0] + minStep) s = last[0] + minStep;
+            }
+            keys.push([s, vS]);
+            if (j < tw.length - 1) {
+                const nextS = clampTo(Number(list[j + 1].s) || 0, L);
+                if (e < nextS) {
+                    const endIdx = Math.min(tw[j + 1].at - 0.1, tw[j].at + tw[j].w.length);
+                    const vE = D * endIdx;
+                    if (vE > keys[keys.length - 1][1]) {
+                        keys.push([Math.max(keys[keys.length - 1][0] + minStep, e), vE]);
+                    }
+                }
+            }
+        }
+        const lastV = D * (letters - 1);
+        const prev = keys[keys.length - 1];
+        if (lastV > prev[1]) {
+            const lastE = clampTo(Number(list[tw.length - 1].e) || (prev[0] + 1), L);
+            keys.push([Math.min(L, Math.max(prev[0] + minStep, lastE)), lastV]);
+        }
+        const tail = keys[keys.length - 1];
+        if (tail[0] < L) keys.push([L, tail[1] + (L - tail[0])]);
+        if (keys.length < 2) return null;
+        const out = keys.map(k => [r2(k[0]), r2(k[1])]);
+        const start = Math.round(out[0][0]);
+        const endAt = Math.round(Math.min(L, tail[0] + (Number(term.a) || 0)));
+        return { target, keys: out, start, end: Math.max(start + 1, endAt) };
+    }
+
+    if (target === 'step') {
+        const units = Array.isArray(info.units) ? info.units : [];
+        const pop = Number(info.pop) || 0;
+        if (!units.length || list.length !== units.length) return null;
+        const minStep = 0.25;
+        const keys = [];
+        for (let k = 0; k < units.length; k++) {
+            let f = clampTo(Number(list[k].s) || 0, L);
+            const v = Number(units[k].own) || 0;
+            if (keys.length) {
+                const last = keys[keys.length - 1];
+                if (v <= last[1]) continue;
+                if (f < last[0] + minStep) f = last[0] + minStep;
+            }
+            keys.push([f, v]);
+        }
+        if (!keys.length) return null;
+        const lastK = keys[keys.length - 1];
+        if (lastK[0] < L) keys.push([L, lastK[1] + (L - lastK[0])]);
+        if (keys.length < 2) return null;
+        const out = keys.map(k => [r2(k[0]), r2(k[1])]);
+        const start = Math.round(out[0][0]);
+        return { target, keys: out, start, end: Math.max(start + 1, Math.round(Math.min(L, lastK[0] + pop))) };
+    }
+
+    if (target === 'typing') {
+        const chars = Array.from(String(info.text || ''));
+        const ends = [];
+        let inword = false;
+        chars.forEach((ch, i) => {
+            if (/\s/.test(ch)) { inword = false; return; }
+            if (!inword) ends.push(i + 1); else ends[ends.length - 1] = i + 1;
+            inword = true;
+        });
+        const n = ends.length;
+        if (n < 1 || !chars.length || list.length !== n) return null;
+        const val = (k) => (k >= n - 1 ? 1 : ends[k] / chars.length);
+        const frames = [];
+        for (let k = 0; k < n; k++) {
+            let f = clampTo(Math.round(Number(list[k].s) || 0), L - 1);
+            if (frames.length && f < frames[frames.length - 1] + 1) f = frames[frames.length - 1] + 1;
+            frames.push(Math.min(L, f));
+        }
+        const keys = [];
+        if (frames[0] > 0.5) keys.push([0, 0], [frames[0] - 0.05, 0]);
+        keys.push([frames[0], val(0)]);
+        for (let k = 1; k < n; k++) keys.push([frames[k] - 0.05, val(k - 1)], [frames[k], val(k)]);
+        if (keys[keys.length - 1][0] < L) keys.push([L, 1]);
+        return {
+            target,
+            keys: keys.map(k => [r2(k[0]), Math.round(k[1] * 10000) / 10000]),
+            frames: frames.map(Math.round),
+            start: Math.round(frames[0]),
+            end: Math.max(Math.round(frames[0]) + 1, Math.round(frames[n - 1]))
+        };
+    }
+
+    return null;
 }

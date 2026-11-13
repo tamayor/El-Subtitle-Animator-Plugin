@@ -151,10 +151,13 @@
 
     <nav class="tabs">
         <button id="tabBtnCut" class="tab" aria-label="Cut" title="Cut: rough-cut the recording into a new timeline (pauses, retakes, stutters)"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.4 10.6 12 2.5M10.6 10.6 4 2.5"/></svg></span><span class="tab-txt">Cut</span></button>
-        <button id="tabBtnBroll" class="tab" aria-label="B-roll" title="B-roll: motion-graphic overlays (Remotion) rendered for this timeline and placed over the footage"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 6v4l3.5-2z"/></svg></span><span class="tab-txt">B-roll</span></button>
-        <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
-        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
-        <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
+        <button id="tabBtnBroll" class="tab" aria-label="Broll" title="Broll: motion-graphic overlays (Remotion) rendered for this timeline and placed over the footage"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 6v4l3.5-2z"/></svg></span><span class="tab-txt">Broll</span></button>
+        <button id="tabBtnText" class="tab on" aria-label="Text" aria-haspopup="menu" aria-expanded="false" title="Text: Create, Library and Use"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10M8 3.5v9.5"/></svg></span><span class="tab-txt">Text</span></button>
+        <div id="tabTextMenu" class="tab-menu hidden" role="menu">
+            <button id="tabBtnCreate" class="tab-menu-item" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg><span>Create</span></button>
+            <button id="tabBtnLibrary" class="tab-menu-item" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg><span>Library</span></button>
+            <button id="tabBtnApply" class="tab-menu-item on" role="menuitem"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg><span>Use</span></button>
+        </div>
         <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
     </nav>
 
@@ -268,6 +271,7 @@
                     <div id="timingBar" class="tm-bar" role="group" tabindex="0"
                         aria-label="Animation timing: where each animation starts and ends"></div>
                     <div class="tm-scale"><span>0</span><span id="timingEnd"></span></div>
+                    <div id="timingWordLaneMount" class="hidden"></div>
                     <!-- word timings for this clip, and Fit to words (src/main/word-fit.js) -->
                     <div id="timingWords" class="tm-words">
                         <span id="timingWordsState" class="tm-words-state">
@@ -1032,7 +1036,11 @@
                         <div class="cr-step">
                             <div class="cr-num">1</div>
                             <div class="cr-body">
-                                <div class="cr-title">Effect <span id="brEditing" class="br-editing hidden"></span></div>
+                                <div class="cr-title br-effect-title">Effect <span id="brEditing" class="br-editing hidden"></span>
+                                    <span class="grow"></span>
+                                    <button type="button" id="brViewModeBtn" class="view-mode-btn" aria-label="Effect view mode" aria-haspopup="menu"
+                                        title="How the effects are shown: List, Grid or Gallery"><span class="vm-ico" id="brViewModeIco"></span><span class="chev">▾</span></button>
+                                </div>
                                 <div id="brEffects" class="br-effects"></div>
                             </div>
                         </div>

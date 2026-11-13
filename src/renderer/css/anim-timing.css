@@ -129,6 +129,7 @@
 .timing-card .tm-bar.labelled + .tm-scale { margin-left: 81px; margin-right: 15px; }
 .timing-card .tm-actions { margin-top: 6px; align-items: center; }
 /* Word timings row: state, Activate, Fit to words (its own row in every view) */
+.timing-card .tm-word-lane { margin: 5px 8px 2px; }
 .timing-card .tm-words { display: flex; align-items: center; justify-content: space-between; gap: 4px 6px; flex-wrap: wrap; margin-top: 6px; }
 .timing-card .tm-words-state span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .timing-card .tm-words-state { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--dim); font-size: 11px; }
@@ -140,7 +141,8 @@
 .timing-card button.tm-words-btn svg { flex: none; }
 .timing-card button.tm-words-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .timing-card button.tm-words-btn.hidden { display: none; }
-.timing-card.compact .tm-words { order: 3; flex: 1 1 100%; margin-top: 0; }
+.timing-card.compact .tm-word-lane { order: 3; flex: 1 1 100%; margin: 2px 0; }
+.timing-card.compact .tm-words { order: 4; flex: 1 1 100%; margin-top: 0; }
 /* Fit to words active: the button lit, the bar muted (its heads only show the fitted span) until a head is moved */
 .timing-card button.tm-words-btn.active { color: var(--matcha); background: var(--matcha-tint); box-shadow: inset 0 0 0 1px var(--matcha-border); }
 .timing-card .tm-bar.fitted { opacity: 0.4; filter: grayscale(1); transition: opacity 0.2s, filter 0.2s; }

@@ -86,6 +86,15 @@ async function initApp() {
     $('tabBtnLibrary').addEventListener('click', () => setTab('library'));
     $('tabBtnCreate').addEventListener('click', () => setTab('create'));
     $('tabBtnPrompt').addEventListener('click', () => setTab('prompt'));
+    $('tabBtnText').addEventListener('click', (e) => {
+        e.stopPropagation();
+        // From another main tab, Text lands on Use (the default) and opens the menu.
+        if (state.tab !== 'apply' && state.tab !== 'library' && state.tab !== 'create') setTab('apply');
+        toggleTextMenu();
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#tabTextMenu')) closeTextMenu(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTextMenu(); });
+    window.addEventListener('resize', closeTextMenu);
     initPromptTab();
     $('tabBtnCut').addEventListener('click', () => { setTab('cut'); cutTabShown(); cutToolsShown(); });
     initCutTab();

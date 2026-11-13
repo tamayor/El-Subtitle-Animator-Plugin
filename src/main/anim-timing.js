@@ -5,7 +5,7 @@
 //   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
 // Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
-module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, spokenWordsFor };
+module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, spokenWordsFor, clipWordLane, setClipWordTimings };
 
 const state = require('./state');
 const { RESOLVE_BATCH } = require('./config');
@@ -497,4 +497,45 @@ async function fitClipToWords(event, itemId) {
     const r = await setClipTiming(event, itemId, [{ key: kind, start: lin.start, end: lin.end }], true);
     if (r.error) return r;
     return done({ mode: 'range', start: lin.start, end: lin.end, sounds: r.sounds });
+}
+
+// Word-lane segments for the Animation timing card: from the clip's fitted curve when fitted, else from the cached
+// spoken words. Returns { ok, itemId, target, editable, segs }.
+async function clipWordLane(event, itemId) {
+    if (!itemId) return { ok: false };
+    const WF = require('./word-fit');
+    let start, end;
+    try { ({ start, end } = await clipSpan(itemId)); } catch (e) { return { ok: false, error: e.message }; }
+    const length = Math.max(1, end - start);
+    const info = await bridgeCall('word_fit_info', { item: String(itemId) }, 8000);
+    if (!info || !info.kind) return { ok: true, itemId: String(itemId), editable: false, segs: [] };
+    let spoken = { words: [] };
+    try { spoken = await spokenWordsFor(start, end, { cachedOnly: true }); } catch (e) { /* none yet */ }
+    const out = WF.wordSegsFromInfo(info, spoken.words, length);
+    return { ok: true, itemId: String(itemId), target: info.target || null, editable: !!out.editable, segs: out.segs };
+}
+
+// Applies edited word-lane segments [{ s, e }] to the clip (re-keys the word-fit curve).
+async function setClipWordTimings(event, itemId, segs, wake) {
+    if (!itemId) return { error: 'No clip' };
+    if (state.applying) return { error: 'Busy placing: try again in a moment' };
+    const WF = require('./word-fit');
+    let start, end;
+    try { ({ start, end } = await clipSpan(itemId)); } catch (e) { return { error: e.message }; }
+    const length = Math.max(1, end - start);
+    const info = await bridgeCall('word_fit_info', { item: String(itemId) }, 8000);
+    const plan = WF.planFromWordSegs(info, segs, length);
+    if (!plan) return { error: 'Could not apply word timings to this clip' };
+    const r = await bridgeCall('word_fit_set', {
+        item: String(itemId), target: plan.target, keys: plan.keys, frames: plan.frames,
+        start: plan.start, end: plan.end, wake: !!wake
+    }, 15000);
+    if (!(r && r.ok)) return { error: (r && r.why) || 'Could not key the clip' };
+    cache.delete(String(itemId));
+    candMemo.list = null;
+    let sounds = null;
+    if (wake) {
+        try { sounds = await refitRowSounds(String(itemId)); } catch (e) { sounds = { error: e.message }; }
+    }
+    return { ok: true, start: plan.start, end: plan.end, sounds };
 }

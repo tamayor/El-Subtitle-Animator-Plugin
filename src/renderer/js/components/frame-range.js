@@ -121,7 +121,7 @@ function wordLane(opts) {
     lane.addEventListener('pointercancel', laneEnd);
     lane.addEventListener('dblclick', () => { if (laneEditable && opts.laneReset) { opts.laneReset(); laneKey = ''; paint(); } });
 
-    return { el: lane, paint };
+    return { el: lane, paint, dragging: () => !!laneDrag };
 }
 
 function frameRangeBar(opts) {
@@ -260,7 +260,7 @@ function frameRangeBar(opts) {
         if (!box.isConnected && box._mounted) return;
         if (box.isConnected) box._mounted = true;
         const visible = box.offsetParent !== null;
-        if (visible && !drag && !laneDrag) paint();
+        if (visible && !drag && !wl.dragging()) paint();
         setTimeout(tick, visible ? 150 : 400);
     };
     paint();

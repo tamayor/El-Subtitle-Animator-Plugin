@@ -68,3 +68,34 @@ test('planTypingKeys: the text grows one word at a time as it is said', () => {
     assert.strictEqual(at(10), Math.round(8 / 19 * 1e4) / 1e4);   // "So yeah,"
     assert.strictEqual(at(45), 1);
 });
+
+test('wordSegsFromInfo and planFromWordSegs round-trip animtime, step, and typing', () => {
+    // animtime
+    const animInfo = { kind: 'anim', target: 'animtime', terms: [{ a: 16, delay: 0.5, text: 'So yeah, watch this' }] };
+    const animInit = WF.wordSegsFromInfo(animInfo, spoken, 100);
+    assert.strictEqual(animInit.editable, true);
+    assert.deepStrictEqual(animInit.segs.map(g => g.label), ['So', 'yeah,', 'watch', 'this']);
+    assert.deepStrictEqual(animInit.segs.map(g => g.s), [2, 8, 30, 41]);
+    const editedAnim = animInit.segs.map((g, idx) => idx === 1 ? { ...g, s: 10, e: 16 } : g);
+    const animPlan = WF.planFromWordSegs(animInfo, editedAnim, 100);
+    const animBack = WF.wordSegsFromInfo({ ...animInfo, fitted: true, keys: animPlan.keys }, [], 100);
+    assert.deepStrictEqual(animBack.segs.map(g => g.s), [2, 10, 30, 41]);
+
+    // step
+    const stepInfo = { kind: 'anim', target: 'step', units: [{ text: 'So', own: 0 }, { text: 'yeah,', own: 6 }, { text: 'watch this', own: 12 }], pop: 6 };
+    const stepInit = WF.wordSegsFromInfo(stepInfo, spoken, 80);
+    assert.strictEqual(stepInit.editable, true);
+    assert.deepStrictEqual(stepInit.segs.map(g => g.s), [2, 8, 30]);
+    const stepPlan = WF.planFromWordSegs(stepInfo, [{ s: 4, e: 12 }, { s: 12, e: 25 }, { s: 25, e: 31 }], 80);
+    const stepBack = WF.wordSegsFromInfo({ ...stepInfo, fitted: true, keys: stepPlan.keys }, [], 80);
+    assert.deepStrictEqual(stepBack.segs.map(g => g.s), [4, 12, 25]);
+
+    // typing
+    const typInfo = { kind: 'typing', target: 'typing', text: 'So yeah, watch this' };
+    const typInit = WF.wordSegsFromInfo(typInfo, spoken, 60);
+    assert.strictEqual(typInit.editable, true);
+    assert.deepStrictEqual(typInit.segs.map(g => g.s), [2, 8, 30, 41]);
+    const typPlan = WF.planFromWordSegs(typInfo, [{ s: 3, e: 9 }, { s: 9, e: 28 }, { s: 28, e: 40 }, { s: 40, e: 46 }], 60);
+    const typBack = WF.wordSegsFromInfo({ ...typInfo, fitted: true, frames: typPlan.frames }, [], 60);
+    assert.deepStrictEqual(typBack.segs.map(g => g.s), [3, 9, 28, 40]);
+});

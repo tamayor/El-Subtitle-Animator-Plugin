@@ -9,7 +9,7 @@
 // newest values win), so it is watched in Resolve's viewer. Finalize re-renders it at full size.
 
 const brUI = { effects: [], common: [], sel: null, values: {}, editing: null, frame: null, busy: false, ready: false,
-    suggestions: [], placed: [], previewSeq: 0, strip: null, edited: new Set() };
+    suggestions: [], placed: [], previewSeq: 0, strip: null, edited: new Set(), viewMode: null };
 const BR_TABS = ['make', 'auto', 'placed'];
 // Colour-box trace (<data>/_app/broll-trace.log): what a click on a B-roll colour box led to, to find picker trouble.
 function brTrace(msg) { try { window.sa.brollTrace(msg); } catch (e) { /* ignore */ } }
@@ -81,19 +81,116 @@ function brSetup(msg) {
     el.classList.toggle('hidden', !msg);
 }
 
+function brViewMode() {
+    if (!brUI.viewMode) {
+        let m = 'grid';
+        try { m = localStorage.getItem('brViewMode') || 'grid'; } catch (e) { m = 'grid'; }
+        brUI.viewMode = (m === 'list' || m === 'gallery') ? m : 'grid';
+    }
+    return brUI.viewMode;
+}
+function brSyncViewModeBtn() {
+    const mode = brViewMode();
+    const m = VIEW_MODES.find(v => v.id === mode) || VIEW_MODES[1];
+    const ico = $('brViewModeIco');
+    if (ico) ico.innerHTML = m.svg;
+    const btn = $('brViewModeBtn');
+    if (btn) btn.title = 'View: ' + m.label + ' (click to show the effects as List, Grid or Gallery)';
+}
+function setBrViewMode(mode) {
+    brUI.viewMode = (mode === 'list' || mode === 'gallery') ? mode : 'grid';
+    try { localStorage.setItem('brViewMode', brUI.viewMode); } catch (e) { /* ignore */ }
+    brSyncViewModeBtn();
+    brRenderEffects();
+}
+
+function brEffectCard(e, missing) {
+    const img = brEl('img', { class: 'br-effect-img', alt: e.name, src: e.thumb || undefined });
+    if (!e.thumb) missing.push({ e, img });
+    const info = brEl('div', { class: 'br-effect-info' }, [
+        brEl('span', { class: 'br-effect-name', text: e.name }),
+        brEl('span', { class: 'br-effect-desc', text: e.description })
+    ]);
+    return brEl('button', { type: 'button', class: 'br-effect' + (brUI.sel === e.id ? ' on' : ''), 'data-id': e.id, title: e.description,
+        onclick: () => brPick(e.id, null) }, [
+        brEl('div', { class: 'br-effect-thumb' }, [img]),
+        info
+    ]);
+}
+
+function brSyncGallery() {
+    const box = $('brEffects');
+    if (!box || brViewMode() !== 'gallery') return;
+    const cards = [...box.querySelectorAll('.br-effect')];
+    const dots = [...box.querySelectorAll('.gallery-dot')];
+    const idx = cards.findIndex(c => c.dataset.id === brUI.sel);
+    const cur = brUI.effects[idx];
+    const nameText = box.querySelector('.gallery-active-title');
+    if (nameText && cur) {
+        nameText.textContent = cur.name;
+        if (nameText.parentElement) nameText.parentElement.title = cur.name;
+    }
+    dots.forEach((d, i) => {
+        const on = i === idx;
+        d.classList.toggle('active', on);
+        d.setAttribute('aria-selected', on ? 'true' : 'false');
+        if (on) d.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    });
+    const prev = box.querySelector('.gallery-prev'), next = box.querySelector('.gallery-next');
+    if (prev) prev.disabled = idx <= 0;
+    if (next) next.disabled = idx < 0 || idx >= cards.length - 1;
+    if (idx >= 0 && cards[idx]) cards[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
 function brRenderEffects() {
     const box = $('brEffects');
+    if (!box) return;
+    const mode = brViewMode();
+    box.className = 'br-effects view-' + mode;
     box.textContent = '';
     const missing = [];
-    for (const e of brUI.effects) {
-        const img = brEl('img', { class: 'br-effect-img', alt: e.name, src: e.thumb || undefined });
-        if (!e.thumb) missing.push({ e, img });
-        box.append(brEl('button', { type: 'button', class: 'br-effect' + (brUI.sel === e.id ? ' on' : ''), 'data-id': e.id, title: e.description,
-            onclick: () => brPick(e.id, null) }, [
-            brEl('div', { class: 'br-effect-thumb' }, [img]),
-            brEl('span', { class: 'br-effect-name', text: e.name }),
-            brEl('span', { class: 'br-effect-desc', text: e.description })
-        ]));
+    if (mode === 'gallery' && brUI.effects.length) {
+        const container = brEl('div', { class: 'gallery-container' });
+        const stage = brEl('div', { class: 'gallery-viewport-row' });
+        const prevBtn = brEl('button', { type: 'button', class: 'gallery-arrow gallery-prev', title: 'Previous effect', 'aria-label': 'Previous effect' });
+        prevBtn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 2 4 8 10 14"></polyline></svg>';
+        const track = brEl('div', { class: 'gallery-track', tabindex: '0', role: 'region', 'aria-label': 'Effect gallery carousel' });
+        const nextBtn = brEl('button', { type: 'button', class: 'gallery-arrow gallery-next', title: 'Next effect', 'aria-label': 'Next effect' });
+        nextBtn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 2 12 8 6 14"></polyline></svg>';
+        stage.append(prevBtn, track, nextBtn);
+
+        const footer = brEl('div', { class: 'gallery-indicator-bar' });
+        const namePill = brEl('div', { class: 'gallery-name-pill' }, [brEl('span', { class: 'gallery-active-title' })]);
+        const dotsWrap = brEl('div', { class: 'gallery-dots' });
+        const dotsScroll = brEl('div', { class: 'gallery-dots-scroll' }, [dotsWrap]);
+        footer.append(namePill, dotsScroll);
+        container.append(stage, footer);
+        box.append(container);
+
+        brUI.effects.forEach((e, idx) => {
+            track.append(brEffectCard(e, missing));
+            const dot = brEl('button', { type: 'button', class: 'gallery-dot' + (brUI.sel === e.id ? ' active' : ''),
+                text: String(idx + 1), title: (idx + 1) + '. ' + e.name, 'aria-label': (idx + 1) + '. ' + e.name,
+                onclick: (ev) => { ev.stopPropagation(); brPick(e.id, null); } });
+            dotsWrap.append(dot);
+        });
+        const step = (delta) => {
+            const idx = brUI.effects.findIndex(e => e.id === brUI.sel);
+            const next = Math.max(0, Math.min(brUI.effects.length - 1, (idx < 0 ? 0 : idx) + delta));
+            if (brUI.effects[next]) brPick(brUI.effects[next].id, null);
+        };
+        prevBtn.addEventListener('click', () => step(-1));
+        nextBtn.addEventListener('click', () => step(1));
+        track.addEventListener('keydown', (ev) => {
+            if (ev.key === 'ArrowLeft') { ev.preventDefault(); step(-1); }
+            else if (ev.key === 'ArrowRight') { ev.preventDefault(); step(1); }
+        });
+        track.addEventListener('wheel', (ev) => {
+            if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); track.scrollLeft += ev.deltaY; }
+        }, { passive: false });
+        brSyncGallery();
+    } else {
+        for (const e of brUI.effects) box.append(brEffectCard(e, missing));
     }
     if (missing.length) {
         (async () => {
@@ -116,6 +213,7 @@ function brPick(id, values) {
     brUI.values = { ...e.defaults, ...(e.last || {}), ...(values || {}) };
     brUI.edited.clear(); brFillModeSync();
     $('brEffects').querySelectorAll('.br-effect').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+    brSyncGallery();
     const prev = $('brPreview'), tip = $('brPreviewTip');
     if (prev) prev.title = e.description || '';
     if (tip) tip.textContent = e.description || '';
@@ -817,6 +915,25 @@ function initBrollTab() {
         else if (d.phase === 'done') { brStatus(d.text, 'ok'); $('brBar').style.width = '0'; if (d.placed && brUI.ready) brLoadPlaced(); }
         else if (d.phase === 'error') brStatus(d.text, 'bad');
     });
+    const brViewBtn = $('brViewModeBtn');
+    if (brViewBtn) {
+        brSyncViewModeBtn();
+        brViewBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPop(brViewBtn, 'pop-menu pop-viewmode', (el) => {
+                for (const m of VIEW_MODES) {
+                    const it = document.createElement('button');
+                    it.className = 'pop-item' + (brViewMode() === m.id ? ' on' : '');
+                    const ck = document.createElement('span'); ck.className = 'pop-check'; ck.textContent = '✓';
+                    const ic = document.createElement('span'); ic.className = 'vm-ico'; ic.innerHTML = m.svg;
+                    const lb = document.createElement('span'); lb.className = 'pop-label'; lb.textContent = m.label;
+                    it.append(ck, ic, lb);
+                    it.addEventListener('click', () => { closePop(); setBrViewMode(m.id); });
+                    el.appendChild(it);
+                }
+            });
+        });
+    }
     let t = 'make';
     try { t = localStorage.getItem('brTab') || 'make'; } catch (e) { /* ignore */ }
     brSubTab(t);

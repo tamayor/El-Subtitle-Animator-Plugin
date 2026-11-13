@@ -6,9 +6,11 @@
   "anim-timing.js": [
     "activateWordTimings:function",
     "clipTiming:function",
+    "clipWordLane:function",
     "currentFusionClip:function",
     "fitClipToWords:function",
     "setClipTiming:function",
+    "setClipWordTimings:function",
     "spokenWordsFor:function",
     "wordTimingStatus:function"
   ],
@@ -566,12 +568,15 @@
   ],
   "word-fit.js": [
     "alignWords:function",
+    "frameAtKeys:function",
     "planAnimKeys:function",
+    "planFromWordSegs:function",
     "planLinear:function",
     "planRows:function",
     "planStepKeys:function",
     "planTypingKeys:function",
     "speedRange:function",
-    "textWords:function"
+    "textWords:function",
+    "wordSegsFromInfo:function"
   ]
 }

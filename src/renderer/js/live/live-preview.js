@@ -206,36 +206,6 @@ async function startLivePreview() {
         return;
     }
 
-    // If a Text+ / Fusion clip is already at the playhead, detect it for Clip controls & Animation timing
-    // instead of re-rendering a new preview clip over it.
-    try {
-        const [cc, tm] = await Promise.all([
-            window.sa.clipControls(),
-            window.sa.clipTiming({ force: true })
-        ]);
-        const hasCtl = !!(cc && cc.ok && !cc.none && cc.itemId && ((cc.controls && cc.controls.length) || cc.gradient));
-        const hasTm = !!(tm && tm.ok && !tm.none && !tm.noSlider && tm.itemId);
-        if (hasCtl || hasTm) {
-            if (cc && cc.ok && !cc.none) {
-                try { if (window.SABoxes && SABoxes.setClip) SABoxes.setClip(cc); } catch (e) { /* ignore */ }
-                if (typeof ccRender === 'function') ccRender(cc);
-            }
-            if (hasTm && typeof tmState !== 'undefined') {
-                tmState.info = tm;
-                if (typeof renderTiming === 'function') renderTiming();
-                if (typeof tmRenderWords === 'function') tmRenderWords();
-                if (typeof tmCheckWords === 'function') tmCheckWords(false);
-            }
-            const card = hasCtl ? $('clipCtlCard') : $('timingCard');
-            if (card && !card.classList.contains('hidden') && !card.classList.contains('docked')) {
-                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-            const name = (cc && cc.name) || (tm && tm.name) || 'clip';
-            setStatus('Detected “' + name + '” on the timeline — adjust its controls below.', 'ok');
-            return;
-        }
-    } catch (e) { /* fall back to starting a new preview clip */ }
-
     state.liveApplied = false;
     state.livePrev = null;
 

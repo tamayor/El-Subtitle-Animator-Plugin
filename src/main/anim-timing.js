@@ -284,6 +284,8 @@ async function refitRowSounds(itemId) {
         if (meta.key !== tlName || !meta.meta) meta = { key: tlName, at: Date.now(), meta: await timelineMeta(tl, project) };
         const live = state.liveSession && String(state.liveSession.itemId) === String(itemId) ? state.liveSession : null;
         const r = await refitRowSfx(tl, project, meta.meta, text, itemId, !live);
+        // placing the sounds again clears the timeline's In/Out: a running preview's loop range goes back on its clip
+        if (live) { try { await require('./live-preview').liveSetMarks(tl, text); } catch (e) { /* marks are a convenience */ } }
         if (!r) return null;
         for (const sw of r.swaps) {
             if (live) {

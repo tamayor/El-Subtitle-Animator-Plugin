@@ -521,12 +521,9 @@ function tmWordLaneEdit(idx, s, e, final) {
     renderTiming();
     tmRenderWords();
     clearTimeout(tmState.wordSendTimer);
-    if (final) {
-        tmSendWords(true);
-    } else {
-        const wait = Math.max(0, TM_SEND_MS - (Date.now() - tmState.wordSentAt));
-        tmState.wordSendTimer = setTimeout(() => tmSendWords(false), wait);
-    }
+    // While a word's in / out is dragged only the lane and bar move; the clip is re-keyed once, on release. Sending
+    // every step made Resolve re-render the whole comp about ten times a second.
+    if (final) tmSendWords(true);
 }
 function tmWordLaneReset() {
     tmFitWords();

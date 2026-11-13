@@ -79,6 +79,8 @@ body.tab-broll { padding-bottom: 24px; }
 .br-land-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
 .br-place-nums { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 6px; }
 .br-enter-wrap { margin: 8px 0 4px; }
+.br-fill-mode[data-edited] { color: var(--strawberry); font-weight: 600; }
+#tabBroll button.br-clear-edits { padding: 2px 8px; font-size: 11px; }
 .br-fill-msg { font-size: 11px; color: var(--dim); margin: 2px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .br-fill-msg[data-kind="bad"] { color: var(--bad); white-space: normal; }
 

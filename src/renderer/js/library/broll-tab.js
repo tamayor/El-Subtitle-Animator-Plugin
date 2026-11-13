@@ -9,7 +9,7 @@
 // newest values win), so it is watched in Resolve's viewer. Finalize re-renders it at full size.
 
 const brUI = { effects: [], common: [], sel: null, values: {}, editing: null, frame: null, busy: false, ready: false,
-    suggestions: [], placed: [], previewSeq: 0, strip: null };
+    suggestions: [], placed: [], previewSeq: 0, strip: null, edited: new Set() };
 const BR_TABS = ['make', 'auto', 'placed'];
 // Colour-box trace (<data>/_app/broll-trace.log): what a click on a B-roll colour box led to, to find picker trouble.
 function brTrace(msg) { try { window.sa.brollTrace(msg); } catch (e) { /* ignore */ } }
@@ -114,6 +114,7 @@ function brPick(id, values) {
     brUI.sel = id;
     try { localStorage.setItem('brEffect', id); } catch (err) { /* ignore */ }
     brUI.values = { ...e.defaults, ...(e.last || {}), ...(values || {}) };
+    brUI.edited.clear(); brFillModeSync();
     $('brEffects').querySelectorAll('.br-effect').forEach(b => b.classList.toggle('on', b.dataset.id === id));
     const prev = $('brPreview'), tip = $('brPreviewTip');
     if (prev) prev.title = e.description || '';
@@ -136,7 +137,8 @@ function brRenderFields(box, fields) {
         if (BR_RANGE_KEYS.has(f.key)) continue;   // timing lives on the Place range bar
         const v = brUI.values[f.key];
         let input;
-        const set = (val) => { brUI.values[f.key] = val; brPreviewSoon(); };
+        // typing in an effect field marks it edited: Fill from subtitle leaves it alone until Clear edits
+        const set = (val) => { brUI.values[f.key] = val; if (box.id === 'brFields') brMarkEdited(f.key); brPreviewSoon(); };
         if (f.type === 'bool') {
             input = brEl('input', { type: 'checkbox' });
             input.checked = !!v;
@@ -174,7 +176,25 @@ function brRenderFields(box, fields) {
 
 // "Fill from subtitle at playhead": the words of the subtitle there go into this effect's text fields (main/broll.js
 // brollFromPlayhead, the same reading Auto uses); colours, header and layout keep their values.
+// Fields typed in by hand (brUI.edited) are kept: the badge reads "edited" and Clear edits hands them back to auto.
 let brFillSeq = 0;
+function brMarkEdited(key) {
+    if (brUI.edited.has(key)) return;
+    brUI.edited.add(key); brFillModeSync();
+}
+function brFillModeSync() {
+    const n = brUI.edited.size, badge = $('brFromSubMode'), btn = $('brClearEdits');
+    if (badge) {
+        badge.textContent = n ? 'edited' : 'auto';
+        if (n) badge.dataset.edited = ''; else delete badge.dataset.edited;
+        badge.title = n ? n + ' field' + (n > 1 ? 's' : '') + ' typed in by hand: Fill from subtitle keeps ' + (n > 1 ? 'them' : 'it') : '';
+    }
+    if (btn) btn.classList.toggle('hidden', !n);
+}
+function brClearEdits() {
+    brUI.edited.clear(); brFillModeSync();
+    if ($('brFromSub').checked) brFillFromSub();
+}
 async function brFillFromSub() {
     if (!brUI.sel) return;
     const seq = ++brFillSeq;
@@ -185,9 +205,11 @@ async function brFillFromSub() {
     if (!r || r.error) { msg.textContent = (r && r.error) || 'No subtitle at the playhead'; msg.dataset.kind = ''; return; }
     const e = brUI.effects.find(x => x.id === brUI.sel);
     if (!e) return;
-    brUI.values = { ...brUI.values, ...r.props };
+    const props = {}; let kept = 0;
+    for (const [k, v] of Object.entries(r.props || {})) { if (brUI.edited.has(k)) kept++; else props[k] = v; }
+    brUI.values = { ...brUI.values, ...props };
     brRenderFields($('brFields'), e.fields);
-    msg.textContent = 'From #' + r.subtitle.index + ': “' + r.subtitle.text + '”';
+    msg.textContent = 'From #' + r.subtitle.index + ': “' + r.subtitle.text + '”' + (kept ? ' · kept ' + kept + ' edited field' + (kept > 1 ? 's' : '') : '');
     msg.dataset.kind = 'ok';
     // place it on that subtitle too, unless the user picked marks or the playhead
     if ($('brWhere').value === 'num') $('brSub').value = r.subtitle.index;
@@ -578,7 +600,10 @@ function brShowDetected() {
         brUI.lastSubKey = key;
         brUI.detected = s ? { index: s.index, text: s.text, start: s.start, end: s.end } : null;
         // word timings set by hand belong to one subtitle: a new one starts from its own speech
-        if (!brUI.editing && brUI.values && brUI.values._manual) { delete brUI.values._times; delete brUI.values._ends; delete brUI.values._manual; brLandNoteText(); }
+        if (!brUI.editing && brUI.values && brUI.values._manual) {
+            if (!brUI.values._times) { brUI.values.settle = 0; brUI.values.delay = 0; }
+            delete brUI.values._times; delete brUI.values._ends; delete brUI.values._manual; brLandNoteText();
+        }
         if (!brUI.editing && $('brSec')) {
             const fps = (L && L.fps) || 30;
             $('brSec').placeholder = (s && s.end > s.start) ? ((s.end - s.start) / fps).toFixed(1) : "effect's";
@@ -698,8 +723,15 @@ function brLaneEdit(i, s, e, final) {
     const r = brUI.laneData;
     if (!r || !r.segs[i]) return;
     r.segs[i] = { ...r.segs[i], s, e };
-    brUI.values._times = r.segs.map(g => g.s);
-    brUI.values._ends = r.segs.map(g => g.e);
+    if (r.segs[i].build) {
+        // one key word: strawberry = where the build starts (the In's start), matcha = where it lands
+        brUI.values.delay = s;
+        brUI.values.settle = e;
+    } else {
+        const units = r.segs.filter(g => Number.isInteger(g.unit)).sort((a, b) => a.unit - b.unit);   // the shown words, in order
+        brUI.values._times = units.map(g => g.s);
+        brUI.values._ends = units.map(g => g.e);
+    }
     brUI.values._manual = true;
     brUI.laneKey = JSON.stringify([brUI.sel, brUI.editing ? { id: brUI.editing.id } : { subtitle: (brUI.detected || {}).index }, brUI.values]);
     brLandNoteText();
@@ -707,6 +739,7 @@ function brLaneEdit(i, s, e, final) {
 }
 
 function brLaneReset() {
+    if (brUI.values._manual && !brUI.values._times) { brUI.values.settle = 0; brUI.values.delay = 0; }   // the key word build
     delete brUI.values._times; delete brUI.values._ends; delete brUI.values._manual;
     brUI.laneKey = null;
     brLandNoteText();
@@ -747,6 +780,7 @@ function initBrollTab() {
         try { localStorage.setItem('brFromSub', $('brFromSub').checked ? '1' : '0'); } catch (e) { /* ignore */ }
         if ($('brFromSub').checked) brFillFromSub();
     });
+    $('brClearEdits').addEventListener('click', brClearEdits);
     $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
     $('brAt').addEventListener('input', brMoment);
     $('brSec').addEventListener('input', () => { brSyncRangeBar(); brFieldEdited(); });

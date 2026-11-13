@@ -456,8 +456,9 @@ async function brollPlace(event, o) {
         landed = await brollLandingPlan(tl, meta, e.id, props, r.start, r.end, r.subtitle && r.subtitle.index);
         r.start = landed.start; r.end = landed.end; r.frames = landed.end - landed.start;
         props.settle = landed.settle;
+        if (Number.isFinite(landed.delay)) props.delay = landed.delay;
         if (landed.times) { props._times = landed.times; props._ends = landed.ends || []; if (!landed.manual) delete props._manual; }
-        else { delete props._times; delete props._ends; delete props._manual; }
+        else { delete props._times; delete props._ends; if (!landed.manual) delete props._manual; }
     }
     // Extend by: the clip runs this many seconds past the subtitle / marks (the finished graphic holds, then fades)
     const extendF = Math.round(Math.max(0, Math.min(30, Number(o.extend) || 0)) * meta.fps);
@@ -571,6 +572,7 @@ async function brollAdjust(event, o) {
         const plan = await brollLandingPlan(tl, meta, e.id, props, newStart, newStart + frames, rec.subtitle && rec.subtitle.index);
         if (plan.times) { props._times = plan.times; props._ends = plan.ends || []; if (!plan.manual) delete props._manual; }
         props.settle = plan.settle;
+        if (Number.isFinite(plan.delay)) props.delay = plan.delay;
         newStart = plan.start;
         if (!hasCustomSec) frames = plan.end - plan.start;
         landed = { word: plan.word, source: plan.source, wordFrame: plan.wordFrame };
@@ -704,6 +706,21 @@ function brollOpenFolder(event, o) {
 // Each effect has a moment where its build has landed (the comment posted, the number counted, the word drawn; the
 // Remotion side warps its clock so that moment is props.settle). These put that moment on the spoken key word.
 
+// The transcription's words, with numbers it split back together ("1" + ",600" -> "1,600", "$" + "174,953").
+async function spokenWords(start, end, opts) {
+    const r = await require('./anim-timing').spokenWordsFor(start, end, opts);
+    return { ...r, words: mergeSplitNumbers(r.words || []) };
+}
+function mergeSplitNumbers(words) {
+    const out = [];
+    for (const w of words) {
+        const p = out[out.length - 1], t = String(w.w || '');
+        const joins = p && (/^[,.]\d/.test(t) || (/^[$€£¥]$/.test(String(p.w)) && /^\d/.test(t)) || (/\d[,.]$/.test(String(p.w)) && /^\d/.test(t)));
+        if (joins) { p.w = String(p.w) + t; p.end = w.end; } else out.push({ ...w });
+    }
+    return out;
+}
+
 const normWord = (w) => String(w || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
 const firstWordOf = (t) => String(t || '').trim().split(/\s+/)[0] || '';
 const lastWordOf = (t) => String(t || '').trim().split(/\s+/).pop() || '';
@@ -799,7 +816,7 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
     } catch (e) { /* no subtitles */ }
     const s0 = sub ? Math.min(sub.start, start) : start, s1 = sub ? Math.max(sub.end, end) : end;
     try {
-        const { words } = await require('./anim-timing').spokenWordsFor(s0, s1);
+        const { words } = await spokenWords(s0, s1);
         if (words && words.length) {
             const inSub = sub ? words.filter(w => s0 + w.start < sub.end && s0 + w.end > sub.start) : words;
             const list = inSub.length ? inSub : words;
@@ -833,8 +850,18 @@ async function brollLandingPlan(tl, meta, effect, props, start, end, subIndex) {
     }
     const wp = await wordUnitsPlan(effect, props, start, end);
     if (wp) return wp;
-    const k = await keyWordFrame(tl, effect, props, start, end, subIndex);
     const dur = Math.max(6, end - start);
+    // landing set by hand in the word lane (the key word block's matcha end): kept until Sync to words
+    if (props && props._manual && Number(props.settle) > 0) {
+        const st = Math.max(2, Math.min(dur - 1, Math.round(Number(props.settle))));
+        return { start, end: start + dur, settle: st, wordFrame: start + st, word: '', source: 'manual', manual: true };
+    }
+    if (WORD_UNITS[effect] || KEY_WORD[effect]) {
+        // one key word: the build runs over the word, from a little before it is said (delay) to its middle (settle)
+        const b = await keyBuildSpan(effect, props, start, dur);
+        if (b) return { start, end: start + dur, settle: b.land, delay: b.from, wordFrame: start + b.land, word: b.word, source: b.source };
+    }
+    const k = await keyWordFrame(tl, effect, props, start, end, subIndex);
     const settle = Math.max(4, Math.min(dur - 2, k.frame - start));
     return { start, end: start + dur, settle, wordFrame: k.frame, word: k.word, source: k.source };
 }
@@ -848,19 +875,33 @@ const WORD_UNITS = {
     'tag-stack': p => (p.tags || []).slice(0, 14).map(String).filter(Boolean)
 };
 
+const ANY_ORDER = new Set(['tag-stack']);   // shown items that need not follow the speech order
+
 // Each shown unit's spoken frame (relative to the clip start): matched in order to the transcription with a few words
 // of look-ahead (spoken numbers too, "sixteen hundred" = 1,600); unmatched units fall between their neighbours; when
 // nothing matches, they are spread over the speech word for word.
-function unitTimes(units, words) {
+function unitTimes(units, words, anyOrder) {
     const t = new Array(units.length).fill(null);
+    const used = new Set();
     let cur = 0;
+    const take = (i, k, endAt) => {
+        t[i] = words[k].start; used.add(k);
+        if (endAt !== undefined) for (let j = k + 1; j < words.length && words[j].start < endAt - 0.01; j++) used.add(j);
+    };
     units.forEach((u, i) => {
         const key = firstWordOf(u);
         for (let k = cur; k < Math.min(words.length, cur + 5); k++) {
-            if (wordMatches(words[k].w, key)) { t[i] = words[k].start; cur = k + 1; return; }
+            if (!used.has(k) && wordMatches(words[k].w, key)) { take(i, k); cur = k + 1; return; }
         }
         const hit = findWordHit(words.slice(cur, cur + 8), key);
-        if (hit) { t[i] = hit.start; const j = words.findIndex(w => w.start >= hit.end - 0.01); cur = j < 0 ? words.length : Math.max(cur + 1, j); }
+        if (hit) { const k = words.findIndex(w => w.start === hit.start); take(i, k, hit.end); const j = words.findIndex(w => w.start >= hit.end - 0.01); cur = j < 0 ? words.length : Math.max(cur + 1, j); return; }
+        if (anyOrder) {
+            // items that are not in reading order (tags): the first unused spoken match anywhere
+            const k = words.findIndex((w, x) => !used.has(x) && wordMatches(w.w, key));
+            if (k >= 0) { take(i, k); return; }
+            const h = findWordHit(words.filter((_, x) => !used.has(x)), key);
+            if (h) { const k2 = words.findIndex(w => w.start === h.start); if (k2 >= 0) { take(i, k2, h.end); return; } }
+        }
     });
     if (t.every(v => v === null)) units.forEach((_, i) => { t[i] = words[Math.min(words.length - 1, Math.round(i * (words.length - 1) / Math.max(1, units.length - 1)))].start; });
     for (let i = 0; i < t.length; i++) {
@@ -871,8 +912,10 @@ function unitTimes(units, words) {
         for (let k = i; k < j; k++) t[k] = a + (b - a) * (k - i + 1) / (j - i + 1);
         i = j - 1;
     }
-    for (let i = 1; i < t.length; i++) if (t[i] < t[i - 1]) t[i] = t[i - 1];   // never out of order
-    return t.map(v => Math.max(0, Math.round(v)));
+    if (!anyOrder) for (let i = 1; i < t.length; i++) if (t[i] < t[i - 1]) t[i] = t[i - 1];   // reading order
+    const out = t.map(v => Math.max(0, Math.round(v)));
+    out.used = used;   // the spoken words that are shown words (the word lane leaves them out of the locked row)
+    return out;
 }
 
 // The B-roll tab's word lane under the In bar: what Land on word times, in frames from the clip start.
@@ -900,7 +943,7 @@ async function brollWordLane(event, o) {
     }
     const dur = Math.max(1, end - start);
     let words = [], source = 'speech';
-    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end, { cachedOnly: true })); } catch (err) { words = []; }
+    try { ({ words } = await spokenWords(start, end, { cachedOnly: true })); } catch (err) { words = []; }
     if (!words || !words.length) {
         // estimate: the clip's frames shared out by the characters of the subtitle's words
         source = 'estimate';
@@ -918,18 +961,35 @@ async function brollWordLane(event, o) {
         if (saved) {
             const ends = Array.isArray(props._ends) && props._ends.length === units.length ? props._ends.map(Number) : wordSpans(e.id, units, saved, dur).ends;
             sp = { ins: saved, ends };
-        } else if (words.length) sp = wordSpans(e.id, units, unitTimes(units, words), dur);
+        } else if (words.length) sp = wordSpans(e.id, units, unitTimes(units, words, ANY_ORDER.has(e.id)), dur);
         if (sp) {
-            const segs = units.map((u, i) => ({ s: Math.max(0, Math.round(sp.ins[i])), e: Math.min(dur, Math.max(Math.round(sp.ins[i]) + 1, Math.round(sp.ends[i]))), label: u, key: false }));
+            // one row: the subtitle's other spoken words (locked) with the shown words as blocks on top
+            const used = words.length ? unitTimes(units, words, ANY_ORDER.has(e.id)).used : new Set();
+            const rest = words.filter((_, x) => !used.has(x));
+            const locked = rest.map((w, x) => ({ s: Math.max(0, Math.round(w.start)), e: Math.min(dur, Math.round(x + 1 < rest.length ? rest[x + 1].start : Math.max(w.end, w.start + 1))), label: w.w, locked: true }));
+            const blocks = units.map((u, i) => ({ s: Math.max(0, Math.round(sp.ins[i])), e: Math.min(dur, Math.max(Math.round(sp.ins[i]) + 1, Math.round(sp.ends[i]))), label: u, key: false, unit: i }));
+            const segs = [...locked, ...blocks].sort((a, b) => a.s - b.s || (a.locked ? -1 : 1));
             return { segs, frames: dur, source: props._manual ? 'manual' : saved ? 'saved' : source, units: true, editable: true };
         }
     }
     const keyFn = KEY_WORD[e.id];
     const key = keyFn ? keyFn(props) : null;
-    let keyHit = key ? findWordHit(words, key) : null;
-    if (!keyHit && words.length) keyHit = words[words.length - 1];
-    const list = words.map(w => ({ at: w.start, label: w.w, key: !!keyHit && w.start >= keyHit.start && w.start < (keyHit.end ?? keyHit.start) + 0.5 }));
-    return { segs: span(list), frames: dur, source, units: false };
+    const kb = keyBlock(words, key, dur);
+    // one row: the spoken words (locked) with the key word as its build block, from where the build starts (strawberry)
+    // to where it lands (matcha); set by hand it is the clip's delay / settle
+    const others = words.filter(w => !kb || w !== kb.hit);
+    const segs = span(others.map(w => ({ at: w.start, label: w.w }))).map(g => ({ ...g, locked: true }));
+    if (kb) {
+        const manual = props._manual && Number(props.settle) > 0;
+        const land = manual ? Math.round(Number(props.settle)) : kb.land;
+        const from = manual ? Math.max(0, Math.min(land - 1, Math.round(Number(props.delay) || 0))) : kb.from;
+        // the locked word before it ends where the block starts
+        const prev = segs.filter(g => g.s < from).pop();
+        if (prev && prev.e > from) prev.e = Math.max(prev.s + 1, from);
+        segs.push({ s: from, e: Math.min(dur, land), label: String(kb.word), key: true, build: true });
+        segs.sort((a, b) => a.s - b.s);
+    }
+    return { segs, frames: dur, source, units: false, editable: !!kb };
 }
 
 // Each word's [in, end] from its spoken frame: in = when it starts coming in, end = when it is fully in. Typed words
@@ -949,6 +1009,26 @@ function wordSpans(effect, units, spoken, dur) {
     return { ins, ends };
 }
 
+// One key word's build block in clip frames: from = where the build starts (KEY_LEAD frames before the word),
+// land = the middle of the word. null without a key word in the speech.
+const KEY_LEAD = 10;
+function keyBlock(words, key, dur) {
+    let hit = key ? findWordHit(words, key) : null;
+    if (!hit && words.length) hit = words[words.length - 1];
+    if (!hit) return null;
+    const land = Math.max(4, Math.min(dur - 2, Math.round((hit.start + (hit.end ?? hit.start)) / 2)));
+    return { hit, from: Math.max(0, Math.min(land - 4, Math.round(hit.start) - KEY_LEAD)), land, word: hit.w };
+}
+async function keyBuildSpan(effect, props, start, dur) {
+    const key = (KEY_WORD[effect] || (() => null))(props || {});
+    if (!key) return null;
+    let words;
+    try { ({ words } = await spokenWords(start, start + dur)); } catch (e) { return null; }
+    if (!words || !words.length) return null;
+    const b = keyBlock(words, key, dur);
+    return b ? { ...b, source: 'speech' } : null;
+}
+
 async function wordUnitsPlan(effect, props, start, end) {
     const f = WORD_UNITS[effect];
     const units = f ? f(props || {}) : [];
@@ -960,10 +1040,10 @@ async function wordUnitsPlan(effect, props, start, end) {
         return { start, end: start + dur0, settle: 0, times: props._times, ends, manual: true, wordFrame: start + Math.max(...ends), word: units[units.length - 1], source: 'manual' };
     }
     let words;
-    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end)); } catch (e) { return null; }
+    try { ({ words } = await spokenWords(start, end)); } catch (e) { return null; }
     if (!words || !words.length) return null;
     const dur = Math.max(6, end - start);
-    const sp = wordSpans(effect, units, unitTimes(units, words).map(v => Math.min(dur - 2, v)), dur);
+    const sp = wordSpans(effect, units, unitTimes(units, words, ANY_ORDER.has(effect)).map(v => Math.min(dur - 2, v)), dur);
     return { start, end: start + dur, settle: 0, times: sp.ins, ends: sp.ends, wordFrame: start + Math.max(...sp.ends), word: units[units.length - 1], source: 'speech' };
 }
 
@@ -972,7 +1052,7 @@ async function wordUnitsPlan(effect, props, start, end) {
 // Printed words are matched to spoken ones in order (a few words of look-ahead); unmatched ones fall between.
 async function receiptWordPlan(meta, props, start, end) {
     let words;
-    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end)); } catch (e) { return null; }
+    try { ({ words } = await spokenWords(start, end)); } catch (e) { return null; }
     if (!words || !words.length) return null;
     const fps = meta.fps;
     const printed = [];
@@ -1024,7 +1104,7 @@ async function brollSync(event, o) {
                 out.push({ id: rec.id, ok: true, unchanged: true, word: plan.word, source: plan.source });
                 continue;
             }
-            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle, _times: plan.times || [], _ends: plan.ends || [], _manual: false }, startFrame: plan.start, frames: plan.end - plan.start });
+            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle, ...(Number.isFinite(plan.delay) ? { delay: plan.delay } : {}), _times: plan.times || [], _ends: plan.ends || [], _manual: false }, startFrame: plan.start, frames: plan.end - plan.start });
             out.push({ id: rec.id, ok: true, word: plan.word, source: plan.source, wordFrame: plan.wordFrame, moved: plan.start - start, how: r.how });
         } catch (e) { out.push({ id: rec.id, ok: false, error: String(e.message || e) }); }
     }

@@ -21,21 +21,24 @@
 // Returns { el, paint }: call paint() when get() or last() changed from outside.
 const FRB_SNAP_PX = 10, FRB_HEAD_PX = 10;
 
-function frameRangeBar(opts) {
-    const box = document.createElement('div'); box.className = 'fxr';
-    const bar = document.createElement('div'); bar.className = 'fxr-bar'; bar.tabIndex = 0;
-    bar.title = opts.title || 'Drag a head to set the start or end, drag between them to shift both. Snaps to the playhead (P). Double-click: default';
-    const mk = (cls) => { const x = document.createElement('div'); x.className = cls; bar.appendChild(x); return x; };
-    mk('fxr-track');
-    const range = mk('fxr-range');
-    const ph = mk('fxr-ph hidden');
-    const phLab = document.createElement('span'); ph.appendChild(phLab);
-    const hs = mk('fxr-knob fxr-start'), he = mk('fxr-knob fxr-end');
+// Word lane: a row of word blocks (.fxr-lane) aligned to 0..last(), with optional edge/block dragging and a playhead
+// line. Used by frameRangeBar below and by the Use tab's Animation timing card (js/timeline/anim-timing.js).
+// opts: { last, playhead, lane, laneEdit, laneReset, onDrag(dragging) }
+function wordLane(opts) {
     const lane = document.createElement('div'); lane.className = 'fxr-lane hidden';
-    const read = document.createElement('div'); read.className = 'fxr-read';
-    box.append(bar, lane, read);
+    const lanePh = document.createElement('div'); lanePh.className = 'fxr-ph fxr-lane-ph hidden';
     let laneKey = '', laneSegs = [], laneEditable = false, laneDrag = null;
-    const paintLane = (L) => {
+    const lastOf = () => Math.max(1, Math.round(Number(opts.last()) || 1));
+    const at = () => { const v = opts.playhead ? opts.playhead() : null; return Number.isFinite(v) ? Math.round(v) : null; };
+    const pct = (f, L) => (Math.max(0, Math.min(1, f / L)) * 100) + '%';
+
+    const paint = () => {
+        const L = lastOf();
+        const a = at();
+        const showPh = a !== null && a >= 0 && a <= L;
+        lanePh.classList.toggle('hidden', !showPh);
+        if (showPh) lanePh.style.left = pct(a, L);
+
         if (!laneDrag) {
             const d = opts.lane ? opts.lane() : null;
             laneSegs = d && Array.isArray(d.segs) ? d.segs.map(g => ({ ...g })) : [];
@@ -52,15 +55,18 @@ function frameRangeBar(opts) {
             const s = Math.max(0, Math.min(L, Math.round(g.s))), e = Math.max(s, Math.min(L, Math.round(g.e)));
             const x = document.createElement('div');
             x.className = 'fxr-seg' + (i === 0 ? ' first' : '') + (i === segs.length - 1 ? ' last' : '') + (g.key ? ' key' : '') +
-                (laneDrag && laneDrag.i === i ? ' on' : '');
+                (g.locked ? ' locked' : '') + (laneDrag && laneDrag.i === i ? ' on' : '');
             x.dataset.i = String(i);
             x.style.left = pct(s, L); x.style.width = ((e - s) / L * 100) + '%';
             x.textContent = g.label || '';
-            x.title = laneEditable ? ('“' + (g.label || '') + '” · in ' + s + ' f → end ' + e + ' f · drag the edges or the word')
+            x.title = g.build ? ('“' + (g.label || '') + '” · the build starts ' + s + ' f → lands ' + e + ' f · drag the edges or the block')
+                : laneEditable && !g.locked ? ('“' + (g.label || '') + '” · in ' + s + ' f → end ' + e + ' f · drag the edges or the word')
                 : (g.title || ('“' + (g.label || '') + '” · ' + s + '–' + e + ' f'));
             lane.appendChild(x);
         });
+        lane.appendChild(lanePh);
     };
+
     // editing a word block: left edge = in, right edge = end, middle = move both (snaps to the playhead)
     lane.addEventListener('pointerdown', (x) => {
         if (x.button !== 0 || !laneEditable) return;
@@ -68,7 +74,7 @@ function frameRangeBar(opts) {
         if (!el) return;
         x.stopPropagation(); x.preventDefault();
         const i = Number(el.dataset.i), g = laneSegs[i];
-        if (!g) return;
+        if (!g || g.locked) return;
         const rc = el.getBoundingClientRect(), b = lane.getBoundingClientRect(), L = lastOf();
         const edge = Math.min(6, rc.width / 3);
         const part = x.clientX - rc.left <= edge ? 's' : rc.right - x.clientX <= edge ? 'e' : 'm';
@@ -76,8 +82,9 @@ function frameRangeBar(opts) {
         laneDrag = { i, part, f0, s0: Math.round(g.s), e0: Math.round(g.e) };
         lane.setPointerCapture(x.pointerId);
         lane.classList.add('dragging');
+        if (opts.onDrag) opts.onDrag(true);
         laneKey = '';
-        draw();
+        paint();
     });
     lane.addEventListener('pointermove', (x) => {
         if (!laneDrag) return;
@@ -96,7 +103,7 @@ function frameRangeBar(opts) {
         if (s === g.s && e === g.e) return;
         g.s = s; g.e = e;
         laneKey = '';
-        draw();
+        paint();
         opts.laneEdit(d.i, s, e, false);
     });
     const laneEnd = (x) => {
@@ -105,13 +112,37 @@ function frameRangeBar(opts) {
         const d = laneDrag, g = laneSegs[d.i];
         laneDrag = null;
         lane.classList.remove('dragging');
+        if (opts.onDrag) opts.onDrag(false);
         laneKey = '';
         if (g && (g.s !== d.s0 || g.e !== d.e0)) opts.laneEdit(d.i, g.s, g.e, true);
-        draw();
+        paint();
     };
     lane.addEventListener('pointerup', laneEnd);
     lane.addEventListener('pointercancel', laneEnd);
     lane.addEventListener('dblclick', () => { if (laneEditable && opts.laneReset) { opts.laneReset(); laneKey = ''; paint(); } });
+
+    return { el: lane, paint };
+}
+
+function frameRangeBar(opts) {
+    const box = document.createElement('div'); box.className = 'fxr';
+    const bar = document.createElement('div'); bar.className = 'fxr-bar'; bar.tabIndex = 0;
+    bar.title = opts.title || 'Drag a head to set the start or end, drag between them to shift both. Snaps to the playhead (P). Double-click: default';
+    const mk = (cls) => { const x = document.createElement('div'); x.className = cls; bar.appendChild(x); return x; };
+    mk('fxr-track');
+    const range = mk('fxr-range');
+    const ph = mk('fxr-ph hidden');
+    const phLab = document.createElement('span'); ph.appendChild(phLab);
+    const hs = mk('fxr-knob fxr-start'), he = mk('fxr-knob fxr-end');
+    const read = document.createElement('div'); read.className = 'fxr-read';
+    const wl = wordLane({
+        last: opts.last,
+        playhead: opts.playhead,
+        lane: opts.lane,
+        laneEdit: opts.laneEdit,
+        laneReset: opts.laneReset,
+    });
+    box.append(bar, wl.el, read);
 
     let active = 'e', drag = null, r = { s: 0, e: 1 };
     const lastOf = () => Math.max(1, Math.round(Number(opts.last()) || 1));
@@ -134,7 +165,7 @@ function frameRangeBar(opts) {
         hs.style.left = pct(r.s, L); he.style.left = pct(r.e, L);
         hs.classList.toggle('on', !!drag && active !== 'e'); he.classList.toggle('on', !!drag && active !== 's');
         paintPh(L);
-        paintLane(L);
+        wl.paint();
         read.innerHTML = opts.read ? opts.read(r.s, r.e, L) : 'Start <b>' + r.s + '</b> · End <b>' + r.e + '</b> <span class="fxr-len">/ ' + (L + 1) + ' f</span>';
     };
     const paint = () => { if (!drag) pull(); draw(); };

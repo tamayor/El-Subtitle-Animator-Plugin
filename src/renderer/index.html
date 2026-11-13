@@ -1053,7 +1053,8 @@
                                             <div id="brCommon" class="cut-grid br-fields"></div>
                                         </details>
                                         <div class="br-sub-bar">
-                                            <label class="br-land-toggle" title="Automatically fill this effect's text fields from the subtitle under the playhead as you scrub or switch effects"><input id="brFromSub" type="checkbox"> <span>Fill from subtitle at playhead</span> <span class="cr-sub">auto</span></label>
+                                            <label class="br-land-toggle" title="Automatically fill this effect's text fields from the subtitle under the playhead as you scrub or switch effects"><input id="brFromSub" type="checkbox"> <span>Fill from subtitle at playhead</span> <span class="cr-sub br-fill-mode" id="brFromSubMode">auto</span></label>
+                                            <button id="brClearEdits" type="button" class="ghost br-clear-edits hidden" title="Forget the fields you typed in, so Fill from subtitle fills them again">Clear edits</button>
                                             <label class="br-land-toggle" title="Times the animation to the speech (word transcription when available, else subtitle timing). Predict keys, Quote card, Marker highlight, Tag stack and Receipt printer (word by word) bring each word in as it is spoken; the others land their build on the key word. The In bar is set by this while it is ticked."><input id="brLand" type="checkbox"> <span>Land on the spoken word</span> <span class="cr-sub">words come in as they are said</span></label>
                                         </div>
                                         <div id="brFromSubMsg" class="br-fill-msg hidden"></div>

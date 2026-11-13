@@ -3628,14 +3628,17 @@ def op_word_fit_info(a):
     if kind == "typing":
         txt = get_in(tool, "StyledText")
         if isinstance(txt, str) and get_in(tool, "End") is not None:
-            out.update({"target": "typing", "text": txt, "fitted": fit_data(tool) is not None})
+            fd = fit_data(tool)
+            out.update({"target": "typing", "text": txt, "fitted": fd is not None,
+                        "keys": fd.get("keys") if fd else None, "frames": fd.get("frames") if fd else None})
         return out
     if kind != "anim":
         return out
     tpl, kk = kinetic_template(comp)
     if tpl is not None:
         units, pop = step_units(comp, tpl, kk)
-        out.update({"target": "step", "preset": kk, "units": units, "pop": pop, "fitted": fit_data(tpl) is not None})
+        ks = fit_keys(tpl)
+        out.update({"target": "step", "preset": kk, "units": units, "pop": pop, "fitted": ks is not None, "keys": ks})
         return out
     try:
         expr = tool.AnimNatural.GetExpression() or ""
@@ -3650,7 +3653,8 @@ def op_word_fit_info(a):
         terms.append({"follower": m.group(3), "a": float(m.group(1)), "delay": num(get_in(fol, "Delay"), float(m.group(2))),
                       "text": txt if isinstance(txt, str) else ""})
     if terms and tool_named(comp, "AnimTime") is not None:
-        out.update({"target": "animtime", "terms": terms, "fitted": word_fit_state(comp) is not None})
+        ks = fit_keys(tool_named(comp, "AnimTime"))
+        out.update({"target": "animtime", "terms": terms, "fitted": word_fit_state(comp) is not None, "keys": ks})
     return out
 
 

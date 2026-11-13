@@ -121,6 +121,7 @@ function brPick(id, values) {
     brRenderFields($('brFields'), e.fields);
     brRenderFields($('brCommon'), brUI.common);
     const fm = $('brFromSubMsg'); if (fm) fm.classList.add('hidden');
+    if (!values && $('brFromSub') && $('brFromSub').checked) { brFillFromSub(); return; }
     brPreviewSoon(true);
 }
 
@@ -168,14 +169,15 @@ function brRenderFields(box, fields) {
 
 // "Fill from subtitle at playhead": the words of the subtitle there go into this effect's text fields (main/broll.js
 // brollFromPlayhead, the same reading Auto uses); colours, header and layout keep their values.
+let brFillSeq = 0;
 async function brFillFromSub() {
     if (!brUI.sel) return;
-    const btn = $('brFromSub'), msg = $('brFromSubMsg');
-    btn.disabled = true;
+    const seq = ++brFillSeq;
+    const msg = $('brFromSubMsg');
     const r = await window.sa.brollFromPlayhead({ effect: brUI.sel });
-    btn.disabled = false;
+    if (seq !== brFillSeq) return;
     msg.classList.remove('hidden');
-    if (!r || r.error) { msg.textContent = (r && r.error) || 'Could not read the subtitle at the playhead'; msg.dataset.kind = 'bad'; return; }
+    if (!r || r.error) { msg.textContent = (r && r.error) || 'No subtitle at the playhead'; msg.dataset.kind = ''; return; }
     const e = brUI.effects.find(x => x.id === brUI.sel);
     if (!e) return;
     brUI.values = { ...brUI.values, ...r.props };
@@ -185,6 +187,7 @@ async function brFillFromSub() {
     // place it on that subtitle too, unless the user picked marks or the playhead
     if ($('brWhere').value === 'num') $('brSub').value = r.subtitle.index;
     brPreviewSoon(true);
+    brLiveSoon();
 }
 
 // ------------------------------------------------------------------ preview
@@ -554,13 +557,17 @@ function brWhereChanged() {
 // "Subtitle under the playhead": the panel's own poll (state.live) already knows it, so this follows the playhead
 // without asking Resolve again.
 function brShowDetected() {
-    const box = $('brDetected');
-    if (!box || $('brDetWrap').classList.contains('hidden')) return;
     const L = state.live, s = L && L.ok ? L.subtitle : null;
     const key = s ? s.index + '|' + s.text : (L && L.ok ? 'none' : 'off');
+    if (brUI.lastSubKey !== key) {
+        brUI.lastSubKey = key;
+        brUI.detected = s ? { index: s.index, text: s.text } : null;
+        if (s && $('brFromSub') && $('brFromSub').checked && state.tab === 'broll') brFillFromSub();
+    }
+    const box = $('brDetected');
+    if (!box || $('brDetWrap').classList.contains('hidden')) return;
     if (box.dataset.key === key) return;
     box.dataset.key = key;
-    brUI.detected = s ? { index: s.index, text: s.text } : null;
     box.textContent = '';
     box.classList.toggle('none', !s);
     if (s) {
@@ -579,7 +586,11 @@ function initBrollTab() {
     $('brPlaceNew').addEventListener('click', () => brPlace(true));
     $('brStopEdit').addEventListener('click', () => brEdit(null));
     $('brCancel').addEventListener('click', () => window.sa.brollCancel());
-    $('brFromSub').addEventListener('click', brFillFromSub);
+    try { $('brFromSub').checked = localStorage.getItem('brFromSub') === '1'; } catch (e) { /* ignore */ }
+    $('brFromSub').addEventListener('change', () => {
+        try { localStorage.setItem('brFromSub', $('brFromSub').checked ? '1' : '0'); } catch (e) { /* ignore */ }
+        if ($('brFromSub').checked) brFillFromSub();
+    });
     $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
     $('brAt').addEventListener('input', brMoment);
     $('brSec').addEventListener('input', () => brPreviewSoon());

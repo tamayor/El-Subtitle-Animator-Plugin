@@ -16,7 +16,7 @@
 
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
-    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead
+    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit
 };
 
 const fs = require('fs');
@@ -723,6 +723,55 @@ function wordMatches(word, key) {
     return w === k || (k.length >= 3 && (w.startsWith(k) || k.startsWith(w) && w.length >= 3));
 }
 
+const NUM_WORDS = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+    ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+    twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90
+};
+const NUM_SCALE = { hundred: 100, thousand: 1000, grand: 1000, k: 1000, million: 1000000, m: 1000000, billion: 1000000000, b: 1000000000 };
+
+function parseNumberTokens(tokens) {
+    let total = 0, cur = 0, any = false;
+    for (const raw of tokens) {
+        const w = normWord(raw);
+        if (!w || w === 'and') continue;
+        if (/^\d+$/.test(w)) { cur += Number(w); any = true; continue; }
+        if (w in NUM_WORDS) { cur += NUM_WORDS[w]; any = true; continue; }
+        if (w in NUM_SCALE) {
+            const s = NUM_SCALE[w];
+            if (s === 100) { cur = (cur || 1) * 100; }
+            else { total += (cur || 1) * s; cur = 0; }
+            any = true;
+            continue;
+        }
+        return null;
+    }
+    return any ? total + cur : null;
+}
+
+// Finds the spoken word (or multi-word spoken number like "sixteen hundred" -> 1600) in `list`.
+function findWordHit(list, key) {
+    if (!key || !Array.isArray(list) || !list.length) return null;
+    const direct = list.find(w => wordMatches(w.w, key));
+    if (direct) return direct;
+    const k = normWord(key);
+    if (!/^\d+$/.test(k)) return null;
+    const target = Number(k);
+    for (let i = 0; i < list.length; i++) {
+        if (parseNumberTokens([list[i].w]) === null) continue;
+        let bestEnd = i;
+        for (let j = i; j < Math.min(list.length, i + 6); j++) {
+            const val = parseNumberTokens(list.slice(i, j + 1).map(x => x.w));
+            if (val === null) break;
+            bestEnd = j;
+            if (val === target) {
+                return { start: list[i].start, end: list[bestEnd].end, w: list.slice(i, bestEnd + 1).map(x => x.w).join(' ') };
+            }
+        }
+    }
+    return null;
+}
+
 // Where the key word is said, in timeline frames: the transcription when there is one (Activate word timings / the Cut
 // tab's Analyse), else estimated from the word's place in the subtitle text (the subtitle's frames shared by characters).
 async function keyWordFrame(tl, effect, props, start, end, subIndex) {
@@ -739,9 +788,9 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
         if (words && words.length) {
             const inSub = sub ? words.filter(w => s0 + w.start < sub.end && s0 + w.end > sub.start) : words;
             const list = inSub.length ? inSub : words;
-            const hit = key ? list.find(w => wordMatches(w.w, key)) : null;
+            const hit = key ? findWordHit(list, key) : null;
             const w = hit || list[list.length - 1];
-            if (w) return { frame: s0 + w.start, word: w.w, source: 'speech' };
+            if (w) return { frame: s0 + Math.round((w.start + (w.end ?? w.start)) / 2), word: w.w, source: 'speech' };
         }
     } catch (e) { /* no transcription: estimate */ }
     if (sub) {
@@ -753,8 +802,8 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
             acc += t.length;
         }
         if (pos < 0) pos = lastStart;
-        const frac = acc > 0 ? pos / acc : 0;
         const word = (text.slice(pos).match(/\S+/) || [''])[0];
+        const frac = acc > 0 ? (pos + word.length * 0.5) / acc : 0;
         return { frame: Math.round(sub.start + frac * (sub.end - sub.start)), word, source: 'estimate' };
     }
     return { frame: Math.round((start + end) / 2), word: '', source: 'middle' };

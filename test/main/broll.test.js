@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const env = require('../helpers/env');
 
-const { brollSuggestFromTexts } = env.main('broll');
+const { brollSuggestFromTexts, findWordHit } = env.main('broll');
 const REG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'broll', 'effects.json'), 'utf8'));
 const FPS = 25;
 const sub = (index, text, sec) => ({ index, text, start: Math.round(sec * FPS), end: Math.round((sec + 2) * FPS) });
@@ -89,4 +89,18 @@ test('new auto-generated effects match and extract props from subtitles', () => 
     assert.equal(by[8].props.body, 'Simplicity beats complexity');
     assert.equal(by[9].effect, 'sketch-words');
     assert.equal(by[9].props.word, 'storytelling');
+});
+
+test('findWordHit matches spoken number words like sixteen hundred -> 1600 before clients', () => {
+    const words = [
+        { w: 'over', start: 0, end: 6 },
+        { w: 'sixteen', start: 6, end: 16 },
+        { w: 'hundred', start: 16, end: 26 },
+        { w: 'clients', start: 26, end: 40 }
+    ];
+    const hit = findWordHit(words, '1600');
+    assert.ok(hit);
+    assert.equal(hit.w, 'sixteen hundred');
+    assert.equal(hit.start, 6);
+    assert.equal(hit.end, 26);
 });

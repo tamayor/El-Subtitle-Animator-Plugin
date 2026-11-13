@@ -100,6 +100,7 @@ function brPick(id, values) {
     $('brEffects').querySelectorAll('.br-effect').forEach(b => b.classList.toggle('on', b.dataset.id === id));
     brRenderFields($('brFields'), e.fields);
     brRenderFields($('brCommon'), brUI.common);
+    const fm = $('brFromSubMsg'); if (fm) fm.classList.add('hidden');
     brPreviewSoon(true);
 }
 
@@ -141,6 +142,27 @@ function brRenderFields(box, fields) {
         box.append(brEl('label', { class: 'cut-f' + (f.type === 'list' ? ' br-wide' : ''), title: f.help }, [brEl('span', { text: f.label }), input]));
     }
     try { attachHexFields(); } catch (e) { /* the boxes still open the picker */ }
+}
+
+// "Fill from subtitle at playhead": the words of the subtitle there go into this effect's text fields (main/broll.js
+// brollFromPlayhead, the same reading Auto uses); colours, header and layout keep their values.
+async function brFillFromSub() {
+    if (!brUI.sel) return;
+    const btn = $('brFromSub'), msg = $('brFromSubMsg');
+    btn.disabled = true;
+    const r = await window.sa.brollFromPlayhead({ effect: brUI.sel });
+    btn.disabled = false;
+    msg.classList.remove('hidden');
+    if (!r || r.error) { msg.textContent = (r && r.error) || 'Could not read the subtitle at the playhead'; msg.dataset.kind = 'bad'; return; }
+    const e = brUI.effects.find(x => x.id === brUI.sel);
+    if (!e) return;
+    brUI.values = { ...brUI.values, ...r.props };
+    brRenderFields($('brFields'), e.fields);
+    msg.textContent = 'From #' + r.subtitle.index + ': “' + r.subtitle.text + '”';
+    msg.dataset.kind = 'ok';
+    // place it on that subtitle too, unless the user picked marks or the playhead
+    if ($('brWhere').value === 'num') $('brSub').value = r.subtitle.index;
+    brPreviewSoon(true);
 }
 
 // ------------------------------------------------------------------ preview
@@ -397,6 +419,7 @@ function initBrollTab() {
     $('brPlaceNew').addEventListener('click', () => brPlace(true));
     $('brStopEdit').addEventListener('click', () => brEdit(null));
     $('brCancel').addEventListener('click', () => window.sa.brollCancel());
+    $('brFromSub').addEventListener('click', brFillFromSub);
     $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
     $('brAt').addEventListener('input', brMoment);
     $('brSec').addEventListener('input', () => brPreviewSoon());

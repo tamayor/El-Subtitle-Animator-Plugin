@@ -47,6 +47,7 @@
     "brollCancel:function",
     "brollEffects:function",
     "brollFrame:function",
+    "brollFromPlayhead:function",
     "brollLandingPlan:function",
     "brollList:function",
     "brollOpenFolder:function",

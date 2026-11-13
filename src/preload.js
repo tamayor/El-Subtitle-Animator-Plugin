@@ -132,6 +132,7 @@ contextBridge.exposeInMainWorld('sa', {
     brollCancel: () => ipcRenderer.invoke('broll:cancel'),
     brollOpen: (o) => ipcRenderer.invoke('broll:open', o || {}),
     brollFrame: () => ipcRenderer.invoke('broll:frame'),
+    brollFromPlayhead: (o) => ipcRenderer.invoke('broll:fromPlayhead', o || {}),
     onBrollProgress: (cb) => ipcRenderer.on('broll:progress', (e, d) => { try { cb(d); } catch (err) { /* ignore */ } }),
 
     // Cut tab

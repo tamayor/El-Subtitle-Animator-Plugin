@@ -13,7 +13,7 @@
 
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
-    brollStatus, brollCancel, brollOpenFolder, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan
+    brollStatus, brollCancel, brollOpenFolder, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead
 };
 
 const fs = require('fs');
@@ -804,6 +804,37 @@ function propsFor(effect, text) {
     }
     default: return {};
     }
+}
+
+// The tab's "Fill from subtitle": the subtitle under the playhead (else the next one) turned into this effect's text
+// fields, the same way Auto reads a line. Only the fields the words decide come back, so the user's own header,
+// colours and layout stay as they are.
+async function brollFromPlayhead(event, o) {
+    const reg = registry();
+    const e = effectById(reg, o && o.effect);
+    const { tl, meta } = await currentTl();
+    const at = tcToFrame(await tl.GetCurrentTimecode(), meta);
+    const subs = await getSubtitles(tl, false);
+    const s = subs.find(x => at >= x.start && at < x.end) || subs.find(x => x.start >= at);
+    if (!s) throw new Error('No subtitle under or after the playhead');
+    const text = String(s.text || '').replace(/\s+/g, ' ').trim();
+    let props = propsFor(e.id, text);
+    if (props === null) {
+        const what = e.id === 'money-counter' ? 'a number' : e.id === 'post-wall' ? 'a count (e.g. "100 posts")' : 'what this effect needs';
+        throw new Error('Subtitle #' + s.index + ' has no ' + what + ': “' + text + '”');
+    }
+    props = { ...props };
+    if (e.id === 'receipt-printer') { delete props.header; delete props.subheader; delete props.byWord; }
+    if (e.id === 'comment-drop') delete props.comment;
+    const words = text.replace(/[^\p{L}\p{N}'$%\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+    const STOP = /^(the|a|an|and|or|but|so|to|of|in|on|at|for|is|it|its|it's|this|that|i|you|we|they|he|she|my|your|be|was|are|with|just|like|if|then)$/i;
+    const key = words.filter(w => !STOP.test(w)).sort((a, b) => b.length - a.length);
+    if (e.id === 'sketch-words' && key[0]) props.word = key[0];
+    if (e.id === 'tag-stack' && key.length) props.tags = key.slice(0, 4);
+    const keys = new Set(e.fields.map(f => f.key));
+    for (const k of Object.keys(props)) if (!keys.has(k)) delete props[k];
+    if (!Object.keys(props).length) throw new Error(e.name + ' has no text fields to fill from a subtitle');
+    return { subtitle: { index: s.index, text, start: s.start, end: s.end }, props };
 }
 
 // Which subtitles would carry which effect. Not placed: the result goes to the tab (ticks) or to Claude, who can

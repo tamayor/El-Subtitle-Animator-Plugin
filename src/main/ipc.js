@@ -110,6 +110,7 @@ const SAFE_HANDLERS = {
     'broll:cancel': () => BROLL.brollCancel(),
     'broll:open': BROLL.brollOpenFolder,
     'broll:frame': () => BROLL.brollFrame(),
+    'broll:fromPlayhead': BROLL.brollFromPlayhead,
     // Cut tab: rough cut of the source track into a new "(cut)" timeline (auto-cut.js); progress as cut:progress
     'cut:defaults': () => cutDefaults(),
     'cut:prefs': cutSetPrefs,

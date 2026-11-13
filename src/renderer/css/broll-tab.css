@@ -56,7 +56,9 @@ body.tab-broll { padding-bottom: 24px; }
 .br-check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 12px; }
 .br-more { margin: 2px 0 8px; font-size: 12px; }
 .br-more summary { cursor: pointer; color: var(--dim); margin-bottom: 8px; }
-.br-row { display: flex; gap: 6px; }
+.br-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.br-fill-msg { font-size: 11px; color: var(--dim); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-fill-msg[data-kind="bad"] { color: var(--bad); white-space: normal; }
 
 .br-preview {
     position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; border: 1px solid var(--line);

@@ -1050,14 +1050,17 @@
                                             <summary>Position, size and timing</summary>
                                             <div id="brCommon" class="cut-grid br-fields"></div>
                                         </details>
-                                        <div class="br-row">
+                                        <div class="br-sub-bar">
                                             <button id="brFromSub" class="ghost" title="Fill this effect's text from the subtitle under the playhead (or the next one after it)">Fill from subtitle at playhead</button>
-                                            <button id="brReset" class="ghost" title="Back to this effect's defaults">Defaults</button>
+                                            <label class="br-land-toggle" title="Times the clip so its animation has fully landed as the key word is spoken (uses word transcription when available, else subtitle timing)."><input id="brLand" type="checkbox"> <span>Land on the spoken word</span> <span class="cr-sub">finishes as word is said</span></label>
                                         </div>
                                         <div id="brFromSubMsg" class="br-fill-msg hidden"></div>
+                                        <div class="br-row">
+                                            <button id="brReset" class="ghost" title="Back to this effect's defaults">Defaults</button>
+                                        </div>
                                     </div>
                                     <div class="br-preview-col">
-                                        <div id="brPreview" class="br-preview"><img id="brPreviewImg" alt=""><span id="brPreviewMsg" class="br-preview-msg">Pick an effect</span></div>
+                                        <div id="brPreview" class="br-preview"><img id="brPreviewImg" alt=""><span id="brPreviewMsg" class="br-preview-msg">Pick an effect</span><div id="brPreviewTip" class="br-preview-tip"></div></div>
                                         <label class="br-moment"><span>Moment</span><input id="brAt" type="range" min="0" max="1" step="0.02" value="0.62"></label>
                                         <label class="br-bgpick"><span>Behind</span>
                                             <select id="brBg">
@@ -1084,13 +1087,14 @@
                                         </select></label>
                                     <div class="cut-f br-detected" id="brDetWrap" title="Follows the playhead in Resolve: this is the subtitle the clip goes on"><span>Goes on</span><div id="brDetected" class="br-detected-box">—</div></div>
                                     <label class="cut-f" id="brSubWrap"><span>Subtitle #</span><input id="brSub" type="number" min="1" step="1"></label>
+                                </div>
+                                <div class="cut-grid br-place-nums">
                                     <label class="cut-f" id="brSecWrap"><span>Seconds</span><input id="brSec" type="number" min="0.5" max="12" step="0.1" placeholder="effect's"></label>
                                     <label class="cut-f"><span>Track</span><input id="brTrack" type="number" min="0" step="1" placeholder="auto (V2+)"></label>
                                     <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic, then fades out)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
                                 </div>
                                 <div class="cut-checks">
                                     <label id="brDraftWrap" title="Renders at half size so it is quicker to make and to scrub in Resolve's viewer. The clip is set to Fit (fills the frame, a little soft) and coloured orange. Finalize it in Placed before you export."><input id="brDraft" type="checkbox"> Draft (fast, half size) <span class="cr-sub">check it in the timeline, Finalize before export</span></label>
-                                    <label title="Times the clip so its animation has fully landed exactly as the key word is spoken (the comment keyword, the number, the drawn word). Uses the word transcription when there is one, else the word's place in the subtitle."><input id="brLand" type="checkbox"> Land on the spoken word <span class="cr-sub">the animation finishes as the word is said</span></label>
                                 </div>
                                 <div class="pr-bar">
                                     <button id="brPlace" class="primary">Render &amp; place</button>

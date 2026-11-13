@@ -115,6 +115,9 @@ function brPick(id, values) {
     try { localStorage.setItem('brEffect', id); } catch (err) { /* ignore */ }
     brUI.values = { ...e.defaults, ...(e.last || {}), ...(values || {}) };
     $('brEffects').querySelectorAll('.br-effect').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+    const prev = $('brPreview'), tip = $('brPreviewTip');
+    if (prev) prev.title = e.description || '';
+    if (tip) tip.textContent = e.description || '';
     brRenderFields($('brFields'), e.fields);
     brRenderFields($('brCommon'), brUI.common);
     const fm = $('brFromSubMsg'); if (fm) fm.classList.add('hidden');
@@ -123,6 +126,7 @@ function brPick(id, values) {
 
 function brRenderFields(box, fields) {
     box.textContent = '';
+    const checks = [];
     for (const f of fields) {
         const v = brUI.values[f.key];
         let input;
@@ -131,7 +135,7 @@ function brRenderFields(box, fields) {
             input = brEl('input', { type: 'checkbox' });
             input.checked = !!v;
             input.addEventListener('change', () => set(input.checked));
-            box.append(brEl('label', { class: 'cut-f br-check', title: f.help }, [input, brEl('span', { text: f.label })]));
+            checks.push(brEl('label', { class: 'br-check', title: f.help }, [input, brEl('span', { text: f.label })]));
             continue;
         }
         if (f.type === 'number') {
@@ -158,6 +162,7 @@ function brRenderFields(box, fields) {
         }
         box.append(brEl('label', { class: 'cut-f' + (f.type === 'list' ? ' br-wide' : ''), title: f.help }, [brEl('span', { text: f.label }), input]));
     }
+    if (checks.length) box.append(brEl('div', { class: 'br-checks-row' }, checks));
     try { attachHexFields(); } catch (e) { /* the boxes still open the picker */ }
 }
 
@@ -281,7 +286,7 @@ async function brPlace(asNew) {
     brStatus(finalize ? 'Finalizing at full size…' : brUI.editing && !asNew ? 'Re-rendering…' : live ? 'Rendering a draft for the timeline…' : 'Rendering…', '');
     let r;
     if (brUI.editing && !asNew) {
-        const ch = { id: brUI.editing.id, effect: brUI.sel, props: o.props };
+        const ch = { id: brUI.editing.id, effect: brUI.sel, props: o.props, landOnWord: !!o.landOnWord };
         // editing: Seconds sets the length, only when it was changed (a rounded read-back would re-place the clip)
         if (o.seconds && $('brSec').value !== brUI.liveSec) ch.seconds = o.seconds;
         ch.draft = live ? false : !!o.draft;       // timeline view: the button is Finalize; panel view: the Draft box decides

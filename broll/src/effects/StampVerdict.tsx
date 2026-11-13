@@ -6,7 +6,7 @@ import { Common, FONT, Place, useInOut } from '../lib/common';
 type P = Common & { claim: string; verdict: string; isTrue: boolean; dark: boolean };
 
 export const StampVerdict: React.FC<P> = (p) => {
-    const { frame, fps, durationInFrames: D, inn, out } = useInOut(p, (D0) => Math.max(12, Math.round(D0 * 0.45)));
+    const { frame, fps, durationInFrames: D, inn, out } = useInOut(p, (D0) => Math.max(8, Math.round(D0 * 0.25)) + 12);
     const slamAt = Math.max(8, Math.round(D * 0.25));
     const slam = spring({ frame: Math.max(0, frame - slamAt), fps, durationInFrames: 12, config: { damping: 11, stiffness: 220 } });
     const stampScale = interpolate(slam, [0, 1], [2.4, 1]);

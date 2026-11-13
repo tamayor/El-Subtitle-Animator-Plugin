@@ -548,9 +548,21 @@ async function brollAdjust(event, o) {
     const [curStart, curDur] = await Promise.all([item.GetStart(), item.GetDuration()]);
     let frames = Number(curDur) || rec.frames;
     if (Number(o.extend) > 0) frames += Math.round(Math.min(30, Number(o.extend)) * meta.fps);
-    const newStart = Number.isFinite(Number(o.startFrame)) ? Math.round(Number(o.startFrame)) : Number(curStart);
-    if (Number.isFinite(Number(o.seconds)) && Number(o.seconds) > 0) frames = Math.round(Number(o.seconds) * meta.fps);
+    let newStart = Number.isFinite(Number(o.startFrame)) ? Math.round(Number(o.startFrame)) : Number(curStart);
+    const hasCustomSec = Number.isFinite(Number(o.seconds)) && Number(o.seconds) > 0;
+    if (hasCustomSec) frames = Math.round(Number(o.seconds) * meta.fps);
     if (Number.isFinite(Number(o.frames)) && Number(o.frames) > 0) frames = Math.round(Number(o.frames));
+    let landed = null;
+    if (o.landOnWord && o.settle === undefined && !Number.isFinite(Number(o.startFrame))) {
+        const plan = await brollLandingPlan(tl, meta, e.id, props, newStart, newStart + frames, rec.subtitle && rec.subtitle.index);
+        if (plan.times) props._times = plan.times;
+        props.settle = plan.settle;
+        newStart = plan.start;
+        if (!hasCustomSec) frames = plan.end - plan.start;
+        landed = { word: plan.word, source: plan.source, wordFrame: plan.wordFrame };
+    } else if (o.landOnWord === false) {
+        props.settle = 0;
+    }
     const v = (rec.version || 1) + 1;
     const out = fileFor(path.dirname(rec.file), e.id, rec.id, v);
     cancelAsked = false;
@@ -728,7 +740,7 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
             const inSub = sub ? words.filter(w => s0 + w.start < sub.end && s0 + w.end > sub.start) : words;
             const list = inSub.length ? inSub : words;
             const hit = key ? list.find(w => wordMatches(w.w, key)) : null;
-            const w = hit || (key ? null : list[list.length - 1]);
+            const w = hit || list[list.length - 1];
             if (w) return { frame: s0 + w.start, word: w.w, source: 'speech' };
         }
     } catch (e) { /* no transcription: estimate */ }

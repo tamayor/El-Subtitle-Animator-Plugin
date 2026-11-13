@@ -12,8 +12,8 @@ body.compact header {
     padding-bottom: 6px;
 }
 body.compact .header-brand { display: none; }
-body.compact header .tabs { flex: 1 1 auto; min-width: 0; margin: 0; padding: 2px; gap: 2px; border-radius: 8px; }
-body.compact .tab { padding: 4px 0; font-size: 12px; border-radius: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.compact header .tabs { flex: 1 1 auto; min-width: 0; margin: 0; padding: 2px; gap: 2px; border-radius: var(--radius-lg); }
+body.compact .tab { padding: 4px 0; font-size: var(--font-md); border-radius: var(--radius-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 body.compact .header-bar { flex: none; gap: 2px; }
 
 /* connection: a dot (timeline name in its tooltip) */
@@ -33,19 +33,19 @@ body.compact #pin { width: 24px; height: 24px; flex: none; }
 body.compact #pin svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
 body.compact #autoCollapse { width: 24px; height: 24px; flex: none; }
 body.compact #autoCollapse svg { flex: none; width: 13px; min-width: 13px; height: 13px; }
-body.compact #fusionFixesBtn { padding: 3px 5px; font-size: 11px; }
+body.compact #fusionFixesBtn { padding: 3px 5px; font-size: var(--font-sm); }
 body.compact #rescan { width: 24px; height: 24px; padding: 0; font-size: 0; }
 body.compact #rescan::before { content: "\21BB"; font-size: 14px; line-height: 24px; }
 
 /* very narrow: the Fusion button becomes "Fx" */
 @media (max-width: 400px) {
     body.compact #fusionFixesBtn { font-size: 0; }
-    body.compact #fusionFixesBtn::before { content: "Fx"; font-size: 11px; }
+    body.compact #fusionFixesBtn::before { content: "Fx"; font-size: var(--font-sm); }
     body.compact .tab { font-size: 11.5px; }
 }
 
 /* ---------- sections & cards: less padding, inner cards flattened ---------- */
-body.compact section { padding: 8px 9px; margin-bottom: 8px; border-radius: 10px; }
+body.compact section { padding: 8px 9px; margin-bottom: 8px; border-radius: var(--radius-xl); }
 body.compact .sec-head { padding-bottom: 6px; margin-bottom: 6px; }
 body.compact .row { margin: 4px 0; gap: 6px; }
 body.compact .label { font-size: 10.5px; letter-spacing: 0.6px; }
@@ -79,15 +79,15 @@ body.compact .fx-card .fx-strength { gap: 6px; }
 body.compact .fx-target { margin: 0 0 4px; }
 
 /* ---------- upper dock (selected preset + Start) ---------- */
-body.compact .use-dock { margin-bottom: 8px; border-radius: 10px; }
-body.compact .use-dock-bar.stage-live { padding: 4px 6px; gap: 6px; border-radius: 10px; }
+body.compact .use-dock { margin-bottom: 8px; border-radius: var(--radius-xl); }
+body.compact .use-dock-bar.stage-live { padding: 4px 6px; gap: 6px; border-radius: var(--radius-xl); }
 body.compact .use-dock-name { padding: 2px 8px; font-size: 11.5px; }
-body.compact .use-dock-bar .stage-live-btns button { min-width: 56px; padding: 5px 12px; font-size: 12px; }
+body.compact .use-dock-bar .stage-live-btns button { min-width: 56px; padding: 5px 12px; font-size: var(--font-md); }
 body.compact .use-dock-body:not(.hidden) { padding: 6px 8px 8px; gap: 6px; }
 
 /* ---------- bottom dock & status ---------- */
 body.compact footer { padding: 4px 8px 6px; }
-body.compact .bottom-dock { border-radius: 8px; }
+body.compact .bottom-dock { border-radius: var(--radius-lg); }
 body.compact .dock-grip { height: 8px; }
 
 .dock-fold { display: none; }
@@ -102,7 +102,7 @@ body.compact .dock-fold {
     color: var(--dim);
     background: none;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
 }
 body.compact .dock-fold:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 body.compact .bottom-dock.empty .dock-fold { display: none; }
@@ -111,7 +111,7 @@ body.compact .bottom-dock.folded .dock-scroll { display: none; }
 body.compact .bottom-dock.folded .dock-bar { height: 20px; padding-top: 3px; padding-bottom: 2px; }
 
 /* status: one line, fades out after a few seconds (helpers.js setStatus adds .faded) */
-body.compact .status { min-height: 0; font-size: 11px; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+body.compact .status { min-height: 0; font-size: var(--font-sm); white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 body.compact #status { transition: opacity 0.3s ease; }
 body.compact #status.faded { opacity: 0; height: 0; }
 body.compact #status:empty { display: none; }
@@ -171,7 +171,7 @@ body.win-collapsed .collapsed-ticker {
     gap: 8px;
     width: 100%;
     height: 100%;
-    font-size: 13px;
+    font-size: var(--font-lg);
     font-weight: 600;
     letter-spacing: 0.2px;
     white-space: pre;

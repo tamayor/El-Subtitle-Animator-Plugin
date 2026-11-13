@@ -36,13 +36,7 @@ function finishSave(S, name, what) {
     state.createAdjusted = false;
     const bar = $('tdSaveBar' + S);
     if (bar) { bar.classList.add('hidden'); bar.classList.remove('dirty'); }
-    document.querySelectorAll('.saved-toast').forEach(x => x.remove());
-    const t = document.createElement('div');
-    t.className = 'saved-toast';
-    const n = document.createElement('b'); n.textContent = name || 'Preset';
-    t.append(n, document.createTextNode(' · ' + (what || 'Saved')));
-    document.body.appendChild(t);
-    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, 3000);
+    showToast(name || 'Preset', what || 'Saved');
 }
 
 function syncVarButtons(S, m) {

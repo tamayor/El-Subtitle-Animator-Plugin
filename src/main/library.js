@@ -8,6 +8,7 @@ module.exports = {
 const path = require('path');
 const fs = require('fs');
 
+const { fileCache } = require('./cache');
 const { ANIM_DIR, ANIM_ORIG_DIR, DATA_DIR, LIB_FILE, PREV_DIR, SFX_DIR, SFX_ORIG_DIR, ensureDirs } = require('./config');
 const { nodesWithDesign, parseTextStyle } = require('./fusion-setting');
 const { frameList } = require('./previews');
@@ -161,34 +162,23 @@ function migrateAndCleanLib(lib) {
     } catch (e) { /* ignore */ }
 }
 
-// The library file (hundreds of KB) is asked for by most actions. Its text is kept with the file's size and
-// modification time, so an unchanged file is not read from disk again; it is still parsed each time, so every
-// caller gets its own copy to change.
-// The parsed object is kept too (libRaw.parsed) and every caller gets a structuredClone of it: parsing 337 KB of
-// JSON on every one of the dozens of calls per action was a visible part of each action's time.
-const libRaw = { key: '', raw: null, parsed: null };
+// The library file (hundreds of KB) is asked for by most actions. cache.js keeps its text and the parsed object by the
+// file's size and modification time, so an unchanged file is neither read nor parsed again; every caller gets its own
+// structuredClone of the parsed object to change.
+const libCache = fileCache('library', { max: 2 });
 function readLibRaw() {
-    let st = null;
-    try { st = fs.statSync(LIB_FILE); } catch (e) { libRaw.key = ''; libRaw.raw = null; libRaw.parsed = null; return null; }
-    const key = st.size + ':' + st.mtimeMs;
-    if (libRaw.key === key && libRaw.raw !== null) return libRaw.raw;
-    let raw = null;
-    try { raw = fs.readFileSync(LIB_FILE, 'utf8'); } catch (e) { raw = null; }
-    libRaw.key = raw === null ? '' : key; libRaw.raw = raw; libRaw.parsed = null;
-    return raw;
+    return libCache.text(LIB_FILE);
 }
 // The library file as an object (shared, never handed out: callers clone), or null when it cannot be read.
 function readLibParsed() {
-    const raw = readLibRaw();
-    if (raw === null) return null;
-    if (libRaw.parsed) return libRaw.parsed;
-    let parsed = null;
-    try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    libRaw.parsed = parsed;
-    return parsed;
+    return libCache.value(LIB_FILE, 'parsed', (raw) => {
+        if (raw === null) return null;
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+        return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+    });
 }
-const segCache = new Map();      // segmentsOf: preset file -> { mt, list }
+const presets = fileCache('presets', { max: 200 });
 let dirsEnsured = false;
 function loadLib() {
     if (!dirsEnsured) { ensureDirs(); dirsEnsured = true; }
@@ -308,7 +298,7 @@ function saveLib(lib) {
     } catch (e) { /* ignore */ }
     fs.renameSync(tmp, LIB_FILE);
     // the next loadLib finds the file changed (stat) and would parse again: hand it what was just written instead
-    try { const st = fs.statSync(LIB_FILE); libRaw.key = st.size + ':' + st.mtimeMs; libRaw.raw = text; libRaw.parsed = structuredClone(lib); } catch (e) { libRaw.key = ''; }
+    try { libCache.prime(LIB_FILE, text, { parsed: structuredClone(lib) }); } catch (e) { libCache.invalidate(LIB_FILE); }
 }
 
 function uniqueName(dir, base) {
@@ -322,13 +312,9 @@ function uniqueName(dir, base) {
 // The preset's own row timing (MultiText segment presets: Seg<n>Start / Seg<n>End on the Template) as
 // [{ n, label, start, end }], so the Alignment timeline can line the Upper / Emphasis / Lower sounds up with them.
 function segmentsOf(file) {
-    let mt = 0;
-    try { mt = fs.statSync(file).mtimeMs; } catch (e) { return []; }
-    const c = segCache.get(file);
-    if (c && c.mt === mt) return c.list;
-    const list = [];
-    try {
-        const txt = fs.readFileSync(file, 'utf8');
+    if (!presets.entry(file)) return [];
+    return presets.value(file, 'segments', (txt) => {
+        const list = [];
         for (let n = 1; n <= 16; n++) {
             const s = new RegExp('\\bSeg' + n + 'Start = Input \\{ Value = (-?[\\d.]+)').exec(txt);
             const e = new RegExp('\\bSeg' + n + 'End = Input \\{ Value = (-?[\\d.]+)').exec(txt);
@@ -337,9 +323,8 @@ function segmentsOf(file) {
             let label = nm ? nm[1].replace(/\s*start$/i, '') : '';
             list.push({ n, label: label || ('Text ' + n), start: Math.round(Number(s[1]) || 0), end: Math.round(Number(e[1]) || 0) });
         }
-    } catch (e) { /* no segments */ }
-    segCache.set(file, { mt, list });
-    return list;
+        return list;
+    });
 }
 
 function libForUI() {

@@ -6,31 +6,27 @@
 
 module.exports = { clipControls, setClipControls, clipRows, setClipRows, setClipGradient, gradientsOf };
 
-const fs = require('fs');
 const path = require('path');
 
 const state = require('./state');
 const { ANIM_DIR } = require('./config');
 const { parseAddons } = require('./addon-controls');
+const { fileCache } = require('./cache');
 const { currentFusionClip } = require('./anim-timing');
 const { bridgeCall } = require('./fusion-bridge');
 const { loadLib } = require('./library');
 const { presetTitleNames, titlesDir } = require('./title-templates');
 
-const cache = new Map();    // file -> { mtime, defs }
+// Template files go through the shared preset cache (cache.js), one parse per file version.
+const presets = fileCache('presets', { max: 200 });
 
 function defsFromFile(file, unhide) {
-    let st;
-    try { st = fs.statSync(file); } catch (e) { return null; }
-    const c = cache.get(file);
-    if (c && c.mtime === st.mtimeMs) return c.defs;
-    let s = fs.readFileSync(file, 'utf8');
-    // the template marks every add-on hidden right after its "{" (hideAddons); the preset's own hidden ones say so later
-    if (unhide) s = s.replace(/\{ IC_Visible = false,/g, '{');
-    const defs = parseAddons(s);
-    cache.set(file, { mtime: st.mtimeMs, defs });
-    if (cache.size > 100) cache.delete(cache.keys().next().value);
-    return defs;
+    if (!presets.entry(file)) return null;
+    return presets.value(file, unhide ? 'addons:unhidden' : 'addons', (s) => {
+        // the template marks every add-on hidden right after its "{" (hideAddons); the preset's own hidden ones say so later
+        if (unhide) s = s.replace(/\{ IC_Visible = false,/g, '{');
+        return parseAddons(s);
+    });
 }
 
 // The clip's add-ons: from its title template (named like the clip), else from the library preset of that name.
@@ -55,7 +51,6 @@ function defsFor(clipName) {
 // A Text+ element whose shading is a gradient (TypeN = 2 with a ShadingGradientN table), read from the clip's title
 // template / library preset file, never from the placed comp: a script read of a follower-fed Text+ (Money Pop Up,
 // $123,456) can freeze Resolve. -> [{ tool, index, angle, stops: [[pos, '#rrggbb', alpha], ...] }]
-const gradCache = new Map();    // file -> { mtime, grads }
 
 function braceBlock(s, from) {
     const open = s.indexOf('{', from);
@@ -96,14 +91,8 @@ function gradientsOf(text) {
     return out;
 }
 function gradFromFile(file) {
-    let st;
-    try { st = fs.statSync(file); } catch (e) { return null; }
-    const c = gradCache.get(file);
-    if (c && c.mtime === st.mtimeMs) return c.grads;
-    const grads = gradientsOf(fs.readFileSync(file, 'utf8'));
-    gradCache.set(file, { mtime: st.mtimeMs, grads });
-    if (gradCache.size > 100) gradCache.delete(gradCache.keys().next().value);
-    return grads;
+    if (!presets.entry(file)) return null;
+    return presets.value(file, 'gradients', (s) => gradientsOf(s));
 }
 function gradsFor(clipName) {
     const name = String(clipName || '').trim();

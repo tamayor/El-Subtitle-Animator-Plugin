@@ -23,13 +23,7 @@ function mountBlocks() {
 // Resolve-style tab bar (Text / Shading) and collapsible section headers.
 function bindInspectorChrome() {
     for (const bar of document.querySelectorAll('.rv-tabs')) {
-        const panel = bar.closest('.rv');
-        for (const t of bar.querySelectorAll('.rv-tab')) {
-            t.addEventListener('click', () => {
-                for (const o of bar.querySelectorAll('.rv-tab')) o.classList.toggle('on', o === t);
-                for (const p of panel.querySelectorAll(':scope > .rv-pane')) p.classList.toggle('hidden', p.dataset.pane !== t.dataset.pane);
-            });
-        }
+        bindTabGroup(bar, { key: 'pane', buttons: '.rv-tab', panes: { root: bar.closest('.rv'), selector: ':scope > .rv-pane' } });
     }
     for (const h of document.querySelectorAll('.rv-sec-head')) {
         h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
@@ -100,26 +94,7 @@ function linkRgbSliders() {
 }
 
 // Adds a typed hex code field beside every color swatch, kept in sync in both directions.
-function normHex(v) {
-    let s = String(v || '').trim().replace(/^#/, '');
-    if (/^[0-9a-f]{3}$/i.test(s)) s = s.split('').map(c => c + c).join('');
-    return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
-}
-
-function hexToRgb01(hex) {
-    const h = normHex(hex) || '#ffffff';
-    const s = h.slice(1);
-    return {
-        r: parseInt(s.slice(0, 2), 16) / 255,
-        g: parseInt(s.slice(2, 4), 16) / 255,
-        b: parseInt(s.slice(4, 6), 16) / 255
-    };
-}
-
-function rgb01ToHex(r, g, b) {
-    const toH = (x) => Math.max(0, Math.min(255, Math.round((Number(x) || 0) * 255))).toString(16).padStart(2, '0');
-    return '#' + toH(r) + toH(g) + toH(b);
-}
+// normHex / hexToRgb01 / rgb01ToHex live in js/core/color.js.
 
 // DaVinci Resolve authentic default parameter values for Transform, Text Design, and Alignment
 const RESOLVE_DEFAULTS = {

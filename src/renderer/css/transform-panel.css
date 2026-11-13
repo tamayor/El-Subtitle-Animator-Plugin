@@ -6,7 +6,7 @@
     padding: 8px 10px 10px;
     background: rgba(18, 22, 20, 0.78);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .xform-header {
@@ -20,7 +20,7 @@
 }
 
 .xform-title {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 700;
     letter-spacing: 0.4px;
     color: var(--text);
@@ -43,7 +43,7 @@
 }
 
 .xform-lbl {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: #b9c4bc;
     white-space: nowrap;
     overflow: hidden;
@@ -59,7 +59,7 @@
 .nums label:hover,
 .sh-border-box label:hover,
 .sh-soft-row label:hover {
-    color: #e5ece7;
+    color: var(--text-bright);
 }
 
 .ctl > label,
@@ -85,9 +85,9 @@
 .xform-num-cell {
     display: flex;
     align-items: center;
-    background: #0e1210;
-    border: 1px solid #2a332d;
-    border-radius: 4px;
+    background: var(--bg-deep);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
     padding: 0 4px 0 6px;
     height: 24px;
     gap: 4px;
@@ -98,7 +98,7 @@
 }
 
 .xform-axis {
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 600;
     color: var(--dim);
     user-select: none;
@@ -195,7 +195,7 @@
 }
 
 .sm-btn {
-    font-size: 10px;
+    font-size: var(--font-xs);
     padding: 2px 7px;
     height: 22px;
 }

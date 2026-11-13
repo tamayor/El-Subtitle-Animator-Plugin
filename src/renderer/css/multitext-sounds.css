@@ -4,27 +4,27 @@
 .mt-panel { display: grid; gap: 10px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-inner); }
 .mt-panel.hidden { display: none; }
 .mt-head { display: flex; align-items: center; gap: 8px; }
-.mt-count { font-size: 11px; color: var(--dim); }
-.mt-on { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.mt-count { font-size: var(--font-sm); color: var(--dim); }
+.mt-on { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: var(--font-md); cursor: pointer; }
 .mt-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.mt-opts select, .mt-layer, .mt-in, .mt-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px; }
+.mt-opts select, .mt-layer, .mt-in, .mt-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: var(--font-md); }
 .mt-opts select { padding: 5px 8px; flex: 1 1 150px; min-width: 0; }
-.mt-num { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.mt-num { display: flex; align-items: center; gap: 6px; font-size: var(--font-md); color: var(--dim); }
 .mt-num input[type=number] { width: 52px; padding: 4px 6px; }
 .mt-check { cursor: pointer; color: var(--text); }
 .mt-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 26px; }
-.mt-empty { font-size: 12px; color: var(--dim); }
-.mt-chip { padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; color: var(--text); background: var(--card); border: 1px solid var(--line); }
+.mt-empty { font-size: var(--font-md); color: var(--dim); }
+.mt-chip { padding: 3px 9px; border-radius: var(--radius-pill); font: inherit; font-size: var(--font-md); cursor: pointer; color: var(--text); background: var(--card); border: 1px solid var(--line); }
 .mt-chip:hover { filter: brightness(1.2); }
 .mt-chip.r-upper { border-color: #7fb8ff; background: rgba(127,184,255,.14); }
-.mt-chip.r-emphasis { border-color: #f0c36b; background: rgba(240,195,107,.2); font-weight: 700; }
-.mt-chip.r-lower { border-color: #8ccf8e; background: rgba(140,207,142,.14); }
+.mt-chip.r-emphasis { border-color: var(--warn); background: rgba(240,195,107,.2); font-weight: 700; }
+.mt-chip.r-lower { border-color: var(--matcha); background: rgba(140,207,142,.14); }
 .mt-fields { display: grid; gap: 8px; }
 .mt-field { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: start; }
-.mt-flab { display: grid; gap: 4px; font-size: 12px; }
+.mt-flab { display: grid; gap: 4px; font-size: var(--font-md); }
 .mt-flab > span:nth-child(2) { color: var(--mt); font-weight: 600; }
 .mt-dot { display: none; }
-.mt-layer { padding: 3px 6px; width: 100%; min-width: 0; font-size: 11px; color: var(--dim); }
+.mt-layer { padding: 3px 6px; width: 100%; min-width: 0; font-size: var(--font-sm); color: var(--dim); }
 .mt-in { padding: 6px 8px; resize: vertical; min-height: 30px; width: 100%; border-left: 3px solid var(--mt); }
 .mt-field.edited .mt-in { border-color: var(--mt); background: rgba(255,255,255,.05); }
 .mt-reset { padding: 3px 8px; visibility: hidden; }
@@ -33,26 +33,26 @@
 /* ---- Layered sounds (inside Preset Set Up) ---- */
 .tl .bar.sel { outline: 2px solid var(--matcha); outline-offset: -2px; }
 .tl .bar.text.sel { outline-color: #fff; }
-.tl .bar .snd-nm { position: absolute; left: 10px; top: 2px; max-width: calc(100% - 20px); font-size: 10px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tl .bar .snd-nm { position: absolute; left: 10px; top: 2px; max-width: calc(100% - 20px); font-size: var(--font-xs); color: rgba(255, 255, 255, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .tl .vol-line { position: absolute; left: 8px; right: 8px; height: 9px; margin-top: -4px; cursor: ns-resize; z-index: 3; }
 .tl .vol-line::after { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
 .tl .vol-line:hover::after { top: 3px; height: 2px; background: var(--matcha); }
-.tl .vol-tip { display: none; position: absolute; right: 2px; top: -13px; font-size: 10px; background: rgba(0, 0, 0, 0.75); color: #fff; padding: 0 4px; border-radius: 4px; }
+.tl .vol-tip { display: none; position: absolute; right: 2px; top: -13px; font-size: var(--font-xs); background: rgba(0, 0, 0, 0.75); color: #fff; padding: 0 4px; border-radius: var(--radius-sm); }
 .tl .vol-line:hover .vol-tip { display: block; }
 .snd-card { margin-top: 6px; }
 .snd-card.over { outline: 1px dashed var(--matcha-border); }
-.snd-in { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-inner); }
+.snd-in { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--card-inner); }
 .snd-top { display: flex; align-items: center; gap: 6px; }
-.snd-top .snd-file { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.snd-in select, .snd-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px; padding: 4px 6px; }
+.snd-top .snd-file { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-md); }
+.snd-in select, .snd-num input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: var(--font-md); padding: 4px 6px; }
 .snd-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .snd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.snd-num { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+.snd-num { display: flex; align-items: center; gap: 5px; font-size: var(--font-sm); color: var(--dim); }
 .snd-num input[type=number] { width: 58px; }
-.snd-check { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.snd-check { display: flex; align-items: center; gap: 5px; font-size: var(--font-md); cursor: pointer; }
 .snd-anchor { flex: 1 1 140px; min-width: 0; }
-.snd-volhint { margin: 0; font-size: 11px; }
-.snd-repeat { margin: 2px 0 0; font-size: 11px; line-height: 1.35; max-width: 560px; }
+.snd-volhint { margin: 0; font-size: var(--font-sm); }
+.snd-repeat { margin: 2px 0 0; font-size: var(--font-sm); line-height: 1.35; max-width: 560px; }
 .snd-del:hover { color: var(--strawberry); }
 .setup-files { margin-bottom: 8px; }
 .setup-files.hidden { display: none; }
@@ -60,12 +60,12 @@
 /* ---- MultiText panel, simplified: three colour-coded inputs, role buttons, word chips ---- */
 .mt-panel { gap: 8px; }
 .mt-ins { display: grid; gap: 6px; }
-.mt-in { padding: 7px 10px; resize: none; min-height: 32px; width: 100%; border: 1px solid color-mix(in srgb, var(--mt) 45%, transparent); border-left: 4px solid var(--mt); background: color-mix(in srgb, var(--mt) 9%, var(--card)); color: var(--text); border-radius: 8px; font: inherit; font-size: 13px; }
+.mt-in { padding: 7px 10px; resize: none; min-height: 32px; width: 100%; border: 1px solid color-mix(in srgb, var(--mt) 45%, transparent); border-left: 4px solid var(--mt); background: color-mix(in srgb, var(--mt) 9%, var(--card)); color: var(--text); border-radius: var(--radius-lg); font: inherit; font-size: var(--font-lg); }
 .mt-in::placeholder { color: color-mix(in srgb, var(--mt) 70%, var(--dim)); opacity: .8; }
 .mt-in:focus { outline: none; border-color: var(--mt); }
 .mt-in.edited { background: color-mix(in srgb, var(--mt) 16%, var(--card)); }
 .mt-roles { display: flex; gap: 6px; }
-.mt-rbtn { flex: 1 1 0; padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
+.mt-rbtn { flex: 1 1 0; padding: 6px 8px; border-radius: var(--radius-lg); font: inherit; font-size: var(--font-md); font-weight: 600; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
 .mt-rbtn:hover { background: color-mix(in srgb, var(--mt) 14%, transparent); }
 .mt-rbtn.on { background: var(--mt); color: #15171a; border-color: var(--mt); }
 .mt-aa { flex: 0 0 auto; padding: 6px 11px; }
@@ -73,11 +73,11 @@
 /* AA (all caps) at the end of each MultiText input */
 .mt-inwrap { position: relative; }
 .mt-inwrap .mt-in { padding-right: 46px; }
-.mt-cap { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 3px 7px; border-radius: 6px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
+.mt-cap { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 3px 7px; border-radius: var(--radius-md); font: inherit; font-size: var(--font-sm); font-weight: 700; cursor: pointer; color: var(--mt); background: transparent; border: 1px solid color-mix(in srgb, var(--mt) 50%, transparent); }
 .mt-cap:hover { background: color-mix(in srgb, var(--mt) 18%, transparent); }
 .mt-cap.on { background: var(--mt); color: #15171a; border-color: var(--mt); }
 
-.saved-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 9999; padding: 9px 16px; border-radius: 10px; background: #172a1b; border: 1px solid var(--matcha-border); color: var(--matcha); font-size: 13px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); transition: opacity 0.35s, transform 0.35s; pointer-events: none; }
+.saved-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: var(--z-toast); padding: 9px 16px; border-radius: var(--radius-xl); background: #172a1b; border: 1px solid var(--matcha-border); color: var(--matcha); font-size: var(--font-lg); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); transition: opacity 0.35s, transform 0.35s; pointer-events: none; }
 .saved-toast b { color: #fff; font-weight: 600; }
 .saved-toast.out { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
@@ -100,7 +100,7 @@
 .tl .lane.seg-slot { background: color-mix(in srgb, var(--mt) 6%, transparent); }
 .tl .lane.seg-slot .tag { color: var(--mt); }
 .tl .seg-guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed color-mix(in srgb, var(--mt) 70%, transparent); pointer-events: none; }
-.tl .seg-add { position: absolute; top: 50%; transform: translateY(-50%); padding: 3px 9px; border-radius: 7px; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; z-index: 2;
+.tl .seg-add { position: absolute; top: 50%; transform: translateY(-50%); padding: 3px 9px; border-radius: 7px; font-size: var(--font-sm); font-weight: 600; white-space: nowrap; cursor: pointer; z-index: 2;
     color: var(--mt); border: 1px dashed color-mix(in srgb, var(--mt) 60%, transparent); background: color-mix(in srgb, var(--mt) 8%, var(--card)); }
 .tl .seg-add:hover { background: color-mix(in srgb, var(--mt) 18%, var(--card)); }
 .tl .seg-mark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--mt); z-index: 3; pointer-events: none; }
@@ -108,7 +108,7 @@
 /* several sounds on one row: its lanes read as one group (no line between them), a "+" adds one more */
 .tl .lane.seg-slot:not(.seg-last) { border-bottom-color: transparent; }
 .tl .lane.seg-more .tag { opacity: .75; }
-.tl .seg-plus { position: absolute; right: 6px; top: 3px; width: 18px; height: 18px; line-height: 16px; text-align: center; border-radius: 5px; font-size: 13px; font-weight: 700; cursor: pointer; z-index: 4;
+.tl .seg-plus { position: absolute; right: 6px; top: 3px; width: 18px; height: 18px; line-height: 16px; text-align: center; border-radius: 5px; font-size: var(--font-lg); font-weight: 700; cursor: pointer; z-index: 4;
     color: var(--mt); border: 1px solid color-mix(in srgb, var(--mt) 60%, transparent); background: color-mix(in srgb, var(--mt) 10%, var(--card)); }
 .tl .seg-plus:hover { background: color-mix(in srgb, var(--mt) 24%, var(--card)); }
 /* a row with no text for this subtitle: its sounds are not placed, so its lanes are greyed out */

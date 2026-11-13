@@ -266,3 +266,10 @@ function setTagsOpen(open) {
     const chev = $('tagsToggle').querySelector('.chev');
     if (chev) chev.textContent = open ? '▾' : '▸';
 }
+
+// The tags section: open / close and the + button (called by initApp).
+function initTagsSection() {
+    $('tagsToggle').addEventListener('click', () => setTagsOpen(!tagUI.open));
+    $('tagsPlus').addEventListener('click', (e) => { e.stopPropagation(); openNewTagPop($('tagsPlus'), null); });
+    setTagsOpen(false);
+}

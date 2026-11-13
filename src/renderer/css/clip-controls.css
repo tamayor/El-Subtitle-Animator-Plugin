@@ -15,7 +15,7 @@
     align-items: center;
     gap: 8px;
     min-height: 24px;
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 .clip-ctl .cc-label { color: var(--text); cursor: default; user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clip-ctl .cc-range { width: 100%; min-width: 0; accent-color: var(--matcha); --sl-c: var(--matcha); --sl-t: var(--matcha-border); }
@@ -26,7 +26,7 @@
     background: var(--card-inner);
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 2px 5px;
     font-size: 11.5px;
     font-variant-numeric: tabular-nums;
@@ -41,16 +41,16 @@
     background: var(--card-inner);
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 3px 6px;
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 .clip-ctl input.cc-color {
     width: 44px;
     height: 22px;
     padding: 0;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: none;
     cursor: pointer;
 }
@@ -61,7 +61,7 @@
 .clip-ctl .cc-top { align-items: center; gap: 6px; }
 .clip-ctl .cc-head-right { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
 .clip-ctl .cc-head-right .meta { margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.clip-ctl button.cc-tool { width: 22px; height: 22px; border-radius: 6px; }
+.clip-ctl button.cc-tool { width: 22px; height: 22px; border-radius: var(--radius-md); }
 .clip-ctl button.cc-tool[aria-pressed="true"] { color: var(--matcha); background: var(--matcha-tint); }
 .clip-ctl #clipCtlDockBtn,
 .clip-ctl #clipCtlUndockBtn { display: none; }
@@ -72,7 +72,7 @@
 
 /* ultra compact: dense rows, two columns when there is room */
 .clip-ctl.compact { padding-top: 6px; padding-bottom: 6px; }
-.clip-ctl.compact .cc-top .label { font-size: 10px; }
+.clip-ctl.compact .cc-top .label { font-size: var(--font-xs); }
 .clip-ctl.compact .cc-body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
@@ -81,13 +81,13 @@
 }
 .clip-ctl.compact .cc-head { grid-column: 1 / -1; margin: 4px 0 0; font-size: 9.5px; }
 .clip-ctl.compact .cc-head:first-child { margin-top: 0; }
-.clip-ctl.compact .cc-row { grid-template-columns: minmax(62px, 34%) 1fr 52px; gap: 6px; min-height: 20px; font-size: 11px; }
+.clip-ctl.compact .cc-row { grid-template-columns: minmax(62px, 34%) 1fr 52px; gap: 6px; min-height: 20px; font-size: var(--font-sm); }
 .clip-ctl.compact .cc-row.cc-check { grid-template-columns: 16px 1fr; }
 .clip-ctl.compact .cc-row.cc-check.cc-pair { grid-template-columns: 16px auto 16px 1fr; }
 .clip-ctl.compact .cc-row.cc-combo,
 .clip-ctl.compact .cc-row.cc-color { grid-template-columns: minmax(62px, 34%) 1fr; }
 .clip-ctl.compact .cc-num { padding: 1px 4px; font-size: 10.5px; }
-.clip-ctl.compact .cc-select { padding: 1px 4px; font-size: 11px; }
+.clip-ctl.compact .cc-select { padding: 1px 4px; font-size: var(--font-sm); }
 .clip-ctl.compact input.cc-color { height: 18px; }
 .clip-ctl.hidden { display: none !important; }
 
@@ -97,16 +97,16 @@
 .clip-ctl .cc-mt.hidden { display: none; }
 .clip-ctl.cc-no-ctl .cc-body { display: none; }
 .clip-ctl .cc-mt .mt-ins { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 4px; }
-.clip-ctl .cc-mt .mt-in { min-height: 0; height: 26px; padding: 4px 30px 4px 7px; font-size: 11.5px; line-height: 16px; border-left-width: 3px; border-radius: 6px; overflow: hidden; white-space: nowrap; }
-.clip-ctl .cc-mt .mt-cap { right: 4px; padding: 1px 4px; font-size: 9.5px; border-radius: 4px; }
+.clip-ctl .cc-mt .mt-in { min-height: 0; height: 26px; padding: 4px 30px 4px 7px; font-size: 11.5px; line-height: 16px; border-left-width: 3px; border-radius: var(--radius-md); overflow: hidden; white-space: nowrap; }
+.clip-ctl .cc-mt .mt-cap { right: 4px; padding: 1px 4px; font-size: 9.5px; border-radius: var(--radius-sm); }
 .clip-ctl .cc-mt .mt-chips { gap: 3px; min-height: 0; }
-.clip-ctl .cc-mt .mt-chip { padding: 1px 7px; font-size: 11px; }
-.clip-ctl .cc-mt .mt-empty { font-size: 11px; }
+.clip-ctl .cc-mt .mt-chip { padding: 1px 7px; font-size: var(--font-sm); }
+.clip-ctl .cc-mt .mt-empty { font-size: var(--font-sm); }
 .clip-ctl .cc-mt .mt-roles { gap: 4px; }
-.clip-ctl .cc-mt .mt-rbtn { padding: 2px 6px; font-size: 11px; border-radius: 6px; }
+.clip-ctl .cc-mt .mt-rbtn { padding: 2px 6px; font-size: var(--font-sm); border-radius: var(--radius-md); }
 .clip-ctl .cc-mt + .cc-body:not(:empty) { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
 .clip-ctl.compact .cc-mt { margin-top: 3px; gap: 3px; }
-.clip-ctl.compact .cc-mt .mt-in { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; }
+.clip-ctl.compact .cc-mt .mt-in { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: var(--font-sm); }
 .clip-ctl.compact .cc-mt .mt-chip { padding: 0 6px; font-size: 10.5px; }
 .clip-ctl.compact .cc-mt .mt-rbtn { padding: 1px 6px; font-size: 10.5px; }
 

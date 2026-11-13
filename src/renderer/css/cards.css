@@ -46,7 +46,7 @@
 }
 
 .card .sub {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
     margin-top: 3px;
 }
@@ -65,7 +65,7 @@
 .empty {
     grid-column: 1 / -1;
     color: var(--dim);
-    font-size: 12px;
+    font-size: var(--font-md);
     padding: 6px 0;
 }
 
@@ -76,7 +76,7 @@
     padding: 10px;
     text-align: center;
     color: var(--dim);
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 .drop.over {
@@ -104,7 +104,7 @@
     display: flex;
     justify-content: space-between;
     color: var(--dim);
-    font-size: 12px;
+    font-size: var(--font-md);
     margin-bottom: 3px;
 }
 
@@ -123,7 +123,7 @@ input[type=range] {
     align-items: center;
     gap: 6px;
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--font-md);
     accent-color: var(--matcha);
 }
 
@@ -156,7 +156,7 @@ footer {
     line-height: 1.4;
     min-height: 18px;
     margin-top: 0;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--dim);
 }
 

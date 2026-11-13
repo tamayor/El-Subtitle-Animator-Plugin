@@ -18,7 +18,7 @@ function tsNum(v, lo, hi, def) { const n = Number(v); return (v !== null && v !=
 
 function textStyleLoad() {
     let s = null;
-    try { s = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || 'null'); } catch (e) { s = null; }
+    s = store.getJSON(TEXT_STYLE_KEY, null) || null;
     if (!s || typeof s !== 'object') return;
     for (const k of ['normal', 'emphasis']) {
         const r = s[k];
@@ -38,7 +38,7 @@ function textStyleLoad() {
     textStyle.highlight = { auto: !!h.auto, width: tsNum(h.width, 0.2, 4, 1), height: tsNum(h.height, 0.2, 4, 1), x: tsNum(h.x, -2, 2, 0), y: tsNum(h.y, -2, 2, 0) };
 }
 function textStyleSave() {
-    try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify({ normal: textStyle.normal, emphasis: textStyle.emphasis, highlight: textStyle.highlight })); } catch (e) { /* optional */ }
+    store.set(TEXT_STYLE_KEY, JSON.stringify({ normal: textStyle.normal, emphasis: textStyle.emphasis, highlight: textStyle.highlight }));
 }
 
 // ---------------------------------------------------------------- what applies to a preset
@@ -244,7 +244,7 @@ function tsRowEl(which, label, hint) {
     const fontLine = pbEl('div', 'pb-style-line');
     const colLine = pbEl('div', 'pb-style-line');
     fontLine.append(...pbFontControls([r.font, r.style].filter(Boolean).join(' '), (t, final) => {
-        const s = pbSplitFont(t);
+        const s = pbSplitFont(t, state.fonts);
         r.font = String(s.family || '').trim();
         r.style = r.font ? String(s.style || '').trim() : '';
         tsChanged(final);

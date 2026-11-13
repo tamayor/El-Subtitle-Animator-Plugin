@@ -8,7 +8,7 @@ const DOCK_OPEN_DELAY = 120, DOCK_CLOSE_DELAY = 300;   // ms, so brushing past t
 
 function dockStoredHeight() {
     let h = 0;
-    try { h = Number(localStorage.getItem('sa.dockRestHeight')); } catch (e) { h = 0; }
+    h = Number(store.get('sa.dockRestHeight'));
     return h > 0 ? h : DOCK_DEF;
 }
 // compact mode (small windows): the dock never takes more than 35% of the window
@@ -27,7 +27,7 @@ function setDockFolded(folded, save) {
         btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
         btn.title = folded ? 'Show the timing bar and clip controls' : 'Fold the dock to this bar';
     }
-    if (save) { try { localStorage.setItem('sa.dockFolded', folded ? '1' : '0'); } catch (e) { /* ignore */ } }
+    if (save) { store.set('sa.dockFolded', folded ? '1' : '0'); }
     dockPad();
 }
 function setDockHeight(h, save) {
@@ -35,7 +35,7 @@ function setDockHeight(h, save) {
     if (!scroll) return;
     h = Math.round(Math.max(DOCK_MIN, Math.min(dockMaxHeight(), h)));
     scroll.style.maxHeight = h + 'px';
-    if (save) { try { localStorage.setItem('sa.dockRestHeight', String(h)); } catch (e) { /* ignore */ } }
+    if (save) { store.set('sa.dockRestHeight', String(h)); }
 }
 
 // Puts a card in the dock (timing on top, clip controls under it) or back after its home placeholder.
@@ -72,7 +72,7 @@ function initBottomDock() {
     if (!dock || !scroll || !grip) return;
     setDockHeight(dockStoredHeight(), false);
     let folded = false;
-    try { folded = localStorage.getItem('sa.dockFolded') === '1'; } catch (e) { folded = false; }
+    folded = store.get('sa.dockFolded') === '1';
     setDockFolded(folded, false);
     const fold = $('dockFold');
     if (fold) fold.addEventListener('click', () => setDockFolded(!dock.classList.contains('folded'), true));

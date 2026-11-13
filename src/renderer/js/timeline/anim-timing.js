@@ -36,14 +36,14 @@ function tmSecs(f) {
 function tmView() {
     if (!tmState.view) {
         let v = 'full';
-        try { v = localStorage.getItem('sa.timingView') || 'full'; } catch (e) { v = 'full'; }
+        v = store.get('sa.timingView') || 'full';
         tmState.view = (v === 'compact' || v === 'docked') ? v : 'full';
     }
     return tmState.view;
 }
 function setTimingView(v) {
     tmState.view = (v === 'compact' || v === 'docked') ? v : 'full';
-    try { localStorage.setItem('sa.timingView', tmState.view); } catch (e) { /* ignore */ }
+    store.set('sa.timingView', tmState.view);
     applyTimingView();
     renderTiming();
 }
@@ -244,45 +244,15 @@ function tmEsc(s) {
 
 // ------------------------------------------------------------------ editing
 
-// Puts one range's part ('s' start, 'e' end, 'm' move with the start at v) at frame v, within the clip.
-function tmApply(r, part, v, len) {
-    v = Math.round(v);
-    if (part === 'm') {
-        const d = r.end - r.start;
-        r.start = Math.max(0, Math.min(len - d, v));
-        r.end = r.start + d;
-    } else if (part === 's') {
-        r.start = Math.max(0, Math.min(r.end - 1, v));
-    } else {
-        r.end = Math.max(r.start + 1, Math.min(len, v));
-    }
-}
+// tmApply (one range's start / end / move at a frame) and the snapping maths: timeline/anim-timing/math.js.
 
 // The frame for pointer x on a lane, pulled to the nearest magnet within TM_SNAP_PX: the playhead, the preset's own
 // start / end on this lane, and the heads of the other lanes. For a move, the range's start or end may snap.
 function tmFrameAt(clientX, laneIdx, part, grab) {
-    const i = tmState.info;
     const area = $('timingBar').querySelectorAll('.tm-lane')[laneIdx].querySelector('.tm-area');
     const rect = area.getBoundingClientRect();
     const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const toPx = (f) => f / i.length * rect.width;
-    const r = i.ranges[laneIdx];
-    let frame = Math.round(px / rect.width * i.length) - (part === 'm' ? grab : 0);
-    const marks = [];
-    if (i.playhead != null) marks.push(['playhead', i.playhead]);
-    marks.push(['default', part === 's' || part === 'm' ? r.defStart : r.defEnd]);
-    if (part === 'm') marks.push(['default', r.defEnd]);
-    i.ranges.forEach((o, n) => { if (n !== laneIdx) { if (o.hasStart) marks.push(['lane', o.start]); marks.push(['lane', o.end]); } });
-    let snap = null, best = TM_SNAP_PX + 1;
-    // a move snaps by its start or its end
-    const edges = part === 'm' ? [[0, frame], [r.end - r.start, frame + (r.end - r.start)]] : [[0, frame]];
-    for (const [off, at] of edges) {
-        for (const [name, f] of marks) {
-            const d = Math.abs(toPx(at) - toPx(f));
-            if (d <= TM_SNAP_PX && d < best) { best = d; snap = name; frame = f - off; }
-        }
-    }
-    return { frame, snap };
+    return tmSnapFrame(px, rect.width, tmState.info, laneIdx, part, grab, TM_SNAP_PX);
 }
 
 async function tmSend(wake) {
@@ -635,7 +605,7 @@ async function tmTick() {
         tmState.busy = true;
         try {
             const r = await window.sa.clipTiming({});
-            // the timeline frame under the playhead, for any clip (the Transform effect's Start / End bar, effect-list.js)
+            // the timeline frame under the playhead, for any clip (the Transform effect's Start / End bar, js/library/effects/transform.js)
             if (r && r.ok && Number.isFinite(Number(r.frame))) tmState.frame = Number(r.frame);
             if (!tmState.dragging && !tmState.wordDragging && r && r.ok) {
                 if (r.none) tmState.info = null;

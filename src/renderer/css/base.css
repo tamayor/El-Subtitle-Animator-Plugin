@@ -1,37 +1,4 @@
-/* Design tokens (:root), base elements and the header. */
-
-:root {
-    --bg: #131614;
-    --card: #1a1f1c;
-    --card-inner: #121614;
-    --line: #28312b;
-    --line-soft: #202823;
-    --text: #eff5f0;
-    --dim: #8c9c90;
-
-    /* Matcha & Strawberry brand palette */
-    --matcha: #8ccf8e;
-    --matcha-hover: #9ee0a0;
-    --matcha-ink: #112213;
-    --matcha-tint: rgba(140, 207, 142, 0.12);
-    --matcha-border: rgba(140, 207, 142, 0.42);
-
-    --strawberry: #f07b8e;
-    --strawberry-hover: #ff91a3;
-    --strawberry-ink: #2b1015;
-    --strawberry-tint: rgba(240, 123, 142, 0.13);
-    --strawberry-border: rgba(240, 123, 142, 0.48);
-
-    /* Resolve's playhead red: every playhead in the app (timing bars, frame ranges, timelines, Cut tab canvases) */
-    --playhead: #ff4d3d;
-    --playhead-hover: #ff6b5d;
-    --playhead-ink: #ffffff;
-
-    --accent: var(--matcha);
-    --accent-dim: var(--matcha-border);
-    --ok: #8ccf8e;
-    --bad: #f07b8e;
-}
+/* Base elements and the header. The design tokens are in tokens.css, loaded first. */
 
 * {
     box-sizing: border-box;
@@ -100,11 +67,11 @@ h1 {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 600;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--dim);
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--line);
@@ -131,7 +98,7 @@ h1 {
 .version-badge .version-input {
     width: 58px;
     height: 18px;
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 600;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     padding: 1px 4px;
@@ -147,14 +114,6 @@ h1 {
 
 /* Scrollbars: thin everywhere. The panel's own (outer) bar is matcha; every scrolling area inside it is strawberry.
    Elements that set scrollbar-width take their colour from scrollbar-color instead (see --scroll-inner below). */
-:root {
-    --scroll-size: 5px;
-    --scroll-outer: var(--matcha);
-    --scroll-outer-hover: var(--matcha-hover);
-    --scroll-inner: var(--strawberry);
-    --scroll-inner-hover: var(--strawberry-hover);
-}
-
 ::-webkit-scrollbar {
     width: var(--scroll-size);
     height: var(--scroll-size);
@@ -183,3 +142,9 @@ html::-webkit-scrollbar-thumb:hover,
 body::-webkit-scrollbar-thumb:hover {
     background: var(--scroll-outer-hover);
 }
+
+/* Hidden SVG holding shared <defs> (filters) */
+.svg-defs { position: absolute; pointer-events: none; overflow: hidden; }
+
+/* Row spacing variants */
+.row.gap-sm { gap: var(--space-3); }

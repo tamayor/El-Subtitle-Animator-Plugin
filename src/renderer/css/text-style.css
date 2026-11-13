@@ -28,7 +28,7 @@
     padding: 5px 6px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--text);
     background: var(--card);
     border: 1px solid var(--line);
@@ -50,6 +50,6 @@
 }
 
 #styleBodyU .ts-hint {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
 }

@@ -1,6 +1,6 @@
 // Frame range bar: the one two-head slider used for frame ranges inside a clip (css/frame-range.css).
-// Used by the Effect presets' Transform Start / End and Spotlight In / Out (js/library/effect-list.js fxFrameRange) and
-// the B-roll tab's animation In (js/library/broll-tab.js). Hollow left head = start, solid right head = end, the range
+// Used by the Effect presets' Transform Start / End and Spotlight In / Out (js/library/effects/transform.js fxFrameRange) and
+// the B-roll tab's animation In (js/library/broll/tab.js). Hollow left head = start, solid right head = end, the range
 // between them (drag it to shift both), and the red Resolve playhead, which follows Resolve while the bar is on
 // screen. Heads snap to the playhead. Keys: arrows 1 frame (Shift 5), Alt moves both, S / E pick a head, P = playhead,
 // Home / End. Double-click: opts.dflt.

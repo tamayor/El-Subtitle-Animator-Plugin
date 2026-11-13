@@ -38,7 +38,7 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 700;
     color: var(--matcha);
     background: var(--matcha-tint);
@@ -66,7 +66,7 @@
 }
 
 .cr-opt {
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 500;
     color: var(--dim);
     background: rgba(255, 255, 255, 0.05);
@@ -98,7 +98,7 @@
     min-height: 74px;
     box-sizing: border-box;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.025);
     color: var(--text);
     cursor: pointer;
@@ -122,12 +122,12 @@
     width: 30px;
     height: 30px;
     font-size: 14px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     margin-bottom: 2px;
 }
 
 .cr-tile.drop .cr-tl {
-    font-size: 13px;
+    font-size: var(--font-lg);
     font-weight: 600;
 }
 
@@ -143,14 +143,14 @@
     gap: 8px;
     padding: 7px 11px;
     min-height: 36px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .cr-tile.thin .cr-ico,
 #useSelected .cr-ico {
     width: 20px;
     height: 20px;
-    font-size: 11px;
+    font-size: var(--font-sm);
     margin: 0;
     border-radius: 5px;
     flex: none;
@@ -158,7 +158,7 @@
 
 .cr-tile.thin .cr-tl,
 #useSelected .cr-tl {
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 600;
     white-space: nowrap;
     flex: none;
@@ -166,7 +166,7 @@
 
 .cr-tile.thin .cr-ts,
 #useSelected .cr-ts {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
     line-height: 1.2;
     white-space: nowrap;
@@ -213,10 +213,10 @@
 .cr-ico {
     width: 22px;
     height: 22px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     display: grid;
     place-items: center;
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--matcha);
     background: var(--matcha-tint);
     margin-bottom: 3px;
@@ -235,7 +235,7 @@
 }
 
 .cr-ts {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
     line-height: 1.35;
 }
@@ -259,7 +259,7 @@
     padding: 7px 8px;
     min-height: 40px;
     box-sizing: border-box;
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
 }
 
 .cr-sfx:hover {
@@ -270,7 +270,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 .cr-sfx.chosen {
@@ -295,7 +295,7 @@
     border-radius: 50% !important;
     background: var(--matcha) !important;
     color: var(--matcha-ink) !important;
-    font-size: 10px;
+    font-size: var(--font-xs);
     flex: none;
 }
 
@@ -307,7 +307,7 @@
     width: 100%;
     height: 40px;
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--font-lg);
 }
 
 .cr .status:empty {
@@ -377,7 +377,7 @@
     width: 100%;
     max-width: 560px;
     max-height: 100%;
-    background: #1d231f;
+    background: var(--surface-pop);
     border: 1px solid #36423a;
     border-radius: 12px;
     box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
@@ -392,7 +392,7 @@
     padding: 10px 12px 8px;
 }
 
-.bm-title { font-weight: 700; font-size: 13px; color: var(--text); }
+.bm-title { font-weight: 700; font-size: var(--font-lg); color: var(--text); }
 
 .bm-x { padding: 2px 8px; line-height: 1.2; }
 
@@ -407,7 +407,7 @@
 .bm-tab {
     padding: 4px 10px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--dim);
     font: inherit;
@@ -427,14 +427,14 @@
 .bm-body {
     overflow-y: auto;
     padding: 10px 14px 14px;
-    font-size: 12px;
+    font-size: var(--font-md);
     line-height: 1.5;
     color: var(--text);
 }
 
 .bm-h {
     margin: 12px 0 4px;
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 700;
     letter-spacing: .06em;
     text-transform: uppercase;

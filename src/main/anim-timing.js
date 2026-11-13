@@ -9,6 +9,7 @@ module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords,
 
 const state = require('./state');
 const { RESOLVE_BATCH } = require('./config');
+const { memoCache } = require('./cache');
 const { bridgeCall } = require('./fusion-bridge');
 const { currentTimeline, getProject, tcToFrame, timelineMeta, videoTrackLists } = require('./resolve');
 const PERF = require('./perf');
@@ -16,24 +17,23 @@ const { deleteExtraSfx, findAudioItemById, findItemById, placeExtraSfx } = requi
 const { refitRowSfx, segSfxFor, segSfxForget, segSfxRecord, segSfxSetEmpty } = require('./row-sfx');
 const { typingFramesFor } = require('./title-templates');
 
-// itemId -> { at, info } : what the clip's comp said last (null info = no timing slider)
-const cache = new Map();
+// itemId -> what the clip's comp said last (null = no timing slider); hits / misses in the perf summary (cache.js)
+const timingCache = memoCache('timing', { max: 200 });
 const READ_EVERY = 1500;
 let meta = { key: null, at: 0, meta: null };
 let tracks = { key: null, at: 0, list: [] };
 
 async function readInfo(itemId, force) {
-    const c = cache.get(itemId);
-    if (c && !force && Date.now() - c.at < READ_EVERY) return c.info;
-    if (c && !force && require('./resolve-load').resolveBusy()) return c.info;      // Resolve busy: the last reading
+    const c = timingCache.entry(itemId);
+    if (c && !force && timingCache.fresh(itemId, READ_EVERY)) return c.value;
+    if (c && !force && require('./resolve-load').resolveBusy()) return c.value;      // Resolve busy: the last reading
     let info = null;
     try {
         const r = await bridgeCall('timing_get', { item: itemId }, 6000);
         info = r && r.kind ? r : null;
-    } catch (e) { info = c ? c.info : null; }
-    cache.set(itemId, { at: Date.now(), info });
+    } catch (e) { info = c ? c.value : null; }
+    timingCache.set(itemId, info);
     if (info && info.kind === 'segments') rowTextChanged(itemId, info);
-    if (cache.size > 200) cache.delete(cache.keys().next().value);
     return info;
 }
 
@@ -254,7 +254,7 @@ async function setClipTiming(event, itemId, ranges, wake) {
     });
     if (!list.length) return { error: 'No timing to set' };
     const r = await bridgeCall('timing_set', { item: String(itemId), ranges: list, wake: !!wake }, 6000);
-    cache.delete(String(itemId));      // the next read shows what the clip really has now
+    timingCache.delete(String(itemId));      // the next read shows what the clip really has now
     candMemo.list = null;
     state.segSweepHot = Date.now();    // seg-watch's sweep looks soon
     if (!(r && r.ok)) return { error: (r && r.why) || 'Could not set the timing on that clip' };
@@ -461,7 +461,7 @@ async function fitClipToWords(event, itemId) {
     const info = await bridgeCall('word_fit_info', { item: String(itemId) }, 8000);
     const kind = info && info.kind;
     if (!kind) return { error: 'This clip\'s preset has no timing slider' };
-    const done = (r, extra) => { cache.delete(String(itemId)); candMemo.list = null; return Object.assign({ ok: true, kind, spokenWords: spoken.words.length, transcribed: !spoken.cached }, extra, r); };
+    const done = (r, extra) => { timingCache.delete(String(itemId)); candMemo.list = null; return Object.assign({ ok: true, kind, spokenWords: spoken.words.length, transcribed: !spoken.cached }, extra, r); };
 
     if (kind === 'segments') {
         const rows = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
@@ -541,7 +541,7 @@ async function setClipWordTimings(event, itemId, segs, wake) {
         start: plan.start, end: plan.end, wake: !!wake
     }, 15000);
     if (!(r && r.ok)) return { error: (r && r.why) || 'Could not key the clip' };
-    cache.delete(String(itemId));
+    timingCache.delete(String(itemId));
     candMemo.list = null;
     let sounds = null;
     if (wake) {

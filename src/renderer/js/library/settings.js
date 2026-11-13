@@ -317,3 +317,55 @@ function renderAll() {
     renderLive();
     refreshPromptPresets();
 }
+
+// The open / close toggles of the Use and Create sections (called by initApp).
+function initPanelToggles() {
+    $('adjustToggle').addEventListener('click', () => { stopPreview(); setAdjustOpen(!state.adjustOpen); });
+    if ($('tdToggleU')) $('tdToggleU').addEventListener('click', () => { stopPreview(); setTdOpen(!state.tdOpen); });
+    if ($('adjustToggleC')) $('adjustToggleC').addEventListener('click', () => { stopPreview(); setCreateAdjustOpen(!state.createAdjustOpen); });
+    if ($('filesToggleC')) $('filesToggleC').addEventListener('click', () => { setCreateFilesOpen(!state.createFilesOpen); });
+    if ($('tdToggleC')) $('tdToggleC').addEventListener('click', () => { stopPreview(); setCreateTdOpen(!state.createTdOpen); });
+    if ($('configToggleC')) $('configToggleC').addEventListener('click', () => { stopPreview(); setCreateConfigOpen(!state.createConfigOpen); });
+    if ($('sfxOrigAccordionToggle')) $('sfxOrigAccordionToggle').addEventListener('click', () => {
+        setSfxOrigAccordionOpen(!state.sfxOrigOpen);
+    });
+}
+
+// SFX Originals library: drop, pick or click to add sounds (called by initApp).
+function initSfxOriginals() {
+    if ($('sfxOrigDrop')) {
+        dropZone($('sfxOrigDrop'), async (p) => {
+            const res = await window.sa.addSfxOriginal(p);
+            if (takeLib(res)) {
+                setStatus('Added "' + baseName(p) + '" to originals library.', 'ok');
+            }
+        });
+    }
+    const sfxOrigPick = $('sfxOrigPick');
+    const sfxOrigFileIn = $('sfxOrigFileInput');
+    if (sfxOrigPick && sfxOrigFileIn) {
+        sfxOrigPick.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sfxOrigFileIn.click();
+        });
+        sfxOrigFileIn.addEventListener('change', async () => {
+            if (sfxOrigFileIn.files && sfxOrigFileIn.files.length) {
+                for (const f of sfxOrigFileIn.files) {
+                    const p = window.sa.pathForFile(f);
+                    if (p) {
+                        const res = await window.sa.addSfxOriginal(p);
+                        takeLib(res);
+                    }
+                }
+                setStatus('Original sounds added.', 'ok');
+            }
+            sfxOrigFileIn.value = '';
+        });
+    }
+    if ($('sfxOrigDrop') && sfxOrigFileIn) {
+        $('sfxOrigDrop').addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            sfxOrigFileIn.click();
+        });
+    }
+}

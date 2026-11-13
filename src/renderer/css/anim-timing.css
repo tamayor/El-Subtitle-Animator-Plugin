@@ -15,7 +15,7 @@
     outline: none;
     user-select: none;
 }
-.timing-card .tm-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: 8px; }
+.timing-card .tm-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: var(--radius-lg); }
 
 .timing-card .tm-lane { display: flex; align-items: center; gap: 8px; height: 24px; }
 .timing-card .tm-lane-label {
@@ -38,7 +38,7 @@
     height: 14px;
     margin-top: -7px;
     border: 1px dashed var(--dim);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     opacity: 0.55;
     pointer-events: none;
     transition: left 0.2s var(--tm-ease), width 0.2s var(--tm-ease);
@@ -93,7 +93,7 @@
     justify-content: space-between;
     margin: 0 8px;
     color: var(--dim);
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-variant-numeric: tabular-nums;
 }
 /* the scale runs under the tracks, not the labels */
@@ -103,7 +103,7 @@
 .timing-card .tm-word-lane { margin: 5px 8px 2px; }
 .timing-card .tm-words { display: flex; align-items: center; justify-content: space-between; gap: 4px 6px; flex-wrap: wrap; margin-top: 6px; }
 .timing-card .tm-words-state span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.timing-card .tm-words-state { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--dim); font-size: 11px; }
+.timing-card .tm-words-state { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--dim); font-size: var(--font-sm); }
 .timing-card .tm-words-state svg { flex: none; }
 .timing-card .tm-words-state.ready { color: var(--matcha); }
 .timing-card .tm-words-state.missing { color: var(--strawberry); }
@@ -135,7 +135,7 @@
 .timing-card .tm-head { align-items: center; gap: 6px; }
 .timing-card .tm-head-right { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
 .timing-card .tm-head-right .meta { margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timing-card button.tm-tool { width: 22px; height: 22px; border-radius: 6px; }
+.timing-card button.tm-tool { width: 22px; height: 22px; border-radius: var(--radius-md); }
 .timing-card button.tm-tool[aria-pressed="true"] { color: var(--matcha); background: var(--matcha-tint); }
 .timing-card .tm-mini,
 .timing-card #timingDockBtn,
@@ -164,7 +164,7 @@
     text-overflow: ellipsis;
     margin-right: 2px;
     color: var(--dim);
-    font-size: 11px;
+    font-size: var(--font-sm);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
 }

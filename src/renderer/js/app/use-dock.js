@@ -12,13 +12,13 @@
             cog.classList.toggle('on', open);
             cog.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
-        try { localStorage.setItem('sa.useDockOpen', open ? '1' : '0'); } catch (e) { /* ignore */ }
+        store.set('sa.useDockOpen', open ? '1' : '0');
     }
     function init() {
         const dock = document.getElementById('useDockU');
         if (!dock) return;
         let saved = false;
-        try { saved = localStorage.getItem('sa.useDockOpen') === '1'; } catch (e) { saved = false; }
+        saved = store.get('sa.useDockOpen') === '1';
         show(saved);
         syncTip();
         const cog = document.getElementById('useDockCog');
@@ -39,3 +39,34 @@
     window.setUseDockOpen = show;
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
+
+// Use tab: the subtitle text box redraws the stages; Reset goes back to the preset's saved defaults (called by initApp).
+function initUseTab() {
+    const subTextEl = $('subText');
+    if (subTextEl) subTextEl.addEventListener('input', () => redrawStages());
+    const resetUEl = $('resetU');
+    if (resetUEl) {
+        resetUEl.addEventListener('click', () => {
+            stopPreview();
+            syncUse(true);                      // a fresh one-time copy of the preset's saved defaults
+            if (state.use) {
+                state.use.dirty = false;
+                state.use.adjusted = false;
+                state.use.designDirty = false;
+                state.use.designRev = 0;
+                state.use.renderReq = null;
+                state.use._viewCache = null;
+                state.use.tempPreview = null;
+            }
+            const a = selected();
+            if (a) { a.adjusted = false; a.designDirty = false; }
+            // Redraw everything that shows the one-time values: boxes, alignment, sound, text design, preview and the Update bar.
+            renderSettings();
+            try { if (typeof fillTextDesign === 'function' && $('tdFont' + CTX.U.s)) fillTextDesign(CTX.U); } catch (e) { /* the panel may not be on the page */ }
+            if (state.use) syncVarButtons('U', state.use);
+            renderTimelines();
+            redrawStages();
+            try { if (state.use && typeof triggerLiveSync === 'function') triggerLiveSync(state.use, 'U'); } catch (e) { /* only while a timeline preview runs */ }
+        });
+    }
+}

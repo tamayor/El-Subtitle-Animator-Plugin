@@ -34,6 +34,29 @@
     "cutStatus:function",
     "cutWordsFromTc:function"
   ],
+  "auto-place.js": [
+    "place:function"
+  ],
+  "auto-plan.js": [
+    "autoRoles:function",
+    "boxListFor:function",
+    "defaultSplit:function",
+    "estimateLines:function",
+    "layoutFor:function",
+    "mtTexts:function",
+    "passes:function",
+    "presetInfo:function",
+    "resolveTags:function",
+    "sizedDesign:function",
+    "tagMatches:function"
+  ],
+  "auto-session.js": [
+    "currentTimeline:function",
+    "placed:object",
+    "subtitleAt:function",
+    "swapAudioIds:function",
+    "waitFree:function"
+  ],
   "automation.js": [
     "adjustHighlights:function",
     "startAutomation:function",
@@ -43,6 +66,27 @@
   "boilerplates.js": [
     "boilerplateList:function",
     "insertBoilerplate:function"
+  ],
+  "broll-suggest.js": [
+    "brollSuggestFromTexts:function",
+    "parseNumber:function",
+    "propsFor:function"
+  ],
+  "broll-words.js": [
+    "ANY_ORDER:object",
+    "KEY_LEAD:number",
+    "KEY_WORD:object",
+    "WORD_UNITS:object",
+    "findWordHit:function",
+    "firstWordOf:function",
+    "keyBlock:function",
+    "lastWordOf:function",
+    "mergeSplitNumbers:function",
+    "normWord:function",
+    "parseNumberTokens:function",
+    "unitTimes:function",
+    "wordMatches:function",
+    "wordSpans:function"
   ],
   "broll.js": [
     "brollAdjust:function",
@@ -68,6 +112,13 @@
     "brollWordLane:function",
     "draftScale:function",
     "findWordHit:function"
+  ],
+  "cache.js": [
+    "cacheStats:function",
+    "clearCaches:function",
+    "fileCache:function",
+    "invalidateCache:function",
+    "memoCache:function"
   ],
   "clip-colors-db.js": [
     "subtitleColorsFromDb:function"
@@ -325,6 +376,7 @@
   "perf.js": [
     "PERF_DEFAULTS:object",
     "PERF_LOG_FILE:string",
+    "addSummarySource:function",
     "getPerf:function",
     "perfEnabled:function",
     "perfFlush:function",
@@ -558,6 +610,11 @@
     "titleKindFor:function",
     "titlesDir:function",
     "typingFramesFor:function"
+  ],
+  "tool-schemas.js": [
+    "TOOLS:object",
+    "checkToolArgs:function",
+    "toolSchema:function"
   ],
   "window.js": [
     "createWindow:function",

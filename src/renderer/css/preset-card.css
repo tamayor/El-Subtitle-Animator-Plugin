@@ -28,9 +28,9 @@
 .pc-sec:last-child:not(.open) > .pc-head { border-radius: 0 0 11px 11px; }
 .pc-head:hover { background: rgba(255, 255, 255, 0.03); border: 0; color: var(--text); }
 .pc-head:focus-visible { outline: 2px solid var(--matcha-border); outline-offset: -2px; }
-.pc-head .chev { width: 10px; font-size: 10px; color: var(--dim); flex: none; }
+.pc-head .chev { width: 10px; font-size: var(--font-xs); color: var(--dim); flex: none; }
 .pc-title {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 700;
     letter-spacing: 0.09em;
     text-transform: uppercase;
@@ -40,7 +40,7 @@
     flex: 1;
     min-width: 0;
     text-align: right;
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 400;
     color: var(--dim);
     overflow: hidden;
@@ -56,7 +56,7 @@
 /* inset list (like a grouped table in System Settings) */
 .pc-list {
     border: 1px solid var(--line-soft);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--card);
 }
 .pc-row {
@@ -88,14 +88,14 @@
     display: grid;
     place-items: center;
     padding: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     border: 0;
     background: var(--matcha-tint);
     color: var(--matcha);
-    font-size: 13px;
+    font-size: var(--font-lg);
     line-height: 1;
 }
-button.pc-play { cursor: pointer; font-size: 11px; }
+button.pc-play { cursor: pointer; font-size: var(--font-sm); }
 button.pc-play:hover { background: var(--matcha); color: var(--matcha-ink); border: 0; }
 .pc-text { flex: 1 1 130px; min-width: 0; }
 .pc-cap { font-size: 10.5px; color: var(--dim); line-height: 1.2; }
@@ -110,25 +110,25 @@ button.pc-play:hover { background: var(--matcha); color: var(--matcha-ink); bord
 .pc-val.bad { color: var(--strawberry); }
 .pc-pill { flex: none; }
 .pc-acts { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-button.pc-act, .pc-acts .sm-btn { height: 24px; font-size: 11px; padding: 2px 9px; }
+button.pc-act, .pc-acts .sm-btn { height: 24px; font-size: var(--font-sm); padding: 2px 9px; }
 button.pc-more { padding: 0 7px; height: 24px; font-size: 14px; line-height: 1; letter-spacing: 1px; }
-.pc-foot { margin: 7px 2px 0 !important; font-size: 11px; }
+.pc-foot { margin: 7px 2px 0 !important; font-size: var(--font-sm); }
 .pc-files .bx-live { margin-top: 8px; }
 
 /* Originals */
-.pc-orig-hint { margin: 0 2px 8px !important; font-size: 11px; line-height: 1.4; }
+.pc-orig-hint { margin: 0 2px 8px !important; font-size: var(--font-sm); line-height: 1.4; }
 .pc-item { padding: 9px 10px 10px; }
 .pc-item-top { display: flex; align-items: center; gap: 10px; }
 .pc-item-top .pc-text { flex: 1 1 auto; }
 button.pc-revert {
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-sm);
     padding: 3px 10px;
-    color: #ffb74d;
+    color: var(--revert);
     border: 1px solid rgba(255, 183, 77, 0.3);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
 }
-button.pc-revert:hover { background: rgba(255, 183, 77, 0.12); border-color: #ffb74d; color: #ffb74d; }
+button.pc-revert:hover { background: rgba(255, 183, 77, 0.12); border-color: var(--revert); color: var(--revert); }
 .pc-item-actions {
     display: flex;
     flex-wrap: wrap;
@@ -137,23 +137,23 @@ button.pc-revert:hover { background: rgba(255, 183, 77, 0.12); border-color: #ff
     margin-top: 9px;
     padding: 6px 8px;
     border: 1px dashed transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.025);
     transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 .pc-item-actions.over { border-color: var(--matcha); background: var(--matcha-tint); }
 .pc-act-label { flex: 1 0 100%; font-size: 10.5px; color: var(--dim); }
 button.pc-chip {
-    font-size: 11px;
+    font-size: var(--font-sm);
     padding: 4px 10px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--card-inner);
     border: 1px solid var(--line);
     color: var(--text);
 }
 button.pc-chip:hover:not(:disabled) { background: var(--matcha-tint); border-color: var(--matcha-border); }
 .pc-item-actions .cfg-orig-picker-wrap { position: relative; }
-.pc-item-actions .sfx-orig-dropdown { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; min-width: 230px; margin: 0; background: #1d231f; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); }
+.pc-item-actions .sfx-orig-dropdown { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; min-width: 230px; margin: 0; background: var(--surface-pop); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); }
 
 /* the timeline + selected-sound editor sit flat inside the Alignment section */
 .pcard .tl { background: var(--card); border-color: var(--line-soft); }

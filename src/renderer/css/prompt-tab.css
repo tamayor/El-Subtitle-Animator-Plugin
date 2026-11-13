@@ -25,10 +25,10 @@
 }
 
 .pr-edited {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
     padding: 2px 7px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--matcha-tint);
     border: 1px solid var(--matcha-border);
 }
@@ -107,7 +107,7 @@
 }
 
 .pr-val {                    /* the value after a key */
-    color: #f0c36b;
+    color: var(--warn);
 }
 
 .pr-ref {                    /* a SETTINGS name used inside the rules */
@@ -130,7 +130,7 @@ body.tab-prompt {
 .pr-mode {
     display: inline-flex;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -140,7 +140,7 @@ body.tab-prompt {
     background: transparent;
     color: var(--dim);
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 .pr-mode button.on {
@@ -167,7 +167,7 @@ body.tab-prompt {
 
 .pb-sec {
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--card-inner);
     padding: 8px 10px 10px;
 }
@@ -196,7 +196,7 @@ body.tab-prompt {
 .pb-row {
     padding: 4px 0;
     border-top: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .pb-row.flash {
@@ -220,7 +220,7 @@ body.tab-prompt {
 #promptBuilder textarea,
 .pb-add select {
     padding: 5px 8px;
-    font-size: 12px;
+    font-size: var(--font-md);
     border-radius: 7px;
     background: var(--card);
 }
@@ -234,11 +234,11 @@ body.tab-prompt {
 .pb-sep {
     padding: 2px 6px;
     min-width: 22px;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--dim);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .pb-sep:hover {
@@ -247,7 +247,7 @@ body.tab-prompt {
 }
 
 :is(#promptBuilder, #styleBodyU) input[type=text].pb-val {
-    color: #f0c36b;
+    color: var(--warn);
 }
 
 .pb-acts {
@@ -257,12 +257,12 @@ body.tab-prompt {
 
 .pb-mini {
     padding: 3px 7px;
-    font-size: 11px;
+    font-size: var(--font-sm);
     line-height: 1.2;
     color: var(--dim);
     background: transparent;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .pb-mini:hover,
@@ -294,7 +294,7 @@ body.tab-prompt {
     color: var(--text);
     background: var(--matcha-tint);
     border: 1px solid var(--matcha-border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
 }
 
 .pb-chip.missing {
@@ -304,12 +304,12 @@ body.tab-prompt {
 
 .pb-chip-x {
     padding: 0 5px;
-    font-size: 12px;
+    font-size: var(--font-md);
     line-height: 1.2;
     color: var(--dim);
     background: transparent;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
 }
 
 .pb-chip-x:hover {
@@ -352,7 +352,7 @@ body.tab-prompt {
 }
 
 .pb-cond-word {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 700;
     color: #e3b35a;
 }
@@ -360,7 +360,7 @@ body.tab-prompt {
 .pb-add-key {
     margin-top: 6px;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--matcha);
     background: transparent;
     border: 1px dashed var(--matcha-border);
@@ -380,12 +380,12 @@ body.tab-prompt {
     margin-top: 10px;
     padding: 10px;
     border: 1px solid var(--matcha-border);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--matcha-tint);
 }
 
 .pb-add-label {
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 700;
     color: var(--matcha);
 }
@@ -438,8 +438,8 @@ body.tab-prompt {
     justify-content: space-between;
     gap: 10px;
     padding: 6px 8px;
-    border-radius: 6px;
-    font-size: 12px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-md);
     color: var(--text);
     cursor: pointer;
 }
@@ -458,19 +458,19 @@ body.tab-prompt {
 
 .pb-combo-empty {
     padding: 10px 8px;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--dim);
 }
 
 .pb-add-hint {
     flex-basis: 100%;
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
 }
 
 .pb-rules-label {
     margin: 14px 0 6px;
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 700;
 }
 
@@ -532,7 +532,7 @@ body.tab-prompt {
 
 .pb-ckey-caret {
     color: var(--dim);
-    font-size: 10px;
+    font-size: var(--font-xs);
 }
 
 .pb-cpop {
@@ -557,7 +557,7 @@ body.tab-prompt {
     color: var(--matcha);
     background: var(--matcha-tint);
     border: 1px solid var(--matcha-border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     white-space: nowrap;
 }
 
@@ -572,8 +572,8 @@ body.tab-prompt {
 #promptBuilder .pb-range input[type=number].pb-range-in {
     width: 72px;
     padding: 5px 8px;
-    font-size: 12px;
-    color: #f0c36b;
+    font-size: var(--font-md);
+    color: var(--warn);
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 7px;
@@ -623,7 +623,7 @@ body.tab-prompt {
 :is(#promptBuilder, #styleBodyU) .pb-style-line select.pb-font-style {
     flex: 0 1 auto;
     max-width: 130px;
-    color: #f0c36b;
+    color: var(--warn);
 }
 
 :is(#promptBuilder, #styleBodyU) .pb-color input[type=color].pb-color-sw,
@@ -665,7 +665,7 @@ body.tab-prompt {
 :is(#promptBuilder, #styleBodyU) .pb-style-line select.pb-style-on {
     flex: 0 1 auto;
     max-width: 150px;
-    color: #f0c36b;
+    color: var(--warn);
 }
 
 .pb-style-line .pb-mini {
@@ -679,7 +679,7 @@ body.tab-prompt {
     gap: 4px;
     padding: 5px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     min-width: 0;
 }
 
@@ -707,7 +707,7 @@ body.tab-prompt {
 }
 
 .pb-share-end {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
 }
 
@@ -734,7 +734,7 @@ body.tab-prompt {
 .pb-share-label {
     flex: 1 0 100%;
     font-size: 11.5px;
-    color: #f0c36b;
+    color: var(--warn);
 }
 
 /* Saved prompts: a dropdown above the JOB section to load a prompt saved under a title (Default first). */
@@ -746,14 +746,14 @@ body.tab-prompt {
     margin-bottom: 10px;
     padding: 8px 10px;
     border: 1px solid var(--matcha-border);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--matcha-tint);
 }
 
 .pr-saved select,
 .pr-saved input[type=text] {
     padding: 5px 8px;
-    font-size: 12px;
+    font-size: var(--font-md);
     border-radius: 7px;
     background: var(--card);
 }
@@ -793,7 +793,7 @@ body.tab-prompt {
     width: auto;
     flex: 0 0 auto;
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 600;
     border-radius: 7px;
 }
@@ -806,14 +806,14 @@ body.tab-prompt {
 /* Tooltip with the full value of a one-line input whose text is cut off, wrapped to the input's width. */
 .pr-input-tip {
     position: fixed;
-    z-index: 10000;
+    z-index: var(--z-overlay);
     box-sizing: border-box;
     padding: 6px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--card-inner);
     border: 1px solid var(--matcha-border);
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--font-md);
     line-height: 1.4;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -832,7 +832,7 @@ body.tab-prompt {
     cursor: grab;
     user-select: none;
     color: var(--dim);
-    font-size: 11px;
+    font-size: var(--font-sm);
     letter-spacing: -3px;
     line-height: 1;
     text-align: center;
@@ -877,7 +877,7 @@ body.tab-prompt {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
+    font-size: var(--font-md);
     cursor: pointer;
 }
 
@@ -904,12 +904,12 @@ body.tab-prompt {
 :is(#promptBuilder, #styleBodyU) input[type=number].pb-hl-num {
     width: 72px;
     padding: 4px 6px;
-    color: #f0c36b;
+    color: var(--warn);
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 7px;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 :is(#promptBuilder, #styleBodyU) input[type=number].pb-hl-num:focus {

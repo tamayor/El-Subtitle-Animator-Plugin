@@ -2,17 +2,17 @@
 
 .ct-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
 .ct-run { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 7px 10px; }
-.ct-run b { font-weight: 600; font-size: 12px; }
+.ct-run b { font-weight: 600; font-size: var(--font-md); }
 .ct-run span { font-size: 10.5px; color: var(--dim); line-height: 1.3; white-space: normal; }
 .ct-run.on { border-color: var(--matcha-border); background: var(--matcha-tint); }
 .ct-run.on b { color: var(--matcha); }
 #ctResult:not(.hidden) + .ct-empty { display: none; }
 .ct-rows { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow-y: auto; margin-bottom: 8px; }
-.ct-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; font-size: 12px; padding: 2px 4px; border-radius: 6px; }
+.ct-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; font-size: var(--font-md); padding: 2px 4px; border-radius: var(--radius-md); }
 .ct-row:hover { background: var(--card-inner); }
 .ct-tc { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ct-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ct-row.bright .ct-text, .ct-row.long .ct-text { color: #e8c86a; }
+.ct-row.bright .ct-text, .ct-row.long .ct-text { color: var(--mark-bright); }
 .ct-row.bad .ct-text { color: var(--strawberry); }
 .ct-row.ok .ct-text { color: var(--matcha); }
 .ct-row.dim .ct-text { color: var(--dim); }
@@ -20,13 +20,13 @@
 
 /* the overlay (js/library/cut-tools-view.js); shares .cut-wave / .cw-* with css/cut-tab.css */
 .ctv-main { height: 124px; }
-.ct-min { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.ct-min { font-size: var(--font-sm); color: var(--dim); white-space: nowrap; }
 .ct-min input { width: 58px; }
 .ct-row.go { cursor: pointer; }
 .ct-del { display: inline-flex; align-items: center; gap: 6px; }
 .ct-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px 14px; margin: 0 0 8px; }
 .ct-sliders.hidden { display: none; }
-.ct-sl { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+.ct-sl { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px; font-size: var(--font-sm); color: var(--dim); }
 .ct-sl input[type=range] { width: 100%; min-width: 60px; accent-color: var(--matcha); }
 .ct-sl b { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; white-space: nowrap; }
 .ct-sl > span { white-space: nowrap; }
@@ -34,10 +34,10 @@
 .ct-sl button.hidden { display: none; }
 
 /* Words as running text that follows the playhead (ctTranscript / ctWordsFollow in js/library/cut-tools.js) */
-.ct-rows.ct-transcript { display: block; max-height: 220px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--card-inner); font-size: 13px; line-height: 1.75; scroll-padding: 40px; }
+.ct-rows.ct-transcript { display: block; max-height: 220px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-lg);
+    background: var(--card-inner); font-size: var(--font-lg); line-height: 1.75; scroll-padding: 40px; }
 .ct-transcript p { margin: 0 0 6px; }
-.ct-w { cursor: pointer; padding: 1px 2px; border-radius: 4px; transition: background-color .12s, color .12s; }
+.ct-w { cursor: pointer; padding: 1px 2px; border-radius: var(--radius-sm); transition: background-color .12s, color .12s; }
 .ct-w:hover { background: var(--line); }
 .ct-w.said { color: var(--dim); }
 .ct-w.on { background: var(--matcha); color: var(--matcha-ink); font-weight: 600; }

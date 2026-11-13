@@ -6,7 +6,7 @@
     align-items: center;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 1px;
     gap: 1px;
     user-select: none;
@@ -22,7 +22,7 @@
     border: 1px solid transparent;
     border-radius: 5px;
     padding: 2px 7px;
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 500;
     color: var(--dim);
     cursor: pointer;
@@ -43,11 +43,11 @@
 }
 
 .view-btn.on {
-    color: #e5ece7;
+    color: var(--text-bright);
     background: var(--card-inner);
     border-color: var(--matcha-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    -webkit-text-fill-color: #e5ece7;
+    -webkit-text-fill-color: var(--text-bright);
 }
 
 .view-btn.on svg {
@@ -84,7 +84,7 @@
     display: block;
     width: 104px;
     height: 58px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: #000;
 }
 
@@ -97,7 +97,7 @@
 
 .grid .card .thumb.empty button,
 .grid.view-list .card .thumb.empty button {
-    font-size: 10px;
+    font-size: var(--font-xs);
     padding: 2px 6px;
 }
 
@@ -116,7 +116,7 @@
     padding: 0;
     background: none;
     color: var(--matcha);
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 .grid .card .sub:empty,
@@ -153,7 +153,7 @@
     aspect-ratio: 16/9;
     flex: none;
     position: relative;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     background: #000;
 }
@@ -164,7 +164,7 @@
     height: 100%;
     aspect-ratio: 16/9;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     display: block;
 }
 
@@ -175,7 +175,7 @@
 }
 
 .grid.view-grid .card .thumb.empty button {
-    font-size: 10px;
+    font-size: var(--font-xs);
     padding: 2px 6px;
 }
 
@@ -193,7 +193,7 @@
 }
 
 .grid.view-grid .card .sub {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--matcha);
     padding: 0;
     position: absolute;
@@ -303,7 +303,7 @@
 
 .gallery-track::-webkit-scrollbar-thumb {
     background: var(--scroll-inner);
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
 }
 
 .gallery-track:focus {
@@ -323,7 +323,7 @@
     position: relative;
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     cursor: pointer;
     transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
     user-select: none;
@@ -348,7 +348,7 @@
     aspect-ratio: 16/9;
     flex: none;
     position: relative;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     background: #000;
 }
@@ -359,7 +359,7 @@
     height: 100%;
     aspect-ratio: 16/9;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     display: block;
 }
 
@@ -378,7 +378,7 @@
 }
 
 .grid.view-gallery .card .sub {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--matcha);
     position: absolute;
     bottom: 8px;
@@ -416,7 +416,7 @@
 }
 
 .gallery-name-pill .gallery-active-title {
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 600;
     color: var(--matcha);
     white-space: nowrap;
@@ -451,7 +451,7 @@
     min-width: 18px;
     height: 16px;
     padding: 0 4px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.1);
     border: none;
     color: rgba(255, 255, 255, 0.6);
@@ -527,7 +527,7 @@
     font-size: 9.5px;
     color: var(--dim);
     background: rgba(0, 0, 0, 0.6);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 1px 5px;
 }
 
@@ -575,7 +575,7 @@
     padding: 1px 5px;
     border-radius: 5px;
     background: rgba(0, 0, 0, 0.62);
-    color: #e5ece7;
+    color: var(--text-bright);
     font-size: 9.5px;
     line-height: 14px;
     pointer-events: auto;
@@ -592,7 +592,7 @@
     display: inline-flex;
     gap: 4px;
     padding: 2px 4px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.45);
 }
 .var-dots i {
@@ -672,7 +672,7 @@
     position: absolute;
     z-index: 5;
     background: var(--matcha);
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     box-shadow: 0 0 6px var(--matcha);
     pointer-events: none;
 }
@@ -688,8 +688,8 @@
     flex: 0 0 auto;
     height: 22px;
     padding: 1px 6px;
-    font-size: 11px;
-    border-radius: 6px;
+    font-size: var(--font-sm);
+    border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.35);
     color: var(--text);
     cursor: pointer;
@@ -701,7 +701,7 @@
     margin: 10px 0 4px;
     border: 1px solid var(--strawberry-border);
     background: var(--strawberry-tint);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 11.5px;
     color: var(--text);
 }
@@ -727,7 +727,7 @@
     border-radius: 50%;
     background: var(--strawberry);
     color: var(--strawberry-ink);
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 800;
     flex: none;
 }
@@ -780,7 +780,7 @@
     width: auto;
     height: 22px;
     padding: 0 6px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.35);
     color: var(--text);
     cursor: pointer;
@@ -807,4 +807,24 @@
 .preset-compact-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+}
+
+/* instant hover name for the numbered dots (js/ui/dot-tips.js) */
+.dot-tip {
+    position: fixed;
+    z-index: var(--z-overlay);
+    display: none;
+    max-width: 260px;
+    padding: 4px 8px;
+    border-radius: var(--radius-md);
+    background: #1d1f1e;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--text);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }

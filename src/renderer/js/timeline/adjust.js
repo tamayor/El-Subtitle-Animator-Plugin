@@ -12,7 +12,7 @@ function fillAdjust(ctx) {
 // Real-time render (Use tab): whether Resolve renders the selected preset with the subtitle after every change,
 // including each time the playhead lands on another subtitle. Off keeps Resolve free while you jump around the
 // timeline; the Render button then renders on demand. Shown both by the scrub view and in the bottom dock.
-try { if (localStorage.getItem('sa.autoRender') === '0') state.autoRender = false; } catch (e) { /* ignore */ }
+if (store.get('sa.autoRender') === '0') state.autoRender = false;
 function syncAutoRenderUI() {
     const on = state.autoRender !== false;
     const autoBtn = $('scrubAutoU'), renderBtn = $('scrubRenderU'), dockChk = $('dockRealtime');
@@ -26,7 +26,7 @@ function syncAutoRenderUI() {
 }
 function setAutoRender(on) {
     state.autoRender = !!on;
-    try { localStorage.setItem('sa.autoRender', state.autoRender ? '1' : '0'); } catch (e) { /* ignore */ }
+    store.set('sa.autoRender', state.autoRender ? '1' : '0');
     syncAutoRenderUI();
     if (state.autoRender) { try { ensureUsePreview(selected()); } catch (e) { /* ignore */ } }
     setStatus(state.autoRender ? 'Real-time render on: changes are rendered in Resolve as you make them.'

@@ -3,15 +3,15 @@
 /* ---------- floating popovers (⋯ menu, new tag) ---------- */
 .pop {
     position: absolute;
-    z-index: 1000;
+    z-index: var(--z-pop);
     min-width: 190px;
     max-width: 280px;
     max-height: 60vh;
     overflow-y: auto;
     padding: 5px;
-    background: #1d231f;
+    background: var(--surface-pop);
     border: 1px solid #36423a;
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
     animation: popIn 0.09s ease-out;
 }
@@ -38,7 +38,7 @@
 }
 
 .pop-empty {
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--dim);
     padding: 3px 8px 5px;
 }
@@ -51,7 +51,7 @@
     text-align: left;
     padding: 6px 8px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: transparent;
     font-size: 12.5px;
 }
@@ -64,7 +64,7 @@
 .pop-check {
     width: 14px;
     text-align: center;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--matcha);
     visibility: hidden;
 }
@@ -105,11 +105,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: #1d231f;
+    background: var(--surface-pop);
     border: 1px solid #36423a;
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.3);
-    z-index: 1050;
+    z-index: var(--z-pop-top);
 }
 
 .pop-confirm-title {
@@ -136,33 +136,33 @@
 .pop-confirm-actions .sm-btn {
     padding: 4px 10px;
     font-size: 11.5px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     cursor: pointer;
 }
 
 .pop-confirm-actions button.danger {
     background: rgba(255, 69, 58, 0.2);
-    color: #ff6b6b;
+    color: var(--danger);
     border: 1px solid rgba(255, 69, 58, 0.4);
     font-weight: 600;
 }
 
 .pop-confirm-actions button.danger:hover {
     background: rgba(255, 69, 58, 0.38);
-    border-color: #ff6b6b;
+    border-color: var(--danger);
     color: #fff;
 }
 
 .sfx-del-btn {
     padding: 3px 7px;
-    font-size: 12px;
+    font-size: var(--font-md);
     color: var(--dim, #a0ada3);
     border-radius: 5px;
     transition: all 0.12s ease;
 }
 
 .sfx-del-btn:hover {
-    color: #ff6b6b !important;
+    color: var(--danger) !important;
     background: rgba(255, 69, 58, 0.15) !important;
 }
 
@@ -207,7 +207,7 @@
     padding: 5px 10px;
     font-size: 11.5px;
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--card-inner);
     border: 1px solid var(--line);
     color: var(--dim);
@@ -229,7 +229,7 @@
 }
 
 .tag-filter-btn .chev {
-    font-size: 10px;
+    font-size: var(--font-xs);
     color: var(--dim);
     margin-left: 2px;
 }
@@ -239,15 +239,15 @@
 }
 
 .tag-filter-icon {
-    font-size: 11px;
+    font-size: var(--font-sm);
     line-height: 1;
 }
 
 .tag-filter-clear {
-    font-size: 11px;
+    font-size: var(--font-sm);
     padding: 3px 6px;
     color: var(--dim);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .tag-filter-clear:hover {
@@ -262,7 +262,7 @@
 /* ---------- drag & drop reorder sequence in library tags section ---------- */
 .tag-handle {
     cursor: grab;
-    font-size: 13px;
+    font-size: var(--font-lg);
     letter-spacing: -1px;
     color: var(--dim);
     padding: 2px 2px;
@@ -297,7 +297,7 @@
     line-height: 1 !important;
     height: 10px !important;
     color: var(--dim) !important;
-    border-radius: 2px !important;
+    border-radius: var(--radius-xs) !important;
     opacity: 0.5;
 }
 
@@ -351,8 +351,8 @@ body.tag-dragging * {
     justify-content: space-between;
     gap: 10px;
     padding: 5px 8px;
-    border-radius: 6px;
-    font-size: 12px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-md);
 }
 
 .fx-row:hover { background: var(--matcha-tint); }
@@ -362,5 +362,5 @@ body.tag-dragging * {
 .fx-row input[type="number"] { width: 64px; }
 .fx-row select { width: 110px; }
 .fx-sep { height: 1px; background: var(--line); margin: 5px 4px; }
-.fx-actions { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 0; font-size: 11px; color: var(--dim); }
+.fx-actions { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 0; font-size: var(--font-sm); color: var(--dim); }
 

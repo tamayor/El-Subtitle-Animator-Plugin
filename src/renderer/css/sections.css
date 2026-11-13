@@ -42,7 +42,7 @@ section.active-section {
     align-items: center;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 2px;
     gap: 2px;
     user-select: none;
@@ -56,9 +56,9 @@ section.active-section {
     gap: 5px;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 3px 8px;
-    font-size: 10px;
+    font-size: var(--font-xs);
     font-weight: 600;
     color: var(--dim);
     cursor: pointer;
@@ -79,11 +79,11 @@ section.active-section {
 }
 
 .layout-mode-btn.on {
-    color: #e5ece7;
+    color: var(--text-bright);
     background: var(--card-inner);
     border-color: var(--strawberry-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    -webkit-text-fill-color: #e5ece7;
+    -webkit-text-fill-color: var(--text-bright);
 }
 
 .layout-mode-btn.on svg {
@@ -92,7 +92,7 @@ section.active-section {
 }
 
 .active-badge {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 600;
     color: var(--strawberry-hover);
     background: var(--strawberry-tint);
@@ -126,7 +126,7 @@ section.active-section {
 }
 
 .label {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
@@ -138,12 +138,12 @@ section.active-section>.sec-head .label {
 }
 
 .meta {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
 }
 
 .hint {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
     margin-top: 4px;
 }
@@ -156,7 +156,7 @@ section.active-section>.sec-head .label {
 }
 
 .pill {
-    font-size: 11px;
+    font-size: var(--font-sm);
     font-weight: 500;
     padding: 2px 9px;
     border-radius: 99px;
@@ -182,7 +182,7 @@ select {
     background: var(--card-inner);
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 8px 10px;
     font: inherit;
     resize: vertical;
@@ -201,7 +201,7 @@ button {
     background: #252c27;
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 7px 11px;
     font: inherit;
     font-weight: 500;

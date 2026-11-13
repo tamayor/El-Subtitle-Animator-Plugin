@@ -52,17 +52,7 @@
         return v || (state.live && state.live.subtitle && state.live.subtitle.text) || '';
     }
 
-    function resolveText(b, sub) {
-        const lines = String(sub || '').split(/\r?\n/);
-        switch (b.mode) {
-            case 'sub': return sub;
-            case 'l1': return lines[0] || '';
-            case 'l2': return lines[1] || '';
-            case 'l3': return lines[2] || '';
-            case 'custom': return b.text || '';
-            default: return null;     // keep what the preset already says
-        }
-    }
+    const resolveText = tbResolveText;
 
     // What gets sent to Fusion, one item per detected node.
     // The first Text+ uses the preset's Text Design (m.textDesign); every other Text+ has its own (box.design).
@@ -328,12 +318,6 @@
         host.querySelectorAll('.bx-row').forEach(r => r.classList.toggle('sel', r.dataset.id === sel[S]));
     }
 
-    function mk(tag, cls, text) {
-        const el = document.createElement(tag);
-        if (cls) el.className = cls;
-        if (text !== undefined) el.textContent = text;
-        return el;
-    }
 
     function countLine(nodes) {
         const tp = nodes.filter(n => n.kind === 'textplus').length;
@@ -358,24 +342,24 @@
         lastKey[S] = key;
         host.textContent = '';
 
-        const head = mk('div', 'bx-head');
-        head.append(mk('span', 'label', 'Text boxes'), mk('span', 'bx-count', countLine(nodes)));
-        const scan = mk('button', 'ghost bx-scan', 'Read from clip');
+        const head = createEl('div', 'bx-head');
+        head.append(createEl('span', 'label', 'Text boxes'), createEl('span', 'bx-count', countLine(nodes)));
+        const scan = createEl('button', 'ghost bx-scan', 'Read from clip');
         scan.title = 'Read the Text+ and templates of the clip selected on your timeline, as Fusion really has them';
         scan.addEventListener('click', () => readClip(S));
         head.appendChild(scan);
         host.appendChild(head);
 
         if (!nodes.length) {
-            host.appendChild(mk('div', 'hint', 'No Text+ or template was found in this preset’s file. The subtitle goes into the first Text+ in the comp.'));
+            host.appendChild(createEl('div', 'hint', 'No Text+ or template was found in this preset’s file. The subtitle goes into the first Text+ in the comp.'));
         } else if (nodes[0].nested) {
-            host.appendChild(mk('div', 'hint', 'The Text+ here sit inside a group that does not publish a text input, so they cannot be set one by one. The subtitle goes into the first Text+.'));
+            host.appendChild(createEl('div', 'hint', 'The Text+ here sit inside a group that does not publish a text input, so they cannot be set one by one. The subtitle goes into the first Text+.'));
         }
         if (active(a)) {
             nodes.forEach((n, i) => host.appendChild(buildRow(S, m, a, n, i)));
-            host.appendChild(mk('div', 'hint', 'Drag on the viewer to move all the text together. Each Text+ has its own Text Design (font, colour, shading, and its own position under Layout).'));
+            host.appendChild(createEl('div', 'hint', 'Drag on the viewer to move all the text together. Each Text+ has its own Text Design (font, colour, shading, and its own position under Layout).'));
         }
-        const live = mk('div', 'bx-live' + (msgs[S] ? '' : ' hidden'));
+        const live = createEl('div', 'bx-live' + (msgs[S] ? '' : ' hidden'));
         live.id = 'bxLive' + S;
         live.textContent = msgs[S];
         host.appendChild(live);
@@ -384,16 +368,16 @@
 
     function buildRow(S, m, a, n, i) {
         const b = entry(m, a, n, i);
-        const row = mk('div', 'bx-row');
+        const row = createEl('div', 'bx-row');
         row.dataset.id = n.id;
         row.style.setProperty('--bx', COLORS[i % COLORS.length]);
         row.addEventListener('pointerdown', () => { sel[S] = n.id; highlightRow(S); redrawStages(); });
 
-        const top = mk('div', 'bx-top');
-        top.append(mk('span', 'bx-chip', String(i + 1)), mk('span', 'bx-name', n.label), mk('span', 'bx-kind', n.kind === 'template' ? 'template' : 'Text+'));
+        const top = createEl('div', 'bx-top');
+        top.append(createEl('span', 'bx-chip', String(i + 1)), createEl('span', 'bx-name', n.label), createEl('span', 'bx-kind', n.kind === 'template' ? 'template' : 'Text+'));
         row.appendChild(top);
 
-        const modeRow = mk('div', 'bx-mode');
+        const modeRow = createEl('div', 'bx-mode');
         const select = document.createElement('select');
         for (const [v, label] of MODES) {
             const o = document.createElement('option');
@@ -419,11 +403,11 @@
         row.appendChild(custom);
 
         // Text Design for this Text+ (numbered and named like the box), instead of X / Y / Size here.
-        const nums = mk('div', 'bx-nums');
+        const nums = createEl('div', 'bx-nums');
         if (n.kind === 'textplus') {
-            const db = mk('button', 'bx-design', '');
+            const db = createEl('button', 'bx-design', '');
             db.type = 'button';
-            db.append(mk('span', 'bx-dnum', String(i + 1)), mk('span', 'bx-dlbl', 'Text Design · ' + nodeName(n)));
+            db.append(createEl('span', 'bx-dnum', String(i + 1)), createEl('span', 'bx-dlbl', 'Text Design · ' + nodeName(n)));
             db.title = 'Edit the font, colour, shading and layout of ' + nodeName(n);
             db.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -435,7 +419,7 @@
             });
             nums.appendChild(db);
         } else {
-            nums.appendChild(mk('span', 'hint', 'Template: its design is set inside the template'));
+            nums.appendChild(createEl('span', 'hint', 'Template: its design is set inside the template'));
         }
         row.appendChild(nums);
         return row;
@@ -483,7 +467,7 @@
         host.classList.add('pc-files');
         const st = typeof presetFileStatus === 'function' ? presetFileStatus(a) : { template: 'orig', sound: 'orig' };
 
-        const msg = mk('div', 'bx-live' + (msgs.files ? '' : ' hidden'));
+        const msg = createEl('div', 'bx-live' + (msgs.files ? '' : ' hidden'));
         msg.textContent = msgs.files || '';
 
         const afterLib = (res, okText) => {
@@ -499,21 +483,21 @@
             msg.textContent = msgs.files; msg.classList.remove('hidden');
         };
         const pill = (kind) => {
-            const p = mk('span', 'cfg-status-pill pc-pill ' + (kind === 'mod' ? 'mod' : 'orig'), kind === 'mod' ? 'Modified' : 'Original');
+            const p = createEl('span', 'cfg-status-pill pc-pill ' + (kind === 'mod' ? 'mod' : 'orig'), kind === 'mod' ? 'Modified' : 'Original');
             p.title = kind === 'mod' ? 'Changed since the original. See "Originals" below to revert.' : 'Matches the original';
             return p;
         };
 
-        const list = mk('div', 'pc-list');
+        const list = createEl('div', 'pc-list');
 
         // Fusion template
-        const fRow = mk('div', 'pc-row');
-        fRow.appendChild(mk('span', 'pc-ico', '⚙'));
-        const ft = mk('div', 'pc-text');
-        const fv = mk('div', 'pc-val' + (a.missing ? ' bad' : ''), a.file + (a.missing ? ' (missing)' : ''));
+        const fRow = createEl('div', 'pc-row');
+        fRow.appendChild(createEl('span', 'pc-ico', '⚙'));
+        const ft = createEl('div', 'pc-text');
+        const fv = createEl('div', 'pc-val' + (a.missing ? ' bad' : ''), a.file + (a.missing ? ' (missing)' : ''));
         fv.title = a.file;
-        const fcap = mk('div', 'pc-capline');
-        fcap.append(mk('span', 'pc-cap', 'Text template'), pill(st.template));
+        const fcap = createEl('div', 'pc-capline');
+        fcap.append(createEl('span', 'pc-cap', 'Text template'), pill(st.template));
         ft.append(fcap, fv);
         fRow.appendChild(ft);
         const doFile = async (p) => afterLib(await window.sa.replaceAnimationFile(a.id, p, keep.value), (r) => {
@@ -521,20 +505,20 @@
             const cnt = na ? nodesOf(na).length : 0;
             return 'Fusion file replaced — ' + countLine(nodesOf(na)) + ' found.' + (r.kept ? ' Text and positions kept.' : (cnt && r.oldCount && r.oldCount !== r.newCount ? ' The box count changed (' + r.oldCount + ' → ' + r.newCount + '), so text and positions were reset.' : ''));
         });
-        const fMore = mk('button', 'ghost pc-more pc-acts', '⋯');
+        const fMore = createEl('button', 'ghost pc-more pc-acts', '⋯');
         fMore.type = 'button'; fMore.title = 'Replace the template…';
         fMore.addEventListener('click', (e) => {
             e.stopPropagation();
             openPop(fMore, 'pop-menu', (el) => {
-                const rep = mk('button', 'pop-item'); rep.type = 'button';
-                rep.append(mk('span', 'pop-check', '⇄'), mk('span', 'pop-label', 'Replace…'));
+                const rep = createEl('button', 'pop-item'); rep.type = 'button';
+                rep.append(createEl('span', 'pop-check', '⇄'), createEl('span', 'pop-label', 'Replace…'));
                 rep.addEventListener('click', async () => { closePop(); const p = await window.sa.pickFile('comp'); if (p && !p.error) doFile(p); });
                 el.appendChild(rep);
-                el.appendChild(mk('div', 'pop-sep'));
-                const kp = mk('button', 'pop-item'); kp.type = 'button';
+                el.appendChild(createEl('div', 'pop-sep'));
+                const kp = createEl('button', 'pop-item'); kp.type = 'button';
                 kp.title = 'Only when the new file has the same number of text boxes';
-                const ck = mk('span', 'pop-check', keep.value ? '✓' : '');
-                kp.append(ck, mk('span', 'pop-label', 'Keep text & positions when swapping'));
+                const ck = createEl('span', 'pop-check', keep.value ? '✓' : '');
+                kp.append(ck, createEl('span', 'pop-label', 'Keep text & positions when swapping'));
                 kp.addEventListener('click', () => { keep.value = !keep.value; ck.textContent = keep.value ? '✓' : ''; });
                 el.appendChild(kp);
             });
@@ -543,28 +527,28 @@
         list.appendChild(fRow);
 
         // Sound
-        const sRow = mk('div', 'pc-row');
+        const sRow = createEl('div', 'pc-row');
         const sound = a.useSfx === false ? 'No sound' : (a.sfx ? a.sfx : (state.lib.defaultSfx ? 'Default sound' : 'No sound set'));
-        const pl = mk('button', 'pc-ico pc-play', '▶');
+        const pl = createEl('button', 'pc-ico pc-play', '▶');
         pl.type = 'button'; pl.title = 'Hear the sound';
         pl.addEventListener('click', () => { const p = soundOf(a); if (p) play(p); });
-        const stx = mk('div', 'pc-text');
-        const sv = mk('div', 'pc-val', sound);
+        const stx = createEl('div', 'pc-text');
+        const sv = createEl('div', 'pc-val', sound);
         sv.title = sound;
-        const scap = mk('div', 'pc-capline');
-        scap.appendChild(mk('span', 'pc-cap', 'Sound effect'));
+        const scap = createEl('div', 'pc-capline');
+        scap.appendChild(createEl('span', 'pc-cap', 'Sound effect'));
         if (st.sound !== 'none') scap.appendChild(pill(st.sound));
         stx.append(scap, sv);
         sRow.append(pl, stx);
         if (window.SASounds) {
-            const acts = mk('span', 'pc-acts');
+            const acts = createEl('span', 'pc-acts');
             acts.appendChild(SASounds.moreButton(CTX.C, 'main'));
             sRow.appendChild(acts);
         }
         list.appendChild(sRow);
 
         host.appendChild(list);
-        host.appendChild(mk('div', 'hint pc-foot', 'Tip: drop a .comp, .setting or sound file here to swap it.'));
+        host.appendChild(createEl('div', 'hint pc-foot', 'Tip: drop a .comp, .setting or sound file here to swap it.'));
         host.appendChild(msg);
 
         if (!host._dz) {
@@ -641,14 +625,14 @@
         if (host.dataset.key !== key) {
             host.dataset.key = key;
             host.textContent = '';
-            host.appendChild(mk('span', 'td-target-lbl', 'Text+'));
+            host.appendChild(createEl('span', 'td-target-lbl', 'Text+'));
             list.forEach((n) => {
                 const i = all.indexOf(n);
-                const btn = mk('button', 'td-target-btn');
+                const btn = createEl('button', 'td-target-btn');
                 btn.type = 'button';
                 btn.dataset.id = n.id;
                 btn.style.setProperty('--bx', COLORS[i % COLORS.length]);
-                btn.append(mk('span', 'bx-chip', String(i + 1)), mk('span', 'td-target-name', nodeName(n)));
+                btn.append(createEl('span', 'bx-chip', String(i + 1)), createEl('span', 'td-target-name', nodeName(n)));
                 btn.title = 'Edit the Text Design of ' + nodeName(n);
                 btn.addEventListener('click', () => setTarget(S, n.id));
                 host.appendChild(btn);
@@ -715,9 +699,9 @@
     const MT_ROLES = [['upper', 'Upper subtitle', '#7fb8ff'], ['emphasis', 'Emphasize', '#f0c36b'], ['lower', 'Lower subtitle', '#8ccf8e']];
     const mtDefault = () => ({ anchor: 'center', count: 1, start: 0, upper: false, caps: { upper: false, emphasis: false, lower: false } });
     const mt = { cfg: mtDefault(), over: null, active: 'emphasis', lastSub: null, lastKey: '', clip: null };
-    try { const raw = localStorage.getItem(MT_KEY); if (raw) mt.cfg = Object.assign(mtDefault(), JSON.parse(raw)); } catch (e) { /* ignore */ }
+    { const raw = store.get(MT_KEY); if (raw) mt.cfg = Object.assign(mtDefault(), JSON.parse(raw)); }
     if (!mt.cfg.caps || typeof mt.cfg.caps !== 'object') mt.cfg.caps = { upper: false, emphasis: !!mt.cfg.upper, lower: false };
-    function mtSave() { try { localStorage.setItem(MT_KEY, JSON.stringify(mt.cfg)); } catch (e) { /* ignore */ } }
+    function mtSave() { store.set(MT_KEY, JSON.stringify(mt.cfg)); }
 
     const realMtNodes = (a) => nodesOf(a).filter(n => n.kind === 'multitext');
     // Justified Pop (tools/gen-justified-pop.py) is one Text+ whose expressions split "upper *emphasis* lower" into rows.
@@ -810,53 +794,14 @@
         mtLoadClip(c);
     }
 
-    // Which layer plays which role: guessed from layer names / default texts, then size (emphasis) and height (upper / lower).
-    function autoRoles(list) {
-        const r = { upper: null, emphasis: null, lower: null };
-        const used = new Set();
-        const take = (role, re) => {
-            if (r[role] !== null) return;
-            const n = list.find(x => !used.has(x.layer) && re.test((x.layerName || '') + ' ' + (x.defaultText || '')));
-            if (n) { r[role] = n.layer; used.add(n.layer); }
-        };
-        take('emphasis', /emphas|highlight|keyword|hero|\bmain\b|\bbig\b/i);
-        take('upper', /upper|\btop\b|above/i);
-        take('lower', /lower|bottom|below|under/i);
-        const pick = (role, best) => {
-            if (r[role] !== null) return;
-            const p = list.filter(x => !used.has(x.layer));
-            if (!p.length) return;
-            const n = p.reduce((m, x) => best(x, m) ? x : m);
-            r[role] = n.layer; used.add(n.layer);
-        };
-        pick('emphasis', (x, m) => (x.size || 0) > (m.size || 0) + 1e-6);
-        pick('upper', (x, m) => x.cy > m.cy + 1e-6);
-        pick('lower', (x, m) => x.cy < m.cy - 1e-6);
-        return r;
-    }
+    const autoRoles = tbAutoRoles;
     const mtRoles = (a) => autoRoles(mtNodes(a));
 
-    const mtWords = (s) => String(s || '').replace(/\r?\n/g, ' ').split(/\s+/).filter(Boolean);
+    const mtWords = tbWords;
 
-    // The emphasized words as [start, end) indices for a subtitle of N words.
-    function mtRange(N) {
-        const c = mt.cfg;
-        const k = Math.max(1, Math.min(N, Math.round(Number(c.count)) || 1));
-        if (c.anchor === 'first') return [0, k];
-        if (c.anchor === 'center') { const s = Math.floor((N - k) / 2); return [s, s + k]; }
-        if (c.anchor === 'index') { const s = Math.min(Math.max(0, Math.round(Number(c.start)) || 0), N - 1); return [s, Math.min(N, s + k)]; }
-        return [N - k, N];
-    }
-    // Remember a chosen range in a way that carries over to other subtitles.
-    function mtSetRange(N, s, e) {
-        const c = mt.cfg;
-        c.count = Math.max(1, e - s);
-        if (e >= N) c.anchor = 'last';
-        else if (s <= 0) c.anchor = 'first';
-        else if (s === Math.floor((N - c.count) / 2)) c.anchor = 'center';
-        else { c.anchor = 'index'; c.start = s; }
-        mt.over = null;
-    }
+    // The emphasized words / remembering a chosen range: text-boxes/split.js, on this panel's MultiText settings.
+    const mtRange = (N) => tbEmphasisRange(N, mt.cfg);
+    function mtSetRange(N, s, e) { tbSetRange(N, s, e, mt.cfg); mt.over = null; }
     // A click on word i (of N), for the active role.
     function mtPick(i, N, shift) {
         const [s, e0] = mtRange(N), e = e0 - 1;
@@ -871,18 +816,7 @@
         else mtSetRange(N, i, i + 1);                             // anywhere else: start again at this word
     }
 
-    // The three parts for a subtitle, plus which role each word got (for the coloured chips).
-    function mtSplit(sub) {
-        const w = mtWords(sub), N = w.length;
-        const out = { upper: '', emphasis: '', lower: '', words: w, roles: [] };
-        if (!N) return out;
-        const [s, e] = mtRange(N);
-        out.upper = w.slice(0, s).join(' ');
-        out.emphasis = w.slice(s, e).join(' ');
-        out.lower = w.slice(e).join(' ');
-        out.roles = w.map((_, i) => i < s ? 'upper' : (i < e ? 'emphasis' : 'lower'));
-        return out;
-    }
+    const mtSplit = (sub) => tbSplit(sub, mt.cfg);
 
     // Split plus the case option, and any text you typed over a part (only valid for that same subtitle).
     function mtParts(sub) {
@@ -902,14 +836,7 @@
         if (!role) return null;
         return mtFold(r, mtParts(sub).parts)[role];
     }
-    // A role with no layer: fold its text into a neighbouring layer instead of losing it.
-    function mtFold(r, parts) {
-        const t = Object.assign({}, parts);
-        const join = (x, y) => [x, y].filter(Boolean).join(' ');
-        if (r.upper === null && t.upper) { if (r.lower !== null) t.lower = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.upper, t.emphasis); t.upper = ''; }
-        if (r.lower === null && t.lower) { if (r.upper !== null) t.upper = join(t.upper, t.lower); else if (r.emphasis !== null) t.emphasis = join(t.emphasis, t.lower); t.lower = ''; }
-        return t;
-    }
+    const mtFold = tbFold;
     // Upper / lower parts only show in the panel when the preset has a layer for them.
     const mtShown = (r, role) => role === 'emphasis' || r[role] !== null;
     const textFor = (a, n, b, sub) => n.kind === 'multitext' ? mtText(a, n, sub)
@@ -968,7 +895,7 @@
         const roles = mtRoles(a);
         // the three inputs, colour coded
         if (!mtShown(roles, mt.active)) mt.active = 'emphasis';
-        const ins = mk('div', 'mt-ins');
+        const ins = createEl('div', 'mt-ins');
         for (const [role, label, col] of MT_ROLES) {
             if (!mtShown(roles, role)) continue;
             const ta = document.createElement('textarea');
@@ -987,9 +914,9 @@
                 mtSave();
                 if (mt.clip) mtPushClip(); else { changed('U'); mtPreviewSoon(); }
             });
-            const wrap = mk('div', 'mt-inwrap');
+            const wrap = createEl('div', 'mt-inwrap');
             wrap.style.setProperty('--mt', col);
-            const cap = mk('button', 'mt-cap' + (mt.cfg.caps[role] ? ' on' : ''), 'AA');
+            const cap = createEl('button', 'mt-cap' + (mt.cfg.caps[role] ? ' on' : ''), 'AA');
             cap.type = 'button';
             cap.title = 'ALL CAPS for the ' + label.toLowerCase();
             cap.addEventListener('click', () => {
@@ -1003,15 +930,15 @@
         host.appendChild(ins);
 
         // the word breakdown: a click puts that word into whichever part is active below
-        const chips = mk('div', 'mt-chips');
+        const chips = createEl('div', 'mt-chips');
         chips.id = 'mtChips';
         host.appendChild(chips);
 
         // which part a click on a word sets
-        const bar = mk('div', 'mt-roles');
+        const bar = createEl('div', 'mt-roles');
         for (const [role, , col] of MT_ROLES) {
             if (!mtShown(roles, role)) continue;
-            const b = mk('button', 'mt-rbtn' + (mt.active === role ? ' on' : ''), role === 'emphasis' ? 'Emphasize' : (role === 'upper' ? 'Upper' : 'Lower'));
+            const b = createEl('button', 'mt-rbtn' + (mt.active === role ? ' on' : ''), role === 'emphasis' ? 'Emphasize' : (role === 'upper' ? 'Upper' : 'Lower'));
             b.type = 'button';
             b.style.setProperty('--mt', col);
             b.title = role === 'emphasis'
@@ -1042,10 +969,10 @@
         const chips = host.querySelector('#mtChips');
         if (chips) {
             chips.textContent = '';
-            if (!split.words.length) chips.appendChild(mk('span', 'mt-empty', mt.clip ? (mt.clip.text === null ? 'Reading the clip…' : (mt.clip.error ? 'Could not read this clip’s text. Close and reopen the plugin window.' : 'This clip has no text')) : 'Select a subtitle to split it'));
+            if (!split.words.length) chips.appendChild(createEl('span', 'mt-empty', mt.clip ? (mt.clip.text === null ? 'Reading the clip…' : (mt.clip.error ? 'Could not read this clip’s text. Close and reopen the plugin window.' : 'This clip has no text')) : 'Select a subtitle to split it'));
             const N = split.words.length;
             split.words.forEach((w, i) => {
-                const ch = mk('button', 'mt-chip' + (split.roles[i] ? ' r-' + split.roles[i] : ''), w);
+                const ch = createEl('button', 'mt-chip' + (split.roles[i] ? ' r-' + split.roles[i] : ''), w);
                 ch.type = 'button';
                 ch.title = 'Puts this word into the part that is active below (Upper, Emphasize or Lower)';
                 ch.addEventListener('click', () => { mtPick(i, N); mtChanged(); });

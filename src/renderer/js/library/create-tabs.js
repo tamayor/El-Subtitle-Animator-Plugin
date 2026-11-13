@@ -5,23 +5,10 @@
 
 const CREATE_TABS = ['scratch', 'selfserve'];
 
-function showCreateTab(ct) {
-    const wrap = document.getElementById('createWrap');
-    if (!wrap || !CREATE_TABS.includes(ct)) return;
-    wrap.dataset.ct = ct;
-    wrap.querySelectorAll('.presets-tab[data-ct]').forEach((b) => {
-        const on = b.dataset.ct === ct;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    try { localStorage.setItem('createTab', ct); } catch (e) { /* ignore */ }
-}
+const createTabs = bindTabGroup(document.getElementById('createWrap'), {
+    key: 'ct', values: CREATE_TABS, buttons: '.presets-tab[data-ct]', storageKey: 'createTab'
+});
 
-(function () {
-    const wrap = document.getElementById('createWrap');
-    if (!wrap) return;
-    wrap.querySelectorAll('.presets-tab[data-ct]').forEach((b) => b.addEventListener('click', () => showCreateTab(b.dataset.ct)));
-    let saved = null;
-    try { saved = localStorage.getItem('createTab'); } catch (e) { /* ignore */ }
-    if (CREATE_TABS.includes(saved)) showCreateTab(saved);
-})();
+function showCreateTab(ct) {
+    createTabs.show(ct);
+}

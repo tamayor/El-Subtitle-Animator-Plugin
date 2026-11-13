@@ -174,10 +174,7 @@ async function initVersion() {
 }
 
 function initInspectorLayoutModes() {
-    let savedMode = 'default';
-    try {
-        savedMode = localStorage.getItem('sa_inspector_layout_mode') || 'default';
-    } catch (e) { }
+    const savedMode = store.get('sa_inspector_layout_mode') || 'default';
     applyLayoutMode(savedMode, false);
 
     document.addEventListener('click', async (e) => {
@@ -226,7 +223,7 @@ async function fitWindowToContent() {
 
 async function applyLayoutMode(mode, triggerResize) {
     state.inspectorLayoutMode = mode;
-    try { localStorage.setItem('sa_inspector_layout_mode', mode); } catch (e) { }
+    store.set('sa_inspector_layout_mode', mode);
 
     // Update buttons in both tabs
     document.querySelectorAll('.layout-mode-btn').forEach(b => {

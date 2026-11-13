@@ -7,7 +7,7 @@ const COMPACT_W = 520, COMPACT_H = 700;
 let expandTarget = null;   // while the window animates open: its final content size
 
 function compactPref() {
-    try { return localStorage.getItem('sa.compact') || 'auto'; } catch (e) { return 'auto'; }
+    return store.get('sa.compact') || 'auto';
 }
 
 function isCompact() { return document.body.classList.contains('compact'); }
@@ -32,14 +32,14 @@ function applyCompact() {
 }
 
 function setCompactPref(v) {
-    try { localStorage.setItem('sa.compact', v); } catch (e) { /* ignore */ }
+    store.set('sa.compact', v);
     applyCompact();
 }
 
 // Auto-collapse (src/main/window.js does the window side): out of focus, the window shrinks to the header bar; hovering
 // it opens it again. The header button switches it on/off (saved as sa.autoCollapse, on by default).
 function autoCollapseOn() {
-    try { return localStorage.getItem('sa.autoCollapse') !== '0'; } catch (e) { return true; }
+    return store.get('sa.autoCollapse') !== '0';
 }
 function syncAutoCollapse(on) {
     const btn = $('autoCollapse');
@@ -123,7 +123,7 @@ function initAutoCollapse() {
     if (btn) {
         btn.addEventListener('click', () => {
             const on = !autoCollapseOn();
-            try { localStorage.setItem('sa.autoCollapse', on ? '1' : '0'); } catch (e) { /* ignore */ }
+            store.set('sa.autoCollapse', on ? '1' : '0');
             syncAutoCollapse(on);
         });
     }

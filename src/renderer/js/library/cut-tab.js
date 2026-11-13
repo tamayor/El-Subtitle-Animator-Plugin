@@ -30,16 +30,10 @@ function cutSliders() {
 }
 function cutSlidersSync() { for (const k of Object.keys(CUT_SLIDE)) { const r = $('cutR_' + k); if (r) r.value = $('cut_' + k).value; } }
 
+// Rough cut / Measure (bound in initCutTab with bindTabGroup, js/ui/tabs.js).
+let cutTabs = null;
 function cutSubTab(ct) {
-    const wrap = $('cutWrap');
-    if (!wrap || !CUT_TABS.includes(ct)) return;
-    wrap.dataset.cut = ct;
-    wrap.querySelectorAll('.presets-tab[data-cut]').forEach((b) => {
-        const on = b.dataset.cut === ct;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    try { localStorage.setItem('cutTab', ct); } catch (e) { /* ignore */ }
+    if (cutTabs) cutTabs.show(ct);
 }
 
 // The shown plan no longer matches the settings (Build would re-plan with the new ones): say so in step 4.
@@ -61,12 +55,7 @@ const CUT_KIND = { retake: 'Retake', outtake: 'Outtake', stutter: 'Stutter', fil
 
 function initCutTab() {
     const wrap = $('cutWrap');
-    if (wrap) {
-        wrap.querySelectorAll('.presets-tab[data-cut]').forEach((b) => b.addEventListener('click', () => cutSubTab(b.dataset.cut)));
-        let saved = null;
-        try { saved = localStorage.getItem('cutTab'); } catch (e) { /* ignore */ }
-        if (CUT_TABS.includes(saved)) cutSubTab(saved);
-    }
+    if (wrap) cutTabs = bindTabGroup(wrap, { key: 'cut', values: CUT_TABS, buttons: '.presets-tab[data-cut]', storageKey: 'cutTab' });
     if (!window.sa || !window.sa.cutDefaults) return;
     const tr = $('cutTrack');
     for (let i = 1; i <= 12; i++) { const o = document.createElement('option'); o.value = i; o.textContent = 'V' + i; tr.appendChild(o); }

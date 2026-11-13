@@ -7,6 +7,7 @@
         content="default-src 'self'; media-src 'self' file:; img-src 'self' file: data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:">
     <title>El Subtitle Animator</title>
     <!-- ORDER MATTERS: later stylesheets refine earlier ones (same cascade as the former single styles.css). -->
+    <link rel="stylesheet" href="./css/tokens.css">
     <link rel="stylesheet" href="./css/base.css">
     <link rel="stylesheet" href="./css/sections.css">
     <link rel="stylesheet" href="./css/cards.css">
@@ -46,6 +47,13 @@
          above it declare at load time; app/boot.js starts the panel and must stay last. -->
     <script src="./js/core/bootstrap.js" defer></script>
     <script src="./js/core/helpers.js" defer></script>
+    <script src="./js/core/color.js" defer></script>
+    <script src="./js/core/storage.js" defer></script>
+    <script src="./js/core/ipc-queue.js" defer></script>
+    <script src="./js/ui/dom.js" defer></script>
+    <script src="./js/ui/status.js" defer></script>
+    <script src="./js/ui/tabs.js" defer></script>
+    <script src="./js/ui/inspector-row.js" defer></script>
     <script src="./js/core/waveforms.js" defer></script>
     <script src="./js/design/fonts.js" defer></script>
     <script src="./js/design/templates.js" defer></script>
@@ -71,42 +79,71 @@
     <script src="./js/library/tags.js" defer></script>
     <script src="./js/ui/popovers.js" defer></script>
     <script src="./js/ui/fusion-fixes.js" defer></script>
-    <script src="./js/library/preset-list.js" defer></script>
+    <script src="./js/library/presets/menu.js" defer></script>
+    <script src="./js/library/presets/tags-section.js" defer></script>
+    <script src="./js/library/presets/reorder.js" defer></script>
+    <script src="./js/library/presets/view.js" defer></script>
+    <script src="./js/library/presets/list.js" defer></script>
+    <script src="./js/library/presets/variants.js" defer></script>
     <script src="./js/components/frame-range.js" defer></script>
-    <script src="./js/library/effect-list.js" defer></script>
+    <script src="./js/library/effects/state.js" defer></script>
+    <script src="./js/library/effects/glitch.js" defer></script>
+    <script src="./js/library/effects/transform.js" defer></script>
+    <script src="./js/library/effects/list.js" defer></script>
+    <script src="./js/library/effects/track.js" defer></script>
+    <script src="./js/library/effects/spotlight.js" defer></script>
     <script src="./js/library/match-cut-card.js" defer></script>
     <script src="./js/library/presets-tabs.js" defer></script>
     <script src="./js/library/create-tab.js" defer></script>
     <script src="./js/library/boilerplates.js" defer></script>
     <script src="./js/library/create-tabs.js" defer></script>
-    <script src="./js/library/prompt-tab.js" defer></script>
+    <script src="./js/library/prompt/parser.js" defer></script>
+    <script src="./js/library/prompt/migrations.js" defer></script>
+    <script src="./js/library/prompt/default.js" defer></script>
+    <script src="./js/library/prompt/catalog.js" defer></script>
+    <script src="./js/library/prompt/editors.js" defer></script>
+    <script src="./js/library/prompt/builder.js" defer></script>
+    <script src="./js/library/prompt/view.js" defer></script>
+    <script src="./js/library/prompt/saved.js" defer></script>
+    <script src="./js/library/prompt/tab.js" defer></script>
     <script src="./js/library/cut-plan.js" defer></script>
     <script src="./js/library/cut-wave.js" defer></script>
     <script src="./js/library/cut-tab.js" defer></script>
     <script src="./js/library/cut-tools-view.js" defer></script>
     <script src="./js/library/cut-tools.js" defer></script>
-    <script src="./js/library/broll-tab.js" defer></script>
+    <script src="./js/library/broll/state.js" defer></script>
+    <script src="./js/library/broll/form.js" defer></script>
+    <script src="./js/library/broll/preview.js" defer></script>
+    <script src="./js/library/broll/place.js" defer></script>
+    <script src="./js/library/broll/auto.js" defer></script>
+    <script src="./js/library/broll/placed.js" defer></script>
+    <script src="./js/library/broll/tab.js" defer></script>
     <script src="./js/library/text-style.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
     <script src="./js/core/idle.js" defer></script>
     <script src="./js/timeline/bottom-dock.js" defer></script>
     <script src="./js/ui/compact.js" defer></script>
+    <script src="./js/timeline/anim-timing/math.js" defer></script>
     <script src="./js/timeline/anim-timing.js" defer></script>
+    <script src="./js/timeline/clip-controls/row-links.js" defer></script>
     <script src="./js/timeline/clip-controls.js" defer></script>
     <script src="./js/app/actions.js" defer></script>
     <script src="./js/app/init.js" defer></script>
     <script src="./js/app/use-dock.js" defer></script>
     <script src="./js/ui/drag-numbers.js" defer></script>
+    <script src="./js/ui/dot-tips.js" defer></script>
     <script src="./js/ui/slider-fill.js" defer></script>
     <script src="./js/dev/diagnostics.js" defer></script>
+    <script src="./js/components/text-boxes/split.js" defer></script>
     <script src="./js/components/text-boxes.js" defer></script>
     <script src="./js/components/preset-preview.js" defer></script>
+    <script src="./js/components/sound-layers/geometry.js" defer></script>
     <script src="./js/components/sound-layers.js" defer></script>
     <script src="./js/app/boot.js" defer></script>
 </head>
 
 <body class="tab-apply">
-    <svg width="0" height="0" style="position:absolute;pointer-events:none;overflow:hidden" aria-hidden="true">
+    <svg width="0" height="0" class="svg-defs" aria-hidden="true">
         <defs>
             <filter id="saBoilU" x="-20%" y="-20%" width="140%" height="140%">
                 <feTurbulence id="saTurbU" type="fractalNoise" baseFrequency="0.035 0.065" numOctaves="3" seed="1"
@@ -405,7 +442,7 @@
                     </details>
                 </section>
 
-                <!-- Effect presets: Glitch / Wiggle / Stop Motion as Resolve effects on any clip (js/library/effect-list.js); Spotlight and Match Cut make their own clip -->
+                <!-- Effect presets: Glitch / Wiggle / Stop Motion as Resolve effects on any clip (js/library/effects/); Spotlight and Match Cut make their own clip -->
                 <section id="fxSection">
                     <div class="row between preset-header-row">
                         <div class="preset-header-left">
@@ -449,7 +486,7 @@
                 <section>
                     <div class="row between">
                         <span class="label">Your library</span>
-                        <div class="row" style="gap:6px">
+                        <div class="row gap-sm">
                             <button type="button" id="openFontsFolder" class="ghost" title="Open the folder containing all fonts saved with your presets">Fonts</button>
                             <button type="button" id="openFolder" class="ghost">Open folder</button>
                         </div>
@@ -573,7 +610,7 @@
                                     <span><b>Drop sound files</b> or click to store originals</span>
                                     <button type="button" id="sfxOrigPick" class="ghost sm-btn">Browse…</button>
                                 </div>
-                                <input type="file" id="sfxOrigFileInput" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" multiple style="display:none">
+                                <input type="file" id="sfxOrigFileInput" accept="audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg" multiple class="hidden">
                             </div>
                             <div id="sfxOrigList" class="sfx-orig-list"></div>
                         </div>
@@ -796,13 +833,13 @@
                                     <span>After</span><canvas id="cwAfter"></canvas><span id="cwAfterT"></span>
                                 </div>
                                 <div class="cw-legend">
-                                    <span><i style="background:#8ccf8e"></i>kept</span>
-                                    <span><i style="background:#e5604f"></i>pause, head, tail</span>
-                                    <span><i style="background:#f0a0c8"></i>retake, outtake</span>
-                                    <span><i style="background:#e8c86a"></i>stutter</span>
-                                    <span><i style="background:#b9a2f0"></i>filler</span>
-                                    <span><i style="background:#d9925a"></i>no words</span>
-                                    <span><i style="background:#8fb2d6"></i>your cut</span>
+                                    <span><i class="k-kept"></i>kept</span>
+                                    <span><i class="k-pause"></i>pause, head, tail</span>
+                                    <span><i class="k-retake"></i>retake, outtake</span>
+                                    <span><i class="k-stutter"></i>stutter</span>
+                                    <span><i class="k-filler"></i>filler</span>
+                                    <span><i class="k-noword"></i>no words</span>
+                                    <span><i class="k-user"></i>your cut</span>
                                 </div>
                                 <div class="cr-sub">Click a shaded part to keep it, a kept part to cut it, or drag to cut a range
                                     (Option-drag keeps it). Double-click to listen to the cut there (Option: the original).</div>
@@ -984,11 +1021,11 @@
                                     <canvas id="ctvOver" class="cw-over hidden" title="The whole range. Drag to scroll."></canvas>
                                     <canvas id="ctvMain" class="cw-main ctv-main"></canvas>
                                     <div class="cw-legend">
-                                        <span><i style="background:#e5604f"></i>pause</span>
-                                        <span><i style="background:#eff5f0"></i>shot change</span>
-                                        <span><i style="background:#e8c86a"></i>light B-roll</span>
-                                        <span><i style="background:#b9a2f0"></i>beat</span>
-                                        <span><i style="background:#f07b8e"></i>black or static frames</span>
+                                        <span><i class="k-pause"></i>pause</span>
+                                        <span><i class="m-shot"></i>shot change</span>
+                                        <span><i class="m-bright"></i>light B-roll</span>
+                                        <span><i class="m-beat"></i>beat</span>
+                                        <span><i class="m-bad"></i>black or static frames</span>
                                     </div>
                                     <div class="cr-sub">Click to move Resolve’s playhead there. Each thing you measure is added to this picture.</div>
                                 </div>
@@ -1013,7 +1050,7 @@
         </div>
     </div>
 
-    <!-- ============================ B-ROLL: Remotion overlays (js/library/broll-tab.js, src/main/broll.js, broll/) ============================ -->
+    <!-- ============================ B-ROLL: Remotion overlays (js/library/broll/, src/main/broll.js, broll/) ============================ -->
     <div id="tabBroll" class="hidden">
         <div class="tab-columns">
             <div class="tab-col-main">

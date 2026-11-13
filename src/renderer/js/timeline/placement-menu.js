@@ -40,9 +40,9 @@ function pushPlaceOptions() {
 }
 function bindPlacementMenu() {
     let saved = {};
-    try { saved = JSON.parse(localStorage.getItem('sa.place') || '{}') || {}; } catch (e) { saved = {}; }
+    saved = store.getJSON('sa.place', {}) || {};
     const save = () => {
-        try { localStorage.setItem('sa.place', JSON.stringify(placeOptions())); } catch (err) { /* optional */ }
+        store.set('sa.place', JSON.stringify(placeOptions()));
         pushPlaceOptions();
         syncPlaceUI();
         promptPlacementChanged();   // Prompt tab keys that default from Placement follow it

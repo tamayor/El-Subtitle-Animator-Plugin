@@ -1,10 +1,6 @@
 // The Create tab: timeline draft preview and renderCreate.
 
-function setCreateStatus(msg, kind) {
-    const el = $('createStatus');
-    el.textContent = msg || '';
-    el.className = 'status' + (kind ? ' ' + kind : '');
-}
+// setCreateStatus lives in js/ui/status.js.
 
 // Create tab: the builder, the default sound, the saved list, and the default settings of the clicked item.
 // ---- Create tab: the Text+ taken from the timeline is kept as a snapshot and previewed (looping) under the button.
@@ -108,7 +104,7 @@ function clearTimelineDraft() { const d = state.draft; d.fromTimeline = false; d
 
 // Library search + sort (the sort choice is remembered in this browser).
 const libView = { query: '', sort: 'custom' };
-try { const v = localStorage.getItem('sa.libSort'); if (v) libView.sort = v; } catch (e) { /* ignore */ }
+{ const v = store.get('sa.libSort'); if (v) libView.sort = v; }
 
 function passesLibSearch(a) {
     const words = libView.query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -146,7 +142,7 @@ function bindLibTools() {
     q.addEventListener('keydown', (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); q.value = ''; libView.query = ''; renderCreate(); } });
     so.addEventListener('change', () => {
         libView.sort = so.value;
-        try { localStorage.setItem('sa.libSort', libView.sort); } catch (e) { /* ignore */ }
+        store.set('sa.libSort', libView.sort);
         renderCreate();
     });
 }
@@ -251,4 +247,106 @@ function renderCreate() {
         renderCreateSummary();
         renderTags();
     }
+}
+
+// Create tab editor: rename, take preview frames, revert to the original (called by initApp).
+function initCreateEditor() {
+    const animNameEl = $('animName');
+    if (animNameEl) {
+        animNameEl.addEventListener('input', () => {
+            const a = libEntry(state.createId); if (!a) return;
+            const name = animNameEl.value.trim();
+            if (!name) return;
+            a.name = name;
+            saveField(a.id, { name });
+            if ($('editTitle')) $('editTitle').textContent = name;
+            renderAnimations(); renderTimeline(CTX.C);
+            const b = document.querySelector('#libList .libitem.sel b'); if (b) b.textContent = name;
+        });
+    }
+    const prevCapCEl = $('prevCapC');
+    if (prevCapCEl) {
+        prevCapCEl.addEventListener('click', async () => {
+            if (!state.createId) return;
+            setCreateStatus('Taking preview frames…');
+            const res = await window.sa.capturePreview(state.createId);
+            if (takeLib(res)) setCreateStatus('Preview updated.', 'ok'); else if (res && res.error) setCreateStatus(res.error, 'bad');
+        });
+    }
+
+    const revertOrigEditor = $('revertOrigEditor');
+    if (revertOrigEditor) {
+        revertOrigEditor.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const a = libEntry(state.createId);
+            if (!a) return;
+            openConfirmPop(revertOrigEditor, {
+                title: 'Revert to original version?',
+                message: 'Restore "' + a.name + '" back to its original .settings file, text design, alignment, and sound? Any saved updates will be overwritten.',
+                confirmText: 'Revert',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await window.sa.revertAnimation(a.id);
+                    if (takeLib(res)) {
+                        setStatus('Reverted "' + a.name + '" to original version.', 'ok');
+                    }
+                }
+            });
+        });
+    }
+}
+
+// Create tab: the default sound, the new-preset draft (Fusion file, sound, from the timeline) and Save (called by initApp).
+function initCreateDraft() {
+    $('defPlay').addEventListener('click', () => play(state.lib.defaultSfx && state.lib.defaultSfx.path));
+    $('defClear').addEventListener('click', async () => takeLib(await window.sa.setDefaultSfx(null)));
+    dropZone($('defSfx'), async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
+
+    const browse = (el, kind, handler) => {
+        const go = async (e) => {
+            if (e.target.closest('button')) return;
+            const p = await window.sa.pickFile(kind);
+            if (p && typeof p === 'string') await handler(p);
+        };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); } });
+    };
+    browse($('defSfx'), 'sfx', async (p) => { if (takeLib(await window.sa.setDefaultSfx(p))) setCreateStatus('Default sound set', 'ok'); });
+    browse($('newSfx'), 'sfx', async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
+    browse($('animDrop'), 'anim', async (p) => {
+        state.draft.animPath = p; state.draft.fromSelection = false; clearTimelineDraft();
+        if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
+        setCreateStatus('');
+        renderCreate();
+    });
+    dropZone($('animDrop'), async (p) => {
+        const ext = p.toLowerCase().split('.').pop();
+        if (!['comp', 'setting'].includes(ext)) { setCreateStatus('Drop a Fusion .comp or .setting file', 'bad'); return; }
+        state.draft.animPath = p; state.draft.fromSelection = false; clearTimelineDraft();
+        if (!$('newName').value.trim()) $('newName').value = baseName(p).replace(/\.[^.]+$/, '');
+        setCreateStatus('');
+        renderCreate();
+    });
+    $('useSelected').addEventListener('click', () => { takeFromTimeline(); });
+    dropZone($('newSfx'), async (p) => { state.draft.sfxPath = p; setCreateStatus(''); renderCreate(); });
+    $('newSfxClear').addEventListener('click', () => { state.draft.sfxPath = null; renderCreate(); });
+    $('newSfxPlay').addEventListener('click', () => play(state.draft.sfxPath));
+    $('saveCombo').addEventListener('click', async () => {
+        const d = state.draft;
+        setCreateStatus('Saving…');
+        const res = await window.sa.createCombo({
+            name: $('newName').value, animPath: d.animPath, fromSelection: d.fromSelection, sfxPath: d.sfxPath, clipProps: d.clipProps || null
+        });
+        if (res && res.error) { setCreateStatus(res.error, 'bad'); return; }
+        if (takeLib(res)) {
+            state.selectedId = res.createdId;
+            state.createId = res.createdId;
+            syncUse(true);
+            state.draft = { animPath: null, fromSelection: false, sfxPath: null };
+            draftPrevHide();
+            $('newName').value = '';
+            renderAll();
+            setCreateStatus('Saved. Set its default alignment below; it is now in the Use tab.', 'ok');
+        }
+    });
 }

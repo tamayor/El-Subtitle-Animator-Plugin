@@ -7,7 +7,7 @@
     margin-bottom: 12px;
     background: var(--card-inner);
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     padding: 3px;
 }
 
@@ -34,7 +34,7 @@
 
 .step {
     margin: 12px 0 6px;
-    font-size: 12px;
+    font-size: var(--font-md);
     font-weight: 600;
     color: var(--matcha);
 }
@@ -45,7 +45,7 @@
     border-radius: 7px;
     background: var(--matcha-tint);
     border: 1px solid var(--matcha-border);
-    font-size: 12px;
+    font-size: var(--font-md);
 }
 
 .libitem {
@@ -93,7 +93,7 @@
 }
 
 .libitem .t span {
-    font-size: 11px;
+    font-size: var(--font-sm);
     color: var(--dim);
 }
 
@@ -132,7 +132,7 @@ body.tab-library {
 /* Text tab pop-up: Create / Library / Use. Fixed so the compact header's overflow can't clip it. */
 .tab-menu {
     position: fixed;
-    z-index: 1000;
+    z-index: var(--z-pop);
     width: 140px;
     padding: 4px;
     background: var(--card);
@@ -151,7 +151,7 @@ body.tab-library {
     width: 100%;
     background: transparent;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 6px 9px;
     color: var(--dim);
     font-weight: 600;

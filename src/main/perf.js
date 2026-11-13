@@ -38,6 +38,7 @@ let on = false;
 let since = 0;
 
 const stats = new Map();          // name -> { n, totalMs, maxMs, lastMs }
+const summarySources = new Map(); // name -> () => object, added to perfSummary (cache.js: hit / miss counters)
 let resolveTimes = [];            // timestamps of Resolve API calls (last RATE_WINDOW_MS), for calls per second
 let lines = [];                   // JSON lines waiting to be written
 let flushTimer = null;
@@ -208,6 +209,12 @@ function pruneRate(now) {
     if (i) resolveTimes = resolveTimes.slice(i);
 }
 
+// Another module's own counters in every summary, e.g. addSummarySource('caches', cacheStats). They are kept by that
+// module whether or not measuring is on, so they cost nothing here.
+function addSummarySource(name, fn) {
+    if (typeof fn === 'function') summarySources.set(String(name), fn);
+}
+
 function perfSummary(top) {
     const now = Date.now();
     pruneRate(now);
@@ -217,7 +224,9 @@ function perfSummary(top) {
         totalMs: Math.round(s.totalMs), avgMs: Math.round(s.totalMs / s.n * 100) / 100,
         maxMs: Math.round(s.maxMs * 100) / 100, lastMs: Math.round(s.lastMs * 100) / 100
     })).sort((a, b) => b.totalMs - a.totalMs);
-    return {
+    const extra = {};
+    for (const [name, fn] of summarySources) { try { extra[name] = fn(); } catch (e) { extra[name] = { error: String(e && e.message || e) }; } }
+    return Object.assign({
         enabled: on,
         settings: getPerf(),
         since: since ? new Date(since).toISOString() : null,
@@ -226,7 +235,7 @@ function perfSummary(top) {
         resolveCallsLastMinute: resolveTimes.length,
         log: LOG_FILE,
         entries: top > 0 ? entries.slice(0, top) : entries
-    };
+    }, extra);
 }
 
 function perfReset() {
@@ -273,7 +282,7 @@ function flushNow() {
 }
 
 module.exports = {
-    PERF_DEFAULTS, getPerf, setPerf, perfEnabled,
+    PERF_DEFAULTS, addSummarySource, getPerf, setPerf, perfEnabled,
     record, span, timed, wrapResolve,
     perfSummary, perfReset, perfFlush: flushNow, PERF_LOG_FILE: LOG_FILE
 };

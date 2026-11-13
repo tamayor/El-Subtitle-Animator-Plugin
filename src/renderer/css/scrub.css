@@ -6,13 +6,13 @@
 .aln-play .aln-btn:hover { opacity: 1; }
 .aln-play .aln-btn.aln-scrub.on { color: var(--strawberry-hover); border-color: var(--strawberry-border); background: var(--strawberry-tint); opacity: 1; }
 
-.scrub-box { margin: 0 0 8px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--card); overflow: hidden; }
+.scrub-box { margin: 0 0 8px; border: 1px solid var(--line-soft); border-radius: var(--radius-xl); background: var(--card); overflow: hidden; }
 .scrub-box.hidden { display: none; }
 .scrub-view { position: relative; background: #0d100e; }
 .scrub-view canvas { display: block; width: 100%; height: auto; margin: 0 auto; }
-.scrub-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; text-align: center; font-size: 11px; color: var(--dim); pointer-events: none; }
+.scrub-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; text-align: center; font-size: var(--font-sm); color: var(--dim); pointer-events: none; }
 .scrub-msg:empty { display: none; }
-.scrub-info { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 10px; border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.scrub-info { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 10px; border-top: 1px solid var(--line-soft); font-size: var(--font-sm); color: var(--dim); font-variant-numeric: tabular-nums; }
 .scrub-info b { color: var(--text); font-weight: 600; }
 .scrub-info .scrub-keys { margin-left: auto; font-size: 10.5px; opacity: 0.8; }
 
@@ -27,7 +27,7 @@
 .scrub-msg { flex-direction: column; gap: 6px; }
 .scrub-msg:not(:empty) { display: flex; align-items: center; justify-content: center; }
 .scrub-msg br { display: none; }
-.scrub-msg .scrub-fix { pointer-events: auto; height: 24px; padding: 2px 12px; font-size: 11px; }
+.scrub-msg .scrub-fix { pointer-events: auto; height: 24px; padding: 2px 12px; font-size: var(--font-sm); }
 .scrub-view { background: #000; }
 
 /* scrub preview: loop the real 3 seconds */

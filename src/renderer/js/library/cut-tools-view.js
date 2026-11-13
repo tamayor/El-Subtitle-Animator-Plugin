@@ -6,7 +6,11 @@
 // Shares the canvas helpers and the .cut-wave look with js/library/cut-wave.js.
 
 const CTV = { H: 124, RULER: 13, SHOT0: 16, SHOT1: 28, W0: 32, W1: 92, WORDS: 106, REND: 112, MIN_S: 2 };
-const CTV_COL = { pause: '#e5604f', bright: '#e8c86a', beat: '#b9a2f0', bad: '#f07b8e', frozen: '#8fb2d6' };
+// Colour per measured thing (css/tokens.css --cut-pause / --mark-*; the legend in index.html uses the same tokens).
+const CTV_COL = {
+    pause: cssVar('--cut-pause', '#e5604f'), bright: cssVar('--mark-bright', '#e8c86a'), beat: cssVar('--mark-beat', '#b9a2f0'),
+    bad: cssVar('--mark-bad', '#f07b8e'), frozen: cssVar('--mark-frozen', '#8fb2d6')
+};
 const ctv = { range: null, view: null, wave: null, waveKey: '', waveBusy: '', playF: null, gotoAt: 0, silDb: null };      // silDb: the Silence below slider (null = auto)
 
 // Remove Silence settings (frames, as in Resolve), and the threshold (null = auto)

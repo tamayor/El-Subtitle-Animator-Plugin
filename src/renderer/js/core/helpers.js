@@ -1,17 +1,7 @@
-// Small shared helpers: status line, library lookups, file URLs, audio playback, debounce, drop zones.
+// Small shared helpers: library lookups, file URLs, audio playback, debounce, drop zones.
 
 // ---------------------------------------------------------------- helpers
-function setStatus(msg, kind) {
-    const el = $('status');
-    el.textContent = msg || '';
-    el.className = 'status' + (kind ? ' ' + kind : '');
-    // compact mode: the message fades after a few seconds (errors stay longer); full text in its tooltip
-    el.title = msg || '';
-    clearTimeout(setStatus.fadeTimer);
-    if (msg && document.body.classList.contains('compact')) {
-        setStatus.fadeTimer = setTimeout(() => el.classList.add('faded'), kind === 'bad' ? 10000 : 4000);
-    }
-}
+// setStatus lives in js/ui/status.js.
 
 function libEntry(id) { return state.lib.animations.find(a => a.id === id) || null; }
 function selected() { return libEntry(state.selectedId); }

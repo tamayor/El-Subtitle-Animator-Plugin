@@ -3,50 +3,36 @@
 // They are hidden in Resolve's Inspector and edited here (src/main/clip-controls.js reads which controls the clip's
 // preset has; the card shows only those, and hides when the clip has none). Double-click a label to reset it.
 
-const ccState = { itemId: null, sig: '', values: {}, touched: {}, pending: {}, timer: null, sentAt: 0, busy: false, defs: {}, fh: 1920 };
+const ccState = { itemId: null, sig: '', values: {}, touched: {}, sentAt: 0, busy: false, defs: {}, fh: 1920 };
 const CC_SEND_MS = 110;     // while dragging, values go to Resolve at most this often
 const CC_HOLD_MS = 1500;    // a control just changed here is not overwritten by an older read
 
+// createEl (js/ui/dom.js) that also appends to `parent`.
 function ccEl(tag, cls, parent, text) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
+    const e = createEl(tag, cls || '', text);
     if (parent) parent.appendChild(e);
     return e;
 }
 
-function ccHex(rgb) {
-    return '#' + rgb.map(v => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255).toString(16).padStart(2, '0')).join('');
-}
-function ccRgb(hex) {
-    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
-    return m ? [1, 2, 3].map(k => Math.round(parseInt(m[k], 16) / 255 * 1000) / 1000) : null;
-}
 function ccFmt(v, d) {
     if (d.integer) return String(Math.round(v));
     const span = Math.abs(d.max - d.min);
     return Number(v).toFixed(span >= 50 ? 1 : span >= 2 ? 2 : 3);
 }
 
-function ccSend() {
-    clearTimeout(ccState.timer);
-    const wait = Math.max(0, CC_SEND_MS - (Date.now() - ccState.sentAt));
-    ccState.timer = setTimeout(async () => {
-        const vals = ccState.pending;
-        ccState.pending = {};
-        if (!ccState.itemId || !Object.keys(vals).length) return;
-        ccState.sentAt = Date.now();
-        try {
-            const r = await window.sa.setClipControls(ccState.itemId, vals);
-            if (r && r.error) setStatus(r.error, 'bad');
-        } catch (e) { setStatus('Could not set that control: ' + e.message, 'bad'); }
-    }, wait);
-}
+// Control values go to Resolve merged, at most every CC_SEND_MS while dragging (js/core/ipc-queue.js).
+const ccSender = createThrottledSender(async (vals) => {
+    if (!ccState.itemId || !Object.keys(vals).length) return;
+    ccState.sentAt = Date.now();
+    try {
+        const r = await window.sa.setClipControls(ccState.itemId, vals);
+        if (r && r.error) setStatus(r.error, 'bad');
+    } catch (e) { setStatus('Could not set that control: ' + e.message, 'bad'); }
+}, { ms: CC_SEND_MS });
 function ccSet(id, v) {
     ccState.values[id] = v;
     ccState.touched[id] = Date.now();
-    ccState.pending[id] = v;
-    ccSend();
+    ccSender.push({ [id]: v });
 }
 
 // ---- MultiText row links ----------------------------------------------------------------------------------------
@@ -56,8 +42,8 @@ function ccSet(id, v) {
 // amount even when they differ; Lock X moves Upper / Emphasis / Lower X together. A linked edit puts the clip in
 // Gap Mode Pixels (seeded from the gaps as rendered, so nothing jumps): there the two px gaps place the rows exactly.
 const CC_LOCK_KEYS = { gaps: 'sa.ccLockGaps', x: 'sa.ccLockX' };
-function ccLock(k) { try { return localStorage.getItem(CC_LOCK_KEYS[k]) === '1'; } catch (e) { return false; } }
-function ccSetLock(k, on) { try { localStorage.setItem(CC_LOCK_KEYS[k], on ? '1' : '0'); } catch (e) { /* ignore */ } }
+function ccLock(k) { return store.get(CC_LOCK_KEYS[k]) === '1'; }
+function ccSetLock(k, on) { store.set(CC_LOCK_KEYS[k], on ? '1' : '0'); }
 const CC_ROW_IDS = ['UpperY', 'LowerY', 'RowsSetUE', 'RowsSetEL'];
 const CC_X_IDS = ['UpperX', 'EmphasisX', 'LowerX'];
 function ccHas(ids) { return ids.every(id => ccState.defs[id]); }
@@ -98,38 +84,29 @@ function ccToPixels() {
     ccPut('RowsSetUE', ue);
     ccPut('RowsSetEL', el);
 }
-// one row-link edit: id changed to v (already shown in its own control)
+// one row-link edit: id changed to v (already shown in its own control); the maths is clip-controls/row-links.js
 function ccRowEdit(id, v) {
-    const fh = ccState.fh || 1920;
     ccToPixels();
-    let [ue, el] = ccGaps();
-    let uy = ccVal('UpperY', 0), ly = ccVal('LowerY', 0);
-    const equal = ccState.defs.RowsEqualize && ccVal('RowsEqualize', 0) >= 0.5;
-    const lock = ccLock('gaps');
-    if (id === 'UpperY') { const d = (v - uy) * fh; uy = v; ue += d; if (equal) el = ue; else if (lock) el += d; }
-    else if (id === 'LowerY') { const d = (ly - v) * fh; ly = v; el += d; if (equal) ue = el; else if (lock) ue += d; }
-    else if (id === 'RowsSetUE') { const d = v - ue; ue = v; uy += d / fh; if (equal) el = ue; else if (lock) el += d; }
-    else if (id === 'RowsSetEL') { const d = v - el; el = v; ly -= d / fh; if (equal) ue = el; else if (lock) ue += d; }
-    const [ue0, el0] = ccGaps();
-    // the partner row follows its gap
-    if (id === 'UpperY' || id === 'RowsSetUE') ly -= (el - el0) / fh;
-    else uy += (ue - ue0) / fh;
-    ccPut('RowsSetUE', ue);
-    ccPut('RowsSetEL', el);
-    ccPut('UpperY', uy);
-    ccPut('LowerY', ly);
+    const [ue, el] = ccGaps();
+    const r = rowLinkEdit(id, v, {
+        ue, el, uy: ccVal('UpperY', 0), ly: ccVal('LowerY', 0), fh: ccState.fh || 1920,
+        equal: !!ccState.defs.RowsEqualize && ccVal('RowsEqualize', 0) >= 0.5, lock: ccLock('gaps')
+    });
+    ccPut('RowsSetUE', r.ue);
+    ccPut('RowsSetEL', r.el);
+    ccPut('UpperY', r.uy);
+    ccPut('LowerY', r.ly);
 }
 // Equal Gaps ticked: both gaps become their mean, Upper / Lower Y follow
 function ccEqualize() {
     if (!ccHas(CC_ROW_IDS)) return;
     ccToPixels();
-    const fh = ccState.fh || 1920;
     const [ue, el] = ccGaps();
-    const t = (ue + el) / 2;
-    ccPut('UpperY', ccVal('UpperY', 0) + (t - ue) / fh);
-    ccPut('LowerY', ccVal('LowerY', 0) - (t - el) / fh);
-    ccPut('RowsSetUE', t);
-    ccPut('RowsSetEL', t);
+    const r = rowLinkEqualize({ ue, el, uy: ccVal('UpperY', 0), ly: ccVal('LowerY', 0), fh: ccState.fh || 1920 });
+    ccPut('UpperY', r.uy);
+    ccPut('LowerY', r.ly);
+    ccPut('RowsSetUE', r.ue);
+    ccPut('RowsSetEL', r.el);
 }
 // every slider edit goes through here: row links, Lock X, else the value alone
 function ccChange(id, v) {
@@ -161,7 +138,7 @@ function ccLockBox(parent, key, label, tip, onToggle) {
 // written to the clip (bridge gradient_set) and remembered here per clip, so the pickers show it next time.
 const CC_GRAD_KEY = 'sa.ccGradients';
 const ccGrad = { timer: null, pending: null };
-function ccGradStore() { try { return JSON.parse(localStorage.getItem(CC_GRAD_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function ccGradStore() { return store.getJSON(CC_GRAD_KEY, {}) || {}; }
 function ccGradKey(itemId, g) { return itemId + '|' + g.tool + '|' + g.index; }
 function ccGradSaved(itemId, g) {
     const v = ccGradStore()[ccGradKey(itemId, g)];
@@ -174,7 +151,7 @@ function ccGradRemember(itemId, g, colors) {
     all[k] = colors;
     const keys = Object.keys(all);
     for (const old of keys.slice(0, Math.max(0, keys.length - 300))) delete all[old];
-    try { localStorage.setItem(CC_GRAD_KEY, JSON.stringify(all)); } catch (e) { /* optional */ }
+    store.set(CC_GRAD_KEY, JSON.stringify(all));
 }
 function ccGradSend(itemId, g, colors) {
     ccGrad.pending = { itemId, g, colors: colors.slice() };
@@ -290,8 +267,8 @@ function ccBuild(info) {
             const col = ccEl('input', 'cc-color', row);
             col.type = 'color';
             const put = (rgb) => d.ids.forEach((id, k) => { if (id) ccSet(id, rgb[k]); });
-            col.addEventListener('input', () => { const rgb = ccRgb(col.value); if (rgb) put(rgb); });
-            lab.addEventListener('dblclick', () => { col.value = ccHex(d.defs); put(d.defs); });
+            col.addEventListener('input', () => { const rgb = hexToRgb(col.value, 3); if (rgb) put(rgb); });
+            lab.addEventListener('dblclick', () => { col.value = rgbToHex(d.defs); put(d.defs); });
         }
     }
 }
@@ -316,7 +293,7 @@ function ccFill(info) {
             if (!d.ids.every(id => !id || fresh(id))) continue;
             const rgb = d.ids.map((id, k) => (id && info.values[id] != null) ? info.values[id] : d.defs[k]);
             const col = row.querySelector('.cc-color');
-            if (document.activeElement !== col) col.value = ccHex(rgb);
+            if (document.activeElement !== col) col.value = rgbToHex(rgb);
             continue;
         }
         if (!fresh(d.id)) continue;
@@ -365,7 +342,7 @@ function ccRender(info) {
     ccSyncCard();
     const sig = info.itemId + '|' + (info.controls || []).map(d => d.id).join(',') + '|' + JSON.stringify(info.gradient || []);
     if (sig !== ccState.sig) {
-        if (ccState.sig.split('|')[0] !== String(info.itemId)) { ccState.touched = {}; ccState.pending = {}; }
+        if (ccState.sig.split('|')[0] !== String(info.itemId)) { ccState.touched = {}; ccSender.cancel(); }
         ccState.sig = sig;
         ccState.itemId = info.itemId;
         ccBuild(info);
@@ -406,14 +383,14 @@ async function ccTick() {
 function ccView() {
     if (!ccState.view) {
         let v = 'full';
-        try { v = localStorage.getItem('sa.clipCtlView') || 'full'; } catch (e) { v = 'full'; }
+        v = store.get('sa.clipCtlView') || 'full';
         ccState.view = (v === 'compact' || v === 'docked') ? v : 'full';
     }
     return ccState.view;
 }
 function setClipCtlView(v) {
     ccState.view = (v === 'compact' || v === 'docked') ? v : 'full';
-    try { localStorage.setItem('sa.clipCtlView', ccState.view); } catch (e) { /* ignore */ }
+    store.set('sa.clipCtlView', ccState.view);
     applyClipCtlView();
 }
 function applyClipCtlView() {

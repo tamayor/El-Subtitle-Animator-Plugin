@@ -8,8 +8,15 @@
 // State lives on cutUI (js/library/cut-tab.js): plan, keep (unticked lines), manual { clip id: { keep, cut } }, sel.
 
 const CW = { H: 122, OVER_H: 20, AFTER_H: 24, RULER: 13, W0: 16, W1: 84, WORDS: 98, STRIP: 108, MIN_VIEW: 2 };
-const CW_COL = { pause: '#e5604f', head: '#e5604f', tail: '#e5604f', silence: '#e5604f', retake: '#f0a0c8', outtake: '#f0a0c8',
-    stutter: '#e8c86a', filler: '#b9a2f0', noword: '#d9925a', manual: '#8fb2d6', mkeep: '#8ccf8e' };
+// Colour per kind of cut (css/tokens.css --cut-*; the legend in index.html uses the same tokens).
+const CW_COL = (() => {
+    const pause = cssVar('--cut-pause', '#e5604f'), retake = cssVar('--cut-retake', '#f0a0c8');
+    return {
+        pause, head: pause, tail: pause, silence: pause, retake, outtake: retake,
+        stutter: cssVar('--cut-stutter', '#e8c86a'), filler: cssVar('--cut-filler', '#b9a2f0'), noword: cssVar('--cut-noword', '#d9925a'),
+        manual: cssVar('--cut-user', '#8fb2d6'), mkeep: cssVar('--cut-kept', '#8ccf8e')
+    };
+})();
 const CW_NAME = { pause: 'Pause', head: 'Silence before the first word', tail: 'Silence after the last word', silence: 'No speech',
     retake: 'Retake', outtake: 'Outtake', stutter: 'Stutter', filler: 'Filler', noword: 'Sound without words', manual: 'Your cut', mkeep: 'Kept by you' };
 const cwUI = { drag: null, hoverT: null, audio: null, play: null, raf: 0, ro: null };

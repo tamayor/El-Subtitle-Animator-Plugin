@@ -92,8 +92,8 @@ const EMOJI_SETS = [
     ['Things', '🧠 💡 🔑 🔒 ⏰ ⏳ 📅 📍 🌍 🏠 🚗 ✈️ 🍔 ☕ 🎁 🧩']
 ].map(([name, s]) => [name, s.split(' ')]);
 const EMOJI_RECENT_KEY = 'sa.emoji.recent';
-function emojiRecent() { try { const r = JSON.parse(localStorage.getItem(EMOJI_RECENT_KEY) || '[]'); return Array.isArray(r) ? r.slice(0, 16) : []; } catch (e) { return []; } }
-function emojiRemember(e) { try { localStorage.setItem(EMOJI_RECENT_KEY, JSON.stringify([e].concat(emojiRecent().filter(x => x !== e)).slice(0, 16))); } catch (err) { /* ignore */ } }
+function emojiRecent() { const r = store.getJSON(EMOJI_RECENT_KEY, []); return Array.isArray(r) ? r.slice(0, 16) : []; }
+function emojiRemember(e) { store.set(EMOJI_RECENT_KEY, JSON.stringify([e].concat(emojiRecent().filter(x => x !== e)).slice(0, 16))); }
 
 // Fills `el` with the picker. Clicking an emoji toggles it; onChange gets the new emoji string ('' = none).
 function buildEmojiPicker(el, initial, onChange) {

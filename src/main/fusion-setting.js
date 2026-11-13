@@ -8,6 +8,7 @@ module.exports = {
 
 const fs = require('fs');
 
+const { fileCache } = require('./cache');
 const { validFontStyle } = require('./fonts');
 const { addRetiming, detectSegments } = require('./retime');
 
@@ -16,28 +17,13 @@ const { addRetiming, detectSegments } = require('./retime');
 // and regex the file again - up to 350 KB, several times per placement and once per preset on every library refresh.
 // The text and everything worked out from it are kept here by the file's size and modification time, so an unchanged
 // file costs one stat. derived(file, name, make) stores make(text) under `name` for that version of the file.
-const fileCache = new Map();      // path -> { key, text, derived: Map }
-const FILE_CACHE_MAX = 200;
+// The cache itself is cache.js ('presets'); clip-controls.js and library.js read the same files through it.
+const presets = fileCache('presets', { max: 200 });
 function presetText(file) {
-    if (!file) return null;
-    let st;
-    try { st = fs.statSync(file); } catch (e) { fileCache.delete(file); return null; }
-    const key = st.size + ':' + st.mtimeMs;
-    let c = fileCache.get(file);
-    if (!c || c.key !== key) {
-        let text;
-        try { text = fs.readFileSync(file, 'utf8'); } catch (e) { fileCache.delete(file); return null; }
-        c = { key, text, derived: new Map() };
-        fileCache.set(file, c);
-        if (fileCache.size > FILE_CACHE_MAX) fileCache.delete(fileCache.keys().next().value);
-    }
-    return c;
+    return presets.entry(file);       // { key, text } or null
 }
 function derived(file, name, make) {
-    const c = presetText(file);
-    if (!c) return make(null);
-    if (!c.derived.has(name)) c.derived.set(name, make(c.text));
-    return c.derived.get(name);
+    return presets.value(file, name, make);
 }
 
 function rgbToHex(r, g, b) {
@@ -625,7 +611,7 @@ function fusionBoxes(compPath, list, force) {
         return Object.assign({}, b, { design: designForFusion(compPath, b.design, b.tool, force) || {} });
     });
 }
-const nodeDesignCache = new Map(); function clearDesignCache() { nodeDesignCache.clear(); fileCache.clear(); }
+const nodeDesignCache = new Map(); function clearDesignCache() { nodeDesignCache.clear(); presets.clear(); }
 function nodesWithDesign(animPath) {
     let st;
     try { st = fs.statSync(animPath); } catch (e) { return []; }

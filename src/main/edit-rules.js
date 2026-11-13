@@ -16,6 +16,11 @@ module.exports = {
 const fs = require('fs');
 
 const LAYOUT = require('./layout');
+const { fileCache } = require('./cache');
+
+// edit-rules.json is read by every placement and most MCP tools: the parsed file is kept per file version (cache.js),
+// and cleaned on every call (the defaults it falls back to can change, e.g. the default layout).
+const rulesCache = fileCache('rules', { max: 1 });
 
 function defaultRules() {
     return {
@@ -254,7 +259,10 @@ function cleanLayout(l) {
 }
 
 function loadRules() {
-    try { return cleanRules(JSON.parse(fs.readFileSync(RULES_FILE, 'utf8'))); } catch (e) { return defaultRules(); }
+    try {
+        const parsed = rulesCache.value(RULES_FILE, 'parsed', (raw) => (raw === null ? null : JSON.parse(raw)));
+        return parsed ? cleanRules(structuredClone(parsed)) : defaultRules();
+    } catch (e) { return defaultRules(); }
 }
 
 function saveRules(r) {
@@ -262,5 +270,6 @@ function saveRules(r) {
     const tmp = RULES_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(clean, null, 2));
     fs.renameSync(tmp, RULES_FILE);
+    rulesCache.invalidate(RULES_FILE);
     return clean;
 }

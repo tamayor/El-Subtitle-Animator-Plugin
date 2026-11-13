@@ -7,7 +7,7 @@
     margin: 0 0 4px;
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.35);
     overflow: hidden;
 }
@@ -28,7 +28,7 @@ body:not(.tab-apply) .bottom-dock { display: none !important; }
     content: "";
     width: 34px;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     background: var(--line);
     transition: background 0.15s ease, width 0.15s ease;
 }

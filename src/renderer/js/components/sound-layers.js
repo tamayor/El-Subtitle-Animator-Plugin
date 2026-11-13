@@ -24,12 +24,6 @@
     };
     const say = (ctx, msg, kind) => { try { if (ctx.s === 'C' && typeof setCreateStatus === 'function') setCreateStatus(msg, kind); else setStatus(msg, kind); } catch (e) { /* ignore */ } };
 
-    function mk(tag, cls, text) {
-        const el = document.createElement(tag);
-        if (cls) el.className = cls;
-        if (text !== undefined) el.textContent = text;
-        return el;
-    }
     const entryOf = (ctx) => { const m = ctx.model(); return m ? libEntry(m.id) : null; };
     // Use tab: the extra sounds belong to its one-time copy (so Reset can undo them); Library: to the saved preset
     const holderOf = (ctx) => (ctx.s === 'U' ? ctx.model() : entryOf(ctx));
@@ -48,38 +42,15 @@
     const segsOf = (ctx) => { const m = ctx.model(); const a = m ? libEntry(m.id) : null; return (a && Array.isArray(a.segments)) ? a.segments : []; };
     const ROLE_COL = { upper: '#7fb8ff', emphasis: '#f0c36b', lower: '#8ccf8e' };
     const segColor = (sg) => ROLE_COL[String(sg && sg.label || '').toLowerCase()] || '#c9a7ff';
-    // Frame (relative to the subtitle start) the sound's offset counts from: the text start, or its row's start.
-    const baseOf = (l, textS, segs) => {
-        if (l.align !== 'seg') return textS;
-        const sg = (segs || []).find(x => x.n === Number(l.seg));
-        return textS + (sg ? sg.start : 0);
-    };
-    // Length mode of an extra sound: 'clip' = follows the text clip's duration when placed (default), 'fixed' = the set
-    // length (len 0 = the rest of the sound). Older sounds with a set length are fixed.
-    const lenModeOf = (l) => (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (num(l.len, 0) > 0 ? 'fixed' : 'clip');
-    // Length of a 'clip' sound: from its start to the text end ('start' anchor), else the text's own duration.
-    const clipLen = (l, off, textS, textE, max, base) => clamp(Math.round(l.align === 'end' || l.align === 'after' ? textE - textS : textE - ((base === undefined ? textS : base) + off)), 1, Math.max(1, max));
-    const offsetFor = (align, start, len, textS, textE, base) => align === 'end' ? start + len - textE : (align === 'after' ? start - textE : start - (base === undefined ? textS : base));
+    // Sound timing maths (anchor base, length mode, clip length, offset): sound-layers/geometry.js.
+    const lenModeOf = slLenModeOf, offsetFor = slOffsetFor;
 
     // ---------------------------------------------------------------- geometry of an extra sound (frames, relative to the subtitle start)
     function layerGeo(m, g, l, segs) {
         const p = pathOf(l.file);
         let w = null;
         if (p) { w = state.waves.get(p); if (w === undefined) { loadWave(p); w = null; } }
-        const full = Math.max(2, Math.round(((w && w.seconds) || 0.5) * g.fps));
-        const tin = clamp(Math.round(num(l.trimIn, 0)), 0, Math.max(0, full - 2));
-        const cap = Math.round(num(l.len, 0));
-        const mode = lenModeOf(l);
-        const off = Math.round(num(l.offset, 0));
-        const base = baseOf(l, g.textS, segs);
-        let len = full - tin;
-        if (mode === 'clip') len = clipLen(l, off, g.textS, g.textE, full - tin, base);
-        else if (cap > 0) len = Math.min(len, cap);
-        len = Math.max(1, len);
-        const start = l.align === 'end' ? g.textE - len + off : (l.align === 'after' ? g.textE + off : base + off);
-        // fade-out at its end (1 s unless changed), kept in both length modes
-        const fade = clamp((l.fade === null || l.fade === undefined) ? Math.round(g.fps) : Math.round(num(l.fade, 0)), 0, len);
-        return { full, tin, len, fade, fps: g.fps, start, end: start + len, wave: w, path: p, auto: mode === 'clip', mode, textS: g.textS, textE: g.textE, base };
+        return slGeometry(l, g, segs, w, p);
     }
 
     // ---------------------------------------------------------------- one interface for every sound (main or extra)
@@ -240,9 +211,9 @@
         const want = (k) => !only || only.indexOf(k) >= 0;
         const H = () => handle(ctx, id);
         const h0 = H();
-        const wrap = mk('span', 'snd-btns');
+        const wrap = createEl('span', 'snd-btns');
         if (!h0 || !h0.canEdit) return wrap;
-        const b = (text, title, fn) => { const x = mk('button', 'ghost sm-btn', text); x.type = 'button'; x.title = title; x.addEventListener('click', (e) => { e.stopPropagation(); const h = H(); if (h) fn(h, x); }); wrap.appendChild(x); return x; };
+        const b = (text, title, fn) => { const x = createEl('button', 'ghost sm-btn', text); x.type = 'button'; x.title = title; x.addEventListener('click', (e) => { e.stopPropagation(); const h = H(); if (h) fn(h, x); }); wrap.appendChild(x); return x; };
         const revert = (h, x) => {
             const go = () => h.revert();
             if (h.kind === 'main' && typeof openConfirmPop === 'function') openConfirmPop(x, { title: 'Revert audio to original sound?', message: 'Discard trimmed audio adjustments and go back to the original sound?', confirmText: 'Revert audio', danger: false, onConfirm: go });
@@ -259,25 +230,25 @@
     function moreButton(ctx, id) {
         const h0 = handle(ctx, id);
         if (!h0 || !h0.canEdit || typeof openPop !== 'function') return document.createTextNode('');
-        const btn = mk('button', 'ghost pc-more', '⋯'); btn.type = 'button'; btn.title = 'Replace or change the sound';
+        const btn = createEl('button', 'ghost pc-more', '⋯'); btn.type = 'button'; btn.title = 'Replace or change the sound';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             openPop(btn, 'pop-menu', (el) => {
                 const H = () => handle(ctx, id);
                 const item = (icon, text, fn, cls) => {
-                    const it = mk('button', 'pop-item' + (cls ? ' ' + cls : ''));
+                    const it = createEl('button', 'pop-item' + (cls ? ' ' + cls : ''));
                     it.type = 'button';
-                    it.append(mk('span', 'pop-check', icon), mk('span', 'pop-label', text));
+                    it.append(createEl('span', 'pop-check', icon), createEl('span', 'pop-label', text));
                     it.addEventListener('click', () => { closePop(); const h = H(); if (h) fn(h); });
                     el.appendChild(it);
                 };
                 item('⇄', 'Replace…', async (h) => { const p = await window.sa.pickFile('sfx'); if (p && !p.error) h.replace(p); });
-                el.appendChild(mk('div', 'pop-sep'));
+                el.appendChild(createEl('div', 'pop-sep'));
                 item('♪', 'Use the default sound', (h) => h.useDefault());
                 item('∅', 'No sound', (h) => h.none());
                 const h = H();
                 if (h && h.canRevert()) {
-                    el.appendChild(mk('div', 'pop-sep'));
+                    el.appendChild(createEl('div', 'pop-sep'));
                     item('↺', 'Revert to original sound', (hh) => {
                         if (typeof openConfirmPop === 'function') openConfirmPop(btn, { title: 'Revert audio to original sound?', message: 'Discard trimmed audio adjustments and go back to the original sound?', confirmText: 'Revert audio', danger: false, onConfirm: () => hh.revert() });
                         else hh.revert();
@@ -289,22 +260,22 @@
     }
 
     function numField(refs, label, unit, get, set, evt) {
-        const l = mk('label', 'snd-num');
+        const l = createEl('label', 'snd-num');
         const i = document.createElement('input');
         i.type = 'number'; i.step = '1'; i.dataset.default = '0';
         i.addEventListener(evt || 'input', () => set(num(i.value, 0)));
         i.addEventListener('dblclick', () => { i.value = '0'; set(0); });
-        l.append(mk('span', '', label), i);
-        if (unit) l.appendChild(mk('span', 'u', unit));
+        l.append(createEl('span', '', label), i);
+        if (unit) l.appendChild(createEl('span', 'u', unit));
         refs.push(() => { if (document.activeElement !== i) i.value = String(get()); });
         return l;
     }
     function checkField(refs, label, title, get, set) {
-        const l = mk('label', 'snd-check');
+        const l = createEl('label', 'snd-check');
         if (title) l.title = title;
         const c = document.createElement('input'); c.type = 'checkbox';
         c.addEventListener('change', () => set(c.checked));
-        l.append(c, mk('span', '', label));
+        l.append(c, createEl('span', '', label));
         refs.push(() => { c.checked = !!get(); });
         return l;
     }
@@ -315,16 +286,16 @@
         [['clip', 'Follow the clip'], ['fixed', 'Fixed length']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; s.appendChild(o); });
         s.addEventListener('change', () => set(s.value));
         refs.push(() => { if (document.activeElement !== s) s.value = get(); });
-        const l = mk('label', 'snd-num');
-        l.append(mk('span', '', 'Sound length'), s);
+        const l = createEl('label', 'snd-num');
+        l.append(createEl('span', '', 'Sound length'), s);
         return l;
     }
     function trackField(refs, label, prefix, get, set) {
-        const l = mk('label', 'snd-num');
+        const l = createEl('label', 'snd-num');
         const s = document.createElement('select');
         fillTrackSelect(s, prefix, get());
         s.addEventListener('change', () => set(Number(s.value)));
-        l.append(mk('span', '', label), s);
+        l.append(createEl('span', '', label), s);
         refs.push(() => { if (document.activeElement !== s) s.value = String(get()); });
         return l;
     }
@@ -333,13 +304,13 @@
         const refs = host._refs = [];
         const H = () => handle(ctx, id);
         const h0 = H();
-        const card = mk('div', 'snd-in');
+        const card = createEl('div', 'snd-in');
         host.appendChild(card);
 
         // top row: on/off, preview, which sound
-        const top = mk('div', 'snd-top');
+        const top = createEl('div', 'snd-top');
         top.appendChild(checkField(refs, '', 'Use this sound', () => (H() || h0).get('on'), (v) => { const h = H(); if (h) h.set('on', v); }));
-        const pl = mk('button', 'ghost sm-btn', '▶'); pl.type = 'button'; pl.title = 'Hear this sound';
+        const pl = createEl('button', 'ghost sm-btn', '▶'); pl.type = 'button'; pl.title = 'Hear this sound';
         pl.addEventListener('click', () => { const h = H(); const p = h && h.path(); if (p) play(p, h.get('volume')); else say(ctx, 'No sound file set', 'bad'); });
         top.appendChild(pl);
         if (h0.canEdit) {
@@ -351,11 +322,11 @@
             s.addEventListener('change', () => { const h = H(); if (h && s.value) h.choose(s.value); });
             top.appendChild(s);
         } else {
-            const n = mk('span', 'snd-file grow', h0.name()); n.title = 'Edit the sound in Set Up';
+            const n = createEl('span', 'snd-file grow', h0.name()); n.title = 'Edit the sound in Set Up';
             top.appendChild(n);
         }
         if (h0.remove) {
-            const del = mk('button', 'ghost sm-btn snd-del', '✕'); del.type = 'button'; del.title = 'Remove this sound';
+            const del = createEl('button', 'ghost sm-btn snd-del', '✕'); del.type = 'button'; del.title = 'Remove this sound';
             del.addEventListener('click', () => { const h = H(); if (h) h.remove(); });
             top.appendChild(del);
         }
@@ -364,13 +335,13 @@
         if (h0.canEdit && h0.kind !== 'main') card.appendChild(pickerButtons(ctx, id));
 
         // volume (also the line on the sound in the timeline)
-        const vol = mk('div', 'snd-row');
+        const vol = createEl('div', 'snd-row');
         vol.appendChild(numField(refs, 'Volume', 'dB', () => (H() || h0).get('volume'), (v) => { const h = H(); if (h) h.set('volume', clamp(v, VOL_MIN, VOL_MAX)); }, 'change'));
-        vol.appendChild(mk('span', 'hint snd-volhint', 'Or drag the line on the sound up / down'));
+        vol.appendChild(createEl('span', 'hint snd-volhint', 'Or drag the line on the sound up / down'));
         card.appendChild(vol);
 
         // where it sits and how long
-        const pos = mk('div', 'snd-row');
+        const pos = createEl('div', 'snd-row');
         if (h0.kind === 'layer') {
             const a = document.createElement('select'); a.className = 'snd-anchor'; a.title = 'What this sound lines up with. "Repeat per row": the sound is placed again at every row of a row-by-row preset (Kinetic Cloud): the copies follow the clip\'s Frames Per Row and Animation Frames, so their number and spacing come from the placed text, not from this timeline.';
             ANCHORS.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; a.appendChild(o); });
@@ -386,18 +357,18 @@
         card.appendChild(pos);
         if (h0.kind === 'layer') {
             // Repeat per row: say plainly what is placed, because the Alignment timeline can only show the first copy
-            const rep = mk('div', 'hint snd-repeat', '\u21bb Repeats: one copy of this sound is placed at every row of the text as it pops in. ' +
+            const rep = createEl('div', 'hint snd-repeat', '\u21bb Repeats: one copy of this sound is placed at every row of the text as it pops in. ' +
                 'The number of copies and their spacing are based on the placed clip (its rows, Frames Per Row and Animation Frames), ' +
                 'not on this preview, which shows only the first copy. "Follow the clip" length = each copy ends when the next row starts. ' +
                 'On presets without rows the sound plays once at the text start.');
             refs.push(() => { const h = H(); rep.style.display = (h && h.get('anchor') === 'rows') ? '' : 'none'; });
             card.appendChild(rep);
-            const segHint = mk('div', 'hint snd-repeat', '\u2192 Starts with this row\'s in-animation (+ Offset). On a placed clip, dragging the row\'s start in Animation timing moves this sound in Resolve too.');
+            const segHint = createEl('div', 'hint snd-repeat', '\u2192 Starts with this row\'s in-animation (+ Offset). On a placed clip, dragging the row\'s start in Animation timing moves this sound in Resolve too.');
             refs.push(() => { const h = H(); segHint.style.display = (h && String(h.get('anchor')).indexOf('seg:') === 0) ? '' : 'none'; });
             card.appendChild(segHint);
         }
 
-        const misc = mk('div', 'snd-row');
+        const misc = createEl('div', 'snd-row');
         misc.appendChild(trackField(refs, 'Track', 'A', () => (H() || h0).get('track'), (v) => { const h = H(); if (h) h.set('track', v); }));
         misc.appendChild(checkField(refs, 'Link to text', 'Link this sound to the text clip so they move together in Resolve', () => (H() || h0).get('link'), (v) => { const h = H(); if (h) h.set('link', v); }));
         card.appendChild(misc);
@@ -406,13 +377,13 @@
     function buildTextCard(ctx, host) {
         const refs = host._refs = [];
         const M = () => ctx.model();
-        const card = mk('div', 'snd-in');
+        const card = createEl('div', 'snd-in');
         host.appendChild(card);
-        const top = mk('div', 'snd-top');
-        top.appendChild(mk('strong', 'snd-file grow', 'Text'));
+        const top = createEl('div', 'snd-top');
+        top.appendChild(createEl('strong', 'snd-file grow', 'Text'));
         card.appendChild(top);
         const redraw = () => { const m = M(); if (!m) return; ctx.changed(m); renderTimeline(ctx); if (ctx.s === 'U') renderUseSummary(); else renderCreateSummary(); };
-        const row = mk('div', 'snd-row');
+        const row = createEl('div', 'snd-row');
         row.appendChild(numField(refs, 'Start', 'f', () => num(M() && M().textOffset, 0), (v) => {
             const m = M(); if (!m) return;
             v = clamp(Math.round(v), -300, 300);
@@ -421,7 +392,7 @@
         }));
         row.appendChild(numField(refs, 'Ends', 'f', () => num(M() && M().tail, 0), (v) => { const m = M(); if (!m) return; m.tail = clamp(Math.round(v), -300, 300); redraw(); }));
         card.appendChild(row);
-        const misc = mk('div', 'snd-row');
+        const misc = createEl('div', 'snd-row');
         misc.appendChild(trackField(refs, 'Track', 'V', () => num(M() && M().textTrack, 0), (v) => { const m = M(); if (m) { m.textTrack = v; ctx.changed(m); } }));
         card.appendChild(misc);
     }
@@ -598,13 +569,8 @@
         });
     }
 
-    // Writes a new start / length / trim back as an offset from the sound's anchor.
-    function apply(l, start, len, tin, q, lenGiven) {
-        l.trimIn = tin;
-        if (lenGiven) { l.len = len; l.lenMode = 'fixed'; }
-        const useLen = lenModeOf(l) === 'clip' ? clipLen(l, 0, q.textS, q.textE, q.full - tin, q.base) : ((num(l.len, 0) > 0) ? l.len : (q.full - tin));
-        l.offset = clamp(Math.round(offsetFor(q.align === 'end' || q.align === 'after' ? q.align : 'start', start, useLen, q.textS, q.textE, q.base)), -900, 900);
-    }
+    // Writes a new start / length / trim back as an offset from the sound's anchor (sound-layers/geometry.js).
+    const apply = slApply;
 
     function drag(d, df, dy) {
         const ctx = d.ctx, l = layersOf(ctx).find(x => x.id === d.lid);

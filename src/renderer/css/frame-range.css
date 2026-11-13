@@ -192,6 +192,66 @@
     cursor: grabbing;
 }
 
+/* editable lanes: every word has its own in (strawberry) and out (matcha) handle */
+.fxr-lane.editable .fxr-seg {
+    padding: 0 7px 0 8px;
+}
+
+.fxr-lane.editable .fxr-seg::before,
+.fxr-lane.editable .fxr-seg.last::after {
+    display: none;
+}
+
+.fxr-h {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 7px;
+    max-width: 34%;
+    cursor: ew-resize;
+    z-index: 1;
+}
+
+.fxr-h::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transition: width 0.1s;
+}
+
+.fxr-h.in {
+    left: 0;
+}
+
+.fxr-h.in::after {
+    left: 0;
+    background: var(--strawberry);
+}
+
+.fxr-h.out {
+    right: 0;
+}
+
+.fxr-h.out::after {
+    right: 0;
+    background: var(--matcha);
+}
+
+.fxr-h:hover::after,
+.fxr-seg.on .fxr-h::after {
+    width: 3px;
+}
+
+.fxr-h.out.fixed {
+    cursor: grab;
+}
+
+.fxr-h.out.fixed::after {
+    opacity: 0.35;
+}
+
 .fxr-read {
     margin: 0 7px;
     font-size: 10.5px;

@@ -14,8 +14,9 @@
 //   dflt(last)          { s, e } for double-click (default: the whole clip)
 //   lane()              optional: { segs: [{ s, e, label, key, title }], editable } drawn as a word lane under the bar
 //                       (the subtitle as one block, or one block per word), or null for none. Editable lanes: each
-//                       word's strawberry left edge = its in, matcha right edge = its end; drag an edge, or the block
-//                       to move both (snaps to the playhead); double-click the lane = laneReset()
+//                       word has its own handles, strawberry left = its in, matcha right = its out; drag a handle, or
+//                       the block to move both (snaps to the playhead); double-click the lane = laneReset().
+//                       A seg with fixedEnd has no out of its own (its out handle moves the block).
 //   laneEdit(i, s, e, final)  a word block was changed (final on release); laneReset()
 //   title, onSlide(sliding)
 // Returns { el, paint }: call paint() when get() or last() changed from outside.
@@ -60,8 +61,18 @@ function wordLane(opts) {
             x.style.left = pct(s, L); x.style.width = ((e - s) / L * 100) + '%';
             x.textContent = g.label || '';
             x.title = g.build ? ('“' + (g.label || '') + '” · the build starts ' + s + ' f → lands ' + e + ' f · drag the edges or the block')
-                : laneEditable && !g.locked ? ('“' + (g.label || '') + '” · in ' + s + ' f → end ' + e + ' f · drag the edges or the word')
+                : laneEditable && !g.locked ? ('“' + (g.label || '') + '” · in ' + s + ' f → out ' + e + ' f · drag the strawberry in, the matcha out, or the word to move both' +
+                    (g.fixedEnd ? '\nThis preset pops each row into the next one, so the out follows the next word\'s in' : ''))
                 : (g.title || ('“' + (g.label || '') + '” · ' + s + '–' + e + ' f'));
+            if (laneEditable && !g.locked) {
+                // every word has its own in (strawberry, left) and out (matcha, right) handle
+                const hin = document.createElement('i'); hin.className = 'fxr-h in'; hin.dataset.part = 's';
+                hin.title = '“' + (g.label || '') + '” in: ' + s + ' f';
+                x.appendChild(hin);
+                const hout = document.createElement('i'); hout.className = 'fxr-h out' + (g.fixedEnd ? ' fixed' : ''); hout.dataset.part = g.fixedEnd ? 'm' : 'e';
+                hout.title = g.fixedEnd ? '“' + (g.label || '') + '” out: ' + e + ' f (follows the next word\'s in)' : '“' + (g.label || '') + '” out: ' + e + ' f';
+                x.appendChild(hout);
+            }
             lane.appendChild(x);
         });
         lane.appendChild(lanePh);
@@ -76,8 +87,9 @@ function wordLane(opts) {
         const i = Number(el.dataset.i), g = laneSegs[i];
         if (!g || g.locked) return;
         const rc = el.getBoundingClientRect(), b = lane.getBoundingClientRect(), L = lastOf();
+        const h = x.target.closest('.fxr-h');
         const edge = Math.min(6, rc.width / 3);
-        const part = x.clientX - rc.left <= edge ? 's' : rc.right - x.clientX <= edge ? 'e' : 'm';
+        const part = h ? h.dataset.part : x.clientX - rc.left <= edge ? 's' : rc.right - x.clientX <= edge && !g.fixedEnd ? 'e' : 'm';
         const f0 = Math.round((x.clientX - b.left) / Math.max(1, b.width) * L);
         laneDrag = { i, part, f0, s0: Math.round(g.s), e0: Math.round(g.e) };
         lane.setPointerCapture(x.pointerId);

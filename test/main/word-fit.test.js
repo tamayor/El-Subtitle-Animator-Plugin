@@ -59,14 +59,22 @@ test('planStepKeys: each Justified Pop word / Kinetic row pops on its first spok
     assert.strictEqual(p.end, 36);
 });
 
-test('planTypingKeys: the text grows one word at a time as it is said', () => {
+test('planTypingKeys: each word types in from when it starts to be said to when it is said', () => {
     const p = WF.planTypingKeys('So yeah, watch this', spoken, 60);
     assert.deepStrictEqual(p.frames, [2, 8, 30, 41]);
-    const at = (f) => { let v = 0; for (const k of p.keys) if (k[0] <= f) v = k[1]; return v; };
+    assert.deepStrictEqual(p.ends, [6, 14, 40, 50]);
+    const at = (f) => {                                  // linear between keys, held outside
+        const k = p.keys;
+        if (f <= k[0][0]) return k[0][1];
+        for (let i = 1; i < k.length; i++) if (f <= k[i][0]) return k[i - 1][1] + (k[i][1] - k[i - 1][1]) * (f - k[i - 1][0]) / (k[i][0] - k[i - 1][0]);
+        return k[k.length - 1][1];
+    };
     assert.strictEqual(at(1), 0);                          // nothing before the first word
-    assert.strictEqual(at(3), 0.1053);                   // "So"
-    assert.strictEqual(at(10), Math.round(8 / 19 * 1e4) / 1e4);   // "So yeah,"
-    assert.strictEqual(at(45), 1);
+    assert.ok(at(4) > 0 && at(4) < 0.1053);              // "So" typing in
+    assert.strictEqual(at(6), 0.1053);                   // "So" done
+    assert.strictEqual(at(20), Math.round(8 / 19 * 1e4) / 1e4);   // "So yeah," held through the pause
+    assert.strictEqual(at(50), 1);
+    assert.strictEqual(p.end, 50);
 });
 
 test('wordSegsFromInfo and planFromWordSegs round-trip animtime, step, and typing', () => {
@@ -98,4 +106,28 @@ test('wordSegsFromInfo and planFromWordSegs round-trip animtime, step, and typin
     const typPlan = WF.planFromWordSegs(typInfo, [{ s: 3, e: 9 }, { s: 9, e: 28 }, { s: 28, e: 40 }, { s: 40, e: 46 }], 60);
     const typBack = WF.wordSegsFromInfo({ ...typInfo, fitted: true, frames: typPlan.frames }, [], 60);
     assert.deepStrictEqual(typBack.segs.map(g => g.s), [3, 9, 28, 40]);
+});
+
+test('every word has its own adjustable out (step with room to pop, typing)', () => {
+    // Justified Pop style: Step 8 > Pop 6, so each word's pop can land on its own out and then hold
+    const stepInfo = { kind: 'anim', target: 'step', units: [{ text: 'At', own: 0 }, { text: 'SIC,', own: 8 }, { text: 'we', own: 16 }], pop: 6 };
+    const edited = [{ s: 2, e: 5 }, { s: 12, e: 20 }, { s: 30, e: 33 }];
+    const plan = WF.planFromWordSegs(stepInfo, edited, 60);
+    const back = WF.wordSegsFromInfo({ ...stepInfo, fitted: true, keys: plan.keys }, [], 60);
+    assert.deepStrictEqual(back.segs.map(g => [g.s, g.e]), [[2, 5], [12, 20], [30, 33]]);
+    assert.ok(back.segs.every(g => !g.fixedEnd));
+    assert.strictEqual(plan.end, 33);
+
+    // Kinetic Cloud style: rows pop into the next one (Step 6 <= Pop 8): the out follows the next in
+    const cloud = { ...stepInfo, units: stepInfo.units.map((u, k) => ({ ...u, own: k * 6 })), pop: 8 };
+    const cb = WF.wordSegsFromInfo({ ...cloud, fitted: true, keys: WF.planFromWordSegs(cloud, edited, 60).keys }, [], 60);
+    assert.deepStrictEqual(cb.segs.map(g => !!g.fixedEnd), [true, true, false]);
+
+    // typing: out = fully typed
+    const typInfo = { kind: 'typing', target: 'typing', text: 'At SIC, we believe' };
+    const typSegs = [{ s: 0, e: 4 }, { s: 6, e: 14 }, { s: 20, e: 21 }, { s: 25, e: 37 }];
+    const typPlan = WF.planFromWordSegs(typInfo, typSegs, 40);
+    const typBack = WF.wordSegsFromInfo({ ...typInfo, fitted: true, frames: typPlan.frames, keys: typPlan.keys }, [], 40);
+    assert.deepStrictEqual(typBack.segs.map(g => [g.s, g.e]), typSegs.map(g => [g.s, g.e]));
+    assert.strictEqual(typPlan.end, 37);
 });

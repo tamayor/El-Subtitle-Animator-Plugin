@@ -66,6 +66,12 @@ Inspector checks, and pyflakes; what only a live Resolve session can confirm is 
 
 ### Changed
 
+- **Word timings: every word has its own in and out.** The word lane in the Animation timing card shows a strawberry in
+  handle and a matcha out handle on each word (`js/components/frame-range.js`). The out now does something on every
+  preset: Justified Pop words land their pop on it and hold until the next word; Word by Word Typing types each word
+  from its in to its out (Fit to words types a word over the time it is said); letter reveals end the word there.
+  Kinetic Cloud / Lines rows pop into the next row, so their out follows the next in (dimmed handle).
+
 - `src/main/placement.js` was split by concern. Code moved verbatim; no function was renamed:
   - `title-templates.js`: presets as Resolve title templates (`presetTitleFor`, `presetTitleNames`, `syncTemplates`,
     `installAllTemplates`, `startupTemplates`, `pruneTemplates`, `titlesDir`, `titleKindFor`, `isTitleClipName`,

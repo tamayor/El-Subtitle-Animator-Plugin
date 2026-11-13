@@ -31,7 +31,7 @@ let pollMeta = { key: null, at: 0, meta: null };
 // The selection is read at most every SEL_EVERY_MS (a poll comes every 200 ms; a selection rarely changes that fast),
 // and the subtitle tracks' on/off state is kept for TRACK_ON_MS.
 const SEL_EVERY_MS = 500, TRACK_ON_MS = 2000;
-let selCache = { at: 0, tlName: null, sub: null };
+let selCache = { at: 0, tlName: null, sub: null, liveSel: false };
 let trackOn = { at: 0, tlName: null, map: new Map() };
 let inflight = null;
 
@@ -67,10 +67,11 @@ async function pollInner(force) {
         noteFrame(tlName, frame, tc);      // playback.js isPlaying knows a still timeline from the last two readings
 
         // A selected subtitle wins; otherwise the subtitle under the playhead.
-        let sub = null, source = 'playhead';
+        let sub = null, source = 'playhead', liveSel = false;
         const now = Date.now();
         if (!force && selCache.tlName === tlName && now - selCache.at < (resolveBusy() ? 3000 : SEL_EVERY_MS)) {
             if (selCache.sub) { sub = selCache.sub; source = 'selection'; }
+            liveSel = !!selCache.liveSel;
         } else {
             try {
                 // With many clips selected, asking each one's track in turn flooded Resolve. Only the first MAX_SEL are
@@ -81,6 +82,14 @@ async function pollInner(force) {
                 const sel = selAll.slice(0, MAX_SEL);
                 const types = await Promise.all(sel.map(c => Promise.resolve(c.GetTrackTypeAndIndex()).catch(() => null)));
                 state.lastSelection = { at: now, tlName, items: sel, types, count: selAll.length };
+                // The running Resolve preview's own Text+ is selected: the panel keeps the preview on its subtitle
+                // (selecting it drops the subtitle selection, and the subtitle under the playhead can be another one)
+                const live = state.liveSession && state.liveSession.itemId ? String(state.liveSession.itemId) : null;
+                if (live) {
+                    const vids = sel.filter((c, k) => types[k] && types[k][0] === 'video');
+                    const ids = await Promise.all(vids.map(c => Promise.resolve(c.GetUniqueId()).catch(() => null)));
+                    liveSel = ids.some(id => id && String(id) === live);
+                }
                 for (let k = 0; k < sel.length; k++) {
                     const c = sel[k], tt = types[k];
                     if (tt && tt[0] === 'subtitle') {
@@ -108,7 +117,7 @@ async function pollInner(force) {
                     }
                 }
             } catch (e) { /* selection not available: fall back to playhead */ }
-            selCache = { at: now, tlName, sub };
+            selCache = { at: now, tlName, sub, liveSel };
         }
 
         if (!sub) {
@@ -125,6 +134,7 @@ async function pollInner(force) {
         // (app:subtitles) when subsVersion changes.
         state.lastPoll = {
             ok: true, timeline: tlName, fps: meta.fps, width: meta.width, height: meta.height, frame, tc, count: subs.length, source, subtitle: sub,
+            liveSelected: liveSel || undefined,
             subsVersion: state.subCache.version || 1
         };
         return state.lastPoll;

@@ -46,11 +46,26 @@ function pollDelay(focused) {
     if (focused) return moving ? POLL_FG_MS : POLL_FG_REST_MS;
     return (moving && state.livePrev) ? POLL_FG_MS : (moving ? POLL_BG_MS : POLL_BG_REST_MS);
 }
+// Preview in Resolve: clicking its Text+ on the timeline (to work on it) drops the subtitle selection, and the
+// subtitle under the playhead can be another one (a higher subtitle track, a neighbour). While the preview's own clip
+// is selected the panel stays on the preview's subtitle, so its text is not replaced and the clip is not re-rendered.
+function pinLiveSubtitle(L) {
+    const p = state.livePrev;
+    if (!L || !L.ok || !p) return;
+    const f = L.frame;
+    const onClip = typeof f === 'number' && ((f >= p.clipS && f < p.clipE) || (f >= p.start && f < p.end));
+    if (L.liveSelected && onClip) {          // scrubbing to another caption still moves the preview there
+        if (p.sub) { L.subtitle = p.sub; L.source = 'preview'; }
+        return;
+    }
+    if (L.subtitle && L.subtitle.start === p.subStart) p.sub = L.subtitle;
+}
 async function tick() {
     if (state.idle) { setTimeout(tick, 500); return; }          // minimized: no real-time polling of Resolve
     if (!state.busy && !state.drag) {
         const t0 = performance.now();
         try { state.live = await window.sa.poll(false); } catch (e) { state.live = { ok: false, reason: 'Not connected' }; }
+        pinLiveSubtitle(state.live);
         pollSample(performance.now() - t0);
         const sig = pollSignature(state.live);
         if (sig !== pollState.sig) { pollState.sig = sig; pollState.lastChange = Date.now(); }

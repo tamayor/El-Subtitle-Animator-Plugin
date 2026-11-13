@@ -292,7 +292,7 @@ function renderLive() {
         redrawStages();
     }
     $('subMeta').textContent = s
-        ? '#' + s.index + ' of ' + L.count + ' · ' + (L.source === 'selection' ? 'selected' : 'at playhead')
+        ? '#' + s.index + ' of ' + L.count + ' · ' + (L.source === 'preview' ? 'preview clip selected' : L.source === 'selection' ? 'selected' : 'at playhead')
         : (L.count ? 'no subtitle at the playhead' : 'this timeline has no subtitles');
     $('subHint').textContent = s ? '' : 'You can still type text here and it will be placed at the playhead for 3 seconds.';
     if ($('create')) $('create').disabled = state.busy || !selected();

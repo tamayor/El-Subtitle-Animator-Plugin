@@ -698,6 +698,7 @@ function pbHighlightEditor(row) {
         r.value = String(h[sp.k]);
         const n = pbEl('input', 'pb-hl-num');
         n.type = 'number'; n.step = String(sp.step); n.value = Number(h[sp.k]).toFixed(sp.dp);
+        r.dataset.default = n.dataset.default = String(sp.def);
         const set = (v, from) => {
             v = Number(v);
             if (!Number.isFinite(v)) return;

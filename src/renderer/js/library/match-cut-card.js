@@ -28,6 +28,7 @@ async function mcEnsurePrefs() {
     if (!mcUI.loading) {
         mcUI.loading = window.sa.matchCutDefaults().then(r => {
             mcUI.prefs = (r && r.prefs) || {};
+            mcUI.defaults = (r && r.defaults) || {};
             if (r && r.status && r.status.running) { mcUI.running = true; mcUI.progress = r.status.progress; }
             return mcUI.prefs;
         }).catch(() => { mcUI.prefs = {}; return mcUI.prefs; });
@@ -60,6 +61,7 @@ function fxMatchCutOptions() {
     const num = (k, min, max, step) => {
         const i = document.createElement('input'); i.type = 'number'; i.min = String(min); i.max = String(max); i.step = String(step); i.value = String(p[k]);
         i.className = 'fx-mc-num'; i.disabled = busy;
+        if (mcUI.defaults && mcUI.defaults[k] !== undefined) i.dataset.default = String(mcUI.defaults[k]);
         i.addEventListener('change', () => { p[k] = Number(i.value); });
         return i;
     };

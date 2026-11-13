@@ -98,6 +98,7 @@
                 inp.addEventListener('change', () => save({ [r.key]: Number(inp.value) }, el));
             }
             inp.id = id;
+            if (r.type !== 'bool' && defaults[r.key] !== undefined) inp.dataset.default = String(defaults[r.key]);
             row.appendChild(lab); row.appendChild(inp);
             el.appendChild(row);
         }
@@ -134,6 +135,7 @@
                     inp.addEventListener('change', () => savePerf({ [r.key]: inp.value }, el));
                 }
                 inp.id = id;
+                if (r.type !== 'bool' && perfDefaults[r.key] !== undefined) inp.dataset.default = String(perfDefaults[r.key]);
                 row.appendChild(lab); row.appendChild(inp);
                 el.appendChild(row);
             }

@@ -110,19 +110,37 @@ document.addEventListener('click', async (e) => {
     }
 }, true);
 
+// A caption that is not a <label>: a plain text span / div sitting next to its field(s) in the same row
+// (Prompt tab Width / Height sliders, B-roll and Prompt range boxes). Returns the caption with the fields
+// it names in ._captionFields, or null.
+const RESET_FIELD = 'input[type=number], input[type=text], input[type=search], input[type=range], select';
+function captionFor(t) {
+    if (!t || t.children.length || !t.textContent.trim()) return null;
+    const p = t.parentElement;
+    if (!p || p === document.body) return null;
+    const fields = [...p.children].filter(c => c.matches(RESET_FIELD));
+    if (!fields.length || fields.length > 3) return null;
+    t._captionFields = fields;
+    return t;
+}
+
 let dblClickResetBound = false;
 function bindDblClickReset() {
     if (dblClickResetBound) return;
     dblClickResetBound = true;
     document.addEventListener('dblclick', (e) => {
+        // A control's own double-click (clip controls, sound layers) already reset it.
+        const t = e.target;
+        if (e.defaultPrevented || !t || !t.closest) return;
+        // Do not trigger if user was double clicking inside an input box to select text
+        if (t.closest('input, select, textarea, button, [contenteditable="true"]')) return;
+
         // Find if target is a label or inside a label
-        const label = e.target.closest('label, .xform-lbl, .sh-lbl, .rv-lbl, .td-lbl');
+        const label = t.closest('label, .xform-lbl, .sh-lbl, .rv-lbl, .td-lbl') || captionFor(t);
         if (!label) return;
 
-        // Do not trigger if user was double clicking inside an input box to select text
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-
         const inputs = [];
+        if (label._captionFields) inputs.push(...label._captionFields);
         const forId = label.getAttribute('for');
         if (forId) {
             const el = document.getElementById(forId);
@@ -143,6 +161,7 @@ function bindDblClickReset() {
 
         let handled = false;
         inputs.forEach(inp => {
+            if (inp.disabled || inp.readOnly) return;
             const def = getDefaultValue(inp);
             if (def !== null && def !== undefined) {
                 inp.value = def;

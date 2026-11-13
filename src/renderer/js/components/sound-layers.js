@@ -291,7 +291,7 @@
     function numField(refs, label, unit, get, set, evt) {
         const l = mk('label', 'snd-num');
         const i = document.createElement('input');
-        i.type = 'number'; i.step = '1';
+        i.type = 'number'; i.step = '1'; i.dataset.default = '0';
         i.addEventListener(evt || 'input', () => set(num(i.value, 0)));
         i.addEventListener('dblclick', () => { i.value = '0'; set(0); });
         l.append(mk('span', '', label), i);

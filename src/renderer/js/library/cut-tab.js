@@ -108,6 +108,12 @@ async function cutTabShown() {
     const r = await window.sa.cutDefaults();
     if (!r || r.error) { cutStatus((r && r.error) || 'Could not open Cut', 'bad'); return; }
     cutUI.prefs = r.prefs; cutUI.styles = r.styles || {}; cutUI.ready = true;
+    // Double-click a field's label = this default (color-fields.js bindDblClickReset).
+    const def = r.defaults || {};
+    for (const k of [...CUT_NUMS, ...CUT_DET, 'lufs', 'markPauses']) {
+        if (def[k] === undefined) continue;
+        for (const el of [$('cut_' + k), $('cutR_' + k)]) if (el) el.dataset.default = String(def[k]);
+    }
     cutFill();
     if (r.plan) cutShow(r.plan);
     if (r.status && r.status.running) cutBusy(true, r.status.progress);

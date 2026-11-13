@@ -176,5 +176,11 @@ function getDefaultValue(inp) {
     if (cleanId in RESOLVE_DEFAULTS) {
         return RESOLVE_DEFAULTS[cleanId];
     }
+    // Any other number / text field: the value written in its HTML. A field with a placeholder and no value
+    // ("auto", "∞", "first", "Search…") defaults to empty. A number field with neither has no known default.
+    if (inp.tagName === 'INPUT' && /^(number|text|search)$/.test(inp.type)) {
+        if (inp.hasAttribute('value')) return inp.getAttribute('value');
+        if (inp.type !== 'number' || inp.placeholder) return '';
+    }
     return null;
 }

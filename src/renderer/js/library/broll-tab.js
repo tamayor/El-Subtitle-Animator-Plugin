@@ -4,6 +4,9 @@
 // and swaps the media under the clip, so it keeps its place.
 // Auto: suggest B-roll from the subtitles (numbers, "comment X", days, typing, quotes, steps), tick, place ticked.
 // Placed: the B-roll on this timeline, with Edit / Remove and the id Claude's adjust_broll takes.
+// Watch in "Resolve timeline" (default): no preview in the panel. Place puts a half-size draft on the timeline and
+// opens it for editing; every settings change re-renders that clip in place (debounced, one render at a time, the
+// newest values win), so it is watched in Resolve's viewer. Finalize re-renders it at full size.
 
 const brUI = { effects: [], common: [], sel: null, values: {}, editing: null, frame: null, busy: false, ready: false,
     suggestions: [], placed: [], previewSeq: 0, strip: null };
@@ -49,7 +52,7 @@ function brStatus(text, kind, id) {
 function brBusy(on) {
     brUI.busy = on;
     $('brPlace').disabled = on; $('brPlaceNew').disabled = on; $('brPlaceTicked').disabled = on || !brUI.suggestions.some(s => s.on);
-    $('brSuggest').disabled = on; $('brSyncAll').disabled = on;
+    $('brSuggest').disabled = on; $('brSyncAll').disabled = on; $('brFinalizeAll').disabled = on;
     $('brCancel').classList.toggle('hidden', !on);
     if (!on) $('brBar').style.width = '0';
 }
@@ -81,12 +84,26 @@ function brSetup(msg) {
 function brRenderEffects() {
     const box = $('brEffects');
     box.textContent = '';
+    const missing = [];
     for (const e of brUI.effects) {
+        const img = brEl('img', { class: 'br-effect-img', alt: e.name, src: e.thumb || undefined });
+        if (!e.thumb) missing.push({ e, img });
         box.append(brEl('button', { type: 'button', class: 'br-effect' + (brUI.sel === e.id ? ' on' : ''), 'data-id': e.id, title: e.description,
             onclick: () => brPick(e.id, null) }, [
+            brEl('div', { class: 'br-effect-thumb' }, [img]),
             brEl('span', { class: 'br-effect-name', text: e.name }),
             brEl('span', { class: 'br-effect-desc', text: e.description })
         ]));
+    }
+    if (missing.length) {
+        (async () => {
+            for (const { e, img } of missing) {
+                try {
+                    const r = await window.sa.brollPreview({ effect: e.id, props: { ...e.defaults, x: 0.5, y: 0.5 }, width: 1280, height: 720, at: 0.65, maxDim: 360 });
+                    if (r && r.dataUrl) { e.thumb = r.dataUrl; img.src = r.dataUrl; }
+                } catch (err) { /* ignore */ }
+            }
+        })();
     }
 }
 
@@ -171,9 +188,12 @@ async function brFillFromSub() {
 // clip in one pass. Once the strip is in, the Moment slider only swaps pictures (no render); any settings change starts
 // a new still + strip.
 let brPreviewTimer = null;
-function brKey() { return JSON.stringify([brUI.sel, brUI.values, Number($('brSec').value) || 0]); }
+// Seconds only counts where it is shown: "At the playhead", or while editing a placed clip (its length).
+function brSecVal() { return $('brSecWrap').classList.contains('hidden') ? 0 : (Number($('brSec').value) || 0); }
+function brKey() { return JSON.stringify([brUI.sel, brUI.values, brSecVal()]); }
 
 function brPreviewSoon(now) {
+    if (brView() === 'timeline') { brLiveSoon(); return; }
     clearTimeout(brPreviewTimer);
     brPreviewTimer = setTimeout(brPreview, now ? 0 : 300);
 }
@@ -205,7 +225,7 @@ async function brPreview(stillOnly) {
     const key = brKey();
     const msg = $('brPreviewMsg');
     msg.textContent = 'Drawing…'; msg.classList.remove('hidden');
-    const sec = Number($('brSec').value) || undefined;
+    const sec = brSecVal() || undefined;
     const r = await window.sa.brollPreview({ effect: brUI.sel, props: brUI.values, at: Number($('brAt').value), seconds: sec, maxDim: 720 });
     if (seq !== brUI.previewSeq) return;     // a newer change is already drawing
     if (!r || r.error) { msg.textContent = (r && r.error) || 'No preview'; return; }
@@ -237,14 +257,15 @@ function brApplyBg() {
 function brWhere() {
     const w = $('brWhere').value;
     const o = { effect: brUI.sel, props: { ...brUI.values }, usePrefs: false };
-    const sec = Number($('brSec').value), tr = Number($('brTrack').value);
-    if (sec > 0 && w !== 'marks') o.seconds = sec;
+    const sec = brSecVal(), tr = Number($('brTrack').value);
+    if (sec > 0) o.seconds = sec;
     if (tr > 0) o.track = tr;
     if ($('brLand').checked) o.landOnWord = true;
-    const ext = Number($('brExtend').value);
+    if ($('brDraft').checked) o.draft = true;
+    const ext = $('brExtWrap').classList.contains('hidden') ? 0 : Number($('brExtend').value);
     if (ext > 0) o.extend = ext;
     if (w === 'marks') o.marks = true;
-    else if (w === 'sub') o.subtitle = 'playhead';
+    else if (w === 'sub') o.subtitle = brUI.detected ? brUI.detected.index : 'playhead';   // the one shown under "Goes on"
     else if (w === 'num') { const n = Number($('brSub').value); if (!(n > 0)) throw new Error('Type the subtitle number'); o.subtitle = n; }
     return o;
 }
@@ -253,31 +274,114 @@ async function brPlace(asNew) {
     if (brUI.busy || !brUI.sel) return;
     let o;
     try { o = brWhere(); } catch (e) { brStatus(e.message, 'bad'); return; }
+    const live = brView() === 'timeline';
     brBusy(true);
-    brStatus(brUI.editing && !asNew ? 'Re-rendering…' : 'Rendering…', '');
+    await brLiveIdle();                            // a live update still rendering finishes first
+    const finalize = live && brUI.editing && !asNew;
+    brStatus(finalize ? 'Finalizing at full size…' : brUI.editing && !asNew ? 'Re-rendering…' : live ? 'Rendering a draft for the timeline…' : 'Rendering…', '');
     let r;
     if (brUI.editing && !asNew) {
         const ch = { id: brUI.editing.id, effect: brUI.sel, props: o.props };
-        if (o.seconds) ch.seconds = o.seconds;     // editing: Seconds sets the length (Extend by is for new clips, so it never adds up)
+        // editing: Seconds sets the length, only when it was changed (a rounded read-back would re-place the clip)
+        if (o.seconds && $('brSec').value !== brUI.liveSec) ch.seconds = o.seconds;
+        ch.draft = live ? false : !!o.draft;       // timeline view: the button is Finalize; panel view: the Draft box decides
         r = await window.sa.brollAdjust(ch);
-    } else r = await window.sa.brollPlace(o);
+    } else {
+        if (live) o.draft = true;
+        r = await window.sa.brollPlace(o);
+    }
     brBusy(false);
     if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad'); return; }
     if (r.landed) brStatus($('brStatus').textContent + ' · lands on “' + r.landed.word + '”' + (r.landed.source === 'speech' ? '' : ' (estimated)'), 'ok');
-    if (brUI.editing && !asNew) brEdit(r);       // stays in edit mode on the updated record
+    if (finalize) brEdit(null);                    // done: full size on the timeline
+    else if (live || (brUI.editing && !asNew)) brEdit(r);   // a new timeline draft opens for live editing; an update stays in edit mode
     brLoadPlaced();
 }
 
-function brEdit(rec) {
-    brUI.editing = rec || null;
-    const on = !!rec;
-    $('brPlace').textContent = on ? 'Update clip' : 'Render & place';
+// ------------------------------------------------------------------ live: the edited clip re-renders on the timeline
+
+function brView() { return ($('brView') && $('brView').value) || 'timeline'; }
+let brLiveTimer = null;
+function brLiveSoon() {
+    if (!brUI.editing || brView() !== 'timeline') return;
+    clearTimeout(brLiveTimer);
+    brLiveTimer = setTimeout(brLiveRun, 1200);
+}
+
+async function brLiveRun() {
+    const rec = brUI.editing;
+    if (!rec || brView() !== 'timeline' || brUI.busy) return;
+    if (brUI.liveRunning) { brUI.livePending = true; return; }
+    const key = brKey();
+    if (key === brUI.liveKey) return;
+    brUI.liveRunning = true;
+    let done;
+    brUI.liveDone = new Promise(res => { done = res; });
+    brLiveNote('Updating the clip on the timeline…', true);
+    const ch = { id: rec.id, effect: brUI.sel, props: { ...brUI.values }, draft: true, live: true };
+    const secChanged = $('brSec').value !== brUI.liveSec && brSecVal() > 0;
+    if (secChanged) ch.seconds = brSecVal();
+    let r;
+    try { r = await window.sa.brollAdjust(ch); } catch (e) { r = { error: String(e.message || e) }; }
+    brUI.liveRunning = false;
+    done();
+    if (brUI.editing && brUI.editing.id === rec.id) {
+        if (!r || r.error) brLiveNote('Could not update: ' + ((r && r.error) || 'failed'), true);
+        else {
+            brUI.liveKey = key;
+            if (secChanged) brUI.liveSec = $('brSec').value;
+            brUI.editing = r;
+            brEditTag();
+            brLiveNote('Updated on the timeline' + (r.seconds ? ' (' + r.seconds + ' s)' : '') + '. Changes re-render it there; Finalize when it looks right.');
+        }
+    }
+    if (brUI.livePending) { brUI.livePending = false; brLiveRun(); }
+}
+
+function brLiveIdle() { clearTimeout(brLiveTimer); brUI.livePending = false; return brUI.liveRunning ? brUI.liveDone : Promise.resolve(); }
+
+function brLiveNote(text, busy) {
+    const el = $('brLiveNote');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('hidden', !text);
+    el.classList.toggle('busy', !!busy);
+}
+
+// The buttons and texts for the view (timeline / panel) and edit state.
+function brButtons() {
+    const on = !!brUI.editing, live = brView() === 'timeline';
+    $('brMake').dataset.view = live ? 'timeline' : 'panel';
+    $('brPlace').textContent = on ? (live ? 'Finalize (full size)' : 'Update clip') : (live ? 'Place on timeline' : 'Render & place');
+    $('brPlace').title = live ? (on ? 'Re-render this clip at full size, in place, and stop editing it' : 'Place a half-size draft; then every change re-renders it on the timeline') : '';
     $('brPlaceNew').classList.toggle('hidden', !on);
     $('brStopEdit').classList.toggle('hidden', !on);
-    const tag = $('brEditing');
-    tag.classList.toggle('hidden', !on);
-    tag.textContent = on ? 'editing ' + rec.name + (rec.subtitle ? ' on #' + rec.subtitle.index : '') + ' · ' + rec.id : '';
-    if (on) { brPick(rec.effect, rec.props); $('brSec').value = rec.frames && rec.fps ? (rec.frames / rec.fps).toFixed(1) : ''; }
+    $('brSettingsSub').textContent = live ? (on ? 'changes re-render the clip on the timeline' : 'Place it, then watch it in Resolve') : 'the preview redraws as you type';
+    if (!on || !live) brLiveNote('');
+    else if ($('brLiveNote').classList.contains('hidden')) brLiveNote('Editing on the timeline (half-size draft). Changes re-render it there; Finalize when it looks right.');
+}
+
+function brEditTag() {
+    const rec = brUI.editing, tag = $('brEditing');
+    tag.classList.toggle('hidden', !rec);
+    tag.textContent = rec ? 'editing ' + rec.name + (rec.subtitle ? ' on #' + rec.subtitle.index : '') + ' · ' + rec.id + (rec.draft ? ' · draft' : '') : '';
+}
+
+function brEdit(rec) {
+    clearTimeout(brLiveTimer); brUI.livePending = false;
+    brUI.editing = rec || null;
+    const on = !!rec;
+    brEditTag();
+    brLiveNote('');
+    brButtons();
+    brWhereChanged();
+    if (on) {
+        brPick(rec.effect, rec.props);
+        $('brSec').value = rec.frames && rec.fps ? (rec.frames / rec.fps).toFixed(1) : '';
+        $('brDraft').checked = !!rec.draft;
+        brUI.liveSec = $('brSec').value;
+        brUI.liveKey = brKey();                     // what is on the timeline now: only a change re-renders
+    }
 }
 
 // ------------------------------------------------------------------ auto
@@ -343,7 +447,8 @@ function brRenderSuggestions() {
 async function brPlaceTicked() {
     const land = $('brLand').checked;
     const ext = Number($('brExtend').value) > 0 ? Number($('brExtend').value) : undefined;
-    const list = brUI.suggestions.filter(s => s.on).map(s => ({ effect: s.effect, props: s.props, subtitle: s.subtitle, landOnWord: land || undefined, extend: ext }));
+    const draft = $('brDraft').checked || undefined;
+    const list = brUI.suggestions.filter(s => s.on).map(s => ({ effect: s.effect, props: s.props, subtitle: s.subtitle, landOnWord: land || undefined, extend: ext, draft }));
     if (!list.length || brUI.busy) return;
     brBusy(true);
     brStatus('Placing ' + list.length + '…', '', 'brAutoStatus');
@@ -365,6 +470,12 @@ async function brLoadPlaced() {
     if (!r || r.error) return;
     brUI.placed = r.placed;
     $('brPlacedCount').textContent = r.placed.length ? String(r.placed.length) : '';
+    const drafts = r.drafts || 0;
+    $('brFinalizeAll').classList.toggle('hidden', !drafts);
+    $('brFinalizeAll').textContent = drafts > 1 ? 'Finalize ' + drafts + ' drafts' : 'Finalize draft';
+    const dn = $('brDraftNote');
+    dn.classList.toggle('hidden', !drafts);
+    dn.textContent = drafts ? drafts + (drafts > 1 ? ' clips are' : ' clip is') + ' a half-size draft (orange on the timeline). Finalize before you export.' : '';
     const box = $('brPlacedList');
     box.textContent = '';
     if (!r.placed.length) { box.append(brEl('div', { class: 'cr-sub', text: 'No B-roll placed on ' + (r.timeline || 'this timeline') + ' yet.' })); return; }
@@ -373,10 +484,12 @@ async function brLoadPlaced() {
         box.append(brEl('div', { class: 'br-item' + (p.onTimeline === false ? ' gone' : '') }, [
             brEl('span', { class: 'br-num', text: p.subtitle ? '#' + p.subtitle.index : '·' }),
             brEl('div', { class: 'br-item-main' }, [
-                brEl('div', { class: 'br-item-text', text: p.name + ' · ' + (p.track || '') + ' · ' + sec + (p.onTimeline === false ? ' · not on the timeline' : '') }),
+                brEl('div', { class: 'br-item-text' }, [p.draft ? brEl('span', { class: 'br-draft', text: 'draft' }) : null,
+                    p.name + ' · ' + (p.track || '') + ' · ' + sec + (p.onTimeline === false ? ' · not on the timeline' : '')]),
                 brEl('div', { class: 'br-item-props', text: brPropsLine(p.props) })
             ]),
             brEl('button', { class: 'ghost br-id', text: p.id, title: 'Copy the id (for Claude: adjust_broll ' + p.id + ' …)', onclick: () => { try { navigator.clipboard.writeText(p.id); } catch (e) { /* ignore */ } } }),
+            p.draft ? brEl('button', { class: 'ghost', text: 'Finalize', disabled: p.onTimeline === false, title: 'Re-render at full size, in place', onclick: () => brFinalize({ id: p.id }) }) : null,
             brEl('button', { class: 'ghost', text: 'Sync', disabled: p.onTimeline === false, title: 'Re-time it so the animation lands as its key word is spoken', onclick: () => brSync({ id: p.id }) }),
             brEl('button', { class: 'ghost', text: 'Edit', disabled: p.onTimeline === false, onclick: () => { brEdit(p); brSubTab('make'); } }),
             brEl('button', { class: 'ghost', text: '×', title: 'Remove from the timeline', onclick: async () => {
@@ -404,13 +517,55 @@ async function brSync(o) {
     brLoadPlaced();
 }
 
+// Finalize: drafts re-rendered at full size under the same clip (one { id } or { all: true }).
+async function brFinalize(o) {
+    if (brUI.busy) return;
+    brBusy(true);
+    brStatus(o.all ? 'Finalizing the drafts at full size…' : 'Finalizing at full size…', '', 'brPlacedStatus');
+    const r = await window.sa.brollFinalize(o);
+    brBusy(false);
+    if (!r || r.error) { brStatus((r && r.error) || 'Failed', 'bad', 'brPlacedStatus'); return; }
+    const bad = r.results.filter(x => !x.ok);
+    brStatus(r.note || (r.finalized + ' finalized' + (bad.length ? ', ' + bad.length + ' failed: ' + bad.map(b => b.error).join('; ') : '')), bad.length ? 'bad' : 'ok', 'brPlacedStatus');
+    if (brUI.editing && r.results.some(x => x.ok && x.id === brUI.editing.id)) brUI.editing.draft = undefined;
+    brLoadPlaced();
+}
+
 // ------------------------------------------------------------------ wiring
 
+// Only the fields this "Where" uses: the detected subtitle (under the playhead), the number (Subtitle number…),
+// Seconds (At the playhead, or the length while editing a clip), Extend by (subtitle / marks ranges). Track always.
+// (Where stays while editing: it is used by Place as new.)
 function brWhereChanged() {
-    const w = $('brWhere').value;
+    const w = $('brWhere').value, editing = !!brUI.editing;
+    $('brDetWrap').classList.toggle('hidden', w !== 'sub');
     $('brSubWrap').classList.toggle('hidden', w !== 'num');
-    $('brSecWrap').classList.toggle('hidden', w === 'marks');      // the marks set the length
+    $('brSecWrap').classList.toggle('hidden', !(w === 'playhead' || editing));
+    $('brExtWrap').classList.toggle('hidden', w === 'playhead');
     try { localStorage.setItem('brWhere', w); } catch (e) { /* ignore */ }
+    brShowDetected();
+}
+
+// "Subtitle under the playhead": the panel's own poll (state.live) already knows it, so this follows the playhead
+// without asking Resolve again.
+function brShowDetected() {
+    const box = $('brDetected');
+    if (!box || $('brDetWrap').classList.contains('hidden')) return;
+    const L = state.live, s = L && L.ok ? L.subtitle : null;
+    const key = s ? s.index + '|' + s.text : (L && L.ok ? 'none' : 'off');
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    brUI.detected = s ? { index: s.index, text: s.text } : null;
+    box.textContent = '';
+    box.classList.toggle('none', !s);
+    if (s) {
+        const t = String(s.text || '').replace(/\s+/g, ' ').trim();
+        box.append(brEl('b', { text: '#' + s.index }), t);
+        box.title = '#' + s.index + ': ' + t;
+    } else {
+        box.textContent = L && L.ok ? 'No subtitle here: the next one after the playhead' : 'Not connected to Resolve';
+        box.title = '';
+    }
 }
 
 function initBrollTab() {
@@ -423,18 +578,29 @@ function initBrollTab() {
     $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
     $('brAt').addEventListener('input', brMoment);
     $('brSec').addEventListener('input', () => brPreviewSoon());
+    try { const v = localStorage.getItem('brView'); if (v === 'panel' || v === 'timeline') $('brView').value = v; } catch (e) { /* ignore */ }
+    $('brView').addEventListener('change', () => {
+        try { localStorage.setItem('brView', brView()); } catch (e) { /* ignore */ }
+        brButtons();
+        if (brView() === 'panel') { if ($('brBg').value === 'frame') brLoadFrame(); brPreviewSoon(true); }
+    });
+    brButtons();
     $('brBg').addEventListener('change', () => { try { localStorage.setItem('brBg', $('brBg').value); } catch (e) { /* ignore */ } if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg(); });
     $('brWhere').addEventListener('change', brWhereChanged);
     $('brSuggest').addEventListener('click', brSuggest);
     $('brPlaceTicked').addEventListener('click', brPlaceTicked);
     $('brRefresh').addEventListener('click', brLoadPlaced);
     $('brSyncAll').addEventListener('click', () => brSync({ all: true }));
+    $('brFinalizeAll').addEventListener('click', () => brFinalize({ all: true }));
+    try { $('brDraft').checked = localStorage.getItem('brDraft') === '1'; } catch (e) { /* ignore */ }
+    $('brDraft').addEventListener('change', () => { try { localStorage.setItem('brDraft', $('brDraft').checked ? '1' : '0'); } catch (e) { /* ignore */ } });
     try { $('brLand').checked = localStorage.getItem('brLand') === '1'; } catch (e) { /* ignore */ }
     $('brLand').addEventListener('change', () => { try { localStorage.setItem('brLand', $('brLand').checked ? '1' : '0'); } catch (e) { /* ignore */ } });
     $('brOpenFolder').addEventListener('click', () => window.sa.brollOpen({}));
     try { const bg = localStorage.getItem('brBg'); if (bg) $('brBg').value = bg; } catch (e) { /* ignore */ }
     try { const w = localStorage.getItem('brWhere'); if (w && $('brWhere').querySelector('option[value="' + w + '"]')) $('brWhere').value = w; } catch (e) { /* ignore */ }
     brWhereChanged();
+    setInterval(() => { if (state.tab === 'broll') brShowDetected(); }, 300);
     window.sa.onBrollProgress((d) => {
         if (!d) return;
         if (d.phase === 'render') { $('brBar').style.width = Math.round((d.p || 0) * 100) + '%'; brStatus(d.text + (d.p ? ' ' + Math.round(d.p * 100) + '%' : ''), ''); }
@@ -450,6 +616,6 @@ function initBrollTab() {
 // The tab was opened: effects once, the playhead frame and the placed list every time.
 async function brollTabShown() {
     if (!brUI.ready) { brUI.ready = await brLoadEffects(); }
-    if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg();
+    if (brView() === 'panel') { if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg(); }
     brLoadPlaced();
 }

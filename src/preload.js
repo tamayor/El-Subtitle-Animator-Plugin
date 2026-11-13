@@ -127,6 +127,7 @@ contextBridge.exposeInMainWorld('sa', {
     brollPlaceMany: (list) => ipcRenderer.invoke('broll:placeMany', list || []),
     brollAdjust: (o) => ipcRenderer.invoke('broll:adjust', o || {}),
     brollRemove: (o) => ipcRenderer.invoke('broll:remove', o || {}),
+    brollFinalize: (o) => ipcRenderer.invoke('broll:finalize', o || {}),
     brollList: (o) => ipcRenderer.invoke('broll:list', o || {}),
     brollSuggest: (o) => ipcRenderer.invoke('broll:suggest', o || {}),
     brollCancel: () => ipcRenderer.invoke('broll:cancel'),

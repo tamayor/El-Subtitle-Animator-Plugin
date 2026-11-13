@@ -14,11 +14,21 @@ import { MoneyCounter } from './effects/MoneyCounter';
 import { TagStack } from './effects/TagStack';
 import { ChapterList } from './effects/ChapterList';
 import { ReceiptPrinter } from './effects/ReceiptPrinter';
+import { VersusSplit } from './effects/VersusSplit';
+import { StatBar } from './effects/StatBar';
+import { MarkerHighlight } from './effects/MarkerHighlight';
+import { QuoteCard } from './effects/QuoteCard';
+import { StampVerdict } from './effects/StampVerdict';
+import { YearTimeline } from './effects/YearTimeline';
+import { KeyCombo } from './effects/KeyCombo';
+import { UrlBar } from './effects/UrlBar';
 
 const COMPONENTS: Record<string, React.FC<any>> = {
     'live-cursor': LiveCursor, 'comment-drop': CommentDrop, 'predict-keys': PredictKeys, 'day-dial': DayDial,
     'post-wall': PostWall, 'voice-note': VoiceNote, 'sketch-words': SketchWords, 'money-counter': MoneyCounter,
-    'tag-stack': TagStack, 'chapter-list': ChapterList, 'receipt-printer': ReceiptPrinter
+    'tag-stack': TagStack, 'chapter-list': ChapterList, 'receipt-printer': ReceiptPrinter,
+    'versus-split': VersusSplit, 'stat-bar': StatBar, 'marker-highlight': MarkerHighlight, 'quote-card': QuoteCard,
+    'stamp-verdict': StampVerdict, 'year-timeline': YearTimeline, 'key-combo': KeyCombo, 'url-bar': UrlBar
 };
 
 function defaultsFor(e: any) {

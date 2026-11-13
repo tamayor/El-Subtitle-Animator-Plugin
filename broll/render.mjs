@@ -106,6 +106,8 @@ async function run(job) {
         await renderMedia({
             serveUrl: url, composition, inputProps, outputLocation: tmp, overwrite: true, puppeteerInstance: browser,
             codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png', muted: true,
+            // draft: a smaller file for scrubbing in Resolve (the clip is set to Fit there); finalize re-renders at 1
+            scale,
             onProgress: ({ progress }) => say('PROGRESS', { id: job.id, p: Math.round(progress * 100) / 100 })
         });
         fs.renameSync(tmp, job.out);

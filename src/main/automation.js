@@ -299,6 +299,7 @@ const TOOLS = {
     },
     async adjust_broll(args) { await waitFree(20000); return require('./broll').brollAdjust(null, args || {}); },
     remove_broll(args) { return require('./broll').brollRemove(null, args || {}); },
+    async finalize_broll(args) { await waitFree(20000); return require('./broll').brollFinalize(null, args || {}); },
     async sync_broll(args) { await waitFree(20000); return require('./broll').brollSync(null, args || {}); },
     suggest_broll(args) { return require('./broll').brollSuggest(null, args || {}); },
     // Cut tab (auto-cut.js): analyse the source track (nothing changes), then build: true makes the new "(cut)"

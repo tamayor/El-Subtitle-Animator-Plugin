@@ -105,6 +105,7 @@ const SAFE_HANDLERS = {
     'broll:placeMany': BROLL.brollPlaceMany,
     'broll:adjust': BROLL.brollAdjust,
     'broll:remove': BROLL.brollRemove,
+    'broll:finalize': BROLL.brollFinalize,
     'broll:list': BROLL.brollList,
     'broll:suggest': BROLL.brollSuggest,
     'broll:cancel': () => BROLL.brollCancel(),

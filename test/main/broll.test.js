@@ -54,3 +54,39 @@ test('suggestions keep the gap, the cap and time order', () => {
 test('a line with nothing to show gets nothing', () => {
     assert.equal(brollSuggestFromTexts([sub(1, 'and that is why I think so', 0)], {}, REG, FPS).length, 0);
 });
+
+test('new auto-generated effects match and extract props from subtitles', () => {
+    const out = brollSuggestFromTexts([
+        sub(1, 'Use DaVinci Resolve instead of Premiere', 0),
+        sub(2, '73% of viewers drop off early', 6),
+        sub(3, 'The secret is pacing', 12),
+        sub(4, 'That is a total myth about hashtags', 18),
+        sub(5, 'Everything changed in 2020', 24),
+        sub(6, 'Press Command K to open it', 30),
+        sub(7, 'Go to remotion.dev right now', 36),
+        sub(8, 'Remember this: "Simplicity beats complexity"', 42),
+        sub(9, 'Literally focus on storytelling', 48)
+    ], { max: 20, minGap: 1 }, REG, FPS);
+    const by = Object.fromEntries(out.map(s => [s.subtitle, s]));
+    assert.equal(by[1].effect, 'versus-split');
+    assert.equal(by[1].props.left, 'Premiere');
+    assert.equal(by[1].props.right, 'Use DaVinci Resolve');
+    assert.equal(by[1].props.strikeLeft, true);
+    assert.equal(by[2].effect, 'stat-bar');
+    assert.equal(by[2].props.percent, 73);
+    assert.equal(by[3].effect, 'marker-highlight');
+    assert.equal(by[3].props.redact, true);
+    assert.equal(by[4].effect, 'stamp-verdict');
+    assert.equal(by[4].props.verdict, 'MYTH');
+    assert.equal(by[4].props.isTrue, false);
+    assert.equal(by[5].effect, 'year-timeline');
+    assert.equal(by[5].props.year, 2020);
+    assert.equal(by[6].effect, 'key-combo');
+    assert.deepEqual(by[6].props.keys, ['⌘', 'K']);
+    assert.equal(by[7].effect, 'url-bar');
+    assert.equal(by[7].props.url, 'remotion.dev');
+    assert.equal(by[8].effect, 'quote-card');
+    assert.equal(by[8].props.body, 'Simplicity beats complexity');
+    assert.equal(by[9].effect, 'sketch-words');
+    assert.equal(by[9].props.word, 'storytelling');
+});

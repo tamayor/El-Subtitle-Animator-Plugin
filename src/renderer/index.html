@@ -1037,7 +1037,12 @@
                         <div class="cr-step">
                             <div class="cr-num">2</div>
                             <div class="cr-body">
-                                <div class="cr-title">Settings <span class="cr-sub">the preview redraws as you type</span></div>
+                                <div class="cr-title br-settings-title">Settings <span class="cr-sub" id="brSettingsSub">the preview redraws as you type</span>
+                                    <span class="grow"></span>
+                                    <label class="br-view" title="Timeline: Place puts a half-size draft on the timeline and every change re-renders it there, so you watch it in Resolve's viewer. Panel: a still preview here.">
+                                        <span>Watch in</span>
+                                        <select id="brView"><option value="timeline">Resolve timeline</option><option value="panel">Panel preview</option></select></label>
+                                </div>
                                 <div class="br-setup">
                                     <div class="br-form">
                                         <div id="brFields" class="cut-grid br-fields"></div>
@@ -1077,12 +1082,14 @@
                                             <option value="marks">Mark In → Mark Out</option>
                                             <option value="playhead">At the playhead</option>
                                         </select></label>
+                                    <div class="cut-f br-detected" id="brDetWrap" title="Follows the playhead in Resolve: this is the subtitle the clip goes on"><span>Goes on</span><div id="brDetected" class="br-detected-box">—</div></div>
                                     <label class="cut-f" id="brSubWrap"><span>Subtitle #</span><input id="brSub" type="number" min="1" step="1"></label>
                                     <label class="cut-f" id="brSecWrap"><span>Seconds</span><input id="brSec" type="number" min="0.5" max="12" step="0.1" placeholder="effect's"></label>
                                     <label class="cut-f"><span>Track</span><input id="brTrack" type="number" min="0" step="1" placeholder="auto (V2+)"></label>
-                                    <label class="cut-f" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic, then fades out)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
+                                    <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic, then fades out)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
                                 </div>
                                 <div class="cut-checks">
+                                    <label id="brDraftWrap" title="Renders at half size so it is quicker to make and to scrub in Resolve's viewer. The clip is set to Fit (fills the frame, a little soft) and coloured orange. Finalize it in Placed before you export."><input id="brDraft" type="checkbox"> Draft (fast, half size) <span class="cr-sub">check it in the timeline, Finalize before export</span></label>
                                     <label title="Times the clip so its animation has fully landed exactly as the key word is spoken (the comment keyword, the number, the drawn word). Uses the word transcription when there is one, else the word's place in the subtitle."><input id="brLand" type="checkbox"> Land on the spoken word <span class="cr-sub">the animation finishes as the word is said</span></label>
                                 </div>
                                 <div class="pr-bar">
@@ -1092,6 +1099,7 @@
                                     <span class="grow"></span>
                                     <button id="brCancel" class="ghost hidden">Cancel</button>
                                 </div>
+                                <div id="brLiveNote" class="br-live-note hidden"></div>
                                 <div class="cut-bar"><i id="brBar"></i></div>
                                 <div id="brStatus" class="status"></div>
                             </div>
@@ -1125,10 +1133,12 @@
                         <div class="pr-bar">
                             <span class="cr-sub">On this timeline. Edit re-renders the clip in place; in Claude say e.g. “adjust_broll &lt;id&gt; bigger, number 2,400”.</span>
                             <span class="grow"></span>
+                            <button id="brFinalizeAll" class="primary hidden" title="Re-render every draft on this timeline at full size, in place">Finalize drafts</button>
                             <button id="brSyncAll" class="ghost" title="Re-time every B-roll on this timeline so each animation lands as its key word is spoken">Sync all to words</button>
                             <button id="brRefresh" class="ghost">Refresh</button>
                             <button id="brOpenFolder" class="ghost" title="Show the rendered files in Finder">Folder</button>
                         </div>
+                        <div id="brDraftNote" class="br-draft-note hidden"></div>
                         <div id="brPlacedList" class="br-list"></div>
                         <div id="brPlacedStatus" class="status"></div>
                     </section>

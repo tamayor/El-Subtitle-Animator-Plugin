@@ -30,7 +30,7 @@ Workflow for editing a video:
 6. Call place for each subtitle (once placed, its subtitle clip is disabled so it does not show under the animation; remove_placed re-enables it). Long lines: pass text with a "\\n" line break, and if the text would run off the frame pass textSize (e.g. 0.66) rather than scale. After the first few, call get_frame (at: "end", when all words are in) to check the result, and use remove_placed to fix mistakes.
 Measuring (ffmpeg, local): find_cuts before placing over B-roll (shots with bright: true are light cutaways where white text disappears: accent colour, empty top space, and split a caption that crosses a cut at the cut frame); find_beats when there is music (land pops and hits on supported beats); find_pauses / transcribe_words for exact phrase cuts (regroup snaps to pauses by itself); break_lines for a "\n" break that keeps phrases together. After placing short Pop / Drop / Glitch clips or when a render looks blank, run check_render on their itemIds (black tail, static entrance).
 7. Report what you placed, where, and any warnings.
-B-roll overlays (motion graphics over the footage, B-roll tab): list_broll for the effects and their fields; suggest_broll proposes subtitle -> effect pairs with props from the words (refine them, keep only the strong ones, at most about one every 4 s); broll_preview renders a still to look at first; place_broll renders at the timeline's size and places it (items: several in a row); adjust_broll changes a placed one by id ("bigger", "other number", "move left", "longer") without moving it; remove_broll deletes it. Put B-roll where the captions and faces are not (get_frame).
+B-roll overlays (motion graphics over the footage, B-roll tab): list_broll for the effects and their fields; suggest_broll proposes subtitle -> effect pairs with props from the words (refine them, keep only the strong ones, at most about one every 4 s); broll_preview renders a still to look at first; place_broll renders at the timeline's size and places it (items: several in a row); adjust_broll changes a placed one by id ("bigger", "other number", "move left", "longer") without moving it; remove_broll deletes it. draft: true on place_broll renders half size (quick to check in Resolve's viewer); finalize_broll { all: true } brings drafts to full size before export. Put B-roll where the captions and faces are not (get_frame).
 Keeping Resolve responsive: send place / place_stack / get_frame / remove_placed calls ONE AT A TIME (wait for each result; never several in one batch). Never read or change a placed clip's Fusion composition with a Resolve script (GetFusionCompByIndex, GetToolList, GetInput, SetInput): a script read of a follower-driven text freezes Resolve for good. The sizes and fonts actually applied are in place's "inspector" result and in inspect_placed; enabled subtitles are in list_subtitles (enabled / activeOnly).
 Show the user your plan before placing more than about 10 clips.
 
@@ -542,6 +542,7 @@ const TOOLS = [
             place: { type: 'boolean', description: 'false = render the file only' },
             extend: { type: 'number', description: 'Make the clip this many seconds longer than the subtitle / marks / landing (default 0)' },
             landOnWord: { type: 'boolean', description: 'Time it so the animation lands exactly as the key word is spoken (the comment keyword, the number, the drawn word...): the clip may start up to 1.6 s earlier' },
+            draft: { type: 'boolean', description: 'Draft: render at half size (quicker) to check in Resolve\'s viewer; the clip is set to Fit and coloured orange. finalize_broll re-renders it at full size in place before export' },
             items: { type: 'array', items: { type: 'object' }, description: 'Several placements, each with the fields above' },
             wait: { type: 'number', description: 'With items: seconds to wait before returning (default 150)' }
         })
@@ -555,8 +556,14 @@ const TOOLS = [
             effect: { type: 'string', description: 'Switch to another effect' },
             seconds: { type: 'number', description: 'New length' },
             frames: { type: 'integer', description: 'New length in frames' },
-            extend: { type: 'number', description: 'Add this many seconds to its current length' }
+            extend: { type: 'number', description: 'Add this many seconds to its current length' },
+            draft: { type: 'boolean', description: 'true = re-render as a half-size draft, false = full size (finalize); left out, it stays as it is' }
         }, ['id'])
+    },
+    {
+        name: 'finalize_broll',
+        description: 'Re-render draft (half-size) B-roll at full size and swap the media under each clip (same place, track and timing; the orange draft colour is cleared). One id, or all: true for every draft on the open timeline. Do this before export; list_broll { placed: true } shows draft: true on drafts.',
+        inputSchema: S({ id: { type: 'string', description: 'Record id' }, all: { type: 'boolean', description: 'Every draft on this timeline' } })
     },
     {
         name: 'remove_broll',

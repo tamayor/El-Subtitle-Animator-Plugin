@@ -109,7 +109,7 @@
         { "key": "ink", "type": "color", "label": "Pencil", "default": "#7a2a1e" },
         { "key": "paper", "type": "bool", "label": "Paper card behind", "default": false }
       ],
-      "triggers": []
+      "triggers": ["\\b(literally|the word|one word|focus on|key word)\\b"]
     },
     {
       "id": "money-counter",
@@ -174,6 +174,118 @@
         { "key": "ink", "type": "color", "label": "Ink", "default": "#1d1d1f" }
       ],
       "triggers": ["\\b(receipts?|bill|invoice|the cost|costs? (you|me|us)|price (tag|list)|headlines?|breaking|in the news|itemi[sz]ed|line by line|add(s|ed)? up)\\b"]
+    },
+    {
+      "id": "versus-split",
+      "name": "Versus split",
+      "description": "Two side-by-side cards with a VS or arrow badge (and optional strike-through on the left). For comparisons, \"X vs Y\", \"instead of X, use Y\".",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.28 },
+      "fields": [
+        { "key": "left", "type": "text", "label": "Left", "default": "Old way" },
+        { "key": "right", "type": "text", "label": "Right", "default": "New way" },
+        { "key": "strikeLeft", "type": "bool", "label": "Strike left side", "default": true },
+        { "key": "leftColor", "type": "color", "label": "Strike colour", "default": "#e05252" },
+        { "key": "dark", "type": "bool", "label": "Dark cards", "default": false }
+      ],
+      "triggers": ["\\b(vs\\.?|versus|instead of|rather than|better than|compared to)\\b", "\\bstop doing\\b.*\\bstart\\b"]
+    },
+    {
+      "id": "stat-bar",
+      "name": "Stat bar",
+      "description": "An animated percentage or ratio progress bar with a big readout and label. For \"73% of\", \"9 out of 10\", \"dropped by 25%\".",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.26 },
+      "fields": [
+        { "key": "percent", "type": "number", "label": "Percent", "default": 73, "min": 0, "max": 100, "step": 1 },
+        { "key": "valueText", "type": "text", "label": "Shown value", "default": "73%" },
+        { "key": "label", "type": "text", "label": "Label", "default": "of viewers" },
+        { "key": "down", "type": "bool", "label": "Downward / red", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b\\d{1,3}(?:\\.\\d+)?\\s*(?:%|\\bpercent\\b)", "\\b\\d+\\s+out of\\s+\\d+\\b"]
+    },
+    {
+      "id": "marker-highlight",
+      "name": "Marker highlight",
+      "description": "A clean phrase pill where a highlighter swipe (or black redaction bar) sweeps across the focus word.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.24, "accent": "#f6e05e" },
+      "fields": [
+        { "key": "phrase", "type": "text", "label": "Phrase", "default": "The secret is timing" },
+        { "key": "focusWord", "type": "text", "label": "Focus word", "default": "timing" },
+        { "key": "redact", "type": "bool", "label": "Redact instead", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(the secret is|never do|the truth (is|about)|nobody talks about|don't ever|biggest mistake|hidden|banned)\\b"]
+    },
+    {
+      "id": "quote-card",
+      "name": "Quote card",
+      "description": "An editorial quote card or a top notification/alert banner. For quotes, rules of thumb, warnings and reminders.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.22 },
+      "fields": [
+        { "key": "title", "type": "text", "label": "Header", "default": "Rule of thumb" },
+        { "key": "body", "type": "text", "label": "Body", "default": "Keep it simple" },
+        { "key": "author", "type": "text", "label": "Author", "default": "" },
+        { "key": "alert", "type": "bool", "label": "Alert banner", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["[\"“][^\"”]{6,}[\"”]", "\\b(rule of thumb|remember this|famous quote|warning|reminder|just announced)\\b"]
+    },
+    {
+      "id": "stamp-verdict",
+      "name": "Stamp verdict",
+      "description": "A claim card with an animated MYTH or FACT stamp that slams onto it. For myth-busting and fact checks.",
+      "seconds": 2.8,
+      "defaults": { "x": 0.5, "y": 0.28 },
+      "fields": [
+        { "key": "claim", "type": "text", "label": "Claim", "default": "More hashtags = more views" },
+        { "key": "verdict", "type": "text", "label": "Stamp", "default": "MYTH" },
+        { "key": "isTrue", "type": "bool", "label": "True / Fact", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(myth|a lie|total lie|completely wrong|fact check|stop believing|doesn't work|actually works)\\b"]
+    },
+    {
+      "id": "year-timeline",
+      "name": "Year timeline",
+      "description": "A horizontal date scrubber that rolls to the target year and highlights it. For \"in 2019\", \"since 2020\", \"5 years ago\".",
+      "seconds": 2.8,
+      "defaults": { "x": 0.5, "y": 0.25 },
+      "fields": [
+        { "key": "year", "type": "number", "label": "Year", "default": 2020, "min": 1800, "max": 2200, "step": 1 },
+        { "key": "caption", "type": "text", "label": "Caption", "default": "Everything changed" },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(in|since|by|from|back in|until)\\s+(19\\d{2}|20\\d{2})\\b", "\\b\\d+\\s+years? ago\\b"]
+    },
+    {
+      "id": "key-combo",
+      "name": "Key combo",
+      "description": "Tactile keycaps that press down in sequence. For keyboard shortcuts and hotkeys.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.74 },
+      "fields": [
+        { "key": "keys", "type": "list", "label": "Keys", "default": ["⌘", "K"] },
+        { "key": "label", "type": "text", "label": "Label", "default": "Quick command" },
+        { "key": "dark", "type": "bool", "label": "Dark keys", "default": false }
+      ],
+      "triggers": ["\\b(press|hit|hold|shortcut|hotkey)\\b.*\\b(command|cmd|ctrl|control|shift|alt|option|enter|return|space|tab|esc|escape|[a-z])\\b", "\\b(command|cmd|ctrl|control)\\s*\\+?\\s*[a-z0-9]\\b"]
+    },
+    {
+      "id": "url-bar",
+      "name": "URL bar",
+      "description": "A browser address pill that types out a domain or link CTA with an open-link button.",
+      "seconds": 2.8,
+      "defaults": { "x": 0.5, "y": 0.78 },
+      "fields": [
+        { "key": "url", "type": "text", "label": "URL or CTA", "default": "example.com" },
+        { "key": "cta", "type": "text", "label": "Button", "default": "Visit" },
+        { "key": "dark", "type": "bool", "label": "Dark bar", "default": false }
+      ],
+      "triggers": ["\\b[a-z0-9-]+\\.(com|io|ai|org|app|dev|co|net)\\b", "\\b(link in bio|go to the website|check the link)\\b"]
     }
   ]
 }

@@ -46,6 +46,7 @@
     "brollAdjust:function",
     "brollCancel:function",
     "brollEffects:function",
+    "brollFinalize:function",
     "brollFrame:function",
     "brollFromPlayhead:function",
     "brollLandingPlan:function",
@@ -61,7 +62,8 @@
     "brollSuggest:function",
     "brollSuggestFromTexts:function",
     "brollSync:function",
-    "brollTrace:function"
+    "brollTrace:function",
+    "draftScale:function"
   ],
   "clip-colors-db.js": [
     "subtitleColorsFromDb:function"

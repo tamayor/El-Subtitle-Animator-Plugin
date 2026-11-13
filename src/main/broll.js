@@ -10,10 +10,13 @@
 //   Pool bin of the same name. Each placed clip is recorded (effect + props) in <data>/_app/broll-placed.json, so it
 //   can be adjusted later: the new render replaces the clip's media (MediaPoolItem.ReplaceClip), and the clip keeps its
 //   place, track and any edits to its position; only a new length re-places it.
+// - Draft (draft: true): rendered at half size (draftScale) so it is quicker to make and scrub in Resolve's viewer;
+//   the clip is set to Fit so it still fills the frame, and marked with an orange clip colour. Finalize
+//   (brollFinalize) re-renders it at full size and swaps the media under the clip (ReplaceClip), same place and track.
 
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
-    brollStatus, brollCancel, brollOpenFolder, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead
+    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead
 };
 
 const fs = require('fs');
@@ -130,8 +133,15 @@ function brollEffects() {
     const last = readJson(PREFS_FILE, {}).last || {};
     return {
         common: reg.common,
-        effects: reg.effects.map(e => ({ id: e.id, name: e.name, description: e.description, seconds: e.seconds, fields: e.fields,
-            defaults: mergedProps(reg, e, {}, false), last: last[e.id] || null })),
+        effects: reg.effects.map(e => {
+            let thumb = null;
+            try {
+                const p = path.join(dir, 'previews', e.id + '.png');
+                if (fs.existsSync(p)) thumb = 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
+            } catch (err) { /* ignore */ }
+            return { id: e.id, name: e.name, description: e.description, seconds: e.seconds, fields: e.fields,
+                defaults: mergedProps(reg, e, {}, false), last: last[e.id] || null, thumb };
+        }),
         ready: { node: findNode(), project: fs.existsSync(path.join(dir, 'node_modules', 'remotion')), dir },
         status: brollStatus()
     };
@@ -326,6 +336,23 @@ async function rangeFor(tl, meta, o, e) {
     return { start, end, frames: end - start, subtitle };
 }
 
+// Draft size: half, or the nearest smaller step where both sides stay whole even numbers (ProRes, odd timelines).
+function draftScale(w, h) {
+    for (const s of [0.5, 0.4, 0.25, 0.2]) {
+        const a = w * s, b = h * s;
+        if (Number.isInteger(a) && Number.isInteger(b) && a % 2 === 0 && b % 2 === 0) return s;
+    }
+    return 0.5;
+}
+const DRAFT_COLOR = 'Orange';
+
+// A draft clip fills the frame at Fit (same aspect as the timeline); its colour marks it until it is finalized.
+async function markDraft(item, draft) {
+    if (!item) return;
+    try { await item.SetProperty('Scaling', 2); } catch (e) { /* 2 = Fit; harmless at full size too */ }
+    try { if (draft) await item.SetClipColor(DRAFT_COLOR); else await item.ClearClipColor(); } catch (e) { /* only a marker */ }
+}
+
 function fileFor(dir, effect, uid, v) { return path.join(dir, effect + '-' + uid + (v > 1 ? '-v' + v : '') + '.mov'); }
 
 // ------------------------------------------------------------------ preview (a still, no Resolve change)
@@ -433,12 +460,14 @@ async function brollPlace(event, o) {
     const uid = crypto.randomBytes(3).toString('hex');
     const out = fileFor(dir, e.id, uid, 1);
     cancelAsked = false;
-    const label = e.name + (r.marks ? ' In → Out' : r.subtitle ? ' on #' + r.subtitle.index : '');
+    const draft = !!o.draft;
+    const scale = draft ? draftScale(meta.width, meta.height) : 1;
+    const label = (draft ? 'draft ' : '') + e.name + (r.marks ? ' In → Out' : r.subtitle ? ' on #' + r.subtitle.index : '');
     current = { phase: 'render', effect: e.id, p: 0, text: 'Rendering ' + label + '…' };
     send(current);
     const t0 = Date.now();
     try {
-        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames: r.frames, out },
+        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames: r.frames, out, scale },
             (p) => { current = { ...current, p }; send(current); });
     } catch (err) {
         current = { phase: 'error', effect: e.id, text: cancelAsked ? 'Cancelled' : String(err.message || err) };
@@ -456,23 +485,23 @@ async function brollPlace(event, o) {
     send(current);
     const tlNow = await project.GetCurrentTimeline();
     if (!tlNow || (await tlNow.GetName()) !== tlName) throw new Error('The timeline changed while rendering; the file is in ' + dir);
-    const placed = await placeFile(project, tlNow, out, r.start, r.frames, Number(o.track) || 0);
+    const placed = await placeFile(project, tlNow, out, r.start, r.frames, Number(o.track) || 0, draft);
     const rec = {
         id: uid, effect: e.id, name: e.name, props, timeline: tlName, start: r.start, frames: r.frames, fps: meta.fps,
         width: meta.width, height: meta.height, file: out, version: 1, itemId: placed.itemId, track: placed.track,
-        subtitle: r.subtitle, created: new Date().toISOString()
+        subtitle: r.subtitle, draft: draft || undefined, created: new Date().toISOString()
     };
     const all = readJson(PLACED_FILE, []);
     all.push(rec);
     writeJson(PLACED_FILE, all.slice(-500));
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
-    current = { phase: 'done', effect: e.id, id: uid, text: label + ' on ' + placed.track + ' (' + sec + ' s)' + (placed.notes.length ? ' · ' + placed.notes.join('; ') : '') };
+    current = { phase: 'done', effect: e.id, id: uid, text: label + ' on ' + placed.track + ' (' + sec + ' s)' + (draft ? ' · half size: Finalize before export' : '') + (placed.notes.length ? ' · ' + placed.notes.join('; ') : '') };
     send({ ...current, placed: rec });
     dlog('BROLL-PLACED', e.id, uid, placed.track, r.start, r.frames, sec + 's');
     return { ...rec, notes: placed.notes, seconds: Number(sec), landed: landed || undefined };
 }
 
-async function placeFile(project, tl, file, start, frames, wantedTrack) {
+async function placeFile(project, tl, file, start, frames, wantedTrack, draft) {
     const { mp, mpi } = await importFile(project, file);
     const notes = [];
     const vt = await pickTrack(tl, 'video', wantedTrack || 0, start, start + frames, 2, notes);
@@ -480,6 +509,7 @@ async function placeFile(project, tl, file, start, frames, wantedTrack) {
     if (!v || !v[0]) throw new Error('Resolve did not place the clip on V' + vt);
     let itemId = null;
     try { itemId = String(await v[0].GetUniqueId()); } catch (e) { /* adjust falls back to the file name */ }
+    await markDraft(v[0], draft);
     return { itemId, track: 'V' + vt, notes };
 }
 
@@ -524,11 +554,15 @@ async function brollAdjust(event, o) {
     const v = (rec.version || 1) + 1;
     const out = fileFor(path.dirname(rec.file), e.id, rec.id, v);
     cancelAsked = false;
-    current = { phase: 'render', effect: e.id, id: rec.id, p: 0, text: 'Re-rendering ' + e.name + '…' };
+    // draft: true / false switches; left out, the clip stays as it is (Sync and edits keep a draft a draft)
+    const draft = o.draft === undefined ? !!rec.draft : !!o.draft;
+    const scale = draft ? draftScale(meta.width, meta.height) : 1;
+    const verb = rec.draft && !draft ? 'Finalizing ' : 'Re-rendering ' + (draft ? 'draft ' : '');
+    current = { phase: 'render', effect: e.id, id: rec.id, p: 0, text: verb + e.name + '…' };
     send(current);
     const t0 = Date.now();
     try {
-        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames, out },
+        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames, out, scale },
             (p) => { current = { ...current, p }; send(current); });
     } catch (err) {
         current = { phase: 'error', effect: e.id, text: cancelAsked ? 'Cancelled' : String(err.message || err) };
@@ -537,29 +571,64 @@ async function brollAdjust(event, o) {
     }
     if (cancelAsked) throw new Error('Cancelled');
     let how;
+    const oldFile = rec.file, wasDraft = !!rec.draft;
+    let oldMpi = null;
     if (frames === Number(curDur) && e.id === rec.effect && newStart === Number(curStart)) {
         // same length: swap the media under the clip; it keeps its place, track and transform
         const mpi = await item.GetMediaPoolItem();
         const ok = mpi && await mpi.ReplaceClip(out);
         if (!ok) throw new Error('Resolve could not swap the media (ReplaceClip). The new render is ' + out);
+        await markDraft(item, draft);
         how = 'replaced';
     } else {
         // new length or effect: a new clip in the old one's place
+        try { oldMpi = await item.GetMediaPoolItem(); } catch (err) { /* only for the draft clean-up below */ }
         const trackInfo = await item.GetTrackTypeAndIndex();
         const track = Array.isArray(trackInfo) ? Number(trackInfo[1]) : 0;
         await tl.DeleteClips([item], false);
-        const placed = await placeFile(project, tl, out, newStart, frames, track);
+        const placed = await placeFile(project, tl, out, newStart, frames, track, draft);
         rec.itemId = placed.itemId; rec.track = placed.track;
         how = 'replaced with a new clip (' + (newStart !== Number(curStart) ? 'moved' : frames !== Number(curDur) ? 'new length' : 'new effect') + ')';
     }
-    Object.assign(rec, { effect: e.id, name: e.name, props, file: out, version: v, frames, start: newStart, updated: new Date().toISOString() });
+    Object.assign(rec, { effect: e.id, name: e.name, props, file: out, version: v, frames, start: newStart, draft: draft || undefined, updated: new Date().toISOString() });
     all[i] = rec;
     writeJson(PLACED_FILE, all);
     saveLast(e.id, props);
+    // A replaced draft is throwaway (live updates make one per change): drop its file, and its Media Pool item when
+    // the clip went in as a new one. Full-size files are kept (undo / other timelines).
+    if (wasDraft && oldFile && oldFile !== out) {
+        try { if (oldMpi) await project.GetMediaPool().DeleteClips([oldMpi]); } catch (err) { /* stays in the bin */ }
+        try { fs.rmSync(oldFile, { force: true }); } catch (err) { /* keep it */ }
+    }
+    // live: Resolve's viewer keeps the old picture until the playhead moves; set it where it is to redraw
+    if (o.live) { try { const tc = await tl.GetCurrentTimecode(); if (tc) await tl.SetCurrentTimecode(tc); } catch (err) { /* only a redraw */ } }
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
-    current = { phase: 'done', effect: e.id, id: rec.id, text: e.name + ' updated (' + how + ', ' + sec + ' s)' };
+    const what = rec.draft ? ' (draft)' : o.draft === false ? ' finalized at full size' : ' updated';
+    current = { phase: 'done', effect: e.id, id: rec.id, text: e.name + what + ' (' + how + ', ' + sec + ' s)' };
     send({ ...current, placed: rec });
     return { ...rec, how, seconds: Number(sec) };
+}
+
+// Finalize: re-render drafts at full size and swap them in place. One id, or all: true for this timeline's drafts.
+async function brollFinalize(event, o) {
+    o = o || {};
+    const { tl, name } = await currentTl();
+    const all = readJson(PLACED_FILE, []);
+    let ids;
+    if (o.all) {
+        const mine = all.filter(r => r.timeline === name && r.draft && r.itemId);
+        const on = mine.length ? new Set((await findItemsByIds(tl, mine.map(r => r.itemId), 'video')).keys()) : new Set();
+        ids = mine.filter(r => on.has(r.itemId)).map(r => r.id);
+    } else ids = [all[findRec(all, String(o.id || ''))].id];
+    cancelAsked = false;
+    const results = [];
+    for (const id of ids) {
+        if (cancelAsked) break;
+        try { const r = await brollAdjust(event, { id, draft: false }); results.push({ id, ok: true, how: r.how, seconds: r.seconds }); }
+        catch (e) { results.push({ id, ok: false, error: String(e.message || e) }); }
+    }
+    cancelAsked = false;
+    return { finalized: results.filter(r => r.ok).length, results, note: ids.length ? undefined : 'No drafts on this timeline.' };
 }
 
 async function brollRemove(event, o) {
@@ -591,7 +660,8 @@ async function brollList(event, o) {
         if (mine.length) ids = new Set((await findItemsByIds(t.tl, mine, 'video')).keys());
     } catch (e) { /* no timeline */ }
     const list = all.filter(r => (o && o.all) || r.timeline === name).map(r => ({ ...r, onTimeline: r.timeline === name ? ids.has(r.itemId) : undefined }));
-    return { timeline: name, placed: list.reverse() };
+    const drafts = list.filter(r => r.draft && r.onTimeline).length;
+    return { timeline: name, placed: list.reverse(), drafts, note: drafts ? drafts + ' draft (half-size) B-roll on this timeline: finalize_broll { all: true } before export.' : undefined };
 }
 
 function brollOpenFolder(event, o) {
@@ -622,7 +692,15 @@ const KEY_WORD = {
     'tag-stack': p => firstWordOf((p.tags || []).slice(-1)[0]),
     'chapter-list': p => firstWordOf((p.items || [])[Math.max(0, (Number(p.active) || 1) - 1)]),
     'live-cursor': () => null,
-    'receipt-printer': () => null
+    'receipt-printer': () => null,
+    'versus-split': p => firstWordOf(p.right),
+    'stat-bar': p => String(Math.round(Number(p.percent) || 0)),
+    'marker-highlight': p => p.focusWord,
+    'quote-card': p => firstWordOf(p.body),
+    'stamp-verdict': p => p.verdict,
+    'year-timeline': p => String(Math.round(Number(p.year) || 0)),
+    'key-combo': p => (p.keys || []).slice(-1)[0] || null,
+    'url-bar': p => firstWordOf(p.url)
 };
 
 // Does a spoken / written word match the key? Numbers compare by digits ("$174,953" = "174953", "13K" = "13").
@@ -754,8 +832,9 @@ async function brollSync(event, o) {
 
 // ------------------------------------------------------------------ suggest
 
-const SCORE = { 'money-counter': 3, 'post-wall': 3, 'comment-drop': 3, 'day-dial': 2, 'predict-keys': 2, 'voice-note': 2,
-    'chapter-list': 1, 'receipt-printer': 2, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 0 };
+const SCORE = { 'stat-bar': 4, 'money-counter': 3, 'post-wall': 3, 'comment-drop': 3, 'stamp-verdict': 3, 'versus-split': 3,
+    'year-timeline': 3, 'key-combo': 3, 'url-bar': 3, 'day-dial': 2, 'predict-keys': 2, 'voice-note': 2,
+    'receipt-printer': 2, 'marker-highlight': 2, 'quote-card': 2, 'chapter-list': 1, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 1 };
 const WORDNUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
 function parseNumber(text) {
@@ -808,6 +887,90 @@ function propsFor(effect, text) {
         const m = /\b(?:number|step|tip|part|chapter)\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.exec(t);
         const n = m ? (WORDNUM[m[1].toLowerCase()] || Number(m[1])) : 1;
         return { active: n };
+    }
+    case 'sketch-words': {
+        const words = t.replace(/[^\p{L}\p{N}'\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+        const STOP = /^(the|a|an|and|or|but|so|to|of|in|on|at|for|is|it|its|this|that|i|you|we|they|he|she|my|your|be|was|are|with|just|like|if|then|literally|word|one|focus)$/i;
+        const pick = words.filter(w => !STOP.test(w)).sort((a, b) => b.length - a.length)[0] || words[0];
+        return pick ? { word: short(pick, 18), note: '' } : null;
+    }
+    case 'versus-split': {
+        const m = /\s+\b(?:vs\.?|versus|instead of|rather than|better than|compared to)\b\s+/i.exec(t);
+        if (m) {
+            const a = short(t.slice(0, m.index).replace(/^[,.\s]+|[,.\s]+$/g, ''), 26);
+            const b = short(t.slice(m.index + m[0].length).replace(/[.!?]+$/, ''), 26);
+            const swap = /instead of|rather than|better than/i.test(m[0]);
+            if (a && b) return { left: swap ? b : a, right: swap ? a : b, strikeLeft: swap };
+        }
+        const stopStart = /\bstop doing\s+(.+?)\s+(?:and\s+)?start\s+(?:doing\s+)?(.+)/i.exec(t);
+        if (stopStart) return { left: short(stopStart[1], 26), right: short(stopStart[2].replace(/[.!?]+$/, ''), 26), strikeLeft: true };
+        return null;
+    }
+    case 'stat-bar': {
+        const ratio = /\b(\d+)\s+out of\s+(\d+)\b/i.exec(t);
+        if (ratio) {
+            const num = Number(ratio[1]), den = Math.max(1, Number(ratio[2]));
+            const rest = t.replace(ratio[0], ' ').replace(/\s+/g, ' ').trim();
+            return { percent: Math.min(100, Math.round(num / den * 100)), valueText: `${num}/${den}`,
+                label: short(rest.replace(/^[,.\s]+|[,.\s]+$/g, ''), 28) || 'Total', down: /\b(dropped|fell|down|lost|failed)\b/i.test(t) };
+        }
+        const pct = /\b(\d{1,3}(?:\.\d+)?)\s*(?:%|\bpercent\b)/i.exec(t);
+        if (!pct) return null;
+        const p = Math.min(100, Math.max(0, Number(pct[1])));
+        const rest = t.replace(pct[0], ' ').replace(/\s+/g, ' ').trim();
+        return { percent: p, valueText: `${Math.round(p)}%`, label: short(rest.replace(/^[,.\s]+|[,.\s]+$/g, ''), 28) || 'Share',
+            down: /\b(dropped|fell|down|decreased|lost|less)\b/i.test(t) };
+    }
+    case 'marker-highlight': {
+        const clean = short(t.replace(/[.!?]+$/, ''), 48);
+        const words = clean.replace(/[^\p{L}\p{N}'\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+        const STOP = /^(the|a|an|and|or|but|so|to|of|in|on|at|for|is|it|its|this|that|i|you|we|they|he|she|my|your|be|was|are|with|just|like|if|then|about|talks|nobody)$/i;
+        const focus = words.filter(w => !STOP.test(w)).sort((a, b) => b.length - a.length)[0] || words[words.length - 1] || '';
+        return { phrase: clean, focusWord: focus, redact: /\b(secret|hidden|banned)\b/i.test(t) };
+    }
+    case 'quote-card': {
+        const q = /["“]([^"”]{6,})["”]/.exec(t);
+        const isAlert = /\b(warning|reminder|just announced)\b/i.exec(t);
+        if (isAlert) return { title: isAlert[1].toUpperCase(), body: short(t.replace(/[.!?]+$/, ''), 60), author: '', alert: true };
+        return { title: /\brule of thumb\b/i.test(t) ? 'Rule of thumb' : 'Remember', body: short((q ? q[1] : t).replace(/[.!?]+$/, ''), 64), author: '', alert: false };
+    }
+    case 'stamp-verdict': {
+        const isTrue = /\b(fact check|actually works)\b/i.test(t);
+        const claim = short(t.replace(/\b(that'?s a |this is a )?(myth|total lie|a lie|completely wrong|fact check)[:,\s-]*/ig, '').replace(/[.!?]+$/, ''), 56);
+        return { claim: claim || short(t, 56), verdict: isTrue ? 'FACT' : 'MYTH', isTrue };
+    }
+    case 'year-timeline': {
+        const ym = /\b(19\d{2}|20\d{2})\b/.exec(t);
+        let year = ym ? Number(ym[1]) : 0;
+        let raw = ym ? ym[0] : '';
+        if (!year) {
+            const ago = /\b(\d+)\s+years?\s+ago\b/i.exec(t);
+            if (ago) { year = new Date().getFullYear() - Number(ago[1]); raw = ago[0]; }
+        }
+        if (!year) return null;
+        const cap = t.replace(raw, ' ').replace(/\b(back in|in|since|by|from|until)\b/ig, ' ').replace(/\s+/g, ' ').trim();
+        return { year, caption: short(cap.replace(/^[,.\s]+|[,.\s]+$/g, ''), 36) };
+    }
+    case 'key-combo': {
+        const keys = [];
+        if (/\b(command|cmd)\b/i.test(t)) keys.push('⌘');
+        if (/\b(control|ctrl)\b/i.test(t)) keys.push('Ctrl');
+        if (/\b(option|alt)\b/i.test(t)) keys.push('⌥');
+        if (/\bshift\b/i.test(t)) keys.push('Shift');
+        const special = /\b(enter|return|space|tab|escape|esc)\b/i.exec(t);
+        if (special) {
+            const s = special[1].toLowerCase();
+            keys.push(s === 'enter' || s === 'return' ? '↵' : s === 'escape' || s === 'esc' ? 'Esc' : s[0].toUpperCase() + s.slice(1));
+        } else {
+            const k = /\b(?:command|cmd|ctrl|control|shift|option|alt|press|hit|hold)\s*\+?\s*([a-z0-9])\b/i.exec(t);
+            if (k) keys.push(k[1].toUpperCase());
+        }
+        if (!keys.length) return null;
+        return { keys, label: short(t.replace(/[.!?]+$/, ''), 28) };
+    }
+    case 'url-bar': {
+        const dom = /\b([a-z0-9-]+\.(?:com|io|ai|org|app|dev|co|net))\b/i.exec(t);
+        return { url: dom ? dom[1].toLowerCase() : 'link in bio', cta: dom ? 'Visit' : 'Open' };
     }
     default: return {};
     }

@@ -180,7 +180,13 @@ async function sweep() {
         // reads only when glass.json lists captions for this timeline). At most every GLASS_GC_MS.
         if (!state.applying && Date.now() - lastGlassGc >= GLASS_GC_MS) {
             lastGlassGc = Date.now();
-            try { await bridgeCall('glass_gc', {}, 15000); } catch (e) { /* next sweep */ }
+            const fs = require('fs'), path = require('path');
+            const glassFile = path.join(require('./config').DATA_DIR, 'glass.json');
+            let hasGlass = false;
+            try { hasGlass = fs.statSync(glassFile).size > 4; } catch (e) { /* no glass.json yet */ }
+            if (hasGlass) {
+                try { await bridgeCall('glass_gc', {}, 15000); } catch (e) { /* next sweep */ }
+            }
         }
     } catch (e) {
         /* Resolve busy, another page or no timeline: next sweep */

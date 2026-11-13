@@ -75,11 +75,6 @@ def _run(cv2, frames, path_of, anchor_img, box_px, size, report):
     for f in frames:
         img = cv2.imread(path_of(f))
         ok, b = (False, None) if img is None else tr.update(img)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img is not None else None
-        if gray is not None:
-            da = _turn(cv2, np, prev_gray, gray, _points(cv2, np, prev_gray, prev_box))
-            if da is not None:
-                angle += da
         if ok:
             x, y, w, h = [float(v) for v in b]
             cx, cy = x + w / 2, y + h / 2
@@ -91,12 +86,15 @@ def _run(cv2, frames, path_of, anchor_img, box_px, size, report):
             if jump > 1.0 or grow > 4.0 or grow < 0.25 or not inside or w < 2 or h < 2:
                 ok = False
         if ok:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            da = _turn(cv2, np, prev_gray, gray, _points(cv2, np, prev_gray, prev_box))
+            if da is not None:
+                angle += da
             last = (x, y, w, h)
             out[f] = (x, y, w, h, 1, angle)
+            prev_gray, prev_box = gray, last
         else:
             out[f] = (last[0], last[1], last[2], last[3], 0, angle)
-        if gray is not None:
-            prev_gray, prev_box = gray, last
         report()
     return out
 
@@ -105,7 +103,7 @@ def main():
     req = json.loads(sys.stdin.readline() or "{}")
     import cv2
     d = req["dir"]
-    frames = sorted(int(f) for f in req["frames"])
+    frames = sorted(set(int(f) for f in req["frames"]))
     anchor = int(req["anchor"])
     if anchor not in frames:
         anchor = min(frames, key=lambda f: abs(f - anchor))

@@ -53,10 +53,15 @@ const fxRgb = (hex) => [1, 3, 5].map(i => parseInt(String(hex).slice(i, i + 2), 
 function fxSendParams(e, st, values, now) {
     fxRememberParams(e, Object.assign(fxNextParams(e), values));
     if (fxStateOf(e.id) === 'none') return;      // the live state (cards are updated in place, not rebuilt)
+    if (!fxUI.paramPending) fxUI.paramPending = {};
+    fxUI.paramPending[e.id] = Object.assign(fxUI.paramPending[e.id] || {}, values);
     clearTimeout(fxUI.paramTimer);
     const go = async () => {
+        const batch = fxUI.paramPending[e.id];
+        if (!batch) return;
+        delete fxUI.paramPending[e.id];
         let r = null;
-        try { r = await window.sa.fxParam(e.id, values); } catch (err) { r = { error: String(err && err.message || err) }; }
+        try { r = await window.sa.fxParam(e.id, batch); } catch (err) { r = { error: String(err && err.message || err) }; }
         if (r && r.error) setStatus(r.error, 'bad');
         else if (r && Array.isArray(r.clips)) { fxUI.clips = r.clips; fxUI.sig = JSON.stringify(r.clips); }
     };
@@ -318,7 +323,16 @@ function fxFrameRange(e, st, p, clip, last, opts) {
         apply(part, v); glide(); paint(); send(true);
     });
     // the playhead follows Resolve while the bar is on screen
-    const tick = () => { if (!box.isConnected) return; if (!drag) { const at = fxPlayheadIn(clip); ph.classList.toggle('hidden', at === null); if (at !== null) { ph.style.left = pct(at); phLab.textContent = String(at); } } setTimeout(tick, 150); };
+    const tick = () => {
+        if (!box.isConnected) return;
+        const visible = box.offsetParent !== null;
+        if (visible && !drag) {
+            const at = fxPlayheadIn(clip);
+            ph.classList.toggle('hidden', at === null);
+            if (at !== null) { ph.style.left = pct(at); phLab.textContent = String(at); }
+        }
+        setTimeout(tick, visible ? 150 : 400);
+    };
     paint();
     setTimeout(tick, 150);
     return box;
@@ -1184,6 +1198,8 @@ async function spotRemoveClip(clip) {
 function spotSend(clip, vals, now) {
     spotRemember(vals);
     if (!clip) return;
+    if (spotUI.clipId && spotUI.clipId !== clip.id) spotUI.queued = null;
+    spotUI.clipId = clip.id;
     clip.spot = Object.assign({}, clip.spot || {}, vals);
     spotUI.queued = Object.assign(spotUI.queued || {}, vals);
     clearTimeout(spotUI.timer);
@@ -1192,10 +1208,11 @@ function spotSend(clip, vals, now) {
     const go = async () => {
         if (spotUI.inflight) return;
         const v = spotUI.queued; spotUI.queued = null;
+        const targetId = spotUI.clipId || clip.id;
         if (!v) return;
         spotUI.inflight = true;
         let r = null;
-        try { r = await window.sa.spotSet(clip.id, v, !!v._addEffect); } catch (err) { r = { error: String(err && err.message || err) }; }
+        try { r = await window.sa.spotSet(targetId, v, !!v._addEffect); } catch (err) { r = { error: String(err && err.message || err) }; }
         spotUI.inflight = false;
         if (!r || r.error || r.busy) { if (!(r && r.busy && spotUI.queued)) setStatus(r && r.busy ? 'Busy - try again in a moment.' : ((r && r.error) || 'Could not change the spotlight'), 'bad'); }
         else if (r.settings && r.settings.fontWarning) setStatus(r.settings.fontWarning, 'bad');

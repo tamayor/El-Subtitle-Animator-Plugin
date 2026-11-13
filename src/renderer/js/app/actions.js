@@ -16,9 +16,9 @@ async function sfxSeconds(p) {
     // its waveform is still loading elsewhere: decode it once just for its length
     const bytes = await window.sa.readSfx(p);
     if (!(bytes instanceof Uint8Array)) return null;
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = typeof getAudioCtx === 'function' ? getAudioCtx() : new (window.AudioContext || window.webkitAudioContext)();
     let secs = null;
-    try { secs = (await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))).duration; } finally { ac.close(); }
+    try { secs = (await ac.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))).duration; } catch (e) { /* ignore */ }
     if (secs) sfxSecondsCache.set(p, secs);
     return secs;
 }

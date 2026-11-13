@@ -83,16 +83,7 @@ function initBottomDock() {
     }
 
     // a card inside hides/shows (no clip, other clip...): show or hide the whole dock
-    new MutationObserver(dockRefresh).observe(scroll, { childList: true, subtree: false, attributes: true, attributeFilter: ['class'] });
-    for (const c of scroll.children) new MutationObserver(dockRefresh).observe(c, { attributes: true, attributeFilter: ['class'] });
-    new MutationObserver(muts => {
-        for (const m of muts) for (const n of m.addedNodes) {
-            if (n.nodeType === 1 && !n._dockWatched) {
-                n._dockWatched = true;
-                new MutationObserver(dockRefresh).observe(n, { attributes: true, attributeFilter: ['class'] });
-            }
-        }
-    }).observe(scroll, { childList: true });
+    new MutationObserver(dockRefresh).observe(scroll, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     if (window.ResizeObserver && $('footerUse')) new ResizeObserver(dockPad).observe($('footerUse'));
 
     // drag the top edge: up = taller

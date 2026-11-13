@@ -493,7 +493,9 @@ const ASR_KIDS = new Set();
 const ASR_MARK = 'elsa-asr';            // in every engine command line, so a leftover of an earlier session is ours
 function stopAsr() {
     let n = 0;
-    for (const p of ASR_KIDS) { try { p.kill('SIGKILL'); n++; } catch (e) { /* gone */ } }
+    for (const p of ASR_KIDS) {
+        try { process.kill(-p.pid, 'SIGKILL'); n++; } catch (e) { try { p.kill('SIGKILL'); n++; } catch (_) { /* gone */ } }
+    }
     ASR_KIDS.clear();
     try {     // leftovers of an earlier panel session (or of a version without the mark: the mlx-whisper one-liner)
         const out = require('child_process').execFileSync('/bin/ps', ['-axo', 'pid=,command='], { encoding: 'utf8', timeout: 5000 });
@@ -519,7 +521,7 @@ function asrEnv() {
 function runAsr(python, script, args, o) {
     return new Promise((resolve, reject) => {
         const p = spawn(python, ['-c', '# ' + ASR_MARK + '\n' + script].concat(args),
-            { stdio: ['ignore', 'pipe', 'pipe'], env: asrEnv() });
+            { stdio: ['ignore', 'pipe', 'pipe'], env: asrEnv(), detached: true });
         ASR_KIDS.add(p);
         let out = '', err = '', done = false;
         const t0 = Date.now();

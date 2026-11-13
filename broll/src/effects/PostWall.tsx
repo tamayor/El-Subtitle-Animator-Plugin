@@ -14,6 +14,13 @@ export const PostWall: React.FC<P> = (p) => {
     const k = interpolate(frame, [p.enter ?? 10, fillEnd], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease });
     const lit = k * N;
     const shades = ['#e9e4d6', '#c9c3b2', '#a8b3a0', '#8b9a86', p.accent, '#f1efe7', '#6f7d6c'];
+    const tiles = React.useMemo(() => Array.from({ length: N }, (_, i) => {
+        const c = i % cols, r = Math.floor(i / cols);
+        return {
+            order: c * rows + r + (rand(i) - 0.5) * rows * 0.8,
+            shadeIdx: Math.floor(rand(i + 7) * 7),
+        };
+    }), [N, cols, rows]);
 
     return (
         <Place p={p}>
@@ -26,14 +33,11 @@ export const PostWall: React.FC<P> = (p) => {
                     </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, ${tile}px)`, gap }}>
-                    {Array.from({ length: N }).map((_, i) => {
-                        // column-major order with a little jitter, like days filling a calendar
-                        const c = i % cols, r = Math.floor(i / cols);
-                        const order = c * rows + r + (rand(i) - 0.5) * rows * 0.8;
-                        const on = order < lit;
-                        const fresh = on && order > lit - rows * 1.5;
+                    {tiles.map((t, i) => {
+                        const on = t.order < lit;
+                        const fresh = on && t.order > lit - rows * 1.5;
                         return <div key={i} style={{ width: tile, height: tile, borderRadius: 3,
-                            background: on ? shades[Math.floor(rand(i + 7) * shades.length)] : 'rgba(255,255,255,0.08)',
+                            background: on ? shades[t.shadeIdx] : 'rgba(255,255,255,0.08)',
                             outline: fresh ? `2px solid ${p.accent}` : 'none', transform: fresh ? 'scale(1.12)' : 'none' }} />;
                     })}
                 </div>

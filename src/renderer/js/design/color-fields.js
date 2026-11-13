@@ -72,11 +72,13 @@ document.addEventListener('click', async (e) => {
     dbg('panel opening');
     showColorLoading(t);
     setStatus('Opening the colour picker…', '');
-    window.addEventListener('blur', () => setStatus(/^Win/i.test(navigator.platform || '')
+    const onColorBlur = () => setStatus(/^Win/i.test(navigator.platform || '')
         ? 'Pick a color in the Windows Color dialog and press OK.'
-        : 'Pick a color in the macOS Colors panel: it applies as you pick. Click back into the app (or press Esc) when done.', ''), { once: true });
+        : 'Pick a color in the macOS Colors panel: it applies as you pick. Click back into the app (or press Esc) when done.', '');
+    window.addEventListener('blur', onColorBlur, { once: true });
     let r = null;
     try { r = await window.sa.pickColor(t.value); } catch (err) { r = null; }
+    window.removeEventListener('blur', onColorBlur);
     state.colorPicking = false;
     hideColorLoading();
     colorPanelBusy = false;

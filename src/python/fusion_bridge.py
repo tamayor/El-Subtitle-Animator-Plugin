@@ -1546,11 +1546,13 @@ def find_any_item(item_id, kind="video"):
     it = _audio_items.get(str(item_id))
     if it is not None:
         try:
-            if str(it.GetUniqueId()) == str(item_id):
+            if str(it.GetUniqueId()) == str(item_id) and it.GetStart() is not None:
                 return it
         except Exception:
             pass
         _audio_items.pop(str(item_id), None)
+    if len(_audio_items) > 1000:
+        _audio_items.clear()
     tl = timeline()
     for t in range(1, tl.GetTrackCount(kind) + 1):
         for it in tl.GetItemListInTrack(kind, t) or []:
@@ -4357,11 +4359,14 @@ def fx_bake_track(effect, it, force=False, check_only=False):
     if not force and str(get_in(t, "Comments") or "") == sig:
         return False
     # one value per clip frame: frames the footage does not cover hold the nearest tracked one
+    import bisect
     def at(f):
-        f = min(keys[-1], max(keys[0], f))
-        while f not in trk:
-            f += 1
-        return trk[f]
+        if f <= keys[0]:
+            return trk[keys[0]]
+        if f >= keys[-1]:
+            return trk[keys[-1]]
+        idx = bisect.bisect_left(keys, f)
+        return trk[keys[idx]]
     rows = [at(start + i) for i in range(dur)]
     sigma = max(0.0, v["Smooth"]) / 100.0 * 6.0
     cx = _smooth([r[0] for r in rows], sigma)
@@ -4540,19 +4545,44 @@ def fx_targets(a):
     return out
 
 
+def _tc_to_frame(tc, fps):
+    drop = ";" in tc
+    parts = [int(x) for x in tc.replace(";", ":").split(":")]
+    h, m, s, f = parts[0], parts[1], parts[2], parts[3]
+    total_min = h * 60 + m
+    frames = ((total_min * 60) + s) * fps + f
+    if drop and fps in (30, 60):
+        d = 2 if fps == 30 else 4
+        frames -= d * (total_min - total_min // 10)
+    return frames
+
+
+def _frame_to_tc(frame, fps, drop):
+    f = max(0, int(round(frame)))
+    if drop and fps in (30, 60):
+        d = 2 if fps == 30 else 4
+        fpm = 60 * fps - d
+        fp10 = 10 * fpm + d
+        ten_m, rem = divmod(f, fp10)
+        mins = ten_m * 10
+        if rem >= fps * 60:
+            rem -= fps * 60
+            mins += 1 + rem // fpm
+            rem = (rem % fpm) + d
+        s, fr = divmod(rem, fps)
+        return "%02d:%02d:%02d;%02d" % (mins // 60, mins % 60, s, fr)
+    sec, fr = divmod(f, fps)
+    return "%02d:%02d:%02d:%02d" % (sec // 3600, (sec // 60) % 60, sec % 60, fr)
+
+
 def fx_nudge_inspector():
     """Resolve's Inspector keeps showing an effect removed by a script until something redraws it: the playhead
     steps one frame and back (cheap, and the user's position is kept)."""
     try:
         tl = timeline()
         tc = tl.GetCurrentTimecode()
-        sep = ";" if ";" in tc else ":"
-        parts = [int(x) for x in tc.replace(";", ":").split(":")]
-        fps = int(round(float(tl.GetSetting("timelineFrameRate") or 25)))
-        total = ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * fps + parts[3] + 1
-        f = total % fps
-        sec = total // fps
-        nxt = "%02d:%02d:%02d%s%02d" % (sec // 3600, (sec // 60) % 60, sec % 60, sep, f)
+        fps = max(1, int(round(float(tl.GetSetting("timelineFrameRate") or 25))))
+        nxt = _frame_to_tc(_tc_to_frame(tc, fps) + 1, fps, ";" in tc)
         tl.SetCurrentTimecode(nxt)
         tl.SetCurrentTimecode(tc)
     except Exception:
@@ -4775,19 +4805,40 @@ def op_glitch_bursts(a):
     rs, re_ = int(num(ca.get("COMPN_RenderStart"), 0)), int(num(ca.get("COMPN_RenderEnd"), 0))
     n = min(max(0, re_ - rs + 1), int(num(a.get("max"), 3000)))
     runs, cur = [], None
-    for k in range(n):
+    try:
+        hold = max(1, int(num(tool.GetInput("Hold", rs), 1)))
+    except Exception:
+        hold = 1
+    step = max(1, hold // 2)
+    def burst_at(k):
         try:
-            b = float(tool.GetInput("Burst", rs + k) or 0)
+            return float(tool.GetInput("Burst", rs + k) or 0) > 0.5
         except Exception:
-            b = 0.0
-        if b > 0.5:
-            if cur is None:
-                cur = [k, k + 1]
-            else:
-                cur[1] = k + 1
+            return False
+    prev_k, prev_on = -1, False
+    for k in range(0, n, step):
+        on = burst_at(k)
+        if step > 1 and prev_k >= 0 and on != prev_on:
+            for j in range(prev_k + 1, k):
+                jon = burst_at(j)
+                if jon:
+                    if cur is None: cur = [j, j + 1]
+                    else: cur[1] = j + 1
+                elif cur is not None:
+                    runs.append(cur); cur = None
+        if on:
+            if cur is None: cur = [k, k + 1]
+            else: cur[1] = k + 1
         elif cur is not None:
-            runs.append(cur)
-            cur = None
+            runs.append(cur); cur = None
+        prev_k, prev_on = k, on
+    if step > 1 and prev_k < n - 1:
+        for j in range(prev_k + 1, n):
+            if burst_at(j):
+                if cur is None: cur = [j, j + 1]
+                else: cur[1] = j + 1
+            elif cur is not None:
+                runs.append(cur); cur = None
     if cur is not None:
         runs.append(cur)
     return {"runs": runs, "frames": n}
@@ -5300,9 +5351,8 @@ def spot_playhead(tl):
     """The playhead as a timeline frame (the same count as GetStart: the timecode's frames)."""
     try:
         tc = tl.GetCurrentTimecode()
-        parts = [int(x) for x in tc.replace(";", ":").split(":")]
-        fps = int(round(float(tl.GetSetting("timelineFrameRate") or 25)))
-        return ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * fps + parts[3]
+        fps = max(1, int(round(float(tl.GetSetting("timelineFrameRate") or 25))))
+        return _tc_to_frame(tc, fps)
     except Exception:
         return int(tl.GetStartFrame())
 

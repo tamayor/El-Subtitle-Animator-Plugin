@@ -88,16 +88,23 @@ export const ReceiptPrinter: React.FC<P> = (p) => {
         units.forEach((u, i) => { if (u.spoken && w < times.length) at[i] = times[w++]; });
         // units before the first spoken word run up to it; units after one follow it at a quick pace
         const firstSpoken = units.findIndex((u) => u.spoken);
-        for (let i = firstSpoken - 1; i >= 0; i--) at[i] = Math.min(start + i * 3, at[i + 1] - 3);
+        for (let i = firstSpoken - 1; i >= 0; i--) at[i] = Math.max(0, Math.min(start + i * 3, at[i + 1] - 3));
         for (let i = Math.max(1, firstSpoken + 1); i < units.length; i++) {
             if (!units[i].spoken) at[i] = at[i - 1] + 4;
             else if (at[i] < at[i - 1]) at[i] = at[i - 1] + 1;
         }
     }
-    const rowStart = rows.map((_, ri) => { const k = units.findIndex((u) => u.row === ri); return k < 0 ? 1e9 : at[k]; });
+    const rowStart = rows.map(() => 1e9);
+    const unitAt = new Map<string, number>();
+    for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        if (at[i] < rowStart[u.row]) rowStart[u.row] = at[i];
+        const key = `${u.row}:${u.word}`;
+        if (!unitAt.has(key)) unitAt.set(key, at[i]);
+    }
     const shownAt = (ri: number, word: number) => {
-        const k = units.findIndex((u) => u.row === ri && (u.word === word || u.word === -1));
-        return k < 0 ? rowStart[ri] : at[k];
+        const t = unitAt.get(`${ri}:${word}`) ?? unitAt.get(`${ri}:-1`);
+        return t === undefined ? rowStart[ri] : t;
     };
 
     // paper feed: each row slides out of the slot over FEED frames when its first unit prints

@@ -203,11 +203,17 @@ function keyedCrop(im, x0, y0, w, h) {
     const sx = Math.round(x0), sy = Math.round(y0), sw = Math.max(1, Math.round(w)), sh = Math.max(1, Math.round(h));
     const key = sx + ',' + sy + ',' + sw + ',' + sh;
     if (im._crop && im._crop.key === key) return im._crop.cv;
-    let cv = keyMatteRegion(im, sx, sy, sw, sh);
-    if (!cv) {
-        const full = keyedImage(im);
+    let cv = null;
+    if (im._keyed) {
         cv = document.createElement('canvas'); cv.width = sw; cv.height = sh;
-        cv.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+        cv.getContext('2d').drawImage(im._keyed, sx, sy, sw, sh, 0, 0, sw, sh);
+    } else {
+        cv = keyMatteRegion(im, sx, sy, sw, sh);
+        if (!cv) {
+            const full = keyedImage(im);
+            cv = document.createElement('canvas'); cv.width = sw; cv.height = sh;
+            cv.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+        }
     }
     im._crop = { key, cv };
     return cv;

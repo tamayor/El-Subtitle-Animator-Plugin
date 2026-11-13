@@ -32,6 +32,8 @@ function cleanup() {
         if (state.segWatchTimer) { clearInterval(state.segWatchTimer); state.segWatchTimer = null; }
         if (state.segSweepTimer) { clearInterval(state.segSweepTimer); state.segSweepTimer = null; }
         try { stopAutomation(); } catch (e) { /* ignore */ }
+        try { require('./media-analysis').stopAsr(); } catch (e) { /* ignore */ }
+        try { require('./broll').brollCancel(); } catch (e) { /* ignore */ }
         try { if (state.bridge) state.bridge.kill(); } catch (e) { /* ignore */ }
         try { if (state.bridgeRender) state.bridgeRender.kill(); } catch (e) { /* ignore */ }
         try { require('./perf').perfFlush(); } catch (e) { /* ignore */ }

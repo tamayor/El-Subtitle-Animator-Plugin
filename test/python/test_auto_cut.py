@@ -128,10 +128,6 @@ class Text(unittest.TestCase):
         self.assertEqual(ac.snap(keeps, 25, 4.0, 0.2), [[0, 25], [50, 100]])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 @unittest.skipIf(np is None, "numpy is not installed for this Python")
 class QuietSounds(unittest.TestCase):
     def test_murmur_far_under_the_voice_is_not_speech(self):
@@ -148,3 +144,7 @@ class QuietSounds(unittest.TestCase):
         stay, gone = ac.drop_wordless(keeps, words, drops)
         self.assertEqual(stay, [[0.9, 2.2], [7.9, 9.2]])
         self.assertEqual(gone, [[3.0, 3.4], [4.6, 4.95], [5.48, 5.8]])
+
+
+if __name__ == "__main__":
+    unittest.main()

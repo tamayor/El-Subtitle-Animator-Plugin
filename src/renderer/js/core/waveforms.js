@@ -2,48 +2,65 @@
 
 // ---------------------------------------------------------------- waveforms
 // Peaks are computed once per sound; the bar on the timeline just draws them.
+const waveInflight = new Map();
+let sharedAudioCtx = null;
+function getAudioCtx() {
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return sharedAudioCtx;
+}
 async function loadWave(p) {
     if (!p) return null;
-    if (state.waves.has(p)) return state.waves.get(p);
+    if (state.waves.has(p)) {
+        const cached = state.waves.get(p);
+        if (cached) return cached;
+    }
+    if (waveInflight.has(p)) return waveInflight.get(p);
     state.waves.set(p, null);                       // mark as loading
-    try {
-        const bytes = await window.sa.readSfx(p);
-        if (!(bytes instanceof Uint8Array)) throw new Error('unreadable');
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const buf = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-        ctx.close();
-        const channels = [];
-        for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
-        const len = buf.length;
-        const N = 240, step = Math.max(1, Math.floor(len / N));
-        const peaks = new Float32Array(N);
-        let maxPeak = 0;
-        for (let i = 0; i < N; i++) {
-            let m = 0;
-            const end = Math.min(len, (i + 1) * step);
-            for (const ch of channels) {
-                for (let j = i * step; j < end; j++) {
-                    const a = Math.abs(ch[j]);
-                    if (a > m) m = a;
+    const task = (async () => {
+        try {
+            const bytes = await window.sa.readSfx(p);
+            if (!(bytes instanceof Uint8Array)) throw new Error('unreadable');
+            const ctx = getAudioCtx();
+            const buf = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            const channels = [];
+            for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
+            const len = buf.length;
+            const N = 240, step = Math.max(1, Math.floor(len / N));
+            const peaks = new Float32Array(N);
+            let maxPeak = 0;
+            for (let i = 0; i < N; i++) {
+                let m = 0;
+                const end = Math.min(len, (i + 1) * step);
+                for (const ch of channels) {
+                    for (let j = i * step; j < end; j++) {
+                        const a = Math.abs(ch[j]);
+                        if (a > m) m = a;
+                    }
+                }
+                peaks[i] = m;
+                if (m > maxPeak) maxPeak = m;
+            }
+            // Normalize and boost quieter sections so the waveform fills the bar height clearly.
+            if (maxPeak > 0) {
+                for (let i = 0; i < N; i++) {
+                    peaks[i] = Math.pow(peaks[i] / maxPeak, 0.6);
                 }
             }
-            peaks[i] = m;
-            if (m > maxPeak) maxPeak = m;
+            const w = { peaks, seconds: buf.duration };
+            state.waves.set(p, w);
+            renderTimelines();
+            return w;
+        } catch (e) {
+            state.waves.set(p, { peaks: new Float32Array(0), seconds: 0.5 });
+            return null;
+        } finally {
+            waveInflight.delete(p);
         }
-        // Normalize and boost quieter sections so the waveform fills the bar height clearly.
-        if (maxPeak > 0) {
-            for (let i = 0; i < N; i++) {
-                peaks[i] = Math.pow(peaks[i] / maxPeak, 0.6);
-            }
-        }
-        const w = { peaks, seconds: buf.duration };
-        state.waves.set(p, w);
-        renderTimelines();
-        return w;
-    } catch (e) {
-        state.waves.set(p, { peaks: new Float32Array(0), seconds: 0.5 });
-        return null;
-    }
+    })();
+    waveInflight.set(p, task);
+    return task;
 }
 
 // A stored sound name -> its file. Originals are in sounds/original/, edited (trimmed / adjusted) clips in sounds/current/.

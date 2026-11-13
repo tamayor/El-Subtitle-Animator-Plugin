@@ -84,7 +84,7 @@ async function triggerLiveSync(m, S) {
         boxList: (window.SABoxes && a) ? SABoxes.payload(m, a, subTextVal, tabKey === 'U') : []
     };
     if (liveSyncBusy) {
-        liveSyncPending = payload;
+        liveSyncPending = { m, tabKey };
         return;
     }
     liveSyncBusy = true;
@@ -95,7 +95,7 @@ async function triggerLiveSync(m, S) {
     if (liveSyncPending) {
         const next = liveSyncPending;
         liveSyncPending = null;
-        triggerLiveSync(next, tabKey);
+        triggerLiveSync(next.m, next.tabKey);
     }
 }
 

@@ -32,7 +32,7 @@ export const SketchWords: React.FC<P> = (p) => {
                         <pattern id={id} width={8} height={8} patternUnits="userSpaceOnUse" patternTransform={`rotate(${35 + boil * 4})`}>
                             <line x1={0} y1={0} x2={0} y2={8} stroke={ink} strokeWidth={4.2} />
                         </pattern>
-                        <clipPath id={id + 'c'}><rect x={0} y={0} width={W * hatch} height={H} /></clipPath>
+                        <clipPath id={id + 'c'}><rect x={-20} y={-20} width={(W + 40) * hatch} height={H + 40} /></clipPath>
                     </defs>
                     <text x={W / 2} y={330} textAnchor="middle" fontFamily={FONT.serif} fontSize={fs} fill={`url(#${id})`}
                         clipPath={`url(#${id}c)`} opacity={0.9}>{word}</text>

@@ -226,10 +226,13 @@ let subReading = null;
 // GetClipColor() is always "" for subtitle items (their colours come from the project database, below) and a
 // subtitle's GetDuration() is its end - start, so neither is asked for. Flip these if a Resolve version changes that.
 const SUB_READ_COLOR = false, SUB_READ_DURATION = false;
-async function subtitleCounts(tl, tracks) {
+async function subtitleTrackItems(tl, tracks) {
     const out = [];
-    for (let t = 1; t <= tracks; t++) out.push(((await tl.GetItemListInTrack('subtitle', t)) || []).length);
-    return out.join(',');
+    for (let t = 1; t <= tracks; t++) {
+        const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
+        out.push(Array.isArray(its) ? its : Object.values(its));
+    }
+    return out;
 }
 function panelAway() {
     try { return state.appIdle || !!(state.mainWindow && !state.mainWindow.isDestroyed() && !state.mainWindow.isFocused()); } catch (e) { return false; }
@@ -268,12 +271,13 @@ async function probeSubtitles(tl, key, c) {
         const now = Date.now();
         c.probedAt = now;      // a probe that fails (Resolve busy, another page) is not tried again on the very next poll
         const tracks = (await tl.GetTrackCount('subtitle')) || 0;
-        const counts = await subtitleCounts(tl, tracks);
+        const trackItems = await subtitleTrackItems(tl, tracks);
+        const counts = trackItems.map(a => a.length).join(',');
         c.probedAt = Date.now();
         same = counts === c.counts;
         // the texts, one call per clip, once the list is SUB_NAMES_MS old (a probe alone cannot see an edit)
         if (same && now - (c.namedAt || c.at) >= (panelAway() ? SUB_NAMES_AWAY_MS : SUB_NAMES_MS)) {
-            const names = await subtitleNames(tl, tracks);
+            const names = await subtitleNames(tl, tracks, trackItems);
             c.namedAt = Date.now();
             same = names === c.names;
         }
@@ -284,12 +288,15 @@ async function probeSubtitles(tl, key, c) {
         await subReading;
     }
 }
-async function subtitleNames(tl, tracks) {
+async function subtitleNames(tl, tracks, trackItems) {
     const out = [];
     for (let t = 1; t <= tracks; t++) {
-        const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
-        const arr = Array.isArray(its) ? its : Object.values(its);
-        for (let i = 0; i < arr.length; i += RESOLVE_BATCH) out.push(...await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(it => Promise.resolve(it.GetName()).catch(() => ''))));
+        const arr = trackItems ? trackItems[t - 1] : (() => { return null; })();
+        const items = arr || await (async () => {
+            const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
+            return Array.isArray(its) ? its : Object.values(its);
+        })();
+        for (let i = 0; i < items.length; i += RESOLVE_BATCH) out.push(...await Promise.all(items.slice(i, i + RESOLVE_BATCH).map(it => Promise.resolve(it.GetName()).catch(() => ''))));
     }
     return out.join('\n');
 }
@@ -310,12 +317,15 @@ async function readSubtitles(tl, key) {
         const duration = (d && d > 0) ? d : Math.max(1, end - start);
         return { text, start, end, duration, track: t, color: cl || '', enabled: trackOn && clipOn !== false, it };
     };
+    const trackCounts = [];
     for (let t = 1; t <= tracks; t++) {
         const its = (await tl.GetItemListInTrack('subtitle', t)) || [];
+        const arr = Array.isArray(its) ? its : Object.values(its);
+        trackCounts.push(arr.length);
         let trackOn = true;
         try { trackOn = (await tl.GetIsTrackEnabled('subtitle', t)) !== false; } catch (e) { /* assume on */ }
-        for (let i = 0; i < its.length; i += RESOLVE_BATCH) {
-            list.push(...await Promise.all(its.slice(i, i + RESOLVE_BATCH).map(it => readItem(it, t, trackOn))));
+        for (let i = 0; i < arr.length; i += RESOLVE_BATCH) {
+            list.push(...await Promise.all(arr.slice(i, i + RESOLVE_BATCH).map(it => readItem(it, t, trackOn))));
         }
     }
     // GetClipColor() is always "" for subtitle items: fall back to the colours saved in the project database.
@@ -339,7 +349,7 @@ async function readSubtitles(tl, key) {
     list.forEach((item, i) => { item.index = i + 1; });
     const sig = subSignature(list);
     const version = (c.key === key && c.sig === sig) ? (c.version || 1) : ((c.version || 0) + 1);
-    state.subCache = { key, at: Date.now(), probedAt: Date.now(), namedAt: Date.now(), list, items, counts: await subtitleCounts(tl, tracks), names: namesInTrackOrder, sig, version };
+    state.subCache = { key, at: Date.now(), probedAt: Date.now(), namedAt: Date.now(), list, items, counts: trackCounts.join(','), names: namesInTrackOrder, sig, version };
     sp.end({ n: list.length, tracks });
     return list;
 }
@@ -444,8 +454,9 @@ async function listSubtitles(event, force) {
         if (!project) return { ok: false, error: 'Open a project in Resolve' };
         const tl = await project.GetCurrentTimeline();
         if (!tl) return { ok: false, error: 'Open a timeline in Resolve' };
-        const fresh = state.subCache.key === (await tl.GetName()) && Date.now() - Math.max(state.subCache.at || 0, state.subCache.patchedAt || 0) < SUB_FRESH_MS;
-        const subs = await getSubtitles(tl, !!force && !fresh);
+        const tlName = await tl.GetName();
+        const fresh = state.subCache.key === tlName && Date.now() - Math.max(state.subCache.at || 0, state.subCache.patchedAt || 0) < SUB_FRESH_MS;
+        const subs = await getSubtitles(tl, !!force && !fresh, tlName);
         return { ok: true, subtitles: subs, version: state.subCache.version || 1 };
     } catch (err) {
         return { ok: false, error: String(err && err.message || err) };

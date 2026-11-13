@@ -918,6 +918,7 @@ function reply(id, result) { write({ jsonrpc: '2.0', id, result }); }
 function fail(id, code, message) { write({ jsonrpc: '2.0', id, error: { code, message } }); }
 
 async function onMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
     const { id, method, params } = msg;
     const isRequest = id !== undefined && id !== null;
     try {
@@ -959,6 +960,7 @@ async function onMessage(msg) {
 }
 
 let buf = '';
+let msgChain = Promise.resolve();
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
     buf += chunk;
@@ -969,7 +971,8 @@ process.stdin.on('data', (chunk) => {
         if (!line) continue;
         let msg;
         try { msg = JSON.parse(line); } catch (e) { fail(null, -32700, 'Parse error'); continue; }
-        if (Array.isArray(msg)) msg.forEach(onMessage); else onMessage(msg);
+        const list = Array.isArray(msg) ? msg : [msg];
+        for (const m of list) msgChain = msgChain.then(() => onMessage(m));
     }
 });
 process.stdin.on('end', () => process.exit(0));

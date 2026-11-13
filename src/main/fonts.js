@@ -169,6 +169,17 @@ ObjC.import("CoreText");
     });
 }
 
+function extractSettingFonts(raw, add) {
+    const parts = raw.split(/\bInputs\s*=\s*\{/);
+    for (let i = 1; i < parts.length; i++) {
+        const chunk = parts[i].slice(0, 4000);
+        const fm = /\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/.exec(chunk);
+        if (!fm) continue;
+        const sm = /\bStyle\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/.exec(chunk);
+        add(fm[1], sm ? sm[1] : 'Regular');
+    }
+}
+
 async function copyFontsForSetting(settingFilePath, textDesign) {
     try {
         ensureDirs();
@@ -187,12 +198,7 @@ async function copyFontsForSetting(settingFilePath, textDesign) {
         }
         if (settingFilePath && fs.existsSync(settingFilePath)) {
             try {
-                const raw = fs.readFileSync(settingFilePath, 'utf8');
-                const fontMatches = [...raw.matchAll(/\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
-                const styleMatches = [...raw.matchAll(/\bStyle\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
-                for (let i = 0; i < fontMatches.length; i++) {
-                    add(fontMatches[i], styleMatches[i] || 'Regular');
-                }
+                extractSettingFonts(fs.readFileSync(settingFilePath, 'utf8'), add);
             } catch (e) { /* ignore */ }
         }
 
@@ -243,12 +249,7 @@ async function syncAllPresetFonts() {
                 const fp = path.join(ANIM_DIR, a.file);
                 if (fs.existsSync(fp)) {
                     try {
-                        const raw = fs.readFileSync(fp, 'utf8');
-                        const fontMatches = [...raw.matchAll(/\bFont\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
-                        const styleMatches = [...raw.matchAll(/\bStyle\s*=\s*Input\s*\{\s*Value\s*=\s*"([^"]+)"/g)].map(m => m[1]);
-                        for (let i = 0; i < fontMatches.length; i++) {
-                            add(fontMatches[i], styleMatches[i] || 'Regular');
-                        }
+                        extractSettingFonts(fs.readFileSync(fp, 'utf8'), add);
                     } catch (e) { /* ignore */ }
                 }
             }

@@ -240,10 +240,6 @@ class Process(unittest.TestCase):
         self.assertIn("Cannot load Resolve's Python module", out[0]["error"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SpotlightCurves(unittest.TestCase):
     """spot_curves: the entry / exit keys of the Spotlight word (fusion_bridge)."""
 
@@ -266,3 +262,7 @@ class SpotlightCurves(unittest.TestCase):
         self.assertEqual(z["word"][-1], 1.0)      # outF 0 = cut, no fade
         r = fb.spot_curves({"anim": "rise", "inF": 10}, 30)
         self.assertLess(r["dy"][0], -0.05)
+
+
+if __name__ == "__main__":
+    unittest.main()

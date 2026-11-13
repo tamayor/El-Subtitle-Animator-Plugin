@@ -377,18 +377,27 @@ function ensureInstalled() {
 }
 function fxList() { ensureInstalled(); return { effects: effectsForUI() }; }
 // The effect presets on the selected clips (or the clip under the playhead): { clips: [{ id, name, effects }] }
+let fxGetInflight = null;
+let fxGetCache = null;
 async function fxGet() {
     const state = require('./state');
     if (state.applying || require('./resolve-load').resolveBusy()) return { busy: true };
     ensureInstalled();
-    const r = await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
-    // the clip of a running Resolve preview is a temporary text preset: flagged so the panel refuses effects on it
-    const live = state.liveSession && state.liveSession.itemId ? String(state.liveSession.itemId) : null;
-    if (live && r && Array.isArray(r.clips)) for (const c of r.clips) if (String(c.id) === live) c.temp = true;
-    return r;
+    if (fxGetCache && Date.now() - fxGetCache.at < 400) return fxGetCache.res;
+    if (fxGetInflight) return fxGetInflight;
+    fxGetInflight = (async () => {
+        const r = await require('./fusion-bridge').bridgeCall('fx_get', {}, 5000);
+        // the clip of a running Resolve preview is a temporary text preset: flagged so the panel refuses effects on it
+        const live = state.liveSession && state.liveSession.itemId ? String(state.liveSession.itemId) : null;
+        if (live && r && Array.isArray(r.clips)) for (const c of r.clips) if (String(c.id) === live) c.temp = true;
+        if (r && !r.busy) fxGetCache = { at: Date.now(), res: r };
+        return r;
+    })().finally(() => { fxGetInflight = null; });
+    return fxGetInflight;
 }
 // Adds (on = true), removes (false) or flips (null) one effect preset on the selected clips.
 async function fxSet(event, effectId, on, strength, params, hold) {
+    fxGetCache = null;
     const state = require('./state');
     if (state.applying) return { busy: true };
     if (!EFFECTS.some(e => e.id === effectId)) return { error: 'Unknown effect' };

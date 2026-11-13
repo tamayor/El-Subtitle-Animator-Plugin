@@ -14,7 +14,7 @@ const { bridgeCall } = require('./fusion-bridge');
 const { designForFusion, fusionBoxes } = require('./fusion-setting');
 const { libForUI, loadLib, saveLib } = require('./library');
 const { isTitleClipName } = require('./title-templates');
-const { getProject, tcToFrame, timelineMeta } = require('./resolve');
+const { findItemsByIds, getProject, tcToFrame, timelineMeta } = require('./resolve');
 const { findSelectedFusionItem } = require('./selection');
 const { copySfx } = require('./sfx');
 const { levelVolume } = require('./sfx-level');
@@ -192,30 +192,25 @@ async function syncLiveTransform(event, req) {
                 const project = await getProject();
                 const tl = project && await project.GetCurrentTimeline();
                 if (tl) {
-                    const audioTracks = (await tl.GetTrackCount('audio')) || 0;
-                    for (let t = 1; t <= audioTracks; t++) {
-                        const aItems = (await tl.GetItemListInTrack('audio', t)) || [];
-                        for (const ai of aItems) {
-                            if (String(await ai.GetUniqueId()) === String(state.lastPlacedAudioId)) {
-                                // peak window (sfx-level.js): the slider moves the level inside -20..-15 dBFS peak
-                                let vol = Number(req.sfxVolume);
-                                try {
-                                    const mpi = await ai.GetMediaPoolItem();
-                                    const file = mpi ? await mpi.GetClipProperty('File Path') : '';
-                                    const fps = Number(await tl.GetSetting('timelineFrameRate')) || 25;
-                                    vol = await levelVolume(String(file || ''), vol, Number(await ai.GetLeftOffset()) || 0, Number(await ai.GetDuration()) || 0, fps);
-                                } catch (e) { /* unmeasured: the slider's value */ }
-                                await ai.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol });
-                                break;
-                            }
-                        }
+                    const hit = await findItemsByIds(tl, 'audio', [state.lastPlacedAudioId]);
+                    const ai = hit.get(String(state.lastPlacedAudioId));
+                    if (ai) {
+                        // peak window (sfx-level.js): the slider moves the level inside -20..-15 dBFS peak
+                        let vol = Number(req.sfxVolume);
+                        try {
+                            const mpi = await ai.GetMediaPoolItem();
+                            const file = mpi ? await mpi.GetClipProperty('File Path') : '';
+                            const fps = Number(await tl.GetSetting('timelineFrameRate')) || 25;
+                            vol = await levelVolume(String(file || ''), vol, Number(await ai.GetLeftOffset()) || 0, Number(await ai.GetDuration()) || 0, fps);
+                        } catch (e) { /* unmeasured: the slider's value */ }
+                        await ai.SetProperties({ AudioVolumeEnabled: true, AudioVolume: vol });
                     }
                 }
             } catch (e) { /* ignore */ }
         }
 
         if (req.textDesign) {
-            const animId = req.animId;
+            const animId = req.animId || req.id;
             const a = animId ? loadLib().animations.find(x => x.id === animId) : null;
             if (a) copyFontsForSetting(path.join(ANIM_DIR, a.file), req.textDesign).catch(() => {});
         }

@@ -1007,7 +1007,9 @@ const TOOLS = {
         }
         let from = args.startFrame, to = args.endFrame;
         if ((from === undefined || to === undefined) && args.subtitle) {
-            const sub = await subtitleAt(await currentTimeline(), args.subtitle);
+            const { tl } = await currentTimeline();
+            const sub = tl ? await subtitleAt(tl, args.subtitle) : null;
+            if (!sub) throw new Error(`Subtitle not found: ${args.subtitle}`);
             from = sub.start; to = sub.end - 1;
         }
         if (!Number.isFinite(Number(from)) || !Number.isFinite(Number(to))) throw new Error('Pass subtitle, or startFrame and endFrame');

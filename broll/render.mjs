@@ -89,27 +89,37 @@ async function run(job) {
         fs.mkdirSync(job.out, { recursive: true });
         const tmp = job.out + '.part';
         fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp, { recursive: true });
-        await renderFrames({ serveUrl: url, composition, inputProps, frames, imageFormat: 'png', puppeteerInstance: browser, scale,
-            outputDir: null, onStart: () => {}, onFrameUpdate: () => {},
-            onFrameBuffer: (buf, frame) => { fs.writeFileSync(path.join(tmp, 'f' + frame + '.png'), buf); } });
-        fs.rmSync(job.out, { recursive: true, force: true });
-        fs.renameSync(tmp, job.out);
+        try {
+            await renderFrames({ serveUrl: url, composition, inputProps, frames, imageFormat: 'png', puppeteerInstance: browser, scale,
+                outputDir: null, onStart: () => {}, onFrameUpdate: () => {},
+                onFrameBuffer: (buf, frame) => { fs.writeFileSync(path.join(tmp, 'f' + frame + '.png'), buf); } });
+            fs.rmSync(job.out, { recursive: true, force: true });
+            fs.renameSync(tmp, job.out);
+        } catch (err) {
+            fs.rmSync(tmp, { recursive: true, force: true });
+            throw err;
+        }
         return { out: job.out, frames, total: D, ms: Date.now() - t0 };
     }
     const tmp = job.out + '.part.mov';
-    await renderMedia({
-        serveUrl: url, composition, inputProps, outputLocation: tmp, overwrite: true, puppeteerInstance: browser,
-        codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png', muted: true,
-        onProgress: ({ progress }) => say('PROGRESS', { id: job.id, p: Math.round(progress * 100) / 100 })
-    });
-    fs.renameSync(tmp, job.out);
+    try {
+        await renderMedia({
+            serveUrl: url, composition, inputProps, outputLocation: tmp, overwrite: true, puppeteerInstance: browser,
+            codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png', muted: true,
+            onProgress: ({ progress }) => say('PROGRESS', { id: job.id, p: Math.round(progress * 100) / 100 })
+        });
+        fs.renameSync(tmp, job.out);
+    } catch (err) {
+        fs.rmSync(tmp, { force: true });
+        throw err;
+    }
     return { out: job.out, frames: composition.durationInFrames, fps: composition.fps, ms: Date.now() - t0 };
 }
 
 async function main() {
     const arg = process.argv[2];
     if (arg === '--serve') {
-        try { await warm(); say('READY'); } catch (e) { say('ERROR', { id: null, error: String(e && e.stack || e) }); }
+        try { await warm(); say('READY'); } catch (e) { say('ERROR', { id: null, error: String(e && e.stack || e) }); process.exit(1); }
         const rl = readline.createInterface({ input: process.stdin });
         let chain = Promise.resolve();
         rl.on('line', (line) => {

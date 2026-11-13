@@ -124,7 +124,8 @@ def load_env(src, req, p):
     fm = os.path.join(cdir, key + ".json") if cdir else None
     if fe and os.path.exists(fe) and os.path.exists(fm):
         try:
-            meta = json.load(open(fm))
+            with open(fm, "r") as f:
+                meta = json.load(f)
             if meta.get("loudness") or not p["loudness"]:
                 return np.load(fe), meta.get("lufs")
         except Exception:
@@ -135,7 +136,10 @@ def load_env(src, req, p):
         try:
             os.makedirs(cdir, exist_ok=True)
             np.save(fe, db)
-            json.dump({"lufs": lufs, "loudness": bool(p["loudness"]), "path": src["path"]}, open(fm, "w"))
+            tmp_fm = fm + ".tmp"
+            with open(tmp_fm, "w") as f:
+                json.dump({"lufs": lufs, "loudness": bool(p["loudness"]), "path": src["path"]}, f)
+            os.replace(tmp_fm, fm)
         except OSError:
             pass
     return db, lufs
@@ -561,9 +565,10 @@ def analyse(req):
             drops += find_stutters(rel_words[sid], sid)
         if p["fillers"]:
             drops += find_fillers(rel_words[sid], sid)
-    for k, d in enumerate(sorted(drops, key=lambda d: (order.index(d["src"]), d["a"]))):
+    order_idx = {sid: i for i, sid in enumerate(order)}
+    drops.sort(key=lambda d: (order_idx.get(d["src"], 0), d["a"]))
+    for d in drops:
         d["id"] = "%s:%s:%.2f" % (d["kind"][0], d["src"], d["a"])
-    drops.sort(key=lambda d: (order.index(d["src"]), d["a"]))
 
     for sid in order:
         s, pl, _ = plans[sid]

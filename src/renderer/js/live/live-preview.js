@@ -128,7 +128,9 @@ async function addLiveClip(sub, keepPlayhead) {
     p.text = txt;
     setStatus('Putting the Text+ on the timeline…');
     p.sfxClip = await liveSfxFor(m, sub.start, sub.end);
-    const res = await window.sa.apply(Object.assign(liveReq(m, a, p.text), { live: true, keepPlayhead: !!keepPlayhead }));
+    const req = liveReq(m, a, p.text);
+    const sentKey = JSON.stringify(req);
+    const res = await window.sa.apply(Object.assign(req, { live: true, keepPlayhead: !!keepPlayhead }));
     p.busy = false;
     if (p.cancelled) {                                 // Remove was clicked while this clip was going in: take it off again
         if (res && res.ok) { try { await window.sa.liveRemove(); } catch (e) { /* ignore */ } }
@@ -138,7 +140,7 @@ async function addLiveClip(sub, keepPlayhead) {
     if (res && res.ok) {
         p.hasClip = true;
         p.clipS = res.start; p.clipE = res.start + res.frames;
-        p.key = JSON.stringify(liveReq(m, a, p.text));
+        p.key = sentKey;
         liveCard('The Text+ and sound are on the timeline. Click Apply to continue to next caption, or Remove to stop.');
         setStatus('Previewing in Resolve · V' + res.videoTrack, 'ok');
         state.liveBg.key = '';

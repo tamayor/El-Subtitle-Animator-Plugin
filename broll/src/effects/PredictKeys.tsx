@@ -8,6 +8,27 @@ type P = Common & { text: string; suggestions: string[]; dark: boolean };
 
 const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 
+type KeyProps = {
+    ch: string; w?: number; dark?: boolean; label?: string;
+    keyOn: boolean; last: string; keyBg: string; key2Bg: string; ink: string; dk: boolean;
+};
+
+const Key: React.FC<KeyProps> = ({ ch, w = 74, dark, label, keyOn, last, keyBg, key2Bg, ink, dk }) => {
+    const on = keyOn && ch.length === 1 && ch === last;
+    return (
+        <div style={{ width: w, height: 92, borderRadius: 10, background: dark ? key2Bg : keyBg, color: ink, position: 'relative',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT.sans, fontSize: label ? 24 : 38,
+            boxShadow: `0 2px 0 ${dk ? '#111' : '#898a8d'}` }}>
+            {label || ch}
+            {on && (
+                <div style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: w * 1.35, height: 120,
+                    background: keyBg, borderRadius: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 10,
+                    fontSize: 54, boxShadow: '0 4px 16px rgba(0,0,0,.3)', zIndex: 3 }}>{ch}</div>
+            )}
+        </div>
+    );
+};
+
 export const PredictKeys: React.FC<P> = (p) => {
     const { frame, fps, durationInFrames: D, inn, out } = useInOut(p, (D0, f) => {
         // landed: the last letter typed
@@ -32,22 +53,7 @@ export const PredictKeys: React.FC<P> = (p) => {
     const bar = partial ? [sug[0], partial, sug[2] || sug[1]] : sug;
     const caret = Math.floor(frame / 9) % 2 === 0;
     const slide = interpolate(inn, [0, 1], [520, 0]);
-
-    const Key: React.FC<{ ch: string; w?: number; dark?: boolean; label?: string }> = ({ ch, w = 74, dark, label }) => {
-        const on = keyOn && ch.length === 1 && ch === last;
-        return (
-            <div style={{ width: w, height: 92, borderRadius: 10, background: dark ? key2 : key, color: ink, position: 'relative',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT.sans, fontSize: label ? 24 : 38,
-                boxShadow: `0 2px 0 ${dk ? '#111' : '#898a8d'}` }}>
-                {label || ch}
-                {on && (
-                    <div style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: w * 1.35, height: 120,
-                        background: key, borderRadius: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 10,
-                        fontSize: 54, boxShadow: '0 4px 16px rgba(0,0,0,.3)', zIndex: 3 }}>{ch}</div>
-                )}
-            </div>
-        );
-    };
+    const kp = { keyOn, last, keyBg: key, key2Bg: key2, ink, dk };
 
     return (
         <Place p={p}>
@@ -72,15 +78,15 @@ export const PredictKeys: React.FC<P> = (p) => {
                     </div>
                     {ROWS.map((r, ri) => (
                         <div key={ri} style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 14 }}>
-                            {ri === 2 && <Key ch="shift" w={104} dark label="⇧" />}
-                            {r.split('').map((c) => <Key key={c} ch={c} />)}
-                            {ri === 2 && <Key ch="del" w={104} dark label="⌫" />}
+                            {ri === 2 && <Key {...kp} ch="shift" w={104} dark label="⇧" />}
+                            {r.split('').map((c) => <Key key={c} {...kp} ch={c} />)}
+                            {ri === 2 && <Key {...kp} ch="del" w={104} dark label="⌫" />}
                         </div>
                     ))}
                     <div style={{ display: 'flex', gap: 12, marginTop: 14, justifyContent: 'center' }}>
-                        <Key ch="123" w={110} dark label="123" />
-                        <Key ch=" " w={480} label="space" />
-                        <Key ch="ret" w={190} dark label="return" />
+                        <Key {...kp} ch="123" w={110} dark label="123" />
+                        <Key {...kp} ch=" " w={480} label="space" />
+                        <Key {...kp} ch="ret" w={190} dark label="return" />
                     </div>
                 </div>
             </div>

@@ -29,9 +29,16 @@ function ctvSilence(r) {
 // (clicks up to 60 ms inside it are bridged), Post tail frames stay after the words and Pre head frames before the next
 // ones, every edge on a whole frame, and only what strips at least Minimum to strip frames counts.
 // [{ start, end, frames, tc }] in timeline frames; the list, the markers and Delete marked pauses all use these.
+let ctvPausesCache = null;
 function ctvPauses(r) {
     if (!r) return [];
     const w = ctv.wave, fps = r.fps || (ctv.range && ctv.range.fps) || 25, S = ctvSet();
+    const thrKey = (ctv.silDb === null || ctv.silDb === undefined) ? 'auto' : ctv.silDb;
+    if (ctvPausesCache && ctvPausesCache.r === r && ctvPausesCache.w === w && ctvPausesCache.fps === fps
+        && ctvPausesCache.thrKey === thrKey && ctvPausesCache.pre === S.pre && ctvPausesCache.post === S.post
+        && ctvPausesCache.min === S.min) {
+        return ctvPausesCache.out;
+    }
     const runs = [];
     if (!w || w.music || w.from !== r.from || w.to !== r.to) {
         for (const p of r.pauses || []) runs.push([p.start, p.end]);          // no waveform yet: the measurement's pauses
@@ -59,6 +66,7 @@ function ctvPauses(r) {
         const s = Math.ceil(a - 1e-6) + S.post, e = Math.floor(b + 1e-6) - S.pre;
         if (e - s >= S.min) out.push({ start: s, end: e, frames: e - s, tc: ctvTc(s, fps, true) });
     }
+    ctvPausesCache = { r, w, fps, thrKey, pre: S.pre, post: S.post, min: S.min, out };
     return out;
 }
 

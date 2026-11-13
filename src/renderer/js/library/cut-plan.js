@@ -83,8 +83,17 @@ function cutPlanSnap(keeps, fps, dur, minPiece) {
 function cutPlanWordless(keeps, words, drops) {
     const live = words.filter(w => /[\p{L}\p{N}]/u.test(w[2]) && !drops.some(d => d.a <= (w[0] + w[1]) / 2 && (w[0] + w[1]) / 2 <= d.b));
     const stay = [], gone = [];
+    let wi = 0;
     for (const k of keeps) {
-        const has = live.some(w => Math.min(k[1], w[1]) - Math.max(k[0], w[0]) >= Math.min(0.05, (w[1] - w[0]) / 2));
+        while (wi < live.length && live[wi][1] <= k[0]) wi++;
+        let has = false;
+        for (let j = wi; j < live.length && live[j][0] < k[1]; j++) {
+            const w = live[j];
+            if (Math.min(k[1], w[1]) - Math.max(k[0], w[0]) >= Math.min(0.05, (w[1] - w[0]) / 2)) {
+                has = true;
+                break;
+            }
+        }
         (has ? stay : gone).push(k);
     }
     return { stay, gone };

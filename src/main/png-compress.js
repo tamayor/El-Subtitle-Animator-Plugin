@@ -45,11 +45,11 @@ function parse(buf) {
 
 // Cheap test without decoding: an uncompressed PNG is about as big as its raw pixels.
 function isUncompressedPng(file) {
+    let fd;
     try {
-        const fd = fs.openSync(file, 'r');
+        fd = fs.openSync(file, 'r');
         const head = Buffer.alloc(33);
         fs.readSync(fd, head, 0, 33, 0);
-        fs.closeSync(fd);
         if (!head.subarray(0, 8).equals(SIG) || head.toString('latin1', 12, 16) !== 'IHDR') return false;
         const w = head.readUInt32BE(16), h = head.readUInt32BE(20), depth = head[24], ch = CHANNELS[head[25]];
         if (!ch) return false;

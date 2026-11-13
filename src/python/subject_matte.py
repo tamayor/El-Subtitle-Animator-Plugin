@@ -55,7 +55,7 @@ def keep_subject(al, keep_frac=0.12):
     the components at least 12% the size of the largest one (the body, plus a detached hand or arm). An opening first
     cuts the thin soft bridges that join a wall sign to the hair, so the sign becomes its own island and is dropped."""
     h, w = al.shape
-    small = cv2.resize(al, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(al, (max(1, w // 4), max(1, h // 4)), interpolation=cv2.INTER_AREA)
     solid = cv2.morphologyEx((small > 0.5).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     n, lab, st, _ = cv2.connectedComponentsWithStats(solid, 8)
     if n <= 2:
@@ -103,6 +103,7 @@ def clean_matte(al, choke=0.12, feather=0.7, band=None, keep_frac=0.12):
     hair (glow and wall colour bleeding through) and firm up the inside, then islands are dropped, holes filled and the
     edge softened by `feather` px."""
     if choke > 0:
+        choke = min(float(choke), 0.45)
         al = np.clip((al - choke) / (1.0 - 2.0 * choke), 0, 1)
     al = keep_subject(al, keep_frac)
     al = near_core(al, band or max(6.0, 0.008 * max(al.shape)))     # ~15 px at 1080x1920

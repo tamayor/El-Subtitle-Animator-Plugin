@@ -158,21 +158,33 @@ function syncUse(force) {
     }
 }
 
-const saveField = debounce(async (id, patch) => {
-    const m = libEntry(id);
-    if (m && m.useSfx !== false && (m.sfx || m.sfxOrig)) {
-        await syncAttachedSfx(m);
-        if (m.sfx) patch.sfx = m.sfx;
-        if (m.sfxOrig) patch.sfxOrig = m.sfxOrig;
+const savePending = new Map();
+function saveField(id, patch) {
+    let entry = savePending.get(id);
+    if (!entry) {
+        entry = { patch: {}, timer: null };
+        savePending.set(id, entry);
     }
-    const res = await window.sa.updateAnimation(id, patch);
-    // Do not swap the data under a drag in progress; the saved values are already what the user sees.
-    if (res && res.lib && !state.drag && !state.stageDrag) {
-        state.lib = res.lib;
-        syncUse(false);
-        if (state.createAdjusted && state.createId) {
-            const ca = libEntry(state.createId);
-            if (ca) { ca.adjusted = true; syncVarButtons('C', ca); }
+    Object.assign(entry.patch, patch);
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(async () => {
+        savePending.delete(id);
+        const merged = entry.patch;
+        const m = libEntry(id);
+        if (m && m.useSfx !== false && (m.sfx || m.sfxOrig)) {
+            await syncAttachedSfx(m);
+            if (m.sfx) merged.sfx = m.sfx;
+            if (m.sfxOrig) merged.sfxOrig = m.sfxOrig;
         }
-    }
-}, 250);
+        const res = await window.sa.updateAnimation(id, merged);
+        // Do not swap the data under a drag in progress; the saved values are already what the user sees.
+        if (res && res.lib && !state.drag && !state.stageDrag) {
+            state.lib = res.lib;
+            syncUse(false);
+            if (state.createAdjusted && state.createId) {
+                const ca = libEntry(state.createId);
+                if (ca) { ca.adjusted = true; syncVarButtons('C', ca); }
+            }
+        }
+    }, 250);
+}

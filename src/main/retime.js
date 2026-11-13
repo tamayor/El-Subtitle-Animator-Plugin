@@ -19,10 +19,17 @@ module.exports = { addRetiming, detectSegments, retimeTerms, upgradeRetiming, up
 const SPLINES = /^(BezierSpline|CubicSpline|LUTBezier|PolyPath|XYPath|Path)$/;
 
 function blockEndAt(s, open) {
-    let d = 0;
+    let d = 0, inStr = false;
     for (let j = open; j < s.length; j++) {
-        if (s[j] === '{') d++;
-        else if (s[j] === '}' && --d === 0) return j;
+        const c = s[j];
+        if (inStr) {
+            if (c === '\\') j++;
+            else if (c === '"') inStr = false;
+            continue;
+        }
+        if (c === '"') inStr = true;
+        else if (c === '{') d++;
+        else if (c === '}' && --d === 0) return j;
     }
     return -1;
 }

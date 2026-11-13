@@ -103,26 +103,8 @@
     margin: 6px 0;
 }
 
-.rv-row {
-    display: grid;
-    grid-template-columns: minmax(84px, 36%) 1fr 64px;
-    align-items: center;
-    column-gap: 10px;
-    min-height: 27px;
-    margin: 1px 0;
-}
-
 .rv-row.hidden {
     display: none;
-}
-
-.rv-lbl {
-    text-align: right;
-    color: #b9c4bc;
-    font-size: 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .rv-ctl-wide {

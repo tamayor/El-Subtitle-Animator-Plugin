@@ -165,7 +165,12 @@ function startWorker() {
             if (tag === 'READY') readyRes();
             else if (tag === 'PROGRESS' && msg) { const j = w.jobs.get(msg.id); if (j && j.onProgress) j.onProgress(msg.p); }
             else if ((tag === 'RESULT' || tag === 'ERROR') && msg) {
-                if (msg.id === null && tag === 'ERROR') { readyRej(new Error(msg.error)); continue; }
+                if (msg.id === null && tag === 'ERROR') {
+                    try { proc.kill(); } catch (e) { /* ignore */ }
+                    if (worker === w) worker = null;
+                    readyRej(new Error(msg.error));
+                    continue;
+                }
                 const j = w.jobs.get(msg.id);
                 if (!j) continue;
                 w.jobs.delete(msg.id); clearTimeout(j.timer);
@@ -440,6 +445,7 @@ async function brollPlace(event, o) {
         send(current);
         throw err;
     }
+    if (cancelAsked) throw new Error('Cancelled');
     saveLast(e.id, props);
     if (o.place === false) {
         current = { phase: 'done', effect: e.id, text: 'Rendered ' + path.basename(out) };
@@ -529,6 +535,7 @@ async function brollAdjust(event, o) {
         send(current);
         throw err;
     }
+    if (cancelAsked) throw new Error('Cancelled');
     let how;
     if (frames === Number(curDur) && e.id === rec.effect && newStart === Number(curStart)) {
         // same length: swap the media under the clip; it keeps its place, track and transform

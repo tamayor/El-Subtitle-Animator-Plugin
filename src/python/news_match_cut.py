@@ -121,9 +121,16 @@ def screenshot(browser, url, path, w=1280, h=1500, scale=2):
     # a Google redirect link (not decoded) needs virtual time for its script to forward to the article
     cmd[-2:-2] = ['--virtual-time-budget=12000', '--timeout=25000'] if 'news.google.com' in url else ['--timeout=12000']
     try:
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40)
-    except subprocess.TimeoutExpired:
-        pass
+        import signal
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            p.wait(timeout=40)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                p.kill()
+            p.wait()
     finally:
         shutil.rmtree(prof, ignore_errors=True)
     return os.path.exists(path) and os.path.getsize(path) > 20000
@@ -189,7 +196,8 @@ def hex_rgb(h):
 
 
 def compose(path, box, W, H, word_h, cx, cy, highlight, max_up):
-    img = Image.open(path).convert('RGB')
+    with Image.open(path) as im:
+        img = im.convert('RGB')
     x, y, w, h = box
     s = min(word_h / h, max_up)
     img = img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.LANCZOS)

@@ -37,7 +37,7 @@ export function useInOut(p: Common, buildEnd?: (D: number, fps: number) => numbe
     const b0 = buildEnd ? Math.max(1, buildEnd(durationInFrames, fps)) : 0;
     const settle = Math.max(0, Number(p.settle) || 0);
     const frame = settle > 0 && b0 > 0 ? (raw <= settle ? raw * b0 / settle : b0 + (raw - settle)) : raw;
-    const inn = enter <= 0 ? 1 : spring({ frame, fps, durationInFrames: enter, config: { damping: 16, stiffness: 160 } });
+    const inn = enter <= 0 ? 1 : spring({ frame, fps, durationInFrames: Math.max(1, Math.round(enter)), config: { damping: 16, stiffness: 160 } });
     const out = exit <= 0 ? 1 : interpolate(raw, [durationInFrames - exit, durationInFrames], [1, 0],
         { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.in(Easing.cubic) });
     return { frame, raw, fps, durationInFrames, inn, out, enter, exit };

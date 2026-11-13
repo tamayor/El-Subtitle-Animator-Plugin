@@ -67,8 +67,12 @@ function cleanAudioStem(name) {
     return stem.replace(/[^\w.\- ]+/g, '_').trim().slice(0, 50) || 'audio';
 }
 
+let sfxListCache = null;
 function listSfxOriginals() {
     ensureDirs();
+    let dirMtime = 0;
+    try { dirMtime = fs.statSync(SFX_ORIG_DIR).mtimeMs; } catch (e) { /* ignore */ }
+    if (sfxListCache && sfxListCache.dirMtime === dirMtime) return sfxListCache.list;
     const files = fs.readdirSync(SFX_ORIG_DIR);
     const out = [];
     for (const f of files) {
@@ -88,6 +92,7 @@ function listSfxOriginals() {
         } catch (e) { /* ignore */ }
     }
     out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+    sfxListCache = { dirMtime, list: out };
     return out;
 }
 
@@ -95,6 +100,7 @@ function addSfxOriginal(event, p) {
     if (!p) return { error: 'Pick an audio file first' };
     try {
         const file = copySfx(p);
+        sfxListCache = null;
         return { ok: true, file, lib: libForUI() };
     } catch (e) {
         return { error: e.message };
@@ -107,6 +113,7 @@ function removeSfxOriginal(event, name) {
     if (fs.existsSync(p)) {
         try { fs.rmSync(p, { force: true }); } catch (e) { return { error: e.message }; }
     }
+    sfxListCache = null;
     const lib = loadLib();
     let changed = false;
     for (const a of lib.animations) {

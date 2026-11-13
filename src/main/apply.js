@@ -34,9 +34,11 @@ const { frameToTC, getProject, setSubtitlesEnabled, tcToFrame, timelineMeta } = 
 const { snapAdd, takeSnapshot } = require('./timeline-snapshot');
 const PERF = require('./perf');
 
+let applyDepth = 0;
 async function apply(event, req) {
     const warnings = [];
     if (req && req.live) await waitIdle(6000);      // a preview move still running would place sounds for the old clip
+    applyDepth++;
     state.applying = true;
     const sp = PERF.span('apply', { live: !!(req && req.live) });
     let ok = false;
@@ -45,7 +47,7 @@ async function apply(event, req) {
         ok = !!(r && r.ok);
         return r;
     } finally {
-        state.applying = false;
+        if (--applyDepth <= 0) { applyDepth = 0; state.applying = false; }
         sp.end({ ok });
     }
 }

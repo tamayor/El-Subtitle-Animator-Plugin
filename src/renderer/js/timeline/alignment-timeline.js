@@ -287,7 +287,12 @@ function onDragMove(e) {
         if (Math.abs(t) <= 1) t = 0;
         m.tail = t;
     }
-    renderTimeline(d.ctx);
+    if (!d.raf) {
+        d.raf = requestAnimationFrame(() => {
+            d.raf = 0;
+            if (state.drag === d) renderTimeline(d.ctx);
+        });
+    }
 }
 
 function onDragEnd() {
@@ -296,6 +301,7 @@ function onDragEnd() {
         return;
     }
     const d = state.drag;
+    if (d && d.raf) { cancelAnimationFrame(d.raf); d.raf = 0; renderTimeline(d.ctx); }
     state.drag = null;
     if (d) {
         const m = d.ctx.model();

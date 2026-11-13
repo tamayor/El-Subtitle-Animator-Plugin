@@ -1,6 +1,6 @@
 // Live cursor: a named cursor glides in, drags a selection box (handles + live size label) around a spot, and rests.
 import React from 'react';
-import { AbsoluteFill, interpolate, useVideoConfig } from 'remotion';
+import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Common, FONT, clamp, ease, useInOut, useUnit } from '../lib/common';
 
 type P = Common & { name: string; boxW: number; boxH: number; sizeLabel: boolean; boxColor: string };
@@ -13,7 +13,7 @@ const Arrow: React.FC<{ s: number }> = ({ s }) => (
 
 export const LiveCursor: React.FC<P> = (p) => {
     const { width, height } = useVideoConfig();
-    const { frame, durationInFrames: D, inn, out } = useInOut(p, (D0) => Math.max(Math.max(8, Math.round(D0 * 0.22)) + 8, Math.round(D0 * 0.6)));
+    const { frame, durationInFrames: D, inn, out, delay } = useInOut(p, (D0) => Math.max(Math.max(8, Math.round(D0 * 0.22)) + 8, Math.round(D0 * 0.6)));
     const u = useUnit() * (p.scale || 1);
     const cx = clamp(p.x) * width, cy = clamp(p.y) * height;
     const bw = clamp(p.boxW, 0.02, 1) * width * (p.scale || 1), bh = clamp(p.boxH, 0.02, 1) * height * (p.scale || 1);
@@ -35,7 +35,7 @@ export const LiveCursor: React.FC<P> = (p) => {
     const handles = [[0, 0], [0.5, 0], [1, 0], [0, 0.5], [1, 0.5], [0, 1], [0.5, 1], [1, 1]];
 
     return (
-        <AbsoluteFill style={{ opacity: out }}>
+        <AbsoluteFill style={{ opacity: useCurrentFrame() < delay ? 0 : out }}>
             {show && (
                 <div style={{ position: 'absolute', left: x0, top: y0, width: w, height: h,
                     border: `${2.5 * u}px solid ${p.boxColor}`, background: 'rgba(255,255,255,0.06)', boxSizing: 'border-box' }}>

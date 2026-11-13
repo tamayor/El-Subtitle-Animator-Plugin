@@ -16,7 +16,7 @@
 
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
-    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit
+    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit, brollWordLane
 };
 
 const fs = require('fs');
@@ -102,7 +102,7 @@ function mergedProps(reg, e, props, usePrefs) {
     for (const f of fields) out[f.key] = f.default;
     Object.assign(out, e.defaults || {});
     if (usePrefs) Object.assign(out, (readJson(PREFS_FILE, {}).last || {})[e.id] || {});
-    delete out._times;   // word times belong to one placed clip, never to the remembered panel values
+    delete out._times; delete out._ends; delete out._manual;   // word times belong to one placed clip, never to the remembered panel values
     const p = props || {};
     for (const f of fields) {
         if (!(f.key in p) || p[f.key] === undefined || p[f.key] === null) continue;
@@ -114,8 +114,12 @@ function mergedProps(reg, e, props, usePrefs) {
         else v = String(v);
         out[f.key] = v;
     }
+    out.exit = 0;   // no animation out: every B-roll holds its finished graphic to the end of the clip (the subtitle's end)
     // per-word print frames (receipt printer word by word, set by Sync to words); not a panel field
     if (Array.isArray(p._times)) out._times = p._times.map(Number).filter(Number.isFinite).slice(0, 400);
+    // per-word end frames (the word fully in) and whether the user set the word timings by hand in the word lane
+    if (Array.isArray(p._ends)) out._ends = p._ends.map(Number).filter(Number.isFinite).slice(0, 400);
+    if (p._manual) out._manual = true;
     return out;
 }
 
@@ -295,7 +299,7 @@ async function markRange(tl) {
 }
 
 async function rangeFor(tl, meta, o, e) {
-    const minF = Math.round(meta.fps * 1.2);
+    const minF = Math.max(4, Math.round(meta.fps * 0.4));
     let maxF = Math.round(meta.fps * 12);
     let start, end, subtitle = null;
     if (o.marks) {
@@ -319,6 +323,7 @@ async function rangeFor(tl, meta, o, e) {
         o = { ...o, subtitle: s.index };
     }
     if (o.subtitle !== undefined && o.subtitle !== null && o.subtitle !== '') {
+        maxF = Math.round(meta.fps * 60);                  // on a subtitle: its whole length (up to a minute)
         const subs = await getSubtitles(tl, false);
         const s = subs.find(x => x.index === Number(o.subtitle));
         if (!s) throw new Error('No subtitle #' + o.subtitle + ' (the timeline has ' + subs.length + ')');
@@ -451,7 +456,8 @@ async function brollPlace(event, o) {
         landed = await brollLandingPlan(tl, meta, e.id, props, r.start, r.end, r.subtitle && r.subtitle.index);
         r.start = landed.start; r.end = landed.end; r.frames = landed.end - landed.start;
         props.settle = landed.settle;
-        if (landed.times) props._times = landed.times; else delete props._times;
+        if (landed.times) { props._times = landed.times; props._ends = landed.ends || []; if (!landed.manual) delete props._manual; }
+        else { delete props._times; delete props._ends; delete props._manual; }
     }
     // Extend by: the clip runs this many seconds past the subtitle / marks (the finished graphic holds, then fades)
     const extendF = Math.round(Math.max(0, Math.min(30, Number(o.extend) || 0)) * meta.fps);
@@ -552,16 +558,25 @@ async function brollAdjust(event, o) {
     const hasCustomSec = Number.isFinite(Number(o.seconds)) && Number(o.seconds) > 0;
     if (hasCustomSec) frames = Math.round(Number(o.seconds) * meta.fps);
     if (Number.isFinite(Number(o.frames)) && Number(o.frames) > 0) frames = Math.round(Number(o.frames));
+    // A clip on a subtitle follows that subtitle: same start, same length (unless a length / start / extend was asked for)
+    if (rec.subtitle && !rec.marks && !hasCustomSec && !(Number(o.frames) > 0) && !Number.isFinite(Number(o.startFrame)) && !(Number(o.extend) > 0)) {
+        try {
+            const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+            const s = (await getSubtitles(tl, false)).find(x => x.index === Number(rec.subtitle.index));
+            if (s && s.end - s.start >= 4 && (!rec.subtitle.text || norm(s.text) === norm(rec.subtitle.text))) { newStart = s.start; frames = s.end - s.start; }
+        } catch (err) { /* keep the clip's own range */ }
+    }
     let landed = null;
     if (o.landOnWord && o.settle === undefined && !Number.isFinite(Number(o.startFrame))) {
         const plan = await brollLandingPlan(tl, meta, e.id, props, newStart, newStart + frames, rec.subtitle && rec.subtitle.index);
-        if (plan.times) props._times = plan.times;
+        if (plan.times) { props._times = plan.times; props._ends = plan.ends || []; if (!plan.manual) delete props._manual; }
         props.settle = plan.settle;
         newStart = plan.start;
         if (!hasCustomSec) frames = plan.end - plan.start;
         landed = { word: plan.word, source: plan.source, wordFrame: plan.wordFrame };
     } else if (o.landOnWord === false) {
         props.settle = 0;
+        delete props._times; delete props._ends; delete props._manual;   // the word-by-word timing belongs to Land on word
     }
     const v = (rec.version || 1) + 1;
     const out = fileFor(path.dirname(rec.file), e.id, rec.id, v);
@@ -809,21 +824,147 @@ async function keyWordFrame(tl, effect, props, start, end, subIndex) {
     return { frame: Math.round((start + end) / 2), word: '', source: 'middle' };
 }
 
-// The new range and settle for a clip spanning start..end so its build lands on the key word: the clip starts 0.5-1.6 s
-// before the word (earlier than before if needed) and holds at least 1 s after it.
+// The new range and settle for a clip spanning start..end so its build lands on the key word while keeping the
+// subtitle's own duration (start..end).
 async function brollLandingPlan(tl, meta, effect, props, start, end, subIndex) {
     if (effect === 'receipt-printer' && props && props.byWord) {
         const r = await receiptWordPlan(meta, props, start, end);
         if (r) return r;
     }
+    const wp = await wordUnitsPlan(effect, props, start, end);
+    if (wp) return wp;
     const k = await keyWordFrame(tl, effect, props, start, end, subIndex);
-    const fps = meta.fps;
-    const minLead = Math.round(fps * 0.5), maxLead = Math.round(fps * 1.6);
-    const lead = Math.max(minLead, Math.min(maxLead, k.frame - start));
-    const ns = k.frame - lead;
-    let ne = Math.max(end, k.frame + Math.round(fps * 1.0));
-    ne = Math.min(ne, ns + Math.round(fps * 12));
-    return { start: ns, end: ne, settle: k.frame - ns, wordFrame: k.frame, word: k.word, source: k.source };
+    const dur = Math.max(6, end - start);
+    const settle = Math.max(4, Math.min(dur - 2, k.frame - start));
+    return { start, end: start + dur, settle, wordFrame: k.frame, word: k.word, source: k.source };
+}
+
+// Word by word: effects that show several words / items get each one on the frame it is spoken (props._times, clip
+// frames). The split must match the Remotion side (wordCount / tags.slice(0, 14) in broll/src).
+const WORD_UNITS = {
+    'predict-keys': p => String(p.text || '').split(/\s+/).filter(Boolean),
+    'quote-card': p => String(p.body || '').split(/\s+/).filter(Boolean),
+    'marker-highlight': p => String(p.phrase || '').split(/\s+/).filter(Boolean),
+    'tag-stack': p => (p.tags || []).slice(0, 14).map(String).filter(Boolean)
+};
+
+// Each shown unit's spoken frame (relative to the clip start): matched in order to the transcription with a few words
+// of look-ahead (spoken numbers too, "sixteen hundred" = 1,600); unmatched units fall between their neighbours; when
+// nothing matches, they are spread over the speech word for word.
+function unitTimes(units, words) {
+    const t = new Array(units.length).fill(null);
+    let cur = 0;
+    units.forEach((u, i) => {
+        const key = firstWordOf(u);
+        for (let k = cur; k < Math.min(words.length, cur + 5); k++) {
+            if (wordMatches(words[k].w, key)) { t[i] = words[k].start; cur = k + 1; return; }
+        }
+        const hit = findWordHit(words.slice(cur, cur + 8), key);
+        if (hit) { t[i] = hit.start; const j = words.findIndex(w => w.start >= hit.end - 0.01); cur = j < 0 ? words.length : Math.max(cur + 1, j); }
+    });
+    if (t.every(v => v === null)) units.forEach((_, i) => { t[i] = words[Math.min(words.length - 1, Math.round(i * (words.length - 1) / Math.max(1, units.length - 1)))].start; });
+    for (let i = 0; i < t.length; i++) {
+        if (t[i] !== null) continue;
+        let j = i; while (j < t.length && t[j] === null) j++;
+        const a = i > 0 ? t[i - 1] : Math.max(0, (j < t.length ? t[j] : 0) - (j - i) * 4);
+        const b = j < t.length ? t[j] : a + (j - i + 1) * 4;
+        for (let k = i; k < j; k++) t[k] = a + (b - a) * (k - i + 1) / (j - i + 1);
+        i = j - 1;
+    }
+    for (let i = 1; i < t.length; i++) if (t[i] < t[i - 1]) t[i] = t[i - 1];   // never out of order
+    return t.map(v => Math.max(0, Math.round(v)));
+}
+
+// The B-roll tab's word lane under the In bar: what Land on word times, in frames from the clip start.
+// Word-by-word effects: one segment per shown word / item (the clip's saved _times when they still fit, else matched
+// now). Other effects: the subtitle's spoken words, the key word marked. Words come from an existing transcription
+// only (never a new speech run for a preview), else they are estimated from the subtitle text.
+// o: { effect, props, id (a placed clip) | subtitle (number) } -> { segs: [{ s, e, label, key }], frames, source }
+async function brollWordLane(event, o) {
+    o = o || {};
+    const reg = registry();
+    const e = effectById(reg, o.effect);
+    const props = mergedProps(reg, e, o.props, false);
+    const { tl } = await currentTl();
+    let start, end, text = '';
+    const rec = o.id ? readJson(PLACED_FILE, []).find(r => r.id === o.id) : null;
+    const subs = await getSubtitles(tl, false).catch(() => []);
+    if (rec) {
+        start = Number(rec.start); end = start + Number(rec.frames);
+        const s = rec.subtitle && subs.find(x => x.index === Number(rec.subtitle.index));
+        text = s ? s.text : (rec.subtitle && rec.subtitle.text) || '';
+    } else {
+        const s = subs.find(x => x.index === Number(o.subtitle));
+        if (!s) return { segs: [], frames: 0, source: 'none' };
+        start = s.start; end = s.end; text = s.text;
+    }
+    const dur = Math.max(1, end - start);
+    let words = [], source = 'speech';
+    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end, { cachedOnly: true })); } catch (err) { words = []; }
+    if (!words || !words.length) {
+        // estimate: the clip's frames shared out by the characters of the subtitle's words
+        source = 'estimate';
+        const toks = String(text || '').split(/\s+/).filter(Boolean);
+        const total = toks.reduce((a, t) => a + t.length + 1, 0) || 1;
+        let acc = 0;
+        words = toks.map(t => { const w = { w: t, start: acc / total * dur, end: (acc + t.length) / total * dur }; acc += t.length + 1; return w; });
+    }
+    const span = (list) => list.map((x, i) => ({ s: Math.max(0, Math.round(x.at)), e: Math.min(dur, Math.round(i + 1 < list.length ? list[i + 1].at : dur)), label: x.label, key: !!x.key }));
+    const f = WORD_UNITS[e.id];
+    const units = f ? f(props) : [];
+    if (units.length >= 2) {
+        const saved = Array.isArray(props._times) && props._times.length === units.length ? props._times.map(Number) : null;
+        let sp = null;
+        if (saved) {
+            const ends = Array.isArray(props._ends) && props._ends.length === units.length ? props._ends.map(Number) : wordSpans(e.id, units, saved, dur).ends;
+            sp = { ins: saved, ends };
+        } else if (words.length) sp = wordSpans(e.id, units, unitTimes(units, words), dur);
+        if (sp) {
+            const segs = units.map((u, i) => ({ s: Math.max(0, Math.round(sp.ins[i])), e: Math.min(dur, Math.max(Math.round(sp.ins[i]) + 1, Math.round(sp.ends[i]))), label: u, key: false }));
+            return { segs, frames: dur, source: props._manual ? 'manual' : saved ? 'saved' : source, units: true, editable: true };
+        }
+    }
+    const keyFn = KEY_WORD[e.id];
+    const key = keyFn ? keyFn(props) : null;
+    let keyHit = key ? findWordHit(words, key) : null;
+    if (!keyHit && words.length) keyHit = words[words.length - 1];
+    const list = words.map(w => ({ at: w.start, label: w.w, key: !!keyHit && w.start >= keyHit.start && w.start < (keyHit.end ?? keyHit.start) + 0.5 }));
+    return { segs: span(list), frames: dur, source, units: false };
+}
+
+// Each word's [in, end] from its spoken frame: in = when it starts coming in, end = when it is fully in. Typed words
+// take ~2.5 frames a letter (done before the next word), tags drop 6 frames and land on the word, text fades in 4.
+function wordSpans(effect, units, spoken, dur) {
+    const ins = [], ends = [];
+    units.forEach((u, i) => {
+        const t = spoken[i], next = i + 1 < spoken.length ? spoken[i + 1] : dur;
+        let a = t, b;
+        if (effect === 'tag-stack') { a = Math.max(0, t - 6); b = Math.max(a + 1, t); }
+        else if (effect === 'predict-keys') b = t + Math.max(1, Math.min(Math.round(String(u).length * 2.5), next - t - 1));
+        else if (effect === 'marker-highlight') b = t + 10;
+        else b = t + 4;
+        ins.push(Math.max(0, Math.min(dur - 2, Math.round(a))));
+        ends.push(Math.max(ins[i] + 1, Math.min(dur - 1, Math.round(b))));
+    });
+    return { ins, ends };
+}
+
+async function wordUnitsPlan(effect, props, start, end) {
+    const f = WORD_UNITS[effect];
+    const units = f ? f(props || {}) : [];
+    if (units.length < 2) return null;            // one word: the single key-word landing does it
+    const dur0 = Math.max(6, end - start);
+    // timings set by hand in the word lane stay (while they still fit the words); Sync to words re-times them
+    if (props && props._manual && Array.isArray(props._times) && props._times.length === units.length) {
+        const ends = Array.isArray(props._ends) && props._ends.length === units.length ? props._ends : wordSpans(effect, units, props._times, dur0).ends;
+        return { start, end: start + dur0, settle: 0, times: props._times, ends, manual: true, wordFrame: start + Math.max(...ends), word: units[units.length - 1], source: 'manual' };
+    }
+    let words;
+    try { ({ words } = await require('./anim-timing').spokenWordsFor(start, end)); } catch (e) { return null; }
+    if (!words || !words.length) return null;
+    const dur = Math.max(6, end - start);
+    const sp = wordSpans(effect, units, unitTimes(units, words).map(v => Math.min(dur - 2, v)), dur);
+    return { start, end: start + dur, settle: 0, times: sp.ins, ends: sp.ends, wordFrame: start + Math.max(...sp.ends), word: units[units.length - 1], source: 'speech' };
 }
 
 // Receipt printer, word by word: every printed word on the frame it is spoken (the transcription), so the clip spans
@@ -877,13 +1018,13 @@ async function brollSync(event, o) {
             if (!it) { out.push({ id: rec.id, ok: false, error: 'not on the timeline' }); continue; }
             const [s, d] = await Promise.all([it.GetStart(), it.GetDuration()]);
             const start = Number(s), end = Number(s) + Number(d);
-            const plan = await brollLandingPlan(tl, meta, rec.effect, rec.props, start, end, rec.subtitle && rec.subtitle.index);
+            const plan = await brollLandingPlan(tl, meta, rec.effect, { ...rec.props, _manual: false }, start, end, rec.subtitle && rec.subtitle.index);
             const sameTimes = JSON.stringify(rec.props._times || null) === JSON.stringify(plan.times || null);
             if (plan.start === start && plan.end === end && Number(rec.props.settle) === plan.settle && sameTimes) {
                 out.push({ id: rec.id, ok: true, unchanged: true, word: plan.word, source: plan.source });
                 continue;
             }
-            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle, _times: plan.times || [] }, startFrame: plan.start, frames: plan.end - plan.start });
+            const r = await brollAdjust(event, { id: rec.id, props: { settle: plan.settle, _times: plan.times || [], _ends: plan.ends || [], _manual: false }, startFrame: plan.start, frames: plan.end - plan.start });
             out.push({ id: rec.id, ok: true, word: plan.word, source: plan.source, wordFrame: plan.wordFrame, moved: plan.start - start, how: r.how });
         } catch (e) { out.push({ id: rec.id, ok: false, error: String(e.message || e) }); }
     }

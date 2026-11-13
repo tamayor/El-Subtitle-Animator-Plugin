@@ -46,7 +46,7 @@ export const CommentDrop: React.FC<P> = (p) => {
     const drop = spring({ frame: frame - post, fps, config: { damping: 13, stiffness: 140 } });
     const dropR = spring({ frame: frame - replyAt, fps, config: { damping: 13, stiffness: 140 } });
     const likes = Math.max(0, Math.round(p.likes || 0));
-    const shown = Math.round(interpolate(frame, [post + 6, D - (p.exit || 8) - 4], [0, likes], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }));
+    const shown = Math.round(interpolate(frame, [post + 6, D - (p.exit ?? 0) - 4], [0, likes], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }));
     const pop = Math.max(0, 1 - ((frame - post - 6) % 8) / 8) * (shown > 0 && shown < likes ? 1 : 0);
 
     return (

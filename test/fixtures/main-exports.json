@@ -63,7 +63,9 @@
     "brollSuggestFromTexts:function",
     "brollSync:function",
     "brollTrace:function",
-    "draftScale:function"
+    "brollWordLane:function",
+    "draftScale:function",
+    "findWordHit:function"
   ],
   "clip-colors-db.js": [
     "subtitleColorsFromDb:function"

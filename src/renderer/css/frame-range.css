@@ -1,0 +1,52 @@
+/* Frame range bar (js/components/frame-range.js): Effect presets Transform Start / End, Spotlight In / Out, B-roll
+   animation In. Styled like the Animation timing bar (css/anim-timing.css): hollow start head, solid end head, the
+   range between them, the red playhead with its frame. */
+.fxr { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 14px; }
+.fxr-bar { --fxr-ease: cubic-bezier(0.65, 0, 0.35, 1); position: relative; height: 24px; margin: 0 7px;
+    cursor: ew-resize; touch-action: none; outline: none; user-select: none; }
+.fxr-bar:focus-visible { box-shadow: 0 0 0 2px var(--matcha-border); border-radius: 6px; }
+.fxr-track { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px;
+    background: var(--line); border: none; }
+.fxr-range { position: absolute; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; pointer-events: none;
+    background: linear-gradient(90deg, var(--matcha-tint), var(--matcha)); }
+.fxr-bar:hover .fxr-range, .fxr-bar.dragging .fxr-range { box-shadow: 0 0 0 1px var(--matcha-border); }
+.fxr-knob { position: absolute; top: 50%; width: 8px; height: 18px; margin: -9px 0 0 -4px; border-radius: 3px;
+    background: var(--matcha); border: 2px solid var(--matcha-ink); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    pointer-events: none; transition: transform 0.15s var(--fxr-ease); }
+.fxr-knob.fxr-start { background: var(--card); border-color: var(--matcha); }
+.fxr-knob.on { transform: scale(1.12); box-shadow: 0 0 0 2px var(--matcha-tint), 0 1px 4px rgba(0, 0, 0, 0.45); }
+.fxr-bar.glide .fxr-knob { transition: left 0.2s var(--fxr-ease), transform 0.15s var(--fxr-ease); }
+.fxr-bar.glide .fxr-range { transition: left 0.2s var(--fxr-ease), width 0.2s var(--fxr-ease); }
+.fxr-ph { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 2px solid var(--strawberry);
+    pointer-events: none; transition: left 0.15s linear; z-index: 1; }
+.fxr-ph span { position: absolute; bottom: 100%; left: 0; transform: translateX(-50%); padding: 0 4px; border-radius: 4px;
+    background: var(--strawberry); color: var(--strawberry-ink); font-size: 9.5px; font-weight: 600; line-height: 13px;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fxr-ph.hot { filter: drop-shadow(0 0 4px var(--strawberry)); }
+.fxr-ph.hidden { display: none; }
+/* the word lane: the subtitle as one block, or one block per word (Land on word); strawberry = where it starts,
+   matcha = each word's start and the end */
+.fxr-lane { position: relative; height: 18px; margin: 5px 7px 2px; }
+.fxr-lane.hidden { display: none; }
+.fxr-seg { position: absolute; top: 0; bottom: 0; box-sizing: border-box; padding: 0 4px 0 5px; background: var(--card-inner);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--text); font-size: 10px; line-height: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.fxr-seg::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--matcha); }
+.fxr-seg.first::before { background: var(--strawberry); }
+.fxr-seg.last::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 2px; background: var(--matcha); }
+.fxr-seg.key { background: var(--matcha-tint); color: var(--matcha); font-weight: 600; }
+.fxr-seg:hover { background: var(--matcha-tint); }
+/* editable (per word): every word has its own in (strawberry, left) and end (matcha, right); drag them */
+.fxr-lane.editable .fxr-seg { cursor: grab; touch-action: none; user-select: none; }
+.fxr-lane.editable .fxr-seg::before { background: var(--strawberry); width: 3px; cursor: ew-resize; }
+.fxr-lane.editable .fxr-seg::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 3px; background: var(--matcha); }
+.fxr-lane.editable.dragging .fxr-seg { cursor: grabbing; }
+.fxr-lane.editable .fxr-seg.on { background: var(--matcha-tint); box-shadow: 0 0 0 1px var(--matcha-border); z-index: 1; }
+.fxr-read { margin: 0 7px; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fxr-read b { color: var(--matcha); font-weight: 600; }
+.fxr-read .fxr-len { opacity: 0.7; }
+.fxr-off .fxr-bar, .fxr-off .fxr-read { opacity: 0.45; }   /* the word lane stays readable */
+.fxr-off .fxr-bar { cursor: default; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+    .fxr-bar.glide .fxr-knob, .fxr-bar.glide .fxr-range, .fxr-ph, .fxr-knob { transition: none; }
+}

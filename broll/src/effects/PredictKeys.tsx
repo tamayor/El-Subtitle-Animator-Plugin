@@ -2,7 +2,7 @@
 // the word being typed.
 import React from 'react';
 import { interpolate } from 'remotion';
-import { Common, FONT, Place, useInOut } from '../lib/common';
+import { Common, FONT, Place, useInOut, wordSpans } from '../lib/common';
 
 type P = Common & { text: string; suggestions: string[]; dark: boolean };
 
@@ -30,7 +30,7 @@ const Key: React.FC<KeyProps> = ({ ch, w = 74, dark, label, keyOn, last, keyBg, 
 };
 
 export const PredictKeys: React.FC<P> = (p) => {
-    const { frame, fps, durationInFrames: D, inn, out } = useInOut(p, (D0, f) => {
+    const { frame, real, fps, durationInFrames: D, inn, out } = useInOut(p, (D0, f) => {
         // landed: the last letter typed
         const st = Math.round((p.enter ?? 10) + 4), en = Math.max(st + 1, D0 - (p.exit ?? 8) - Math.round(f * 0.5));
         const len = Math.max(1, String(p.text || '').length);
@@ -40,11 +40,32 @@ export const PredictKeys: React.FC<P> = (p) => {
     const start = Math.round((p.enter ?? 10) + 4);
     const end = Math.max(start + 1, D - (p.exit ?? 8) - Math.round(fps * 0.5));
     const perChar = Math.max(1.5, Math.min(fps / 8, (end - start) / Math.max(1, text.length)));
-    const n = Math.max(0, Math.min(text.length, Math.floor((frame - start) / perChar) + 1));
-    const shown = frame < start ? '' : text.slice(0, n);
+    let n = Math.max(0, Math.min(text.length, Math.floor((frame - start) / perChar) + 1));
+    let shown = frame < start ? '' : text.slice(0, n);
+    let sinceKey = frame < start ? 99 : (frame - start) % perChar;
+    let keyOn = sinceKey < Math.min(4, perChar * 0.8) && n <= text.length && frame < start + text.length * perChar;
+    // Land on word: each word is typed as it is spoken (from its spoken frame, ~2 frames a letter, done before the next)
+    const words = text.split(/\s+/).filter(Boolean);
+    const sp = wordSpans(p, words.length, (i, a, next) => a + Math.max(1, Math.min(Math.round(words[i].length * 2.5), next - a - 1)));
+    const times = sp ? sp.at : null;
+    if (sp && times) {
+        n = 0; keyOn = false;
+        let w = 0;
+        const re = /\S+/g;
+        let mt: RegExpExecArray | null;
+        while ((mt = re.exec(text))) {
+            const t0 = times[w];
+            const pc = Math.max(0.5, (sp.end[w] - t0) / mt[0].length);   // typed from its in to its end frame
+            w++;
+            if (real < t0) break;
+            const typedN = Math.min(mt[0].length, Math.floor((real - t0) / pc) + 1);
+            n = mt.index + typedN;
+            if (typedN < mt[0].length || real - t0 < mt[0].length * pc + 2) { sinceKey = (real - t0) % pc; keyOn = sinceKey < Math.min(4, pc * 0.8) && typedN <= mt[0].length; }
+            if (typedN >= mt[0].length) { const sp = /^\s+/.exec(text.slice(n)); if (sp && w < times.length && real >= times[w] - 1) n += sp[0].length; }
+        }
+        shown = text.slice(0, n);
+    }
     const last = shown.slice(-1).toLowerCase();
-    const sinceKey = frame < start ? 99 : (frame - start) % perChar;
-    const keyOn = sinceKey < Math.min(4, perChar * 0.8) && n <= text.length && frame < start + text.length * perChar;
 
     const dk = !!p.dark;
     const bg = dk ? '#2b2b2d' : '#d1d3d9', key = dk ? '#6b6b6e' : '#ffffff', key2 = dk ? '#474749' : '#abb0ba', ink = dk ? '#fff' : '#111';

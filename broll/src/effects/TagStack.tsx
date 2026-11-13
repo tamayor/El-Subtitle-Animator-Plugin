@@ -1,25 +1,32 @@
 // Tag stack: small labelled tags drop one by one and pile up in a wobbly stack. (x, y) is the bottom of the stack.
 import React from 'react';
 import { spring } from 'remotion';
-import { Common, FONT, Place, rand, useInOut } from '../lib/common';
+import { Common, FONT, Place, rand, useInOut, wordTimes } from '../lib/common';
 
 type P = Common & { tags: string[]; dark: boolean };
 
 export const TagStack: React.FC<P> = (p) => {
-    const { frame, fps, durationInFrames: D, out } = useInOut(p, (D0) => {
+    const { frame: f0, real, fps, durationInFrames: D, out } = useInOut(p, (D0) => {
         const n = Math.max(1, Math.min(14, (p.tags || []).length || 1));
         return (n - 1) * Math.max(3, Math.min(8, Math.floor((D0 * 0.6) / n))) + 10;   // the last tag has landed
     });
     const tags = (p.tags && p.tags.length ? p.tags : ['Tag']).slice(0, 14);
     const gapF = Math.max(3, Math.min(8, Math.floor((D * 0.6) / tags.length)));
+    // Land on word: each tag drops so it lands as its word is spoken (clip frames); else one every gapF frames
+    const times = wordTimes(p, p.tags && p.tags.length ? tags.length : 0);
+    const frame = times ? real : f0;
+    // with the word lane's end frames: the drop runs from a tag's in to its end; older clips: 6 frames, landing on the word
+    const ends = times && Array.isArray(p._ends) && p._ends.length === times.length ? p._ends.map(Number) : null;
+    const at = (i: number) => times ? (ends ? times[i] : Math.max(0, times[i] - 6)) : i * gapF;
+    const dropLen = (i: number) => ends ? Math.max(2, ends[i] - times![i]) : undefined;
     const tagH = 58;
 
     return (
         <Place p={p}>
             <div style={{ position: 'relative', width: 10, height: 10, opacity: out }}>
                 {tags.map((t, i) => {
-                    const s = spring({ frame: frame - i * gapF, fps, config: { damping: 11, stiffness: 170, mass: 0.7 } });
-                    if (frame < i * gapF) return null;
+                    const s = spring({ frame: frame - at(i), fps, durationInFrames: dropLen(i), config: { damping: 11, stiffness: 170, mass: 0.7 } });
+                    if (frame < at(i)) return null;
                     const rot = (rand(i + 1) - 0.5) * 16;
                     const dx = (rand(i + 11) - 0.5) * 60;
                     const y = -(i + 1) * (tagH - 8);

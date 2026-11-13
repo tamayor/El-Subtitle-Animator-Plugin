@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="./css/text-design.css">
     <link rel="stylesheet" href="./css/text-boxes.css">
     <link rel="stylesheet" href="./css/preset-list.css">
+    <link rel="stylesheet" href="./css/frame-range.css">
     <link rel="stylesheet" href="./css/effect-list.css">
     <link rel="stylesheet" href="./css/presets-tabs.css">
     <link rel="stylesheet" href="./css/create-tab.css">
@@ -71,6 +72,7 @@
     <script src="./js/ui/popovers.js" defer></script>
     <script src="./js/ui/fusion-fixes.js" defer></script>
     <script src="./js/library/preset-list.js" defer></script>
+    <script src="./js/components/frame-range.js" defer></script>
     <script src="./js/library/effect-list.js" defer></script>
     <script src="./js/library/match-cut-card.js" defer></script>
     <script src="./js/library/presets-tabs.js" defer></script>
@@ -1052,7 +1054,7 @@
                                         </details>
                                         <div class="br-sub-bar">
                                             <label class="br-land-toggle" title="Automatically fill this effect's text fields from the subtitle under the playhead as you scrub or switch effects"><input id="brFromSub" type="checkbox"> <span>Fill from subtitle at playhead</span> <span class="cr-sub">auto</span></label>
-                                            <label class="br-land-toggle" title="Times the clip so its animation has fully landed as the key word is spoken (uses word transcription when available, else subtitle timing)."><input id="brLand" type="checkbox"> <span>Land on the spoken word</span> <span class="cr-sub">finishes as word is said</span></label>
+                                            <label class="br-land-toggle" title="Times the animation to the speech (word transcription when available, else subtitle timing). Predict keys, Quote card, Marker highlight, Tag stack and Receipt printer (word by word) bring each word in as it is spoken; the others land their build on the key word. The In bar is set by this while it is ticked."><input id="brLand" type="checkbox"> <span>Land on the spoken word</span> <span class="cr-sub">words come in as they are said</span></label>
                                         </div>
                                         <div id="brFromSubMsg" class="br-fill-msg hidden"></div>
                                         <div class="br-row">
@@ -1091,7 +1093,10 @@
                                 <div class="cut-grid br-place-nums">
                                     <label class="cut-f" id="brSecWrap"><span>Seconds</span><input id="brSec" type="number" min="0.5" max="12" step="0.1" placeholder="effect's"></label>
                                     <label class="cut-f"><span>Track</span><input id="brTrack" type="number" min="0" step="1" placeholder="auto (V2+)"></label>
-                                    <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic, then fades out)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
+                                    <label class="cut-f" id="brExtWrap" title="Make the rendered clip this many seconds longer than the subtitle / marks (it holds the finished graphic to the end)"><span>Extend by (s)</span><input id="brExtend" type="number" min="0" max="30" step="0.1" value="0"></label>
+                                </div>
+                                <div id="brEnterWrap" class="br-enter-wrap" title="Animation In: left head = where it starts, right head = where it has landed (the gap is its length). Drag the middle to move it. Red line: Resolve playhead inside this clip. Double-click: defaults.">
+                                    <div id="brRangeMount"></div>
                                 </div>
                                 <div class="cut-checks">
                                     <label id="brDraftWrap" title="Renders at half size so it is quicker to make and to scrub in Resolve's viewer. The clip is set to Fit (fills the frame, a little soft) and coloured orange. Finalize it in Placed before you export."><input id="brDraft" type="checkbox"> Draft (fast, half size) <span class="cr-sub">check it in the timeline, Finalize before export</span></label>

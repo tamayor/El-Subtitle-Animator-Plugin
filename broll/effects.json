@@ -5,8 +5,10 @@
     { "key": "y", "type": "number", "label": "Y", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "help": "Centre, 0 = top, 1 = bottom" },
     { "key": "scale", "type": "number", "label": "Size", "default": 1, "min": 0.3, "max": 3, "step": 0.05 },
     { "key": "accent", "type": "color", "label": "Accent", "default": "#8ccf8e" },
-    { "key": "enter", "type": "number", "label": "In (frames)", "default": 10, "min": 0, "max": 60, "step": 1 },
-    { "key": "exit", "type": "number", "label": "Out (frames)", "default": 8, "min": 0, "max": 60, "step": 1 },
+    { "key": "enter", "type": "number", "label": "In (frames)", "default": 10, "min": 0, "max": 1500, "step": 1 },
+    { "key": "delay", "type": "number", "label": "In starts at (frame)", "default": 0, "min": 0, "max": 600, "step": 1, "help": "Frame (from the clip start) where the animation In begins; nothing shows before it. The range bar's left head" },
+    { "key": "fitIn", "type": "bool", "label": "Build lands at the In end", "default": false, "help": "The whole build (count, typing, drawing) finishes at frame delay + enter. The B-roll tab's range bar turns it on" },
+    { "key": "exit", "type": "number", "label": "Out (frames)", "default": 0, "min": 0, "max": 60, "step": 1 },
     { "key": "settle", "type": "number", "label": "Lands at (frame)", "default": 0, "min": 0, "max": 1500, "step": 1, "help": "0 = the effect's own pace. Otherwise the frame (from the clip start) where the animation has fully landed; Sync to words sets it to the spoken word" }
   ],
   "effects": [

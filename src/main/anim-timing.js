@@ -367,12 +367,14 @@ function cachedSpanWords(media, segs) {
 // The spoken words under a placed clip, in frames from the clip's start: the cached transcription of the dialogue
 // track when one covers the clip (Activate word timings, Cut tab Analyse, transcribe_words), else that span is
 // transcribed now.
-async function spokenWordsFor(start, end) {
+// opts.cachedOnly: only an existing transcription (no new speech run); none = { words: [], cached: false }.
+async function spokenWordsFor(start, end, opts) {
     const MEDIA = require('./media-analysis');
     const { media, segs } = await wordSegs(start, end);
     const inClip = (w) => w.end > start && w.start < end && (w.start + w.end) / 2 >= start - 1 && (w.start + w.end) / 2 < end;
     const rel = (w) => ({ w: w.w, start: w.start - start, end: w.end - start });
     let words = segs.length ? cachedSpanWords(media, segs) : null, cached = true;
+    if (!words && opts && opts.cachedOnly) return { words: [], cached: false };
     if (!words) {
         cached = false;
         const r = await MEDIA.analyseTimeline('words', media, {});

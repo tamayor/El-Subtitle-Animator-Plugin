@@ -1,12 +1,15 @@
 // Quote card: either an editorial quote card or a top notification/alert banner.
 import React from 'react';
 import { interpolate } from 'remotion';
-import { Common, FONT, Place, ease, useInOut } from '../lib/common';
+import { Common, FONT, Place, WordsIn, ease, useInOut, wordCount, wordSpans } from '../lib/common';
 
 type P = Common & { title: string; body: string; author: string; alert: boolean; dark: boolean };
 
 export const QuoteCard: React.FC<P> = (p) => {
-    const { frame, durationInFrames: D, inn, out } = useInOut(p, (D0) => Math.max(10, Math.round(D0 * 0.45)));
+    const { frame, real, durationInFrames: D, inn, out } = useInOut(p, (D0) => Math.max(10, Math.round(D0 * 0.45)));
+    const body = p.alert ? (p.body || 'Check this before posting') : (p.body || 'Keep it simple');
+    const sp = wordSpans(p, wordCount(body), (_i, a) => a + 4);   // Land on word: each word from its in to its end frame
+    const times = sp ? sp.at : null;
     const end = Math.max(10, Math.round(D * 0.45));
     const reveal = interpolate(frame, [3, end], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease });
 
@@ -28,7 +31,7 @@ export const QuoteCard: React.FC<P> = (p) => {
                         <div style={{ fontFamily: FONT.sans, fontWeight: 700, fontSize: 20, textTransform: 'uppercase',
                             letterSpacing: 1.2, color: p.accent, marginBottom: 4 }}>{p.title || 'Reminder'}</div>
                         <div style={{ fontFamily: FONT.sans, fontWeight: 600, fontSize: 30, lineHeight: 1.25, color: fg,
-                            opacity: reveal }}>{p.body || 'Check this before posting'}</div>
+                            opacity: times ? 1 : reveal }}>{times ? <WordsIn text={body} times={times} ends={sp ? sp.end : undefined} frame={real} /> : body}</div>
                     </div>
                 </div>
             </Place>
@@ -44,8 +47,8 @@ export const QuoteCard: React.FC<P> = (p) => {
                     <div style={{ fontFamily: FONT.sans, fontWeight: 700, fontSize: 20, textTransform: 'uppercase',
                         letterSpacing: 1.4, color: p.accent, marginBottom: 10 }}>{p.title}</div>
                 )}
-                <div style={{ fontFamily: FONT.serifItalic, fontSize: 44, lineHeight: 1.2, color: fg, opacity: reveal }}>
-                    “{p.body || 'Keep it simple'}”
+                <div style={{ fontFamily: FONT.serifItalic, fontSize: 44, lineHeight: 1.2, color: fg, opacity: times ? 1 : reveal }}>
+                    {times ? <WordsIn text={'“' + body + '”'} times={times} ends={sp ? sp.end : undefined} frame={real} /> : '“' + body + '”'}
                 </div>
                 {p.author && (
                     <div style={{ marginTop: 14, fontFamily: FONT.sans, fontWeight: 600, fontSize: 22, color: dim }}>

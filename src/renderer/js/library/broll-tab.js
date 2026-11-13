@@ -120,15 +120,20 @@ function brPick(id, values) {
     if (tip) tip.textContent = e.description || '';
     brRenderFields($('brFields'), e.fields);
     brRenderFields($('brCommon'), brUI.common);
+    brSyncRangeBar();
     const fm = $('brFromSubMsg'); if (fm) fm.classList.add('hidden');
     if (!values && $('brFromSub') && $('brFromSub').checked) { brFillFromSub(); return; }
     brPreviewSoon(true);
 }
 
+// In start / In length / Out / Lands at are set by the Place section's range bar, not as settings fields.
+const BR_RANGE_KEYS = new Set(['enter', 'exit', 'delay', 'settle', 'fitIn']);
+
 function brRenderFields(box, fields) {
     box.textContent = '';
     const checks = [];
     for (const f of fields) {
+        if (BR_RANGE_KEYS.has(f.key)) continue;   // timing lives on the Place range bar
         const v = brUI.values[f.key];
         let input;
         const set = (val) => { brUI.values[f.key] = val; brPreviewSoon(); };
@@ -191,6 +196,11 @@ async function brFillFromSub() {
 }
 
 // ------------------------------------------------------------------ preview
+
+function brFieldEdited(now) {
+    if (brView() === 'timeline' && brUI.editing) brLiveSoon(now);
+    else brPreviewSoon(now);
+}
 
 // The preview: a still at the Moment (drawn small, at the panel's size), then a strip of ~24 frames over the whole
 // clip in one pass. Once the strip is in, the Moment slider only swaps pictures (no render); any settings change starts
@@ -310,10 +320,10 @@ async function brPlace(asNew) {
 
 function brView() { return ($('brView') && $('brView').value) || 'timeline'; }
 let brLiveTimer = null;
-function brLiveSoon() {
+function brLiveSoon(now) {
     if (!brUI.editing || brView() !== 'timeline') return;
     clearTimeout(brLiveTimer);
-    brLiveTimer = setTimeout(brLiveRun, 1200);
+    brLiveTimer = setTimeout(brLiveRun, now ? 0 : 350);
 }
 
 async function brLiveRun() {
@@ -389,6 +399,9 @@ function brEdit(rec) {
         $('brDraft').checked = !!rec.draft;
         brUI.liveSec = $('brSec').value;
         brUI.liveKey = brKey();                     // what is on the timeline now: only a change re-renders
+    } else {
+        $('brSec').value = '';
+        brUI.liveSec = '';
     }
 }
 
@@ -549,6 +562,8 @@ function brWhereChanged() {
     $('brDetWrap').classList.toggle('hidden', w !== 'sub');
     $('brSubWrap').classList.toggle('hidden', w !== 'num');
     $('brSecWrap').classList.toggle('hidden', !(w === 'playhead' || editing));
+    $('brEnterWrap').classList.remove('hidden');
+    brSyncRangeBar();
     $('brExtWrap').classList.toggle('hidden', w === 'playhead');
     try { localStorage.setItem('brWhere', w); } catch (e) { /* ignore */ }
     brShowDetected();
@@ -561,8 +576,15 @@ function brShowDetected() {
     const key = s ? s.index + '|' + s.text : (L && L.ok ? 'none' : 'off');
     if (brUI.lastSubKey !== key) {
         brUI.lastSubKey = key;
-        brUI.detected = s ? { index: s.index, text: s.text } : null;
+        brUI.detected = s ? { index: s.index, text: s.text, start: s.start, end: s.end } : null;
+        // word timings set by hand belong to one subtitle: a new one starts from its own speech
+        if (!brUI.editing && brUI.values && brUI.values._manual) { delete brUI.values._times; delete brUI.values._ends; delete brUI.values._manual; brLandNoteText(); }
+        if (!brUI.editing && $('brSec')) {
+            const fps = (L && L.fps) || 30;
+            $('brSec').placeholder = (s && s.end > s.start) ? ((s.end - s.start) / fps).toFixed(1) : "effect's";
+        }
         if (s && $('brFromSub') && $('brFromSub').checked && state.tab === 'broll') brFillFromSub();
+        brSyncRangeBar();
     }
     const box = $('brDetected');
     if (!box || $('brDetWrap').classList.contains('hidden')) return;
@@ -580,6 +602,140 @@ function brShowDetected() {
     }
 }
 
+// The clip length in frames (last frame index): the placed clip while editing, else Seconds, else the subtitle under
+// the playhead (+ Extend by), else the effect's own length.
+function brRangeLen() {
+    const rec = brUI.editing;
+    if (rec && Number(rec.frames) > 2) return Number(rec.frames) - 1;
+    const fps = (state.live && state.live.fps) || 30;
+    let f = brSecVal() * fps;
+    const d = brUI.detected, w = $('brWhere') && $('brWhere').value;
+    if (!(f > 0) && w === 'sub' && d && d.end > d.start) f = (d.end - d.start) + (Number($('brExtend') && $('brExtend').value) || 0) * fps;
+    if (!(f > 0)) { const e = brUI.effects.find(x => x.id === brUI.sel); f = ((e && e.seconds) || 2.5) * fps; }
+    return Math.max(3, Math.round(f) - 1);
+}
+
+// The animation In window: left head = where it starts (delay), right head = where it has landed (delay + enter).
+function brInWindow(L) {
+    const s0 = Math.max(0, Math.min(L - 1, Math.round(Number(brUI.values.delay ?? 0))));
+    const len = Math.max(1, Math.min(L - s0, Math.round(Number(brUI.values.enter ?? 10))));
+    return { s: s0, e: s0 + len };   // the frame range bar's { s, e }
+}
+
+function brSyncRangeBar() { if (brUI.range) brUI.range.paint(); }
+
+// The playhead relative to the clip start: the placed clip while editing, else the subtitle it will go on ("Subtitle
+// under the playhead"). "At the playhead" starts the clip at the playhead itself, so it is always frame 0.
+function brPlayheadIn() {
+    const L = state.live, rec = brUI.editing, d = brUI.detected, w = $('brWhere') && $('brWhere').value;
+    if (!L || !L.ok || !Number.isFinite(Number(L.frame))) return null;
+    const start = rec ? Number(rec.start) : w === 'sub' && d ? Number(d.start) : w === 'playhead' ? Number(L.frame) : NaN;
+    if (!Number.isFinite(start)) return null;
+    const rel = Math.round(Number(L.frame)) - Math.round(start);
+    return rel >= 0 && rel <= brRangeLen() ? rel : null;
+}
+
+// The Place section's animation In bar (js/components/frame-range.js).
+function brInitRangeBar() {
+    const mount = $('brRangeMount');
+    if (!mount) return;
+    const dflt = () => { const e = brUI.effects.find(x => x.id === brUI.sel), d = (e && e.defaults) || {}; return { s: d.delay ?? 0, e: (d.delay ?? 0) + (d.enter ?? 10) }; };
+    brUI.range = frameRangeBar({
+        title: 'Animation In: left head = where it starts, right head = where it has landed (the gap is its length). Drag between them to move it. Snaps to the red Resolve playhead (P). Double-click: default',
+        last: brRangeLen,
+        get: () => brInWindow(brRangeLen()),
+        change: (s, e, final) => {
+            brUI.values.delay = s;
+            brUI.values.enter = e - s;
+            brUI.values.fitIn = true;                                   // the build lands on the right head
+            if (Number(brUI.values.settle) > 0) brUI.values.settle = 0;   // the bar now decides where the In lands
+            if (final) brFieldEdited(true);
+        },
+        read: (s, e, L) => 'In <b>' + s + '</b> f → <b>' + e + '</b> f · length <b>' + (e - s) + '</b> f <span class="fxr-len">/ ' + (L + 1) + ' f</span>',
+        playhead: brPlayheadIn,
+        lane: brLane,
+        laneEdit: brLaneEdit,
+        laneReset: brLaneReset,
+        dflt
+    });
+    const note = brEl('div', { id: 'brLandNote', class: 'br-land-note hidden', text: 'Land on the spoken word sets the animation: each word comes in as it is spoken. Untick it to time the In here.' });
+    mount.replaceWith(brUI.range.el, note);
+    brLandSync();
+}
+
+// The word lane under the In bar: the subtitle as one block; with Land on the spoken word, one block per word as it
+// will be timed (from the main process: the transcription if there is one, else estimated), the key word marked.
+function brLane() {
+    const L = brRangeLen(), rec = brUI.editing, w = $('brWhere') && $('brWhere').value, d = brUI.detected;
+    const sub = rec ? rec.subtitle : (w === 'sub' && d ? d : null);
+    if (!sub) return null;
+    if (!($('brLand') && $('brLand').checked)) {
+        const t = String(sub.text || '').replace(/\s+/g, ' ').trim();
+        return t ? { segs: [{ s: 0, e: L, label: t, title: '#' + sub.index + ' “' + t + '” · 0–' + L + ' f' }] } : null;
+    }
+    const q = rec ? { id: rec.id } : { subtitle: sub.index };
+    const key = JSON.stringify([brUI.sel, q, brUI.values]);
+    if (key !== brUI.laneKey && !brUI.laneBusy && brUI.sel) {
+        brUI.laneBusy = true;
+        setTimeout(async () => {
+            let r = null;
+            try { r = await window.sa.brollWordLane({ effect: brUI.sel, props: brUI.values, ...q }); } catch (e) { r = null; }
+            brUI.laneKey = key;
+            brUI.laneData = r && !r.error && Array.isArray(r.segs) ? r : null;
+            brUI.laneBusy = false;
+            brSyncRangeBar();
+        }, 250);
+    }
+    const r = brUI.laneData;
+    if (!r || !r.segs.length) return null;
+    const est = r.source === 'estimate' ? ' (estimated: no transcription yet)' : '';
+    return { editable: !!r.editable, segs: r.segs.map(g => ({ ...g, title: '“' + g.label + '” · ' + g.s + '–' + g.e + ' f' + (g.key ? ' · lands here' : '') + est })) };
+}
+
+// A word block was dragged in the lane: every word's in / end go into the clip's props (_times / _ends) and are kept
+// (_manual) until Sync to words or a double-click on the lane re-times them from the speech.
+function brLaneEdit(i, s, e, final) {
+    const r = brUI.laneData;
+    if (!r || !r.segs[i]) return;
+    r.segs[i] = { ...r.segs[i], s, e };
+    brUI.values._times = r.segs.map(g => g.s);
+    brUI.values._ends = r.segs.map(g => g.e);
+    brUI.values._manual = true;
+    brUI.laneKey = JSON.stringify([brUI.sel, brUI.editing ? { id: brUI.editing.id } : { subtitle: (brUI.detected || {}).index }, brUI.values]);
+    brLandNoteText();
+    if (final) brFieldEdited(true);
+}
+
+function brLaneReset() {
+    delete brUI.values._times; delete brUI.values._ends; delete brUI.values._manual;
+    brUI.laneKey = null;
+    brLandNoteText();
+    brFieldEdited(true);
+}
+
+function brLandNoteText() {
+    const n = $('brLandNote');
+    if (n) n.textContent = brUI.values && brUI.values._manual
+        ? 'Word timings set by hand: strawberry = a word\'s in, matcha = its end. Double-click the words to re-time them from the speech.'
+        : 'Land on the spoken word sets the animation: each word comes in as it is spoken. Drag a word\'s strawberry in or matcha end to adjust it.';
+}
+
+// Land on the spoken word decides the timing (word by word, or the build landing on the key word), so the In bar is
+// muted under it, with a note.
+function brLandSync() {
+    const on = !!($('brLand') && $('brLand').checked);
+    if (brUI.range) {
+        brUI.range.el.classList.toggle('fxr-off', on);
+        const bar = brUI.range.el.querySelector('.fxr-bar');
+        if (bar) bar.tabIndex = on ? -1 : 0;
+        brUI.range.el.title = on ? 'Set by Land on the spoken word' : '';
+    }
+    const n = $('brLandNote'); if (n) n.classList.toggle('hidden', !on);
+    brLandNoteText();
+    brUI.laneKey = null;
+    if (brUI.range) brUI.range.paint();
+}
+
 function initBrollTab() {
     $('brWrap').querySelectorAll('.presets-tab[data-br]').forEach(b => b.addEventListener('click', () => brSubTab(b.dataset.br)));
     $('brPlace').addEventListener('click', () => brPlace(false));
@@ -593,7 +749,9 @@ function initBrollTab() {
     });
     $('brReset').addEventListener('click', () => { const e = brUI.effects.find(x => x.id === brUI.sel); if (e) { brUI.values = { ...e.defaults }; brPick(e.id, e.defaults); } });
     $('brAt').addEventListener('input', brMoment);
-    $('brSec').addEventListener('input', () => brPreviewSoon());
+    $('brSec').addEventListener('input', () => { brSyncRangeBar(); brFieldEdited(); });
+    $('brExtend').addEventListener('input', brSyncRangeBar);
+    brInitRangeBar();
     try { const v = localStorage.getItem('brView'); if (v === 'panel' || v === 'timeline') $('brView').value = v; } catch (e) { /* ignore */ }
     $('brView').addEventListener('change', () => {
         try { localStorage.setItem('brView', brView()); } catch (e) { /* ignore */ }
@@ -611,7 +769,8 @@ function initBrollTab() {
     try { $('brDraft').checked = localStorage.getItem('brDraft') === '1'; } catch (e) { /* ignore */ }
     $('brDraft').addEventListener('change', () => { try { localStorage.setItem('brDraft', $('brDraft').checked ? '1' : '0'); } catch (e) { /* ignore */ } });
     try { $('brLand').checked = localStorage.getItem('brLand') === '1'; } catch (e) { /* ignore */ }
-    $('brLand').addEventListener('change', () => { try { localStorage.setItem('brLand', $('brLand').checked ? '1' : '0'); } catch (e) { /* ignore */ } });
+    $('brLand').addEventListener('change', () => { try { localStorage.setItem('brLand', $('brLand').checked ? '1' : '0'); } catch (e) { /* ignore */ } brLandSync(); });
+    brLandSync();
     $('brOpenFolder').addEventListener('click', () => window.sa.brollOpen({}));
     try { const bg = localStorage.getItem('brBg'); if (bg) $('brBg').value = bg; } catch (e) { /* ignore */ }
     try { const w = localStorage.getItem('brWhere'); if (w && $('brWhere').querySelector('option[value="' + w + '"]')) $('brWhere').value = w; } catch (e) { /* ignore */ }

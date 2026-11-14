@@ -6,6 +6,46 @@ Notable changes to El Subtitle Animator. The plugin's version is in `package.jso
 
 ### Added
 
+- **Collage Auto-fill** (B-roll > Collage, "Start and auto-fill" / "Auto-fill"; MCP `collage_auto`): the beat-by-beat
+  set-up in one run. Joins one-subtitle beats into 2.5-5 s thoughts, gives the strongest about half of the time B-roll
+  (`autoPlanBeats` in `collage-plan.js`: years -> date tag, names -> name label, two names -> stack, actions -> clip with a
+  stock key), searches, picks the first pictures no other beat uses, and puts beats with no results back on the speaker.
+  Hand-set beats are kept. MCP `planOnly` + `beats` lets Claude write the plan; `render: true` also renders and places.
+  The pane opens on Auto-fill only (Start project removed). A **Context** field ("Philippines") goes on every search
+  (context results rank first, plain ones fill in); changing it redoes the beats Auto-fill set up (`auto` flag, cleared
+  by any hand edit). **Reset** moves the project files to `_old/<time>/` (render/ and placed clips stay).
+- **Collage evidence pictures** (real posts, banners, tarpaulins): every beat has a paste box (click, ⌘V), Choose file,
+  drop, and a Google Images button; the picture is credited "rights to confirm" and the beat becomes a Document.
+  `broll/collage/vision-scan.swift` (macOS Vision, compiled once into `_app/bin`) reads its words and faces;
+  `evidencePlan` highlights the words the line says and zooms (a whole-card punch-in) onto the biggest; names, places,
+  hashtags and faces are found but blurred only when the beat's **Blur names & faces** switch is on, plus boxes drawn in
+  the full-size viewer (double-click any picture: ← → Space Esc; drag = blur box, Shift-drag = highlight). Blur
+  strength 1-100 (opaque SVG blur, nothing shows through). Candidates rank context matches first and Commons before
+  stock for names.
+- **B-roll > Collage** (new sub-tab; `js/library/broll/collage.js`, `src/main/collage.js`, pure part in
+  `src/main/collage-plan.js`): the collage-style explainer B-roll of `broll/collage/` in the panel. Start project makes
+  the timeline's folder (script, word timings, one beat per subtitle); each beat is set to Talking head, Photo, Photo
+  stack, Medallion, Document or Title card, with Commons search words, the pictures found (pick / unpick, credited in
+  credits.csv) and date / label / title overlays. Preview at playhead draws the frame with the B-roll tab's warm
+  renderer; Render and place renders the clips and captions (ProRes 4444 with alpha, `-v<n>` names so open clips are
+  never overwritten) and places them (B-roll + titles on one track, captions above). Placing again swaps the media of
+  the collage clips already there and takes off the ones the plan no longer has. `render-collage.mjs` now shares the
+  segments, SRT and picture sizes with the panel.
+  - **Video clip beats**: a beat can play a short video in its card. Find clips searches videos (at least 720 px and
+    3 s); picking one streams its first 90 s through ffmpeg into `assets/<beat>-NN.mp4` (H.264, a key frame every 15
+    frames), keeps its poster, size and source in `assets/clips.json`, and Start the clip at sets the in-point. A beat
+    keeps its pictures and its clip when its visual changes; each visual uses its own kind.
+  - **Sound effects** (Render & place switch, on by default): a whoosh as each card or clip comes in (leading by 3
+    frames after the speaker), a hit on title cards, pops for a photo stack's cards, clicks for dates and labels, a
+    highlighter for callouts (`sfxCuesOf` in collage-plan.js; cues closer than 6 frames keep the stronger one, each
+    ends before the next). Sounds come from the SFX Originals Library by name, take turns within a kind, go on one
+    free audio track with the usual -20..-15 dBFS peak window and pitch variation, and are replaced on the next place
+    (`render/sfx-placed.json`).
+  - **Sources & API keys** (optional): Wikimedia Commons is always searched; a Pexels and / or Pixabay API key adds
+    their photos and videos. Keys are kept in `<data>/_app/collage-sources.json` (never in the project folder) and the
+    panel only sees their last 4 characters; a refused key is reported. Each found picture's ↗ opens its page.
+- **B-roll effect search**: a search box in the Effect step filters the cards by name, description and category
+  (Enter picks the first, Esc clears). The × in the Use tab's preset search boxes now hides while they are empty.
 - **B-roll: 35 more effects** (54 in all; `broll/effects.json`, `broll/src/effects/`): Ring gauge, Mini chart, Audio
   pulse, Sticker pop, Step badge, Lower third, News ticker, Pull quote, Doodle callout / icon / boil, Journal note,
   Cutout pop, Paper frame, Cutout puppet, Ransom text, Headline wall, Zoom-through cut, Phone mockup, Viewfinder zoom,

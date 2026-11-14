@@ -19,11 +19,39 @@ async function brLoadEffects() {
     return true;
 }
 
-// The category filter over the effect cards (effects.json `group`); '' = all.
+// The category filter over the effect cards (effects.json `group`); '' = all. Then the search box: every word typed
+// must appear in the effect's name, description, category or id (an empty result stays empty: brRenderEffects says so).
 function brShownEffects() {
     const g = brUI.group || '';
-    const list = g ? brUI.effects.filter(e => e.group === g) : brUI.effects;
-    return list.length ? list : brUI.effects;
+    let list = g ? brUI.effects.filter(e => e.group === g) : brUI.effects;
+    if (!list.length) list = brUI.effects;
+    const words = String(brUI.search || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return list;
+    return list.filter(e => {
+        const hay = [e.name, e.description, e.group, e.id].join(' ').toLowerCase();
+        return words.every(w => hay.includes(w));
+    });
+}
+
+// The search box over the effect cards: filters as you type, Enter picks the first match, Esc / × clears.
+function brInitSearch() {
+    const input = $('brSearch'), clear = $('brSearchClear');
+    if (!input) return;
+    const apply = (v) => {
+        brUI.search = v;
+        if (clear) clear.classList.toggle('hidden', !v);
+        brRenderEffects();
+    };
+    input.addEventListener('input', () => apply(input.value));
+    input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); input.value = ''; apply(''); }
+        else if (ev.key === 'Enter') {
+            ev.preventDefault();
+            const first = brShownEffects()[0];
+            if (first) brPick(first.id, null);
+        }
+    });
+    if (clear) clear.addEventListener('click', () => { input.value = ''; input.focus(); apply(''); });
 }
 function brRenderGroups() {
     const sel = $('brGroup');
@@ -154,6 +182,10 @@ function brRenderEffects() {
             if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); track.scrollLeft += ev.deltaY; }
         }, { passive: false });
         brSyncGallery();
+    } else if (!shown.length && brUI.effects.length) {
+        const q = String(brUI.search || '').trim(), g = brUI.group || '';
+        box.append(createEl('div', { class: 'empty br-effects-empty',
+            text: 'No B-roll effects match "' + q + '"' + (g ? ' in ' + g + '. Pick All effects to search every category.' : '.') }));
     } else {
         for (const e of shown) box.append(brEffectCard(e, missing));
     }

@@ -119,6 +119,7 @@
     <script src="./js/library/broll/place.js" defer></script>
     <script src="./js/library/broll/auto.js" defer></script>
     <script src="./js/library/broll/placed.js" defer></script>
+    <script src="./js/library/broll/collage.js" defer></script>
     <script src="./js/library/broll/tab.js" defer></script>
     <script src="./js/library/text-style.js" defer></script>
     <script src="./js/library/settings.js" defer></script>
@@ -180,8 +181,7 @@
 
 <nav class="tabs">
         <button id="tabBtnApply" class="tab on" aria-label="Use" title="Use: put a preset on the subtitle"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tab-txt">Use</span></button>
-        <button id="tabBtnLibrary" class="tab" aria-label="Library" title="Library: edit your saved presets"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11" rx=".6"/><rect x="6.5" y="2.5" width="3" height="11" rx=".6"/><path d="m11 3.2 2.6-.6 2 10.3-2.6.6z" transform="translate(-1.2 0)"/></svg></span><span class="tab-txt">Library</span></button>
-        <button id="tabBtnCreate" class="tab" aria-label="Create" title="Create: make a new text + sound preset"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/><line x1="9" y1="4" x2="12" y2="7"/></svg></span><span class="tab-txt">Create</span></button>
+        <button id="tabBtnEffects" class="tab" aria-label="Effects" title="Effects: Glitch, Stop Motion, Transform, Spotlight and more on any selected clip"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 9.4 6.6 14.2 8 9.4 9.4 8 14.2 6.6 9.4 1.8 8 6.6 6.6z"/></svg></span><span class="tab-txt">Effects</span></button>
         <button id="tabBtnCut" class="tab" aria-label="Cut" title="Cut: rough-cut the recording into a new timeline (pauses, retakes, stutters)"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.4 10.6 12 2.5M10.6 10.6 4 2.5"/></svg></span><span class="tab-txt">Cut</span></button>
         <button id="tabBtnBroll" class="tab" aria-label="Broll" title="Broll: motion-graphic overlays (Remotion) rendered for this timeline and placed over the footage"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 6v4l3.5-2z"/></svg></span><span class="tab-txt">Broll</span></button>
         <button id="tabBtnPrompt" class="tab" aria-label="Prompt" title="Prompt: the job prompt for Claude"><span class="tab-ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 6.2h5M5.5 8h3"/></svg></span><span class="tab-txt">Prompt</span></button>
@@ -413,13 +413,14 @@
                     </div>
                 </div>
 
-                <!-- Presets: Text / Effects sub-tabs (js/library/presets-tabs.js) -->
-                <div id="presetsWrap" class="presets-wrap" data-pt="text">
-                    <div class="presets-head">
-                        <span class="label">Presets</span>
-                        <div class="presets-tabs" role="tablist">
-                            <button type="button" class="presets-tab on" data-pt="text" role="tab" aria-selected="true">Text</button>
-                            <button type="button" class="presets-tab" data-pt="fx" role="tab" aria-selected="false">Effects</button>
+                <!-- Texts: Presets / Library / Create switch (js/library/presets-tabs.js); Library and Create open their own views -->
+                <div id="presetsWrap" class="presets-wrap">
+                    <div class="presets-head texts-head">
+                        <span class="label">Texts</span>
+                        <div class="presets-tabs texts-tabs" role="tablist">
+                            <button type="button" class="presets-tab on" data-tx="presets" role="tab" aria-selected="true" title="Presets: put a text preset on the subtitle">Presets</button>
+                            <button type="button" class="presets-tab" data-tx="library" role="tab" aria-selected="false" title="Library: edit your saved presets">Library</button>
+                            <button type="button" class="presets-tab" data-tx="create" role="tab" aria-selected="false" title="Create: make a new text + sound preset">Create</button>
                         </div>
                     </div>
                 <section id="presetSection">
@@ -479,6 +480,27 @@
                     </details>
                 </section>
 
+                </div>
+            </div>
+
+            <div class="tab-col-side">
+                <section id="settings" class="active-section hidden">
+                    <div id="inspectorGridU" class="inspector-grid single-col">
+                        <div class="inspector-pane drawers-pane">
+                            <div id="boxesU" class="bx-panel"></div>
+                            <div id="previewU"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================ EFFECTS: Resolve effects on any selected clip ============================ -->
+    <div id="tabEffects" class="hidden">
+        <div class="tab-columns">
+            <div class="tab-col-main">
                 <!-- Effect presets: Glitch / Wiggle / Stop Motion as Resolve effects on any clip (js/library/effects/); Spotlight and Match Cut make their own clip -->
                 <section id="fxSection">
                     <div class="row between preset-header-row">
@@ -499,27 +521,22 @@
                     <div id="fxTarget" class="fx-target meta">Select a clip on the timeline (video, title or text preset)</div>
                     <div id="fxGrid" class="grid view-list fx-grid"></div>
                 </section>
-                </div>
-            </div>
-
-            <div class="tab-col-side">
-                <section id="settings" class="active-section hidden">
-                    <div id="inspectorGridU" class="inspector-grid single-col">
-                        <div class="inspector-pane drawers-pane">
-                            <div id="boxesU" class="bx-panel"></div>
-                            <div id="previewU"></div>
-                        </div>
-                    </div>
-                </section>
             </div>
         </div>
     </div>
-
 
     <!-- ============================ LIBRARY: edit one saved preset ============================ -->
     <div id="tabLibrary" class="hidden">
         <div class="tab-columns">
             <div class="tab-col-main">
+                    <div class="presets-head texts-head">
+                        <span class="label">Texts</span>
+                        <div class="presets-tabs texts-tabs" role="tablist">
+                            <button type="button" class="presets-tab" data-tx="presets" role="tab" aria-selected="false" title="Presets: put a text preset on the subtitle">Presets</button>
+                            <button type="button" class="presets-tab on" data-tx="library" role="tab" aria-selected="true" title="Library: edit your saved presets">Library</button>
+                            <button type="button" class="presets-tab" data-tx="create" role="tab" aria-selected="false" title="Create: make a new text + sound preset">Create</button>
+                        </div>
+                    </div>
                 <section>
                     <div class="row between">
                         <span class="label">Your library</span>
@@ -664,6 +681,14 @@
     <div id="tabCreate" class="hidden">
         <div class="tab-columns">
             <div class="tab-col-main">
+                    <div class="presets-head texts-head">
+                        <span class="label">Texts</span>
+                        <div class="presets-tabs texts-tabs" role="tablist">
+                            <button type="button" class="presets-tab" data-tx="presets" role="tab" aria-selected="false" title="Presets: put a text preset on the subtitle">Presets</button>
+                            <button type="button" class="presets-tab" data-tx="library" role="tab" aria-selected="false" title="Library: edit your saved presets">Library</button>
+                            <button type="button" class="presets-tab on" data-tx="create" role="tab" aria-selected="true" title="Create: make a new text + sound preset">Create</button>
+                        </div>
+                    </div>
                 <!-- Create: ScratchPad (boilerplates) / SelfServe (pick a clip in the timeline yourself) sub-tabs (js/library/create-tabs.js) -->
                 <div id="createWrap" class="create-wrap" data-ct="scratch">
                     <div class="presets-head create-head">
@@ -1108,6 +1133,8 @@
                                 title="Read the subtitles and suggest B-roll for the lines that fit, then place the ticked ones">Auto</button>
                             <button type="button" class="presets-tab" data-br="placed" role="tab" aria-selected="false"
                                 title="B-roll on this timeline: edit (re-render in place) or remove">Placed <span id="brPlacedCount" class="br-count"></span></button>
+                            <button type="button" class="presets-tab" data-br="collage" role="tab" aria-selected="false"
+                                title="Collage-style explainer B-roll: beats from the script, real photos and video clips (Wikimedia Commons, and Pexels / Pixabay with a key), cards and captions rendered and placed over the speaker">Collage</button>
                         </div>
                     </div>
                     <div id="brSetup" class="cut-engine hidden"></div>
@@ -1118,6 +1145,15 @@
                             <div class="cr-num">1</div>
                             <div class="cr-body">
                                 <div class="cr-title br-effect-title">Effect <span id="brEditing" class="br-editing hidden"></span>
+                                    <div class="preset-search-wrap br-search-wrap">
+                                        <svg class="search-ico" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <circle cx="6.5" cy="6.5" r="4.5"/>
+                                            <line x1="10" y1="10" x2="14" y2="14"/>
+                                        </svg>
+                                        <input type="text" id="brSearch" placeholder="Search B-roll effects…" autocomplete="off" spellcheck="false"
+                                            aria-label="Search B-roll effects" title="Name, description or category. Enter picks the first match, Esc clears">
+                                        <button type="button" id="brSearchClear" class="search-clear hidden" title="Clear search" aria-label="Clear search">×</button>
+                                    </div>
                                     <span class="grow"></span>
                                     <select id="brGroup" class="br-group hidden" aria-label="Effect category" title="Show one category of effects"></select>
                                     <button type="button" id="brViewModeBtn" class="view-mode-btn" aria-label="Effect view mode" aria-haspopup="menu"
@@ -1246,6 +1282,74 @@
                         <div id="brDraftNote" class="br-draft-note hidden"></div>
                         <div id="brPlacedList" class="br-list"></div>
                         <div id="brPlacedStatus" class="status"></div>
+                    </section>
+
+                    <!-- Collage: collage-style explainer B-roll (js/library/broll/collage.js, src/main/collage.js, broll/collage/) -->
+                    <section class="cr br-pane" id="brCollage">
+                        <div class="cr-step">
+                            <div class="cr-num">1</div>
+                            <div class="cr-body">
+                                <div class="cr-title col-title">Project <span class="cr-sub" id="colTimeline"></span>
+                                    <span class="grow"></span>
+                                    <button type="button" id="colReload" class="ghost" title="Read the project folder again (after Claude or you changed shots.json)">Reload</button>
+                                    <button type="button" id="colOpen" class="ghost" title="Show the project folder in Finder">Folder</button>
+                                    <button type="button" id="colReset" class="ghost" title="Start over from empty: the beats, pictures and context are cleared (moved to _old in the project folder). Clips already on the timeline stay.">Reset</button>
+                                </div>
+                                <div id="colProject" class="col-project"></div>
+                                <label class="col-context" title="Added to every picture search, so “Supreme Court” finds the one this video is about. Changing it and pressing Auto-fill redoes the beats Auto-fill set up (beats you changed stay).">
+                                    <span>Context</span>
+                                    <input type="text" id="colContext" maxlength="60" autocomplete="off" spellcheck="false" placeholder="What the video is about, e.g. Philippines, 1960s surfing">
+                                </label>
+                                <details class="cut-more br-more col-sources-box" id="colSourcesBox">
+                                    <summary>Sources &amp; API keys <span class="cr-sub">optional: Wikimedia Commons works without one</span></summary>
+                                    <div id="colSources" class="inset-group pad col-sources"></div>
+                                </details>
+                                <div id="colStartBox" class="col-start hidden">
+                                    <span class="cr-sub">No collage for this timeline yet. Auto-fill reads the subtitles, picks the lines that get B-roll,
+                                        finds and picks their pictures. Adjust any beat afterwards below.</span>
+                                    <button type="button" id="colAutoStart" class="primary" title="Make the project from the subtitles and set up every beat in one go: lines joined into thoughts, the strongest get B-roll with pictures found and picked, date and name tags added">Auto-fill</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cr-step">
+                            <div class="cr-num">2</div>
+                            <div class="cr-body">
+                                <div class="cr-title col-title">Beats <span class="cr-sub" id="colBeatsSub"></span>
+                                    <span class="grow"></span>
+                                    <button type="button" id="colFindAll" class="ghost hidden" title="Search Wikimedia Commons for every beat that still needs pictures">Find missing pictures</button>
+                                    <button type="button" id="colAuto" class="ghost hidden" title="Set up the beats in one go: joins the short subtitle beats into thoughts, gives the strongest about half of the time B-roll (years get a date tag, names a name label, two names a photo stack), searches, picks the first pictures no other beat uses, and puts a beat nothing was found for back on the speaker. Beats you set up yourself are kept. Then check the beats and Render.">Auto-fill</button>
+                                </div>
+                                <div id="colBeats" class="col-beats"></div>
+                            </div>
+                        </div>
+                        <div class="cr-step last">
+                            <div class="cr-num">3</div>
+                            <div class="cr-body">
+                                <div class="cr-title">Render &amp; place</div>
+                                <div class="col-render">
+                                    <div id="colPreview" class="br-preview col-preview">
+                                        <img id="colPrevFrame" alt=""><img id="colPrevTrack" alt=""><img id="colPrevCaps" alt="">
+                                        <span id="colPrevMsg" class="br-preview-msg">Preview: the frame under the playhead</span>
+                                    </div>
+                                    <div class="col-side">
+                                        <div class="inset-group br-toggles">
+                                            <label class="inset-row" title="A whoosh as each card or clip comes in, a hit on title cards, pops for the cards of a photo stack, clicks for dates and labels, a highlighter for callouts. From the SFX Originals Library, on a free audio track, each peaking at -20 to -15 dB. Placing again replaces them."><span class="ir-text"><span>Sound effects</span><span class="ir-sub" id="colSfxSub">Whooshes, hits, pops and clicks on the cards</span></span><input id="colSfx" type="checkbox" class="switch"></label>
+                                            <label class="inset-row" title="Word-by-word captions (the word being said in yellow) rendered as one clip on the track above the B-roll"><span class="ir-text"><span>Word captions</span><span class="ir-sub">On the track above the B-roll</span></span><input id="colCaptions" type="checkbox" class="switch"></label>
+                                        </div>
+                                        <button type="button" id="colPreviewBtn" class="ghost">Preview at playhead</button>
+                                        <div id="colClips" class="col-clips"></div>
+                                    </div>
+                                </div>
+                                <div class="pr-bar">
+                                    <button type="button" id="colRender" class="primary" title="Render every clip (ProRes 4444 with alpha) and place them: B-roll and titles on one track, captions above. Clips placed before are updated in place.">Render and place</button>
+                                    <button type="button" id="colPlaceOnly" class="ghost" title="Place the clips already rendered, without rendering again">Place rendered</button>
+                                    <span class="grow"></span>
+                                    <button type="button" id="colCancel" class="ghost hidden">Cancel</button>
+                                </div>
+                                <div class="cut-bar"><i id="colBar"></i></div>
+                                <div id="colStatus" class="status"></div>
+                            </div>
+                        </div>
                     </section>
                 </div>
             </div>

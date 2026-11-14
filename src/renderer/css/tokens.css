@@ -54,6 +54,10 @@
     --switch-off: #3a443d;
     --switch-knob: #ffffff;
     --backdrop: rgba(0, 0, 0, 0.45);
+    --viewer-backdrop: rgba(0, 0, 0, 0.9);
+    --viewer-blur: rgba(240, 123, 142, 0.18);
+    --viewer-highlight: rgba(255, 214, 64, 0.35);
+    --viewer-highlight-line: #ffd640;
     --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
     --shadow-seg: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 0 0 0.5px rgba(255, 255, 255, 0.07);
 

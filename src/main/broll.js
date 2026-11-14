@@ -21,7 +21,9 @@ const { brollSuggestFromTexts, propsFor } = require('./broll-suggest');
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
     brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit, brollWordLane,
-    brollVibeProps, brollRestyle
+    brollVibeProps, brollRestyle,
+    // for the Collage pane (collage.js): the same warm renderer, timeline and placement
+    renderJob, findNode, brollDir, currentTl, placeFile
 };
 
 const fs = require('fs');
@@ -250,13 +252,15 @@ function armIdle(w) {
     w.idle = setTimeout(() => { try { w.proc.stdin.write(JSON.stringify({ op: 'quit' }) + '\n'); } catch (e) { /* gone */ } }, IDLE_MS);
 }
 
-async function renderJob(job, onProgress) {
+// timeoutMs: a longer limit for a long clip (the Collage pane's captions run the whole timeline)
+async function renderJob(job, onProgress, timeoutMs) {
     const w = startWorker();
     clearTimeout(w.idle);
     await w.ready;
     const id = job.id || crypto.randomBytes(5).toString('hex');
+    const limit = Math.max(JOB_TIMEOUT_MS, Number(timeoutMs) || 0);
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { w.jobs.delete(id); reject(new Error('The render took over ' + (JOB_TIMEOUT_MS / 60000) + ' minutes')); armIdle(w); }, JOB_TIMEOUT_MS);
+        const timer = setTimeout(() => { w.jobs.delete(id); reject(new Error('The render took over ' + Math.round(limit / 60000) + ' minutes')); armIdle(w); }, limit);
         w.jobs.set(id, { resolve, reject, onProgress, timer });
         w.proc.stdin.write(JSON.stringify({ ...job, id }) + '\n');
     });

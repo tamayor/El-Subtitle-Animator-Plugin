@@ -306,6 +306,8 @@
     justify-content: center;
 }
 
+.preset-search-wrap .search-clear.hidden { display: none; }
+
 .preset-search-wrap .search-clear:hover {
     color: var(--text);
     background: rgba(255, 255, 255, 0.1);

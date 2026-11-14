@@ -5,7 +5,7 @@ import { spring } from 'remotion';
 import { Common, FONT, Place, clamp, ease, prog, useInOut, wordTimes } from '../lib/common';
 import { face, plainClassic, useVibe } from '../lib/vibe';
 
-type P = Common & { mode: string; number: number; total: number; text: string; items: string[]; word: string; dark: boolean };
+type P = Common & { mode: string; number: number; total: number; text: string; items: string[]; word: string; stacked?: boolean; dark: boolean };
 
 export const StepBadge: React.FC<P> = (p) => {
     const { frame, real, fps, durationInFrames: D, inn } = useInOut(p, (D0) => Math.max(10, Math.round(D0 * 0.4)));
@@ -43,9 +43,11 @@ export const StepBadge: React.FC<P> = (p) => {
     if (mode === 'countdown') {
         const R = 96, C = 2 * Math.PI * R, sweep = ease(prog(frame, 0, Math.max(10, Math.round(D * 0.4))));
         const pop = spring({ frame, fps, config: { damping: 10, stiffness: 180 } });
+        // stacked: the number on top, the text centred under it in balanced lines (no stray last word)
+        const st = !!p.stacked;
         return (
             <Place p={p}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 30, opacity: clamp(inn * 2), fontFamily: family }}>
+                <div style={{ display: 'flex', flexDirection: st ? 'column' : 'row', alignItems: 'center', gap: st ? 22 : 30, opacity: clamp(inn * 2), fontFamily: family }}>
                     <div style={{ position: 'relative', width: 230, height: 230, flex: 'none', transform: `scale(${pop})` }}>
                         <svg width={230} height={230} style={{ transform: 'rotate(-90deg)', filter: 'drop-shadow(0 10px 22px rgba(0,0,0,.4))' }}>
                             <circle cx={115} cy={115} r={R} fill={bg} />
@@ -53,8 +55,9 @@ export const StepBadge: React.FC<P> = (p) => {
                         </svg>
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', ...face(L, 'num', { fontWeight: 800, letterSpacing: -4 }, CL, 124), color: fg }}>{num}</div>
                     </div>
-                    {p.text && <div style={{ maxWidth: 560, ...face(L, 'display', { fontWeight: 800 }, CL, 60), color: CL ? '#fff' : L.bare.color, lineHeight: 1.08, textShadow: CL ? '0 4px 18px rgba(0,0,0,.6)' : L.bare.shadow,
-                        opacity: prog(frame, 6, 14), transform: `translateX(${(1 - ease(prog(frame, 6, 16))) * 30}px)` }}>{p.text}</div>}
+                    {p.text && <div style={{ maxWidth: st ? 640 : 560, ...face(L, 'display', { fontWeight: 800 }, CL, 60), color: CL ? '#fff' : L.bare.color, lineHeight: 1.08, textShadow: CL ? '0 4px 18px rgba(0,0,0,.6)' : L.bare.shadow,
+                        textAlign: st ? 'center' : undefined, textWrap: st ? 'balance' : undefined,
+                        opacity: prog(frame, 6, 14), transform: st ? `translateY(${(1 - ease(prog(frame, 6, 16))) * 24}px)` : `translateX(${(1 - ease(prog(frame, 6, 16))) * 30}px)` } as React.CSSProperties}>{p.text}</div>}
                 </div>
             </Place>
         );

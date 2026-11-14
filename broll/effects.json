@@ -89,7 +89,11 @@
         { "key": "unit", "type": "text", "label": "Unit", "default": "posts" },
         { "key": "tag", "type": "text", "label": "Corner tag", "default": "day 479" },
         { "key": "cols", "type": "number", "label": "Columns", "default": 26, "min": 6, "max": 60, "step": 1 },
-        { "key": "rows", "type": "number", "label": "Rows", "default": 9, "min": 2, "max": 30, "step": 1 }
+        { "key": "rows", "type": "number", "label": "Rows", "default": 9, "min": 2, "max": 30, "step": 1 },
+        { "key": "face1", "type": "image", "label": "Face 1", "default": "", "help": "Optional: tiles become these pictures (up to 4, repeated) instead of colour squares" },
+        { "key": "face2", "type": "image", "label": "Face 2", "default": "" },
+        { "key": "face3", "type": "image", "label": "Face 3", "default": "" },
+        { "key": "face4", "type": "image", "label": "Face 4", "default": "" }
       ],
       "triggers": ["\\b\\d[\\d,.]*\\s*(posts?|videos?|reels?|uploads?|days? in a row|streak)\\b", "\\b(posted|uploaded) (every|for)\\b", "\\bconsisten(t|cy)\\b"]
     },
@@ -239,6 +243,25 @@
       "triggers": ["\\b(the secret is|never do|the truth (is|about)|nobody talks about|don't ever|biggest mistake|hidden|banned)\\b"]
     },
     {
+      "id": "series-title",
+      "name": "Series title",
+      "group": "Text & editorial",
+      "description": "A show's official title stamp (\"BEFORE 2028\": episode kicker with a ballot oval, the show word, the year rolling up, a ruler) and the episode title building under it when it is spoken, its focus line on a marker. Calm, investigative motion with a soft scrim for footage.",
+      "seconds": 5,
+      "defaults": { "x": 0.5, "y": 0.72 },
+      "fields": [
+        { "key": "show", "type": "text", "label": "Show", "default": "Before 2028", "help": "A number at the end rolls up like a counter" },
+        { "key": "episode", "type": "text", "label": "Episode", "default": "Ep. 01" },
+        { "key": "title", "type": "text", "label": "Title", "default": "The hidden tactic behind" },
+        { "key": "focus", "type": "text", "label": "Focus line", "default": "\u201cHappy Fiesta\u201d banners", "help": "On the marker, under the title" },
+        { "key": "titleAt", "type": "number", "label": "Title at (s)", "default": 0, "min": 0, "max": 60, "step": 0.1, "help": "0 = 45% into the clip" },
+        { "key": "focusAt", "type": "number", "label": "Focus at (s)", "default": 0, "min": 0, "max": 60, "step": 0.1, "help": "0 = just after the title" },
+        { "key": "mark", "type": "color", "label": "Ballot mark", "default": "#c7385a" },
+        { "key": "scrim", "type": "bool", "label": "Soft scrim", "default": true }
+      ],
+      "triggers": ["\\bthis is before 2028\\b"]
+    },
+    {
       "id": "quote-card",
       "name": "Quote card",
       "group": "Text & editorial",
@@ -279,6 +302,7 @@
       "fields": [
         { "key": "year", "type": "number", "label": "Year", "default": 2020, "min": 1800, "max": 2200, "step": 1 },
         { "key": "caption", "type": "text", "label": "Caption", "default": "Everything changed" },
+        { "key": "stacked", "type": "bool", "label": "Year above caption", "default": false, "help": "Two centred rows: the year, then the caption (wraps instead of being cut)" },
         { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
       ],
       "triggers": ["\\b(in|since|by|from|back in|until)\\s+(19\\d{2}|20\\d{2})\\b", "\\b\\d+\\s+years? ago\\b"]
@@ -390,6 +414,7 @@
         { "key": "text", "type": "text", "label": "Text", "default": "" },
         { "key": "items", "type": "list", "label": "List items", "default": ["Hook", "Story", "Payoff"], "help": "List style: the first `Number` items are shown" },
         { "key": "word", "type": "text", "label": "Word", "default": "Step", "help": "Step, Tip, Part, Rule…" },
+        { "key": "stacked", "type": "bool", "label": "Number above text", "default": false, "help": "Countdown style: the number on top, the text centred under it" },
         { "key": "dark", "type": "bool", "label": "Dark", "default": false }
       ],
       "triggers": ["\\b(step|tip|part|rule|lesson|reason|mistake)\\s+(number\\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\bnumber\\s+(one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\b(first(ly)?|second(ly)?|third(ly)?|fourth|fifth|lastly|finally)\\b[,:]", "\\b(two|three|four|five|six|seven|\\d)\\s+(things|ways|steps|tips|reasons|rules|mistakes|lessons)\\b"]

@@ -58,11 +58,10 @@ function initWindowEvents() {
     });
 }
 
-// The main tab bar (Use, Library, Create, Cut, Broll, Prompt) and the tabs that wire themselves.
+// The main tab bar (Use, Effects, Cut, Broll, Prompt) and the tabs that wire themselves.
 function initMainTabs() {
     $('tabBtnApply').addEventListener('click', () => setTab('apply'));
-    $('tabBtnLibrary').addEventListener('click', () => setTab('library'));
-    $('tabBtnCreate').addEventListener('click', () => setTab('create'));
+    $('tabBtnEffects').addEventListener('click', () => { setTab('effects'); if (typeof fxRefresh === 'function') fxRefresh(); });
     $('tabBtnPrompt').addEventListener('click', () => setTab('prompt'));
     initPromptTab();
     $('tabBtnCut').addEventListener('click', () => { setTab('cut'); cutTabShown(); cutToolsShown(); });

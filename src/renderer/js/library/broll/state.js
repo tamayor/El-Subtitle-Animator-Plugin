@@ -10,7 +10,7 @@
 
 const brUI = { effects: [], common: [], sel: null, values: {}, editing: null, frame: null, busy: false, ready: false,
     suggestions: [], placed: [], previewSeq: 0, strip: null, edited: new Set(), viewMode: null };
-const BR_TABS = ['make', 'auto', 'placed'];
+const BR_TABS = ['make', 'auto', 'placed', 'collage'];
 // Colour-box trace (<data>/_app/broll-trace.log): what a click on a B-roll colour box led to, to find picker trouble.
 function brTrace(msg) { try { window.sa.brollTrace(msg); } catch (e) { /* ignore */ } }
 window.addEventListener('blur', () => { if (state.tab === 'broll') brTrace('window blur (colorPicking=' + !!state.colorPicking + ')'); });

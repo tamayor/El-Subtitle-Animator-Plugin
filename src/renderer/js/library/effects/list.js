@@ -339,7 +339,7 @@ function fxPoll() {
     clearTimeout(fxUI.timer);
     const calm = Date.now() - fxPace.changedAt > 3000;
     fxUI.timer = setTimeout(async () => {
-        if (!document.hidden && state.tab === 'apply' && !state.idle) {
+        if (!document.hidden && state.tab === 'effects' && !state.idle) {
             await fxRefresh();
             if (fxUI.sig !== fxPace.sig) { fxPace.sig = fxUI.sig; fxPace.changedAt = Date.now(); }
         }
@@ -355,7 +355,7 @@ async function initEffects() {
         input.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { input.value = ''; fxUI.search = ''; if (clear) clear.classList.add('hidden'); renderEffects(); } });
     }
     if (clear) clear.addEventListener('click', () => { if (input) { input.value = ''; input.focus(); } fxUI.search = ''; clear.classList.add('hidden'); renderEffects(); });
-    window.addEventListener('focus', () => { if (state.tab === 'apply') fxRefresh(); });
+    window.addEventListener('focus', () => { if (state.tab === 'effects') fxRefresh(); });
     renderEffects();
     fxPoll();
 }

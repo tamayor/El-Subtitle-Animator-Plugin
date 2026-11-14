@@ -11,11 +11,14 @@
 // (b-roll + titles on one video track, captions on the one above). render/captions.srt is written too.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BROLL = path.resolve(HERE, '..');
+// the segments, captions and picture sizes are worked out the same way as the panel's Collage pane does it
+const { segmentsOf, srtOf, assetMetaOf, renderBeats } = createRequire(import.meta.url)(path.resolve(BROLL, '..', 'src', 'main', 'collage-plan.js'));
 
 const args = process.argv.slice(2);
 const proj = args[0];
@@ -29,29 +32,13 @@ const brand = read('brand/brand.json', {});
 const W = shots.width || 1080, H = shots.height || 1920, FPS = shots.fps || 29.97;
 const assetsDir = path.join(proj, 'assets');
 
-const assetMeta = {};
-for (const b of shots.beats) for (const n of b.assets || []) {
-    if (assetMeta[n]) continue;
-    const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', path.join(assetsDir, n)]).toString().trim();
-    const [w, h] = out.split(',').map(Number);
-    assetMeta[n] = { w, h };
-}
+const head = (n) => { try { return fs.readFileSync(path.join(assetsDir, n)).subarray(0, 262144); } catch { return null; } };
+const assetMeta = assetMetaOf(shots.beats, head, read('assets/clips.json', {}));
 
 // segments
-const segs = [];
-let run = null;
-for (const b of shots.beats) {
-    const [a, e] = b.frames;
-    if (b.visual === 'talking-head') {
-        if (run) { segs.push(run); run = null; }
-        if ((b.overlays || []).some((o) => o.type === 'title')) segs.push({ role: 'title', from: a, to: e, beats: [b.id] });
-        continue;
-    }
-    if (run && a <= run.to + 1) { run.to = e; run.beats.push(b.id); } else { if (run) segs.push(run); run = { role: 'broll', from: a, to: e, beats: [b.id] }; }
-}
-if (run) segs.push(run);
+const segs = segmentsOf(shots.beats);
 const end = Math.max(...shots.beats.map((b) => b.frames[1]));
-const props = (from) => ({ beats: shots.beats, from, assetMeta, assetAnchors: shots.assetAnchors, _assets: { dir: assetsDir }, brand, titleY: shots.titleY });
+const props = (from) => ({ beats: renderBeats(shots.beats), from, assetMeta, assetAnchors: shots.assetAnchors, _assets: { dir: assetsDir }, brand, titleY: shots.titleY });
 
 // the worker
 const worker = spawn(process.execPath, [path.join(BROLL, 'render.mjs'), '--serve'], { cwd: BROLL, stdio: ['pipe', 'pipe', 'inherit'] });
@@ -71,24 +58,6 @@ worker.stdout.on('data', (d) => {
 });
 let n = 0;
 const job = (j) => new Promise((ok, no) => { const id = 'c' + (++n); waiting.set(id, { ok, no }); worker.stdin.write(JSON.stringify({ id, width: W, height: H, fps: FPS, ...j }) + '\n'); });
-
-function srt() {
-    const tc = (f) => { const ms = Math.round(f / FPS * 1000); const z = (v, l = 2) => String(v).padStart(l, '0'); return `${z(Math.floor(ms / 3600000))}:${z(Math.floor(ms / 60000) % 60)}:${z(Math.floor(ms / 1000) % 60)},${z(ms % 1000, 3)}`; };
-    // same chunking as src/collage/Captions.tsx
-    const c = { maxWords: 3, maxChars: 18, ...(brand.caption || {}) };
-    const out = []; let cur = [];
-    const len = (ws) => ws.map((w) => w.w).join(' ').length;
-    for (const w of words) {
-        if (cur.length && (cur.length >= c.maxWords || w.start - cur[cur.length - 1].end > 8 || len([...cur, w]) > c.maxChars)) { out.push(cur); cur = []; }
-        cur.push(w);
-        if (/[.,?!;:]$/.test(w.w)) { out.push(cur); cur = []; }
-    }
-    if (cur.length) out.push(cur);
-    return out.map((ws, i) => {
-        const e = Math.min(out[i + 1] ? out[i + 1][0].start : Infinity, ws[ws.length - 1].end + 10);
-        return `${i + 1}\n${tc(ws[0].start)} --> ${tc(e)}\n${ws.map((w) => w.w).join(' ')}\n`;
-    }).join('\n');
-}
 
 async function main() {
     await isReady;
@@ -119,7 +88,7 @@ async function main() {
             const out = path.join(rdir, `captions${opt('--suffix') || ''}.mov`);
             const r = await job({ op: 'video', effect: 'collage-captions', props: { words, from: 0, brand }, frames: end, out });
             plan.push({ role: 'captions', file: out, start: 0, frames: end });
-            fs.writeFileSync(path.join(rdir, 'captions.srt'), srt());
+            fs.writeFileSync(path.join(rdir, 'captions.srt'), srtOf(words, FPS, brand.caption));
             console.log(JSON.stringify({ role: 'captions', frames: end, ms: r.ms }));
         }
         const prev = read('render/plan.json', { clips: [] }).clips.filter((c) => (only || opt('--segment')) && !plan.some((x) => x.role === c.role && x.start === c.start));

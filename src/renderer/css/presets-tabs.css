@@ -1,5 +1,3 @@
-/* Use tab: Presets section with Text / Effects sub-tabs (js/library/presets-tabs.js) */
+/* Use tab: Texts switch (Presets / Library / Create), js/library/presets-tabs.js */
 .presets-head { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
-/* the Text | Effects bar is the shared segmented control (css/primitives.css) */
-#presetsWrap[data-pt="text"] > #fxSection { display: none; }
-#presetsWrap[data-pt="fx"] > #presetSection { display: none; }
+/* the Presets | Library | Create bar is the shared segmented control (css/primitives.css) */

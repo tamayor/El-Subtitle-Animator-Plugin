@@ -462,6 +462,34 @@ const TOOLS = [
         inputSchema: S({ id: { type: 'string', description: 'Record id' }, all: { type: 'boolean', description: 'Every draft on this timeline' } })
     },
     {
+        name: 'collage_auto',
+        description: 'Collage B-roll (the panel\'s B-roll tab > Collage: real photos and clips from Wikimedia Commons / Pexels / Pixabay in photo cards, date and name tags, word captions) set up in one run instead of beat by beat. Starts the project from the subtitles if there is none, joins the one-subtitle beats into thoughts (2.5-5 s), gives the strongest of them B-roll (years -> photo + date tag, names -> photo + name label, two names -> photo stack, actions -> video clip when a stock key is saved), searches every beat missing pictures, picks the first pictures no other beat uses and puts a beat nothing was found for back on the speaker. Beats set up by hand are kept. Better results: call with planOnly: true, read the beats, then call again with `beats` (your own visual / search words / overlays per beat id: concrete, photographable search words, a date or name tag where it helps; visual "talking-head" takes a beat off B-roll). render: true also renders and places (B-roll on one track, captions above, sound effects). Takes minutes: returns { running } after `wait` s, then call with status: true. Returns the beats (id, frames from the timeline start, line, visual, queries, overlays, assets in use, missing).',
+        inputSchema: S({
+            planOnly: { type: 'boolean', description: 'Only plan (join beats into thoughts, choose the B-roll beats and search words); no search, no picks' },
+            beats: { type: 'array', items: { type: 'object', properties: {
+                id: { type: 'string' }, visual: { type: 'string', enum: ['talking-head', 'photo', 'stack', 'clip', 'medallion', 'document', 'title'] },
+                queries: { type: 'array', items: { type: 'string' }, description: 'Search words, one search each (Category:Name lists a Commons category)' },
+                overlays: { type: 'array', items: { type: 'object' }, description: '{ type: date | label | title | callout | highlight, text, sub? }' },
+                brief: { type: 'array', items: { type: 'string' } },
+                blur: { type: 'boolean', description: 'Document beat: blur the names, faces and hashtags its scan found (default off)' },
+                blurStrength: { type: 'number', minimum: 1, maximum: 100, description: 'Document beat: how strong the blur is (default 50; 100 = twice as strong)' },
+                blurBoxes: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Document beat: extra blurred boxes [x, y, w, h] 0..1 of the picture (a logo, one face)' },
+                highlights: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Document beat: highlighter boxes [x, y, w, h]; the zoom goes onto the biggest' }
+            }, required: ['id'], additionalProperties: false }, description: 'Your plan per beat id; replaces the automatic plan' },
+            context: { type: 'string', description: 'What the video is about, added to every picture search ("Philippines", "1960s surfing"); saved with the project. Changing it redoes the beats Auto-fill set up (not hand-set ones)' },
+            redo: { type: 'boolean', description: 'Clear and redo the beats Auto-fill set up itself (hand-set beats stay)' },
+            plan: { type: 'boolean', description: 'false = no automatic plan, only search and pick for beats already set up' },
+            coverage: { type: 'number', minimum: 0, maximum: 1, description: 'Share of the speaker time the automatic plan covers with B-roll (default 0.5)' },
+            research: { type: 'boolean', description: 'Search again even for beats that already have pictures found' },
+            render: { type: 'boolean', description: 'Also render and place the clips (default false: check first)' },
+            captions: { type: 'boolean', description: 'With render: word captions on the track above (default true)' },
+            sfx: { type: 'boolean', description: 'With render: whooshes, hits, pops and clicks on the cards (default true)' },
+            status: { type: 'boolean', description: 'How the last run is doing' },
+            cancel: { type: 'boolean', description: 'Stop the run' },
+            wait: { type: 'number', description: 'Seconds to wait for the result (default 150)' }
+        })
+    },
+    {
         name: 'remove_broll',
         description: 'Delete a placed B-roll clip from the timeline and forget it.',
         inputSchema: S({ id: { type: 'string', description: 'Record id' } }, ['id'])

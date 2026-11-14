@@ -1,16 +1,18 @@
-// Post wall: a grid of tiles fills in, tile by tile, while the counter runs up to the number.
+// Post wall: a grid of tiles fills in, tile by tile, while the counter runs up to the number. With face pictures
+// (face1..face4) every tile is one of them instead of a colour square: the same faces repeated ("seen 100 times").
 import React from 'react';
-import { interpolate } from 'remotion';
+import { Img, interpolate } from 'remotion';
 import { Common, FONT, Place, ease, fmtNumber, rand, useInOut } from '../lib/common';
 import { useVibe } from '../lib/vibe';
 
-type P = Common & { count: number; unit: string; tag: string; cols: number; rows: number };
+type P = Common & { count: number; unit: string; tag: string; cols: number; rows: number; face1?: string; face2?: string; face3?: string; face4?: string };
 
 export const PostWall: React.FC<P> = (p) => {
     const { frame, durationInFrames: D, inn } = useInOut(p, (D0) => Math.max(10, D0 - (p.exit ?? 8) - 10));
     const L = useVibe(p), classic = L.v.id === 'classic';
     const cols = Math.max(4, Math.round(p.cols || 26)), rows = Math.max(2, Math.round(p.rows || 9));
-    const N = cols * rows, tile = 30, gap = 6;
+    const faces = [p.face1, p.face2, p.face3, p.face4].filter((f): f is string => !!f);
+    const N = cols * rows, tile = faces.length ? 56 : 30, gap = faces.length ? 8 : 6;
     const W = cols * (tile + gap) - gap;
     const fillEnd = Math.max(10, D - (p.exit ?? 8) - 10);
     const k = interpolate(frame, [p.enter ?? 10, fillEnd], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease });
@@ -21,6 +23,8 @@ export const PostWall: React.FC<P> = (p) => {
         return {
             order: c * rows + r + (rand(i) - 0.5) * rows * 0.8,
             shadeIdx: Math.floor(rand(i + 7) * 7),
+            face: Math.floor(rand(i + 13) * 4),
+            tilt: (rand(i + 29) - 0.5) * 22,
         };
     }), [N, cols, rows]);
 
@@ -38,6 +42,13 @@ export const PostWall: React.FC<P> = (p) => {
                     {tiles.map((t, i) => {
                         const on = t.order < lit;
                         const fresh = on && t.order > lit - rows * 1.5;
+                        if (faces.length) {
+                            // a face sticker pops in (bigger while fresh), slightly tilted; an empty slot until then
+                            return <div key={i} style={{ width: tile, height: tile, borderRadius: L.r(6), background: on ? 'transparent' : 'rgba(255,255,255,0.07)', position: 'relative' }}>
+                                {on && <Img src={faces[t.face % faces.length]} style={{ position: 'absolute', inset: -4, width: tile + 8, height: tile + 8, objectFit: 'contain',
+                                    transform: `rotate(${t.tilt}deg) scale(${fresh ? 1.25 : 1})`, filter: 'drop-shadow(0 3px 4px rgba(0,0,0,.45))' }} />}
+                            </div>;
+                        }
                         return <div key={i} style={{ width: tile, height: tile, borderRadius: L.r(3),
                             background: on ? shades[t.shadeIdx] : 'rgba(255,255,255,0.08)',
                             outline: fresh ? `2px solid ${L.accent}` : 'none', transform: fresh ? 'scale(1.12)' : 'none' }} />;

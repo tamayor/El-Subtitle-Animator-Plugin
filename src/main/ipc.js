@@ -43,6 +43,7 @@ const { clipControls, setClipControls, clipRows, setClipRows, setClipGradient } 
 const { boilerplateList, insertBoilerplate } = require('./boilerplates');
 const { matchCutCancel, matchCutDefaults, matchCutOpen, matchCutRun } = require('./match-cut');
 const BROLL = require('./broll');
+const COLLAGE = require('./collage');
 const { cutAnalyze, cutBuild, cutCancel, cutDefaults, cutInstall, cutListen, cutSetPrefs } = require('./auto-cut');
 const { cutToolsRun, cutToolsCheck, cutToolsStatus, cancelCutTools, cutToolsInstall, cutToolsMarkers, cutToolsWave, cutToolsGoto, cutToolsDeletePauses, cutToolsPlayhead } = require('./cut-tools');
 
@@ -115,6 +116,25 @@ const SAFE_HANDLERS = {
     'broll:frame': () => BROLL.brollFrame(),
     'broll:fromPlayhead': BROLL.brollFromPlayhead,
     'broll:wordLane': BROLL.brollWordLane,
+    // B-roll tab > Collage: the collage-style explainer B-roll (collage.js); progress as collage:progress
+    'collage:state': () => COLLAGE.collageState(),
+    'collage:start': () => COLLAGE.collageStart(),
+    'collage:words': () => COLLAGE.collageWords(),
+    'collage:beat': COLLAGE.collageBeat,
+    'collage:find': COLLAGE.collageFind,
+    'collage:candidates': COLLAGE.collageCandidates,
+    'collage:pick': COLLAGE.collagePick,
+    'collage:still': COLLAGE.collageStill,
+    'collage:render': COLLAGE.collageRender,
+    'collage:place': COLLAGE.collagePlace,
+    'collage:open': COLLAGE.collageOpen,
+    'collage:sources': COLLAGE.collageSources,
+    'collage:cancel': () => COLLAGE.collageCancel(),
+    'collage:auto': COLLAGE.collageAuto,
+    'collage:context': COLLAGE.collageContext,
+    'collage:reset': () => COLLAGE.collageReset(),
+    'collage:picture': COLLAGE.collageAddPicture,
+    'collage:evidence': COLLAGE.collageEvidence,
     // Cut tab: rough cut of the source track into a new "(cut)" timeline (auto-cut.js); progress as cut:progress
     'cut:defaults': () => cutDefaults(),
     'cut:prefs': cutSetPrefs,

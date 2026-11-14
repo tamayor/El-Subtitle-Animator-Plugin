@@ -74,9 +74,9 @@ function dataUrl(file) {
 // props._bg.dir: a video backdrop's frames (b%05d.jpg). The page can only load what the bundle's server serves, so each
 // folder is linked into the bundle for this job (hard links, a copy across volumes) and the effect gets its URL in
 // .url. Returns the function that takes them out again.
-// props._assets.dir: a collage project's assets/ folder (pictures by name), linked the same way.
+// props._assets.dir: a collage project's assets/ folder (pictures and video clips by name), linked the same way.
 const FRAME_FILE = /^[cfpb]\d{5}\.(png|jpg)$/;
-const ASSET_FILE = /^[^/\\]+\.(png|jpe?g|webp|svg)$/i;
+const ASSET_FILE = /^[^/\\]+\.(png|jpe?g|webp|svg|mp4|webm|mov)$/i;
 function linkFootage(props, serveDir) {
     const made = [];
     for (const key of ['_seq', '_bg', '_assets']) {

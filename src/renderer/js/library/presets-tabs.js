@@ -1,2 +1,5 @@
-// Presets section: Text / Effects sub-tabs. Only toggles which section shows; both stay in the DOM.
-bindTabGroup(document.getElementById('presetsWrap'), { key: 'pt', values: ['text', 'fx'], buttons: '.presets-tab[data-pt]', storageKey: 'presetsTab' });
+// Texts switch (Presets / Library / Create): one copy sits at the top of the Use tab's presets section and of the
+// Library and Create views; setTab (js/core/bootstrap.js) lights the matching button in every copy.
+document.querySelectorAll('.texts-tabs > .presets-tab[data-tx]').forEach(b => {
+    b.addEventListener('click', () => setTab({ presets: 'apply', library: 'library', create: 'create' }[b.dataset.tx] || 'apply'));
+});

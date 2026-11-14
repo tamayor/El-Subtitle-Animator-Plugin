@@ -374,7 +374,43 @@ export const WetsuitHero: React.FC<IlluProps> = ({ t, D, at, brand: b, uid, img,
     );
 };
 
+// A clean photo cut-out (a flattened tarpaulin, a poster) as a white-edged sticker in the disc. Each `at` word pops
+// a smaller copy around it, so the same picture multiplies on the words ("seen a hundred times", mere exposure).
+// Without an img it draws nothing: this medallion is for real pictures only.
+const COPIES = [[230, 250, -9], [770, 260, 8], [210, 760, 7], [790, 750, -7], [500, 150, -3], [500, 860, 4]];
+export const PhotoSticker: React.FC<IlluProps> = ({ t, at, uid, img, imgAspect }) => {
+    useDecoded(img);
+    if (!img) return null;
+    const a = imgAspect || 1.6;
+    const sway = Math.sin(t / 14) * 1.2;
+    const sticker = (cx: number, cy: number, w: number, rot: number, k: number, key: string) => {
+        const h = w / a, B = Math.max(8, w * 0.025);
+        return (
+            <g key={key} transform={`translate(${cx} ${cy}) rotate(${rot}) scale(${k})`} filter={`url(#${uid}-sh)`}>
+                <rect x={-w / 2 - B} y={-h / 2 - B} width={w + 2 * B} height={h + 2 * B} rx={B * 0.8} fill="#ffffff" />
+                <image href={img} x={-w / 2} y={-h / 2} width={w} height={h} preserveAspectRatio="none" />
+            </g>
+        );
+    };
+    const copies = at.slice(0, COPIES.length).map((f, i) => {
+        const k = k01(t, f - 2, f + 8, Easing.out(Easing.back(1.8)));
+        if (k <= 0) return null;
+        const [x, y, r] = COPIES[i];
+        return sticker(x, y, 330, r, k, 'c' + i);
+    });
+    const big = at.length ? 640 : 760;
+    return (
+        <g>
+            <defs><filter id={`${uid}-sh`} x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="#000" floodOpacity="0.38" /></filter></defs>
+            {copies.slice(0, 2)}
+            {sticker(500, 505, big, sway - 2, 1, 'main')}
+            {copies.slice(2)}
+        </g>
+    );
+};
+
 export const ILLUSTRATIONS: Record<string, { tone: 'cream' | 'teal'; C: React.FC<IlluProps> }> = {
+    'photo-sticker': { tone: 'cream', C: PhotoSticker },
     'wetsuit-hero': { tone: 'cream', C: WetsuitHero },
     'wetsuit-drops': { tone: 'cream', C: WetsuitDrops },
     'water-fill': { tone: 'cream', C: WaterFill },

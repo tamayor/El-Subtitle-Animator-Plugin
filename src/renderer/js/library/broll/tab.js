@@ -198,9 +198,11 @@ function brLandSync() {
 function initBrollTab() {
     brUI.tabs = bindTabGroup($('brWrap'), {
         key: 'br', values: BR_TABS, buttons: '.presets-tab[data-br]', storageKey: 'brTab', restoreFires: true,
-        onChange: (t) => { if (t === 'placed') brLoadPlaced(); }
+        onChange: (t) => { if (t === 'placed') brLoadPlaced(); else if (t === 'collage') colLoad(); }
     });
+    initCollage();
     rememberDetails($('brMoreBox'), 'sa.brMoreOpen');   // Placement & timing
+    brInitSearch();
     $('brPlace').addEventListener('click', () => brPlace(false));
     $('brPlaceNew').addEventListener('click', () => brPlace(true));
     $('brStopEdit').addEventListener('click', () => brEdit(null));
@@ -268,9 +270,11 @@ function initBrollTab() {
     }
 }
 
-// The tab was opened: effects once, the playhead frame and the placed list every time.
+// The tab was opened: effects once, the playhead frame and the placed list every time (and the Collage pane when it is
+// the one showing).
 async function brollTabShown() {
     if (!brUI.ready) { brUI.ready = await brLoadEffects(); }
     if (brView() === 'panel') { if ($('brBg').value === 'frame') brLoadFrame(); else brApplyBg(); }
     brLoadPlaced();
+    if (brUI.tabs && brUI.tabs.value === 'collage') colLoad();
 }

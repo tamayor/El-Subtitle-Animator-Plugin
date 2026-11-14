@@ -96,6 +96,21 @@ const TOOLS = {
         return B.brollAdjust(null, o);
     },
     remove_broll(args) { return require('./broll').brollRemove(null, args || {}); },
+    // B-roll tab > Collage (collage.js): the whole set-up (and with render: true the render and placing) in one run.
+    // Searching and rendering take minutes: waits up to `wait` s, then { running }; call again with status: true.
+    async collage_auto(args) {
+        args = args || {};
+        const COL = require('./collage');
+        if (args.status) return COL.collageAutoStatus();
+        if (args.cancel) return { cancelled: COL.collageCancel() };
+        if (args.render) await waitFree(20000);
+        const run = COL.collageAuto(null, args);
+        const waitMs = Math.max(0, Math.min(170, Number.isFinite(Number(args.wait)) ? Number(args.wait) : 150)) * 1000;
+        const r = await Promise.race([run, new Promise(res => setTimeout(() => res(null), waitMs))]);
+        if (!r) return { running: true, status: COL.collageAutoStatus(), note: 'Still working. Call collage_auto with status: true for the result.' };
+        const beats = (r.beats || []).map(b => ({ id: b.id, frames: b.frames, line: b.line, visual: b.visual, queries: b.queries, overlays: b.overlays, assets: b.assets.map(a => a.name), missing: b.need.missing }));
+        return { timeline: r.timeline, dir: r.dir, fps: r.fps, auto: r.auto, beats, placed: r.placed, notes: r.notes };
+    },
     async finalize_broll(args) { await waitFree(20000); return require('./broll').brollFinalize(null, args || {}); },
     async sync_broll(args) { await waitFree(20000); return require('./broll').brollSync(null, args || {}); },
     suggest_broll(args) { return require('./broll').brollSuggest(null, args || {}); },

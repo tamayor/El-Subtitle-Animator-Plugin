@@ -2,7 +2,7 @@
 // clip is timeline frame `from`. Beats of visual "talking-head" draw nothing but their overlays (title), so a range
 // that covers them stays transparent there and the speaker shows through; every other beat draws the dark backdrop
 // and its card, medallion or stack, entering over the one before (which stays under it until the entrance is done).
-// Pictures come from props._assets (a folder render.mjs links into the bundle) by file name.
+// Pictures and video clips come from props._assets (a folder render.mjs links into the bundle) by file name.
 import React from 'react';
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { brandOf, type Brand } from './brand';
@@ -11,7 +11,8 @@ import { Background, CardStack, DocumentCard, Medallion, PhotoCard, TitleCard, f
 export type Beat = {
     id: string; frames: [number, number]; visual: string; line?: string; assets?: string[]; overlays?: Overlay[]; drift?: string;
     illustration?: string; beatsAt?: { word: string; frame: number }[]; crop?: number[]; crops?: (number[] | null)[];
-    highlights?: number[][]; highlightAt?: number;
+    highlights?: number[][]; highlightAt?: number; clipStart?: number;   // clipStart: a clip beat's in-point, seconds
+    blurs?: number[][]; zoom?: number[] | null; zoomAt?: number; blurStrength?: number;          // document: blurred boxes, the zoom onto the highlights
 };
 export type CollageProps = {
     beats: Beat[]; from: number; assetMeta?: Record<string, { w: number; h: number }>; _assets?: { url: string };
@@ -20,10 +21,13 @@ export type CollageProps = {
 };
 
 const FROM: ('right' | 'bottom' | 'left')[] = ['right', 'bottom', 'left'];
+// A beat keeps its pictures and its clip when its visual changes: a clip beat plays its video, the others use pictures.
+const VIDEO = /\.(mp4|webm|mov)$/i;
+const assetsOf = (x: Beat) => (x.assets || []).filter((n) => (x.visual === 'clip') === VIDEO.test(n));
 
 export const CollageTrack: React.FC<CollageProps> = (p) => {
     const frame = useCurrentFrame();
-    const { width, height } = useVideoConfig();
+    const { width, height, fps } = useVideoConfig();
     const b = brandOf(p);
     const u = width / 1080, H = height / u;
     const g = (p.from || 0) + frame;
@@ -47,20 +51,26 @@ export const CollageTrack: React.FC<CollageProps> = (p) => {
         const drift = x.drift || 'push-in';
         let el: React.ReactNode = null;
         if (x.visual === 'photo') {
-            const n = x.assets?.[0];
+            const n = assetsOf(x)[0];
             el = <PhotoCard src={src(n)} box={fitBox(meta(n), x.crop, 860, 960)} crop={x.crop} t={t} D={D} seed={seed} b={b}
                 from={FROM[i % FROM.length]} drift={drift} overlays={ov} />;
+        } else if (x.visual === 'clip') {
+            // a video clip (assets/<beat>-NN.mp4) in a photo card, playing from clipStart as the beat starts
+            const n = assetsOf(x)[0];
+            el = <PhotoCard src={src(n)} box={fitBox(meta(n), x.crop, 900, 960)} crop={x.crop} t={t} D={D} seed={seed} b={b}
+                from={FROM[i % FROM.length]} drift={drift} overlays={ov}
+                video={{ from: a - (p.from || 0), trim: Math.round((x.clipStart || 0) * fps) }} />;
         } else if (x.visual === 'stack') {
-            const ns = (x.assets || []).slice(0, 4);
+            const ns = assetsOf(x).slice(0, 4);
             el = <CardStack srcs={ns.map(src)} boxes={ns.map((n, k) => fitBox(meta(n), x.crops?.[k] || undefined, 760, 700))} t={t} D={D} seed={seed} b={b}
                 drift={drift} overlays={ov} />;
         } else if (x.visual === 'document') {
-            const n = x.assets?.[0];
+            const n = assetsOf(x)[0];
             el = <DocumentCard src={src(n)} box={fitBox(meta(n), x.crop, 860, 1000)} crop={x.crop} rects={x.highlights || []}
-                at={x.highlightAt ?? 16} t={t} D={D} seed={seed} b={b} drift={drift} overlays={ov} />;
+                at={x.highlightAt ?? 16} t={t} D={D} seed={seed} b={b} drift={drift} overlays={ov} blurs={x.blurs || []} zoom={x.zoom} zoomAt={x.zoomAt} blurStrength={x.blurStrength} />;
         } else if (x.visual === 'medallion') {
             const at = (x.beatsAt || []).map((w) => w.frame - a);
-            const n = x.assets?.[0], m = meta(n);   // a cut-out photo (the real suit) drawn instead of the drawn figure
+            const n = assetsOf(x)[0], m = meta(n);   // a cut-out photo (the real suit) drawn instead of the drawn figure
             el = <Medallion name={x.illustration || ''} t={t} D={D} at={at} b={b} seed={seed} drift={drift} uid={`m-${x.id}`}
                 img={n ? src(n) : undefined} imgAspect={m ? m.w / m.h : undefined} anchors={n ? p.assetAnchors?.[n] : undefined} />;
         } else if (x.visual === 'title') {

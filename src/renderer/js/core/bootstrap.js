@@ -43,19 +43,26 @@ const state = {
     draft: { animPath: null, fromSelection: false, sfxPath: null }   // what the Create tab is building
 };
 
-// The six main tabs are always visible in the tab bar: Use, Library, Create, Cut, Broll, Prompt.
+// The main tab bar: Use, Effects, Cut, Broll, Prompt. Library and Create are views of the Use tab, opened from its
+// Texts switch (Presets / Library / Create), so the Use button stays lit on all three.
 function setTab(t) {
     stopPreview();
     state.tab = t;
     $('tabApply').classList.toggle('hidden', t !== 'apply');
     $('tabLibrary').classList.toggle('hidden', t !== 'library');
     $('tabCreate').classList.toggle('hidden', t !== 'create');
+    $('tabEffects').classList.toggle('hidden', t !== 'effects');
     $('tabPrompt').classList.toggle('hidden', t !== 'prompt');
     $('tabCut').classList.toggle('hidden', t !== 'cut');
     $('tabBroll').classList.toggle('hidden', t !== 'broll');
-    $('tabBtnApply').classList.toggle('on', t === 'apply');
-    $('tabBtnLibrary').classList.toggle('on', t === 'library');
-    $('tabBtnCreate').classList.toggle('on', t === 'create');
+    $('tabBtnApply').classList.toggle('on', t === 'apply' || t === 'library' || t === 'create');
+    $('tabBtnEffects').classList.toggle('on', t === 'effects');
+    const tx = t === 'library' ? 'library' : t === 'create' ? 'create' : 'presets';
+    document.querySelectorAll('.texts-tabs > .presets-tab[data-tx]').forEach(b => {
+        const on = b.dataset.tx === tx;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
     $('tabBtnPrompt').classList.toggle('on', t === 'prompt');
     $('tabBtnCut').classList.toggle('on', t === 'cut');
     $('tabBtnBroll').classList.toggle('on', t === 'broll');

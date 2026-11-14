@@ -6,10 +6,11 @@ Notable changes to El Subtitle Animator. The plugin's version is in `package.jso
 
 ### Added
 
-- **B-roll: 25 more effects** (44 in all; `broll/effects.json`, `broll/src/effects/`): Ring gauge, Mini chart, Audio
+- **B-roll: 35 more effects** (54 in all; `broll/effects.json`, `broll/src/effects/`): Ring gauge, Mini chart, Audio
   pulse, Sticker pop, Step badge, Lower third, News ticker, Pull quote, Doodle callout / icon / boil, Journal note,
   Cutout pop, Paper frame, Cutout puppet, Ransom text, Headline wall, Zoom-through cut, Phone mockup, Viewfinder zoom,
-  UI world, Sticky text, Before + after, Pull-back reveal, Wall of videos. The Effect step has a category filter
+  UI world, Sticky text, Before + after, Pull-back reveal, Wall of videos, Notification stack, Checklist card, Avatar
+  split, Timeline arc, and the six footage effects below. The Effect step has a category filter
   (`group`); fields can be dropdowns (`select`) or picture files (`image`); `suggest_broll` reads the new ones from
   the words. Comment drop takes a reply text and button, the Counter a start value. Status: `../NEW_BROLLS_PLAN.md`.
 - **B-roll reads the footage** (`src/main/broll-footage.js`, `src/python/broll_cutout.py`, `broll/src/lib/footage.tsx`):

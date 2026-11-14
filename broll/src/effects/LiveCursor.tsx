@@ -2,6 +2,7 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Common, FONT, clamp, ease, useInOut, useUnit } from '../lib/common';
+import { useVibe } from '../lib/vibe';
 
 type P = Common & { name: string; boxW: number; boxH: number; sizeLabel: boolean; boxColor: string };
 
@@ -13,6 +14,7 @@ const Arrow: React.FC<{ s: number }> = ({ s }) => (
 
 export const LiveCursor: React.FC<P> = (p) => {
     const { width, height } = useVideoConfig();
+    const L = useVibe(p);
     const { frame, durationInFrames: D, inn, out, delay } = useInOut(p, (D0) => Math.max(Math.max(8, Math.round(D0 * 0.22)) + 8, Math.round(D0 * 0.6)));
     const u = useUnit() * (p.scale || 1);
     const cx = clamp(p.x) * width, cy = clamp(p.y) * height;
@@ -52,9 +54,9 @@ export const LiveCursor: React.FC<P> = (p) => {
             )}
             <div style={{ position: 'absolute', left: curX, top: curY, opacity: inn }}>
                 <Arrow s={u * 1.4} />
-                <div style={{ position: 'absolute', left: 30 * u, top: 46 * u, background: p.accent, color: '#0f1a12',
-                    fontFamily: FONT.sans, fontWeight: 600, fontSize: 24 * u, padding: `${5 * u}px ${14 * u}px`,
-                    borderRadius: 8 * u, whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>{p.name}</div>
+                <div style={{ position: 'absolute', left: 30 * u, top: 46 * u, background: L.accent, color: L.onAccent,
+                    fontFamily: L.v.font.label, fontWeight: L.v.font.labelWeight, fontSize: 24 * u, padding: `${5 * u}px ${14 * u}px`,
+                    borderRadius: L.r(8) * u, whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>{p.name}</div>
             </div>
         </AbsoluteFill>
     );

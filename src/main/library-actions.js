@@ -431,6 +431,8 @@ function replaceAnimationFile(event, id, p, keep) {
 async function pickFile(event, kind) {
     const filters = kind === 'sfx'
         ? [{ name: 'Audio', extensions: ['wav', 'mp3', 'aif', 'aiff', 'm4a', 'flac', 'ogg'] }]
+        : kind === 'image' ? [{ name: 'Picture', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'] }]
+        : kind === 'media' ? [{ name: 'Picture or video', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'mxf'] }]
         : [{ name: 'Fusion comp / setting', extensions: ['comp', 'setting'] }];
     const r = await dialog.showOpenDialog(state.mainWindow, { properties: ['openFile'], filters });
     return r.canceled || !r.filePaths.length ? null : r.filePaths[0];

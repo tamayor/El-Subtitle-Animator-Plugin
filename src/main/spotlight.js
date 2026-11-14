@@ -333,4 +333,29 @@ async function spotRemove(event, itemId) {
 
 function spotInfo() { return { anims: ANIMS, defaults: DEFAULTS }; }
 
-module.exports = { spotEngine, spotInstall, spotSource, spotRun, spotCancel, spotGet, spotSet, spotRecut, spotRemove, spotInfo, pickWord, layout, DEFAULTS, ANIMS };
+// The matte engine for other features (B-roll cut-outs, src/main/broll-footage.js). Not tied to a spotlight clip.
+// matteFrames: the footage frames in `dir` (f<frame>.jpg, bridge track_frames with full: true) -> RGBA cut-outs
+// `out`/c%05d.png and the script's stats (box, headTop, cx). { needInstall } when the engine is not set up.
+// o.wait (seconds): the frames are still being exported, each is read as it lands; o.plate: also `out`/p%05d.jpg, the
+// room with the person filled in.
+async function matteFrames(o) {
+    if (!(await engineReady())) return { needInstall: true };
+    fs.mkdirSync(o.out, { recursive: true });
+    let stats = null, error = null;
+    const r = await run(venvPython(), ['-I', MATTE_SCRIPT], { input: JSON.stringify(Object.assign({ dir: o.dir, frames: o.frames, model: modelPath(), out: o.out, wait: o.wait, plate: o.plate }, matteArgs(o.settings || {}, o.width, o.height))) + '\n', track: o.track }, (line) => {
+        let m; try { m = JSON.parse(line); } catch (e) { return; }
+        if (m.progress && o.progress) o.progress(m.progress, m.total);
+        else if (m.done) stats = m.stats;
+        else if (m.error) error = m.error;
+    });
+    return stats ? { stats } : { error: 'Matting failed: ' + (error || r.err.trim().slice(-300) || 'no result') };
+}
+// One JSON line into a script of src/python, run in the engine's venv; its last JSON line back.
+async function venvJson(script, input) {
+    if (!(await engineReady())) return { needInstall: true };
+    const r = await run(venvPython(), ['-I', path.join(path.dirname(BRIDGE_SCRIPT), script)], { input: JSON.stringify(input) + '\n' });
+    const last = r.out.trim().split('\n').pop();
+    try { return JSON.parse(last); } catch (e) { return { error: r.err.trim().slice(-300) || 'no result from ' + script }; }
+}
+
+module.exports = { spotEngine, spotInstall, spotSource, spotRun, spotCancel, spotGet, spotSet, spotRecut, spotRemove, spotInfo, pickWord, layout, DEFAULTS, ANIMS, matteFrames, venvJson };

@@ -70,21 +70,31 @@ const TOOLS = {
         return B.brollEffects();
     },
     async broll_preview(args) {
-        const r = await require('./broll').brollPreview(null, { ...(args || {}), dataUrl: false });
+        const B = require('./broll');
+        const r = await B.brollPreview(null, { ...(args || {}), props: B.brollVibeProps((args || {}).vibe, (args || {}).props), dataUrl: false });
         return { path: r.path, width: r.width, height: r.height, effect: r.effect, props: r.props, note: 'Look at the PNG at `path` (it has a transparent background).' };
     },
     async place_broll(args) {
         args = args || {};
         const B = require('./broll');
         await waitFree(20000);
-        if (!Array.isArray(args.items)) return B.brollPlace(null, args);
-        const run = B.brollPlaceMany(null, args.items);
+        // vibe: the look of this placement (or of every item that has none of its own)
+        if (!Array.isArray(args.items)) return B.brollPlace(null, { ...args, props: B.brollVibeProps(args.vibe, args.props) });
+        const run = B.brollPlaceMany(null, args.items.map(it => ({ ...it, props: B.brollVibeProps(it && it.vibe !== undefined ? it.vibe : args.vibe, it && it.props) })));
         const waitMs = Math.max(0, Math.min(170, Number.isFinite(Number(args.wait)) ? Number(args.wait) : 150)) * 1000;
         const r = await Promise.race([run, new Promise(res => setTimeout(() => res(null), waitMs))]);
         if (r) return { results: r };
         return { running: true, status: B.brollStatus(), note: 'Still rendering in the background. Call list_broll { placed: true } to see what is placed.' };
     },
-    async adjust_broll(args) { await waitFree(20000); return require('./broll').brollAdjust(null, args || {}); },
+    async adjust_broll(args) {
+        args = args || {};
+        const B = require('./broll');
+        await waitFree(20000);
+        const o = { ...args, props: B.brollVibeProps(args.vibe, args.props) };
+        if (args.all) return B.brollRestyle(null, o);
+        if (!args.id) throw new Error('adjust_broll: id is required (or all: true to change every B-roll on this timeline)');
+        return B.brollAdjust(null, o);
+    },
     remove_broll(args) { return require('./broll').brollRemove(null, args || {}); },
     async finalize_broll(args) { await waitFree(20000); return require('./broll').brollFinalize(null, args || {}); },
     async sync_broll(args) { await waitFree(20000); return require('./broll').brollSync(null, args || {}); },

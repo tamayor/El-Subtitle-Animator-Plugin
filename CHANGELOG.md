@@ -6,6 +6,18 @@ Notable changes to El Subtitle Animator. The plugin's version is in `package.jso
 
 ### Added
 
+- **B-roll: 25 more effects** (44 in all; `broll/effects.json`, `broll/src/effects/`): Ring gauge, Mini chart, Audio
+  pulse, Sticker pop, Step badge, Lower third, News ticker, Pull quote, Doodle callout / icon / boil, Journal note,
+  Cutout pop, Paper frame, Cutout puppet, Ransom text, Headline wall, Zoom-through cut, Phone mockup, Viewfinder zoom,
+  UI world, Sticky text, Before + after, Pull-back reveal, Wall of videos. The Effect step has a category filter
+  (`group`); fields can be dropdowns (`select`) or picture files (`image`); `suggest_broll` reads the new ones from
+  the words. Comment drop takes a reply text and button, the Counter a start value. Status: `../NEW_BROLLS_PLAN.md`.
+- **B-roll reads the footage** (`src/main/broll-footage.js`, `src/python/broll_cutout.py`, `broll/src/lib/footage.tsx`):
+  before a render, an effect gets the dialogue's loudness (Cut tab's envelope), the speaker cut out of every frame
+  (Spotlight's matte engine), the clip's own frames, or frames of the timeline's clips. New effects on it: Paper cut,
+  Depth scatter, Orbit, Frame break, Vertigo, Green screen. Audio pulse and Cutout puppet move with the voice; Cutout
+  pop can take the speaker or remove a photo's background; Doodle boil follows the speaker's outline; Viewfinder zoom
+  and Pull-back reveal carry the footage; Wall of videos shows the timeline's clips. Footage renders are Rec.709-tagged.
 - **Cut tab** (new top-level tab, two sub-tabs):
   - **Rough cut** (`src/main/auto-cut.js`, `src/python/auto_cut.py`, pause rules adapted from ghost-editor, MIT): five
     numbered steps (Source, Pauses, Take out, Analyse, Build). Shortens pauses, trims heads and tails, takes out
@@ -33,6 +45,28 @@ Notable changes to El Subtitle Animator. The plugin's version is in `package.jso
 
 ### Changed
 
+- **B-roll limits lifted** (`src/main/broll-footage.js`, `src/python/subject_matte.py`, `broll/render.mjs`):
+  - Effects that cut the speaker out of every frame take up to 20 s (was 10 s), frames-only effects up to 30 s. The
+    matte now runs while Resolve is still exporting the frames, and its edge and hole steps were made faster (same
+    pixels, ~176 → ~142 ms a frame). The footage cache is capped at 4 GB as well as 16 folders.
+  - **Vertigo**: new What moves (Room grows / Speaker grows) and Room shrinks. Room grows is the real dolly zoom: the
+    room stretches behind a speaker who stays put, drawn from a clean plate (the speaker filled in from the room, written
+    by the matte script), so no halo.
+  - **Green screen**: the Backdrop can be a video (read as frames at the timeline rate, looped); the picker takes videos.
+  - **Sticky text**: Stick to the shot (on by default) tracks the spot under the label from the frame it lands on
+    (Track Subject's tracker), so it moves with the camera or the object.
+  - **Before + after**: Before look (Flat (log) / Washed out / Black & white / Tint). With a footage look the "before"
+    side is the clip's own frames with that look and the "after" side is clear, so the real graded clip shows: two
+    real looks. Tint is the old divider + tint.
+  - Every B-roll render is written Rec.709 (matrix + tags), not only the footage ones. Checked in Resolve: the old
+    renders showed matcha #8ccf8e as (135, 197, 140), the new ones as (140, 206, 142). Clips placed before keep the old
+    shift until they are re-rendered (adjust or finalize them).
+- **B-roll vibes reach the newer effects**: Lower third, Ring gauge, Step badge, Mini chart, Pull quote, News ticker
+  (type; the bar keeps its red), Sticker pop, Audio pulse, Cutout pop, Cutout puppet (speech bubble), Depth scatter,
+  Zoom-through cut, Wall of videos, UI world (type and corners), Sticky text and Before + after draw with `useVibe`.
+  Plain Classic keeps their exact old look (`plainClassic`, `face` in `broll/src/lib/vibe.tsx`). The material ones
+  (paper, journal, ransom, doodles, phone, headline wall, editor, viewfinder, frame break, orbit, Vertigo, Green screen)
+  take the vibe's accent and motion only, by design.
 - **Panel layout, Apple-style pass** (plan: `../APPLE_UI_DESIGN_PLAN.md`): a one-row header (status dot + timeline name,
   Rescan, Settings gear); the six tabs are always visible (the Text menu is gone); a Settings sheet
   `Style | Placement | App` holds Preset Set Up, Text Style, Placement, Fusion fixes, Resolve Loop, Real-time render,

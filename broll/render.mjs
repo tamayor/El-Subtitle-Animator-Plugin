@@ -36,6 +36,63 @@ function srcHash() {
 
 let serveUrl = null, servedHash = null, browser = null;
 
+// Image fields (effects.json type "image") hold a file path; the page cannot read the disk, so the picture goes in as
+// a data URL. A missing or unreadable file becomes '' (the effect draws its placeholder).
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml' };
+let registryCache = null;
+function imageKeys(effect) {
+    try {
+        const st = fs.statSync(path.join(HERE, 'effects.json'));
+        if (!registryCache || registryCache.t !== st.mtimeMs) registryCache = { t: st.mtimeMs, reg: JSON.parse(fs.readFileSync(path.join(HERE, 'effects.json'), 'utf8')) };
+        const e = registryCache.reg.effects.find((x) => x.id === effect);
+        return e ? e.fields.filter((f) => f.type === 'image').map((f) => f.key) : [];
+    } catch { return []; }
+}
+function withImages(effect, props) {
+    const out = { ...props };
+    for (const k of imageKeys(effect)) {
+        const v = String(out[k] || '').trim();
+        if (!v || /^(data:|https?:)/i.test(v)) continue;
+        try {
+            const file = v.replace(/^file:\/\//, '').replace(/^~(?=\/)/, process.env.HOME || '~');
+            out[k] = dataUrl(file);
+        } catch { out[k] = ''; }
+    }
+    // from the footage (src/main/broll-footage.js): one cut-out picture, and small frames of the timeline's clips
+    if (out._image) { try { out._image = dataUrl(out._image); } catch { delete out._image; } }
+    if (Array.isArray(out._thumbs)) out._thumbs = out._thumbs.map((f) => { try { return dataUrl(f); } catch { return null; } }).filter(Boolean);
+    return out;
+}
+function dataUrl(file) {
+    if (/^data:/i.test(file)) return file;
+    const mime = MIME[path.extname(file).slice(1).toLowerCase()];
+    if (!mime) throw new Error('not a picture');
+    return 'data:' + mime + ';base64,' + fs.readFileSync(file).toString('base64');
+}
+
+// props._seq.dir: a folder of footage frames (c%05d.png cut-outs, f%05d.jpg frames, p%05d.jpg clean plates);
+// props._bg.dir: a video backdrop's frames (b%05d.jpg). The page can only load what the bundle's server serves, so each
+// folder is linked into the bundle for this job (hard links, a copy across volumes) and the effect gets its URL in
+// .url. Returns the function that takes them out again.
+const FRAME_FILE = /^[cfpb]\d{5}\.(png|jpg)$/;
+function linkFootage(props, serveDir) {
+    const made = [];
+    for (const key of ['_seq', '_bg']) {
+        const seq = props[key];
+        if (!seq || !seq.dir || !fs.existsSync(seq.dir)) { delete props[key]; continue; }
+        const name = 'footage-' + crypto.randomBytes(4).toString('hex');
+        const to = path.join(serveDir, name);
+        fs.mkdirSync(to, { recursive: true });
+        made.push(to);
+        for (const n of fs.readdirSync(seq.dir)) {
+            if (!FRAME_FILE.test(n)) continue;
+            try { fs.linkSync(path.join(seq.dir, n), path.join(to, n)); } catch { fs.copyFileSync(path.join(seq.dir, n), path.join(to, n)); }
+        }
+        props[key] = { ...seq, url: name, dir: undefined };
+    }
+    return () => { for (const to of made) { try { fs.rmSync(to, { recursive: true, force: true }); } catch { /* next bundle clears it */ } } };
+}
+
 // Remotion's own Chrome (157) never draws a frame on this Mac: its GPU process hangs at start-up, so every render
 // times out waiting for the root component. Chrome for Testing 154 works. Order: $BROLL_CHROME, the copy that
 // setup-chrome.mjs downloads into .chrome/, Puppeteer's cached 154 / 152, then Remotion's default.
@@ -74,7 +131,12 @@ async function warm() {
 async function run(job) {
     const t0 = Date.now();
     const url = await warm();
-    const inputProps = { ...(job.props || {}), _w: job.width, _h: job.height, _fps: job.fps, _frames: job.frames };
+    const inputProps = { ...withImages(job.effect, job.props || {}), _w: job.width, _h: job.height, _fps: job.fps, _frames: job.frames };
+    const unlink = linkFootage(inputProps, url);
+    try { return await render(job, url, inputProps, t0); } finally { unlink(); }
+}
+
+async function render(job, url, inputProps, t0) {
     const composition = await selectComposition({ serveUrl: url, id: job.effect, inputProps, puppeteerInstance: browser });
     fs.mkdirSync(path.dirname(job.out), { recursive: true });
     const scale = Math.max(0.1, Math.min(1, Number(job.scale) || 1));
@@ -108,6 +170,11 @@ async function run(job) {
             codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png', muted: true,
             // draft: a smaller file for scrubbing in Resolve (the clip is set to Fit there); finalize re-renders at 1
             scale,
+            // Every overlay is written with the Rec.709 matrix and tags, which is how Resolve reads an HD ProRes file.
+            // Without it ffmpeg writes BT.601 untagged: footage inside the picture came back off its own clip (a
+            // (160, 90, 80) wall read back as (166, 96, 78)) and flat colours shifted (matcha #8ccf8e as about
+            // (135, 197, 140)). Clips rendered before 2026-11-13 keep the old shift until they are re-rendered.
+            colorSpace: 'bt709',
             onProgress: ({ progress }) => say('PROGRESS', { id: job.id, p: Math.round(progress * 100) / 100 })
         });
         fs.renameSync(tmp, job.out);

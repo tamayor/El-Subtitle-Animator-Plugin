@@ -37,7 +37,21 @@ const KEY_WORD = {
     'stamp-verdict': p => p.verdict,
     'year-timeline': p => String(Math.round(Number(p.year) || 0)),
     'key-combo': p => (p.keys || []).slice(-1)[0] || null,
-    'url-bar': p => firstWordOf(p.url)
+    'url-bar': p => firstWordOf(p.url),
+    // 2026-11-13 set (effects not listed land on the subtitle's last word)
+    'ring-gauge': p => String(Math.round(Number(p.percent) || 0)),
+    'mini-chart': p => (String((p.points || []).slice(-1)[0] || '').split('|').pop().match(/\d[\d,.]*/) || [null])[0],
+    'video-wall': p => String(Math.round(Number(p.count) || 0)),
+    'step-badge': p => (p.mode === 'list' ? firstWordOf((p.items || [])[Math.max(0, (Number(p.number) || 1) - 1)]) : String(Math.round(Number(p.number) || 1))),
+    'lower-third': p => (p.variant === 'source' ? firstWordOf(p.source) : firstWordOf(p.name)),
+    'news-ticker': p => firstWordOf(p.headline),
+    'pull-quote': p => firstWordOf(p.quote),
+    'ransom-text': p => firstWordOf(p.text),
+    'sticky-text': p => firstWordOf(p.text),
+    'zoom-through-cut': p => firstWordOf(p.text),
+    'journal-note': p => firstWordOf((p.lines || [])[0]),
+    'doodle-icon': p => p.label || null,
+    'sticker-pop': p => p.label || null
 };
 
 // Does a spoken / written word match the key? Numbers compare by digits ("$174,953" = "174953", "13K" = "13").
@@ -104,7 +118,9 @@ const WORD_UNITS = {
     'predict-keys': p => String(p.text || '').split(/\s+/).filter(Boolean),
     'quote-card': p => String(p.body || '').split(/\s+/).filter(Boolean),
     'marker-highlight': p => String(p.phrase || '').split(/\s+/).filter(Boolean),
-    'tag-stack': p => (p.tags || []).slice(0, 14).map(String).filter(Boolean)
+    'tag-stack': p => (p.tags || []).slice(0, 14).map(String).filter(Boolean),
+    'pull-quote': p => String(p.quote || '').split(/\s+/).filter(Boolean),
+    'ransom-text': p => String(p.text || '').split(/\s+/).filter(Boolean)
 };
 
 const ANY_ORDER = new Set(['tag-stack']);   // shown items that need not follow the speech order

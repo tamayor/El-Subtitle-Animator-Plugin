@@ -3,10 +3,12 @@
 import React from 'react';
 import { interpolate } from 'remotion';
 import { Common, FONT, Place, typed, useInOut } from '../lib/common';
+import { useVibe } from '../lib/vibe';
 
 type P = Common & { word: string; title: string; hours: number; paper: string; ink: string };
 
 export const DayDial: React.FC<P> = (p) => {
+    const accent = useVibe(p).accent;   // the vibe's accent when the clip has none of its own
     const { frame, fps, durationInFrames: D, inn, out } = useInOut(p, (_D, f) => (p.enter ?? 10) + Math.ceil(String(p.title || '').length / 10 * f) + 2);
     const H = Math.max(4, Math.min(24, Math.round(p.hours || 12)));
     const R = 440;
@@ -45,7 +47,7 @@ export const DayDial: React.FC<P> = (p) => {
                     </g>
                     <line x1={0} y1={0} x2={0} y2={-(R - 60)} stroke={ink} strokeWidth={3} transform={`rotate(${hand})`} />
                     <line x1={0} y1={0} x2={0} y2={-(R - 200)} stroke={ink} strokeWidth={7} strokeLinecap="round" transform={`rotate(${hand / 12 + 40})`} />
-                    <circle r={12} fill={p.accent} stroke={ink} strokeWidth={3} />
+                    <circle r={12} fill={accent} stroke={ink} strokeWidth={3} />
                 </svg>
                 {title && (
                     <div style={{ position: 'absolute', left: -60, top: -40, fontFamily: FONT.serifItalic, fontStyle: 'italic', fontSize: 150,

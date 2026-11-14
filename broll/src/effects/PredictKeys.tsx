@@ -3,6 +3,7 @@
 import React from 'react';
 import { interpolate } from 'remotion';
 import { Common, FONT, Place, useInOut, wordSpans } from '../lib/common';
+import { readable, useVibe } from '../lib/vibe';
 
 type P = Common & { text: string; suggestions: string[]; dark: boolean };
 
@@ -30,6 +31,7 @@ const Key: React.FC<KeyProps> = ({ ch, w = 74, dark, label, keyOn, last, keyBg, 
 };
 
 export const PredictKeys: React.FC<P> = (p) => {
+    const accent = useVibe(p).accent;   // the vibe's accent when the clip has none of its own
     const { frame, real, fps, durationInFrames: D, inn, out } = useInOut(p, (D0, f) => {
         // landed: the last letter typed
         const st = Math.round((p.enter ?? 10) + 4), en = Math.max(st + 1, D0 - (p.exit ?? 8) - Math.round(f * 0.5));
@@ -83,10 +85,10 @@ export const PredictKeys: React.FC<P> = (p) => {
                 <div style={{ background: dk ? '#1c1c1e' : '#fff', borderRadius: 30, padding: '16px 18px 16px 30px', display: 'flex',
                     alignItems: 'center', marginBottom: 14, boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
                     <div style={{ flex: 1, fontFamily: FONT.sans, fontSize: 40, color: ink }}>
-                        {shown}{caret ? <span style={{ color: p.accent, fontWeight: 300 }}>|</span> : null}
+                        {shown}{caret ? <span style={{ color: accent, fontWeight: 300 }}>|</span> : null}
                     </div>
-                    <div style={{ width: 56, height: 56, borderRadius: 56, background: shown ? p.accent : '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width={28} height={28} viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" stroke="#111" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    <div style={{ width: 56, height: 56, borderRadius: 56, background: shown ? accent : '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg width={28} height={28} viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" stroke={readable(accent)} strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
                     </div>
                 </div>
                 {/* keyboard */}

@@ -22,13 +22,58 @@ import { StampVerdict } from './effects/StampVerdict';
 import { YearTimeline } from './effects/YearTimeline';
 import { KeyCombo } from './effects/KeyCombo';
 import { UrlBar } from './effects/UrlBar';
+import { RingGauge } from './effects/RingGauge';
+import { MiniChart } from './effects/MiniChart';
+import { AudioPulse } from './effects/AudioPulse';
+import { StickerPop } from './effects/StickerPop';
+import { StepBadge } from './effects/StepBadge';
+import { LowerThird } from './effects/LowerThird';
+import { NewsTicker } from './effects/NewsTicker';
+import { PullQuote } from './effects/PullQuote';
+import { DoodleCallout } from './effects/DoodleCallout';
+import { DoodleIcon } from './effects/DoodleIcon';
+import { DoodleBoil } from './effects/DoodleBoil';
+import { JournalNote } from './effects/JournalNote';
+import { CutoutPop } from './effects/CutoutPop';
+import { PaperFrame } from './effects/PaperFrame';
+import { CutoutPuppet } from './effects/CutoutPuppet';
+import { RansomText } from './effects/RansomText';
+import { HeadlineWall } from './effects/HeadlineWall';
+import { ZoomThroughCut } from './effects/ZoomThroughCut';
+import { PhoneMockup } from './effects/PhoneMockup';
+import { ViewfinderZoom } from './effects/ViewfinderZoom';
+import { UiWorld } from './effects/UiWorld';
+import { StickyText } from './effects/StickyText';
+import { BeforeAfterWipe } from './effects/BeforeAfterWipe';
+import { EditorReveal } from './effects/EditorReveal';
+import { VideoWall } from './effects/VideoWall';
+import { PaperCut } from './effects/PaperCut';
+import { DepthScatter } from './effects/DepthScatter';
+import { OrbitCarousel } from './effects/OrbitCarousel';
+import { FrameBreakCard } from './effects/FrameBreakCard';
+import { VertigoDolly } from './effects/VertigoDolly';
+import { GreenScreenStage } from './effects/GreenScreenStage';
+import { NotificationStack } from './effects/NotificationStack';
+import { ChecklistCard } from './effects/ChecklistCard';
+import { AvatarSplit } from './effects/AvatarSplit';
+import { TimelineArc } from './effects/TimelineArc';
 
 const COMPONENTS: Record<string, React.FC<any>> = {
     'live-cursor': LiveCursor, 'comment-drop': CommentDrop, 'predict-keys': PredictKeys, 'day-dial': DayDial,
     'post-wall': PostWall, 'voice-note': VoiceNote, 'sketch-words': SketchWords, 'money-counter': MoneyCounter,
     'tag-stack': TagStack, 'chapter-list': ChapterList, 'receipt-printer': ReceiptPrinter,
     'versus-split': VersusSplit, 'stat-bar': StatBar, 'marker-highlight': MarkerHighlight, 'quote-card': QuoteCard,
-    'stamp-verdict': StampVerdict, 'year-timeline': YearTimeline, 'key-combo': KeyCombo, 'url-bar': UrlBar
+    'stamp-verdict': StampVerdict, 'year-timeline': YearTimeline, 'key-combo': KeyCombo, 'url-bar': UrlBar,
+    'ring-gauge': RingGauge, 'mini-chart': MiniChart, 'audio-pulse': AudioPulse, 'sticker-pop': StickerPop,
+    'step-badge': StepBadge, 'lower-third': LowerThird, 'news-ticker': NewsTicker, 'pull-quote': PullQuote,
+    'doodle-callout': DoodleCallout, 'doodle-icon': DoodleIcon, 'doodle-boil': DoodleBoil,
+    'journal-note': JournalNote, 'cutout-pop': CutoutPop, 'paper-frame': PaperFrame, 'cutout-puppet': CutoutPuppet,
+    'ransom-text': RansomText, 'headline-wall': HeadlineWall, 'zoom-through-cut': ZoomThroughCut,
+    'phone-mockup': PhoneMockup, 'viewfinder-zoom': ViewfinderZoom, 'ui-world': UiWorld, 'sticky-text': StickyText,
+    'before-after-wipe': BeforeAfterWipe, 'editor-reveal': EditorReveal, 'video-wall': VideoWall,
+    'paper-cut': PaperCut, 'depth-scatter': DepthScatter, 'orbit-carousel': OrbitCarousel,
+    'frame-break-card': FrameBreakCard, 'vertigo-dolly': VertigoDolly, 'green-screen-stage': GreenScreenStage,
+    'notification-stack': NotificationStack, 'checklist-card': ChecklistCard, 'avatar-split': AvatarSplit, 'timeline-arc': TimelineArc
 };
 
 function defaultsFor(e: any) {

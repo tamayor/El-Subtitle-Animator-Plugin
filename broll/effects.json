@@ -1,5 +1,5 @@
 {
-  "_about": "B-roll effects. One entry per Remotion composition in src/effects/. The panel's B-roll tab builds its form from `fields`, the MCP tools list them, and suggest_broll matches subtitles against `triggers` (regular expressions, case-insensitive). Every effect also takes the common fields x, y, scale, accent, enter, exit (see `common`).",
+  "_about": "B-roll effects. One entry per Remotion composition in src/effects/. The panel's B-roll tab builds its form from `fields`, the MCP tools list them, and suggest_broll matches subtitles against `triggers` (regular expressions, case-insensitive). Every effect also takes the common fields x, y, scale, accent, enter, exit (see `common`). `group` is the picker's category. Field types: text, number, bool, color, list, select (one of `options`), image (a picture file's path; the renderer loads it; with \"video\": true it also takes a video file, which the effect reads as frames).",
   "common": [
     { "key": "x", "type": "number", "label": "X", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "help": "Centre, 0 = left edge, 1 = right edge" },
     { "key": "y", "type": "number", "label": "Y", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "help": "Centre, 0 = top, 1 = bottom" },
@@ -15,6 +15,7 @@
     {
       "id": "live-cursor",
       "name": "Live cursor",
+      "group": "Social & UI",
       "description": "A named cursor glides in and drags a selection box with handles and a size label around a spot (a face, a product, a word on screen).",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.42 },
@@ -30,6 +31,7 @@
     {
       "id": "comment-drop",
       "name": "Comment drop",
+      "group": "Social & UI",
       "description": "A comment box types a word and posts it; the comment drops in, hearts tick up and a reply lands under it. For \"comment X\" calls to action.",
       "seconds": 3.5,
       "defaults": { "x": 0.5, "y": 0.16 },
@@ -39,13 +41,16 @@
         { "key": "comment", "type": "text", "label": "Comment", "default": "{keyword} to get access to these", "help": "{keyword} is replaced with the typed word" },
         { "key": "author", "type": "text", "label": "Comment author", "default": "creator" },
         { "key": "likes", "type": "number", "label": "Hearts", "default": 9, "min": 0, "max": 9999, "step": 1 },
-        { "key": "reply", "type": "bool", "label": "Show reply", "default": true }
+        { "key": "reply", "type": "bool", "label": "Show reply", "default": true },
+        { "key": "replyText", "type": "text", "label": "Reply text", "default": "", "help": "Empty = the typed word; e.g. \"Sent you the link\"" },
+        { "key": "cta", "type": "text", "label": "Reply button", "default": "", "help": "A button under the reply, e.g. \"Open link\"; empty = none" }
       ],
       "triggers": ["\\bcomment(ing)?\\b", "\\b(drop|type|leave) (a|the word)\\b", "\\bdm me\\b"]
     },
     {
       "id": "predict-keys",
       "name": "Predict keys",
+      "group": "Social & UI",
       "description": "A phone keyboard slides up and types the text, with three predictive suggestions changing as it types.",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.78 },
@@ -59,6 +64,7 @@
     {
       "id": "day-dial",
       "name": "Day dial",
+      "group": "Text & editorial",
       "description": "A printed clock dial spins in with a word round its rim and a hand sweeping the hours. For time, days, routines, \"every day\".",
       "seconds": 3,
       "defaults": { "x": 0.78, "y": 0.5, "scale": 1 },
@@ -74,6 +80,7 @@
     {
       "id": "post-wall",
       "name": "Post wall",
+      "group": "Numbers & data",
       "description": "A wall of squares fills in tile by tile while a counter runs up to the number. For \"I posted 1,400 times\", streaks, consistency.",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.3 },
@@ -89,6 +96,7 @@
     {
       "id": "voice-note",
       "name": "Voice note",
+      "group": "Social & UI",
       "description": "A chat voice-note bubble pops in, plays (waveform fills, timer runs) with a small caption under it. For quotes, \"she told me\", calls.",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.15 },
@@ -102,6 +110,7 @@
     {
       "id": "sketch-words",
       "name": "Sketch words",
+      "group": "Hand-drawn",
       "description": "A word is drawn on in pencil: outline first, then hatching fills it, with a scribbled underline and a small handwritten note.",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.2, "accent": "#c0392b" },
@@ -115,12 +124,14 @@
     },
     {
       "id": "money-counter",
-      "name": "Money counter",
-      "description": "A big number counts up (money, followers, percentages) with a label under it and a marker swipe behind it.",
+      "name": "Counter",
+      "group": "Numbers & data",
+      "description": "A big number counts up with a marker swipe behind it and a label under it: money, followers, subscribers, a multiple (\"3x\"). Prefix / suffix / decimals set the format.",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.25 },
       "fields": [
         { "key": "prefix", "type": "text", "label": "Prefix", "default": "$" },
+        { "key": "from", "type": "number", "label": "Counts from", "default": 0, "min": -1000000000, "max": 1000000000, "step": 1 },
         { "key": "value", "type": "number", "label": "Number", "default": 174953, "min": -1000000000, "max": 1000000000, "step": 1 },
         { "key": "suffix", "type": "text", "label": "Suffix", "default": "" },
         { "key": "decimals", "type": "number", "label": "Decimals", "default": 0, "min": 0, "max": 3, "step": 1 },
@@ -132,6 +143,7 @@
     {
       "id": "tag-stack",
       "name": "Tag stack",
+      "group": "Text & editorial",
       "description": "Small labelled tags drop one by one and pile up in a wobbly stack (above a head, beside a product). For lists of tools, skills, names. Y is the bottom of the stack.",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.34 },
@@ -144,6 +156,7 @@
     {
       "id": "chapter-list",
       "name": "Chapter list",
+      "group": "Text & editorial",
       "description": "An \"In this video\" side list: numbered items with the current one highlighted and a counter (03 / 20). Reuse it across a video, one clip per chapter.",
       "seconds": 3,
       "defaults": { "x": 0.84, "y": 0.42, "accent": "#d9b44a" },
@@ -160,6 +173,7 @@
     {
       "id": "receipt-printer",
       "name": "Receipt printer",
+      "group": "Text & editorial",
       "description": "A thermal printer feeds a receipt up out of its slot: header, then each line, a whole news line at a time or word by word (with Sync to words each word prints as it is spoken). \"Label | value\" lines print as two columns. Y is the centre of the printer + paper.",
       "seconds": 4,
       "defaults": { "x": 0.5, "y": 0.42, "accent": "#f07b8e" },
@@ -180,6 +194,7 @@
     {
       "id": "versus-split",
       "name": "Versus split",
+      "group": "Text & editorial",
       "description": "Two side-by-side cards with a VS or arrow badge (and optional strike-through on the left). For comparisons, \"X vs Y\", \"instead of X, use Y\".",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.28 },
@@ -195,6 +210,7 @@
     {
       "id": "stat-bar",
       "name": "Stat bar",
+      "group": "Numbers & data",
       "description": "An animated percentage or ratio progress bar with a big readout and label. For \"73% of\", \"9 out of 10\", \"dropped by 25%\".",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.26 },
@@ -210,6 +226,7 @@
     {
       "id": "marker-highlight",
       "name": "Marker highlight",
+      "group": "Text & editorial",
       "description": "A clean phrase pill where a highlighter swipe (or black redaction bar) sweeps across the focus word.",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.24, "accent": "#f6e05e" },
@@ -224,6 +241,7 @@
     {
       "id": "quote-card",
       "name": "Quote card",
+      "group": "Text & editorial",
       "description": "An editorial quote card or a top notification/alert banner. For quotes, rules of thumb, warnings and reminders.",
       "seconds": 3,
       "defaults": { "x": 0.5, "y": 0.22 },
@@ -239,6 +257,7 @@
     {
       "id": "stamp-verdict",
       "name": "Stamp verdict",
+      "group": "Text & editorial",
       "description": "A claim card with an animated MYTH or FACT stamp that slams onto it. For myth-busting and fact checks.",
       "seconds": 2.8,
       "defaults": { "x": 0.5, "y": 0.28 },
@@ -253,6 +272,7 @@
     {
       "id": "year-timeline",
       "name": "Year timeline",
+      "group": "Numbers & data",
       "description": "A horizontal date scrubber that rolls to the target year and highlights it. For \"in 2019\", \"since 2020\", \"5 years ago\".",
       "seconds": 2.8,
       "defaults": { "x": 0.5, "y": 0.25 },
@@ -266,6 +286,7 @@
     {
       "id": "key-combo",
       "name": "Key combo",
+      "group": "Social & UI",
       "description": "Tactile keycaps that press down in sequence. For keyboard shortcuts and hotkeys.",
       "seconds": 2.5,
       "defaults": { "x": 0.5, "y": 0.74 },
@@ -279,6 +300,7 @@
     {
       "id": "url-bar",
       "name": "URL bar",
+      "group": "Social & UI",
       "description": "A browser address pill that types out a domain or link CTA with an open-link button.",
       "seconds": 2.8,
       "defaults": { "x": 0.5, "y": 0.78 },
@@ -288,6 +310,597 @@
         { "key": "dark", "type": "bool", "label": "Dark bar", "default": false }
       ],
       "triggers": ["\\b[a-z0-9-]+\\.(com|io|ai|org|app|dev|co|net)\\b", "\\b(link in bio|go to the website|check the link)\\b"]
+    },
+    {
+      "id": "ring-gauge",
+      "name": "Ring gauge",
+      "group": "Numbers & data",
+      "description": "A circular ring fills to a percentage with a ticking readout in the middle and a label under it. For \"9 out of 10\", \"half of\", a share of something.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.42 },
+      "fields": [
+        { "key": "percent", "type": "number", "label": "Percent", "default": 73, "min": 0, "max": 100, "step": 1 },
+        { "key": "valueText", "type": "text", "label": "Shown value", "default": "73%", "help": "A plain percentage ticks up; anything else (\"9/10\") is shown as typed" },
+        { "key": "label", "type": "text", "label": "Label", "default": "of viewers" },
+        { "key": "thickness", "type": "number", "label": "Ring thickness", "default": 30, "min": 8, "max": 60, "step": 1 },
+        { "key": "card", "type": "bool", "label": "On a card", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": true }
+      ],
+      "triggers": ["\\b\\d+\\s+out of\\s+\\d+\\b", "\\b\\d{1,3}(\\.\\d+)?\\s*(%|percent)", "\\b(half|a third|a quarter|two thirds|three quarters) of\\b"]
+    },
+    {
+      "id": "mini-chart",
+      "name": "Mini chart",
+      "group": "Numbers & data",
+      "description": "A small chart that draws itself: bars growing one after another, or a line drawing left to right behind a leading dot, with the value over each point. For a trend with two or more numbers.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.4 },
+      "fields": [
+        { "key": "mode", "type": "select", "label": "Chart", "default": "bar", "options": ["bar", "line"] },
+        { "key": "title", "type": "text", "label": "Title", "default": "Growth" },
+        { "key": "points", "type": "list", "label": "Points", "default": ["Jan | 10", "Feb | 18", "Mar | 45"], "help": "One per line: \"Label | value\"" },
+        { "key": "prefix", "type": "text", "label": "Before the value", "default": "" },
+        { "key": "suffix", "type": "text", "label": "After the value", "default": "K" },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\bfrom\\s+\\$?\\d[\\d,.]*\\s?(k|m|b|%)?\\b.{0,40}?\\bto\\s+\\$?\\d", "\\b(chart|graph)\\b", "\\b(grew|growth|doubled|tripled|went up|increase[ds]?)\\b.*\\d"]
+    },
+    {
+      "id": "audio-pulse",
+      "name": "Audio pulse",
+      "group": "Social & UI",
+      "description": "Bars, a ring or a glowing orb that move with the voice. Moves on a speech-like stand-in rhythm unless the clip's loudness is passed in (props._samples, one value per frame).",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.8, "scale": 0.6 },
+      "fields": [
+        { "key": "mode", "type": "select", "label": "Shape", "default": "bars", "options": ["bars", "ring", "orb"] },
+        { "key": "audioTrack", "type": "number", "label": "Audio track", "default": 0, "min": 0, "max": 24, "step": 1, "help": "Which sound drives it. 0 = the dialogue (the lowest audio track with sound under the clip)" },
+        { "key": "label", "type": "text", "label": "Label", "default": "" },
+        { "key": "bars", "type": "number", "label": "Bars", "default": 21, "min": 5, "max": 48, "step": 1 },
+        { "key": "color", "type": "color", "label": "Bar colour", "default": "#ffffff" }
+      ]
+    },
+    {
+      "id": "sticker-pop",
+      "name": "Sticker pop",
+      "group": "Hand-drawn",
+      "description": "An emoji / icon sticker with a white die-cut edge pops in with a bounce and a slight tilt, with an optional pill label. Punctuates a concept: idea, money, warning, rocket, fire.",
+      "seconds": 2,
+      "defaults": { "x": 0.76, "y": 0.28, "scale": 0.8 },
+      "fields": [
+        { "key": "icon", "type": "select", "label": "Sticker", "default": "lightbulb", "options": ["lightbulb", "dollar", "warning", "rocket", "fire", "check", "clock", "brain", "heart", "star", "eyes", "hundred", "chart", "target", "phone", "camera", "trophy", "bell"] },
+        { "key": "emoji", "type": "text", "label": "Own emoji", "default": "", "help": "Any emoji here replaces the sticker above" },
+        { "key": "label", "type": "text", "label": "Label", "default": "" },
+        { "key": "tilt", "type": "number", "label": "Tilt", "default": -8, "min": -45, "max": 45, "step": 1 },
+        { "key": "disc", "type": "bool", "label": "On a coloured disc", "default": false }
+      ],
+      "triggers": ["\\b(warning|be careful|watch out|red flag)\\b", "\\b(on fire|went viral|viral|blew up)\\b", "\\b(launch(ed|ing)?|skyrocket(ed)?|take off|took off)\\b", "\\b(trophy|we won|number one|first place)\\b", "\\b(one hundred percent|100 percent|no cap)\\b"]
+    },
+    {
+      "id": "step-badge",
+      "name": "Step badge",
+      "group": "Text & editorial",
+      "description": "Numbered structure for advice: a quiet \"Step 1 of 4\" pill with progress dots (step), a big number in a sweeping ring with the point beside it (countdown), or numbered items sliding in one after another (list).",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.14 },
+      "fields": [
+        { "key": "mode", "type": "select", "label": "Style", "default": "step", "options": ["step", "countdown", "list"] },
+        { "key": "number", "type": "number", "label": "Number", "default": 1, "min": 1, "max": 99, "step": 1, "help": "The current step / item" },
+        { "key": "total", "type": "number", "label": "Out of", "default": 4, "min": 0, "max": 99, "step": 1, "help": "0 = no \"of N\"" },
+        { "key": "text", "type": "text", "label": "Text", "default": "" },
+        { "key": "items", "type": "list", "label": "List items", "default": ["Hook", "Story", "Payoff"], "help": "List style: the first `Number` items are shown" },
+        { "key": "word", "type": "text", "label": "Word", "default": "Step", "help": "Step, Tip, Part, Rule…" },
+        { "key": "dark", "type": "bool", "label": "Dark", "default": false }
+      ],
+      "triggers": ["\\b(step|tip|part|rule|lesson|reason|mistake)\\s+(number\\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\bnumber\\s+(one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\b", "\\b(first(ly)?|second(ly)?|third(ly)?|fourth|fifth|lastly|finally)\\b[,:]", "\\b(two|three|four|five|six|seven|\\d)\\s+(things|ways|steps|tips|reasons|rules|mistakes|lessons)\\b"]
+    },
+    {
+      "id": "lower-third",
+      "name": "Lower third",
+      "group": "Text & editorial",
+      "description": "A speaker name with a role tag sliding in behind an accent bar (speaker), or a compact \"Source: …\" pill for a cited stat or claim (source).",
+      "seconds": 4,
+      "defaults": { "x": 0.3, "y": 0.8 },
+      "fields": [
+        { "key": "variant", "type": "select", "label": "Kind", "default": "speaker", "options": ["speaker", "source"] },
+        { "key": "name", "type": "text", "label": "Name", "default": "Alex Morgan" },
+        { "key": "role", "type": "text", "label": "Role / title", "default": "Founder, Studio" },
+        { "key": "source", "type": "text", "label": "Source", "default": "Bloomberg, 2025" },
+        { "key": "dark", "type": "bool", "label": "Dark", "default": false }
+      ],
+      "triggers": ["\\b(my name is|joining (us|me)|please welcome|i'?m|i am)\\b", "\\baccording to\\b", "\\b(study|report|survey|research|data) (by|from|out of)\\b", "\\b(researchers|scientists|a study) (found|say|show(ed|s)?)\\b"]
+    },
+    {
+      "id": "news-ticker",
+      "name": "News ticker",
+      "group": "Text & editorial",
+      "description": "A red breaking-news bar across the frame with a pulsing badge, the headline, and a ticker line scrolling under it.",
+      "seconds": 4,
+      "defaults": { "x": 0.5, "y": 0.84 },
+      "fields": [
+        { "key": "badge", "type": "text", "label": "Badge", "default": "Breaking" },
+        { "key": "headline", "type": "text", "label": "Headline", "default": "Everything just changed" },
+        { "key": "ticker", "type": "list", "label": "Ticker lines", "default": ["Markets react", "More to follow", "Developing story"] },
+        { "key": "color", "type": "color", "label": "Bar colour", "default": "#d21f2b" },
+        { "key": "speed", "type": "number", "label": "Ticker speed", "default": 160, "min": 0, "max": 600, "step": 10 }
+      ],
+      "triggers": ["\\bbreaking\\b", "\\b(huge|big|massive|crazy) news\\b", "\\bjust (announced|dropped|released|launched)\\b"]
+    },
+    {
+      "id": "pull-quote",
+      "name": "Pull quote",
+      "group": "Text & editorial",
+      "description": "The frame dims softly and one memorable line is set large in editorial serif type, word by word, with its attribution. Full frame (the Quote card is the compact one).",
+      "seconds": 4,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "quote", "type": "text", "label": "Quote", "default": "Simplicity beats complexity" },
+        { "key": "author", "type": "text", "label": "Attribution", "default": "" },
+        { "key": "dim", "type": "number", "label": "Backdrop", "default": 0.55, "min": 0, "max": 0.95, "step": 0.05, "help": "How dark the frame gets behind the quote" },
+        { "key": "italic", "type": "bool", "label": "Italic", "default": true },
+        { "key": "marks", "type": "bool", "label": "Quote mark", "default": true }
+      ],
+      "triggers": ["\\b(remember this|never forget|write this down|here('?s| is) the thing|the truth is)\\b"]
+    },
+    {
+      "id": "doodle-callout",
+      "name": "Doodle callout",
+      "group": "Hand-drawn",
+      "description": "A hand-drawn mark draws itself over the footage: circle, box, brackets, arrow, connector between two points, underline, double underline, scribble highlight, star, burst lines or an exclamation mark, with an optional handwritten label. Sized in shares of the frame to fit a face, a chart or a word.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.42, "accent": "#ffe14a" },
+      "fields": [
+        { "key": "shape", "type": "select", "label": "Shape", "default": "circle", "options": ["circle", "box", "bracket", "arrow", "connector", "underline", "double-underline", "scribble", "star", "burst", "exclamation"] },
+        { "key": "boxW", "type": "number", "label": "Width", "default": 0.28, "min": 0.02, "max": 1, "step": 0.01, "help": "Share of the frame width" },
+        { "key": "boxH", "type": "number", "label": "Height", "default": 0.34, "min": 0.02, "max": 1, "step": 0.01, "help": "Share of the frame height" },
+        { "key": "toX", "type": "number", "label": "Arrow to X", "default": 0.7, "min": 0, "max": 1, "step": 0.01, "help": "Arrow / connector: where it points (X and Y above are where it starts)" },
+        { "key": "toY", "type": "number", "label": "Arrow to Y", "default": 0.6, "min": 0, "max": 1, "step": 0.01 },
+        { "key": "label", "type": "text", "label": "Handwritten label", "default": "" },
+        { "key": "weight", "type": "number", "label": "Line weight", "default": 10, "min": 2, "max": 40, "step": 1 },
+        { "key": "boil", "type": "bool", "label": "Boil (re-drawn jitter)", "default": true },
+        { "key": "shadow", "type": "bool", "label": "Shadow", "default": true }
+      ],
+      "triggers": ["\\b(look at (this|that)|right here|notice (how|this|that)|see (this|that) (part|bit|number))\\b"]
+    },
+    {
+      "id": "doodle-icon",
+      "name": "Doodle icon",
+      "group": "Hand-drawn",
+      "description": "A simple icon (lightbulb, house, coin, heart, clock, brain…) draws on in outline, then a colour wash or pencil hatching fills it in. For a noun or a metaphor as it is said: idea, money, time, home.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.76, "y": 0.3, "scale": 0.7 },
+      "fields": [
+        { "key": "icon", "type": "select", "label": "Icon", "default": "lightbulb", "options": ["lightbulb", "house", "coin", "heart", "clock", "brain", "star", "rocket", "check", "fire", "warning", "chart", "target", "phone"] },
+        { "key": "fillMode", "type": "select", "label": "Fill", "default": "wash", "options": ["wash", "hatch", "none"] },
+        { "key": "ink", "type": "color", "label": "Line colour", "default": "#ffffff" },
+        { "key": "label", "type": "text", "label": "Handwritten label", "default": "" },
+        { "key": "boil", "type": "bool", "label": "Boil (re-drawn jitter)", "default": true }
+      ],
+      "triggers": ["\\b(idea|ideas|lightbulb)\\b", "\\b(house|home|mortgage|rent)\\b", "\\b(coin|cash|savings?)\\b", "\\b(heart|love[ds]?)\\b", "\\b(clock|deadline|hours? (a|per) (day|week))\\b", "\\b(brain|mindset|psychology)\\b", "\\b(goal|target)s?\\b"]
+    },
+    {
+      "id": "doodle-boil",
+      "name": "Doodle boil",
+      "group": "Hand-drawn",
+      "description": "Chalk scribbles (white, yellow, pink, blue) loop around the speaker with small rings and sparkles; every line is re-drawn every few frames so it boils. The oval is set by hand: X / Y and the width and height.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "follow", "type": "bool", "label": "Follow the speaker's outline", "default": true, "help": "The lines trace the speaker's own outline, read from the footage under the clip (the Spotlight cut-out engine). Off, or without it: the oval below" },
+        { "key": "gap", "type": "number", "label": "Gap from the speaker", "default": 18, "min": 0, "max": 80, "step": 1 },
+        { "key": "boxW", "type": "number", "label": "Oval width", "default": 0.42, "min": 0.05, "max": 1, "step": 0.01, "help": "Share of the frame width" },
+        { "key": "boxH", "type": "number", "label": "Oval height", "default": 0.7, "min": 0.05, "max": 1, "step": 0.01, "help": "Share of the frame height" },
+        { "key": "step", "type": "number", "label": "Re-draw every (frames)", "default": 3, "min": 1, "max": 12, "step": 1 },
+        { "key": "extras", "type": "number", "label": "Rings and sparkles", "default": 8, "min": 0, "max": 16, "step": 1 },
+        { "key": "weight", "type": "number", "label": "Line weight", "default": 9, "min": 2, "max": 30, "step": 1 }
+      ]
+    },
+    {
+      "id": "journal-note",
+      "name": "Journal note",
+      "group": "Hand-drawn",
+      "description": "A taped, lined notebook page where the lines appear as if written by hand (page), or the words alone writing themselves left to right in a script or marker hand (reveal). For reflections, lessons and key takeaways.",
+      "seconds": 4,
+      "defaults": { "x": 0.5, "y": 0.42 },
+      "fields": [
+        { "key": "mode", "type": "select", "label": "Style", "default": "page", "options": ["page", "reveal"] },
+        { "key": "title", "type": "text", "label": "Title", "default": "Note to self" },
+        { "key": "lines", "type": "list", "label": "Lines", "default": ["Start before", "you feel ready."] },
+        { "key": "font", "type": "select", "label": "Hand", "default": "hand", "options": ["hand", "marker"] },
+        { "key": "ink", "type": "color", "label": "Ink", "default": "#22304a" },
+        { "key": "underline", "type": "bool", "label": "Underline the last line (reveal)", "default": true }
+      ],
+      "triggers": ["\\b(lessons? i('ve| have)? learned|note to self|dear diary|journal(ing)?|i wish i knew)\\b"]
+    },
+    {
+      "id": "cutout-pop",
+      "name": "Cutout pop",
+      "group": "Paper & cutout",
+      "description": "A photo slaps into the frame with a slight rotation and a bounce, as if tossed onto a table. With the torn border it gets an uneven white paper edge and a soft shadow (best on a PNG with the background removed).",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.45 },
+      "fields": [
+        { "key": "source", "type": "select", "label": "Picture", "default": "file", "options": ["file", "speaker"], "help": "file = the photo below. speaker = the speaker cut out of the footage at the clip's first frame (needs the Spotlight cut-out engine)" },
+        { "key": "removeBg", "type": "bool", "label": "Remove the photo's background", "default": false, "help": "Cuts the person out of the chosen photo with the Spotlight cut-out engine" },
+        { "key": "image", "type": "image", "label": "Photo", "default": "", "help": "Path to a picture on this computer (PNG / JPG / WebP). A PNG with the background removed gives a real cut-out" },
+        { "key": "tornBorder", "type": "bool", "label": "Torn paper border", "default": true },
+        { "key": "border", "type": "number", "label": "Border width", "default": 16, "min": 2, "max": 40, "step": 1 },
+        { "key": "rotation", "type": "number", "label": "Rotation", "default": -6, "min": -45, "max": 45, "step": 1 },
+        { "key": "width", "type": "number", "label": "Photo width", "default": 520, "min": 120, "max": 1400, "step": 10 },
+        { "key": "label", "type": "text", "label": "Label", "default": "" }
+      ]
+    },
+    {
+      "id": "paper-frame",
+      "name": "Paper frame",
+      "group": "Paper & cutout",
+      "description": "Scrapbook paper around a photo: a taped polaroid with a handwritten caption, a yellowed newspaper clipping with a halftone photo and serif headline, or three paper layers drifting at different speeds for 2.5D depth (parallax).",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.45, "scale": 0.9 },
+      "fields": [
+        { "key": "mode", "type": "select", "label": "Style", "default": "polaroid", "options": ["polaroid", "newspaper", "parallax"] },
+        { "key": "image", "type": "image", "label": "Photo", "default": "", "help": "Path to a picture on this computer (PNG / JPG / WebP). A PNG with the background removed gives a real cut-out" },
+        { "key": "caption", "type": "text", "label": "Caption", "default": "Summer 2019" },
+        { "key": "headline", "type": "text", "label": "Headline", "default": "Local creator goes viral" },
+        { "key": "paper", "type": "color", "label": "Paper colour", "default": "#e9dfc4" },
+        { "key": "rotation", "type": "number", "label": "Rotation", "default": -4, "min": -45, "max": 45, "step": 1 },
+        { "key": "drift", "type": "number", "label": "Parallax drift", "default": 60, "min": 0, "max": 200, "step": 5 }
+      ]
+    },
+    {
+      "id": "cutout-puppet",
+      "name": "Cutout puppet",
+      "group": "Paper & cutout",
+      "description": "A jointed paper cartoon figure with a white cut edge. Its mouth opens and its head and arms bob with the voice (a stand-in rhythm unless props._samples is passed), or it waves, points or cheers. Optional speech bubble.",
+      "seconds": 3,
+      "defaults": { "x": 0.2, "y": 0.72, "scale": 0.7 },
+      "fields": [
+        { "key": "pose", "type": "select", "label": "Pose", "default": "talk", "options": ["talk", "wave", "point", "cheer"] },
+        { "key": "audioTrack", "type": "number", "label": "Audio track", "default": 0, "min": 0, "max": 24, "step": 1, "help": "Which sound drives it. 0 = the dialogue (the lowest audio track with sound under the clip)" },
+        { "key": "talk", "type": "bool", "label": "Mouth moves", "default": true },
+        { "key": "speech", "type": "text", "label": "Speech bubble", "default": "" },
+        { "key": "skin", "type": "color", "label": "Skin", "default": "#f2c9a0" },
+        { "key": "hair", "type": "color", "label": "Hair", "default": "#3a2a20" }
+      ]
+    },
+    {
+      "id": "ransom-text",
+      "name": "Ransom text",
+      "group": "Paper & cutout",
+      "description": "Every letter (or word) is its own cut-out with a random font, angle and paper swatch, as if snipped from different magazines, slapped down one after another.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.3 },
+      "fields": [
+        { "key": "text", "type": "text", "label": "Text", "default": "PAY ATTENTION" },
+        { "key": "byWord", "type": "bool", "label": "Whole words", "default": false },
+        { "key": "size", "type": "number", "label": "Letter size", "default": 120, "min": 40, "max": 300, "step": 5 },
+        { "key": "seed", "type": "number", "label": "Shuffle", "default": 1, "min": 1, "max": 99, "step": 1, "help": "Another number = another mix of fonts and swatches" },
+        { "key": "useAccent", "type": "bool", "label": "Use the accent colour", "default": true }
+      ]
+    },
+    {
+      "id": "headline-wall",
+      "name": "Headline wall",
+      "group": "Paper & cutout",
+      "description": "Torn newspaper clippings and sticky notes pop in around the edges of the frame like a collage, leaving the middle (the speaker) clear.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "headlines", "type": "list", "label": "Headlines", "default": ["Everyone is talking about it", "Experts stunned", "Is this the end?", "What nobody tells you"] },
+        { "key": "notes", "type": "list", "label": "Sticky notes", "default": ["wow", "no way"] },
+        { "key": "spread", "type": "number", "label": "Spread", "default": 1, "min": 0.5, "max": 1.4, "step": 0.05, "help": "How far from the middle the pieces sit" }
+      ],
+      "triggers": ["\\b(headlines?|all over the news|everyone('s| is) talking about|in the news|the media)\\b"]
+    },
+    {
+      "id": "zoom-through-cut",
+      "name": "Zoom-through cut",
+      "group": "Transitions & full frame",
+      "description": "A transition: the headline rushes at the camera with radial streaks and a yellow glow until it fills the frame, flashes, and clears. Put the flash on the cut so it hides the change of shot.",
+      "seconds": 1.2,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "text", "type": "text", "label": "Text", "default": "BREAKING" },
+        { "key": "glow", "type": "color", "label": "Glow", "default": "#ffd84a" },
+        { "key": "streaks", "type": "number", "label": "Streaks", "default": 36, "min": 0, "max": 80, "step": 1 },
+        { "key": "flash", "type": "bool", "label": "Flash at the peak", "default": true }
+      ]
+    },
+    {
+      "id": "phone-mockup",
+      "name": "Phone mockup",
+      "group": "Social & UI",
+      "description": "A phone floats in beside the speaker with a web page inside; the page scrolls fast with motion blur and settles on a readable screen. A screenshot can be the page.",
+      "seconds": 3,
+      "defaults": { "x": 0.76, "y": 0.5, "scale": 0.9 },
+      "fields": [
+        { "key": "url", "type": "text", "label": "Address", "default": "example.com" },
+        { "key": "title", "type": "text", "label": "Page headline", "default": "The headline everyone is sharing" },
+        { "key": "lines", "type": "list", "label": "Page text", "default": ["A short readable line of the article goes here."] },
+        { "key": "image", "type": "image", "label": "Screenshot", "default": "", "help": "A screenshot to show as the page instead (a path on this computer)" },
+        { "key": "tilt", "type": "number", "label": "Tilt", "default": 5, "min": -30, "max": 30, "step": 1 },
+        { "key": "dark", "type": "bool", "label": "Dark page", "default": false }
+      ],
+      "triggers": ["\\b(on (my|your|their) (phone|website|site)|this article|i (read|saw) (an|this|the) (article|post)|scroll(ed|ing)? (through|past))\\b"]
+    },
+    {
+      "id": "viewfinder-zoom",
+      "name": "Viewfinder zoom",
+      "group": "Social & UI",
+      "description": "A camcorder HUD over the frame: corner brackets, a blinking REC dot, a running timecode, a ruler and a zoom readout that ticks up. The push-in itself goes on the footage (Effect presets > Transform).",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "pushIn", "type": "bool", "label": "Push in on the footage", "default": false, "help": "The overlay carries the footage itself, punched in by the zoom shown (reads every frame under the clip: up to 30 s)" },
+        { "key": "zoomFrom", "type": "number", "label": "Zoom from", "default": 1.26, "min": 1, "max": 10, "step": 0.01 },
+        { "key": "zoomTo", "type": "number", "label": "Zoom to", "default": 1.29, "min": 1, "max": 10, "step": 0.01 },
+        { "key": "label", "type": "text", "label": "Bottom-left label", "default": "CAM A · 4K" },
+        { "key": "color", "type": "color", "label": "HUD colour", "default": "#ffffff" },
+        { "key": "grid", "type": "bool", "label": "Thirds grid", "default": false },
+        { "key": "margin", "type": "number", "label": "Margin", "default": 0.06, "min": 0.01, "max": 0.3, "step": 0.01 }
+      ],
+      "triggers": ["\\b(zoom(ed|ing)? in|look closer|on camera|caught on (camera|tape)|start(ed)? recording)\\b"]
+    },
+    {
+      "id": "ui-world",
+      "name": "UI world",
+      "group": "Social & UI",
+      "description": "Glass interface panels float around the speaker: a prompt box typing a request, a progress bar that runs to 100% and ticks, a timeline strip and a small live-preview card. The middle stays clear.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "prompt", "type": "text", "label": "Typed prompt", "default": "edit my reel" },
+        { "key": "task", "type": "text", "label": "While working", "default": "editing…" },
+        { "key": "doneText", "type": "text", "label": "When done", "default": "done" },
+        { "key": "card", "type": "text", "label": "Card title", "default": "live preview" },
+        { "key": "spread", "type": "number", "label": "Spread", "default": 1, "min": 0.5, "max": 1.4, "step": 0.05 },
+        { "key": "tint", "type": "color", "label": "Glass tint", "default": "#ffffff" }
+      ],
+      "triggers": ["\\b(automat(e|ed|es|ion|ically)|with ai|ai (tool|agent|does|did|can)|let (ai|claude|chatgpt))\\b"]
+    },
+    {
+      "id": "sticky-text",
+      "name": "Sticky text",
+      "group": "Text & editorial",
+      "description": "A sticker-style label slaps onto an object in the shot with a slight tilt and a small wobble, and sticks to it when the shot moves (the spot under the label is tracked through the clip). \" | \" starts a new line.",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.6 },
+      "fields": [
+        { "key": "text", "type": "text", "label": "Text", "default": "this one" },
+        { "key": "color", "type": "color", "label": "Sticker colour", "default": "#ffe45c" },
+        { "key": "ink", "type": "color", "label": "Text colour", "default": "#15171b" },
+        { "key": "tilt", "type": "number", "label": "Tilt", "default": -6, "min": -45, "max": 45, "step": 1 },
+        { "key": "peel", "type": "bool", "label": "Peeled corner", "default": true },
+        { "key": "hand", "type": "bool", "label": "Handwritten", "default": false },
+        { "key": "follow", "type": "bool", "label": "Stick to the shot", "default": true, "help": "Tracks the spot under the label from the frame it lands on, so it moves with the camera or the object (reads the footage under the clip, up to 30 s). Off = it stays where it is put" }
+      ]
+    },
+    {
+      "id": "before-after-wipe",
+      "name": "Before + after",
+      "group": "Transitions & full frame",
+      "description": "A bright vertical divider sweeps across the frame with \"before\" / \"after\" labels. With a footage look the \"before\" side is the clip's own frames made flat, washed out or black and white, and the \"after\" side is the real clip with its grade: two real looks side by side. Tint = only a colour tint over the clip.",
+      "seconds": 2.5,
+      "defaults": { "x": 0.5, "y": 0.12 },
+      "fields": [
+        { "key": "look", "type": "select", "label": "Before look", "default": "Flat (log)", "options": ["Flat (log)", "Washed out", "Black & white", "Tint"], "help": "What the \"before\" side shows: the clip's own frames with this look (reads the footage under the clip, up to 30 s), or Tint (only a colour over the \"after\" side)" },
+        { "key": "before", "type": "text", "label": "Before label", "default": "before" },
+        { "key": "after", "type": "text", "label": "After label", "default": "after" },
+        { "key": "tint", "type": "color", "label": "Tint", "default": "#ffb45c", "help": "Tint look only" },
+        { "key": "strength", "type": "number", "label": "Tint strength", "default": 0.28, "min": 0, "max": 0.6, "step": 0.02 },
+        { "key": "from", "type": "number", "label": "Sweep from", "default": 0.05, "min": 0, "max": 1, "step": 0.01, "help": "Share of the frame width" },
+        { "key": "to", "type": "number", "label": "Sweep to", "default": 0.62, "min": 0, "max": 1, "step": 0.01 },
+        { "key": "reverse", "type": "bool", "label": "Tint the right side", "default": false, "help": "The tinted side is the \"after\" side: left by default (the divider reveals it as it sweeps right)" }
+      ],
+      "triggers": ["\\bbefore (and|vs\\.?|versus|&) after\\b", "\\bcolou?r grad(e|ed|ing)\\b"]
+    },
+    {
+      "id": "editor-reveal",
+      "name": "Pull-back reveal",
+      "group": "Social & UI",
+      "description": "The frame turns out to be the viewer of a video editor: its panels (an effects checklist ticking off, a timeline with coloured clips and a waveform) pull back into view around a see-through viewer window. Shrink the footage into the window with Effect presets > Transform.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.58, "y": 0.36 },
+      "fields": [
+        { "key": "footage", "type": "bool", "label": "Footage inside the viewer", "default": true, "help": "The clip's own frames are shrunk into the viewer window (reads every frame under the clip: up to 30 s). Off = a see-through window" },
+        { "key": "title", "type": "text", "label": "Project name", "default": "My reel · Edit" },
+        { "key": "checklist", "type": "list", "label": "Effects list", "default": ["Colour grade", "Captions", "Sound design", "B-roll"] },
+        { "key": "viewer", "type": "number", "label": "Viewer size", "default": 0.52, "min": 0.2, "max": 0.9, "step": 0.01, "help": "Share of the frame width; X / Y are its centre" },
+        { "key": "tilt", "type": "number", "label": "Tilt", "default": -3, "min": -20, "max": 20, "step": 0.5 },
+        { "key": "pullFrom", "type": "number", "label": "Pull back from", "default": 2.4, "min": 1.05, "max": 6, "step": 0.05 }
+      ],
+      "triggers": ["\\b(behind the scenes|in the edit|my (editing )?timeline|edit(ed|ing) (this|the|my) (video|reel))\\b"]
+    },
+    {
+      "id": "video-wall",
+      "name": "Wall of videos",
+      "group": "Numbers & data",
+      "description": "The frame fills with a grid of vertical video thumbnails while a big counter pops in over it, then the grid fades away. For scale and social proof.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "count", "type": "number", "label": "Count", "default": 46, "min": 0, "max": 100000, "step": 1 },
+        { "key": "realClips", "type": "bool", "label": "Use this timeline's clips", "default": true, "help": "The thumbnails are frames of the clips on the timeline; off = coloured placeholders" },
+        { "key": "label", "type": "text", "label": "Label", "default": "videos" },
+        { "key": "columns", "type": "number", "label": "Columns", "default": 9, "min": 4, "max": 16, "step": 1 },
+        { "key": "dim", "type": "number", "label": "Backdrop", "default": 0.55, "min": 0, "max": 1, "step": 0.05 },
+        { "key": "fade", "type": "bool", "label": "Fade out at the end", "default": true }
+      ],
+      "triggers": ["\\b\\d[\\d,]*\\s+(videos|reels|shorts|clips|tiktoks)\\b"]
+    },
+    {
+      "id": "notification-stack",
+      "name": "Notification stack",
+      "group": "Social & UI",
+      "description": "Notifications drop in one after another, newest on top, then pile into one card with a ×N badge. For reminders piling up, messages, tasks coming in, being pulled in every direction.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.24 },
+      "fields": [
+        { "key": "app", "type": "text", "label": "App letter", "default": "", "help": "The letter in the icon; empty = each line's first letter" },
+        { "key": "items", "type": "list", "label": "Notifications", "default": ["Brief #1 | Client call at 4", "Brief #2 | Double-check every delivery", "Brief #3 | Call me if anything goes wrong"], "help": "One per line: Title | text" },
+        { "key": "time", "type": "text", "label": "Time", "default": "now" },
+        { "key": "collapse", "type": "bool", "label": "Pile up with a ×N badge", "default": true },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(notifications?|pings?|reminders?|inbox|messages? (kept|keep) coming|piling up)\\b"]
+    },
+    {
+      "id": "checklist-card",
+      "name": "Checklist card",
+      "group": "Text & editorial",
+      "description": "A titled list whose boxes tick themselves one by one, with a done / total counter. For tasks done, a routine, what to prepare, what happened while away.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.26 },
+      "fields": [
+        { "key": "title", "type": "text", "label": "Title", "default": "While I was away" },
+        { "key": "items", "type": "list", "label": "Items", "default": ["Client briefed", "Edits delivered", "Invoices sent"] },
+        { "key": "done", "type": "number", "label": "Ticked", "default": -1, "min": -1, "max": 7, "step": 1, "help": "How many boxes get ticked; -1 = all" },
+        { "key": "strike", "type": "bool", "label": "Strike ticked lines", "default": false },
+        { "key": "counter", "type": "bool", "label": "Show the counter", "default": true },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(checklist|to-?do list|ticked off|everything was done|got done)\\b"]
+    },
+    {
+      "id": "avatar-split",
+      "name": "Avatar split",
+      "group": "Social & UI",
+      "description": "One bubble (\"You\") splits into a team: avatar bubbles fly out on dotted lines, each with its name. For delegation, a team, sharing the work, who does what.",
+      "seconds": 3,
+      "defaults": { "x": 0.5, "y": 0.3, "scale": 0.8 },
+      "fields": [
+        { "key": "center", "type": "text", "label": "Centre", "default": "You" },
+        { "key": "names", "type": "list", "label": "People", "default": ["Sam", "Ana", "Lee"] },
+        { "key": "caption", "type": "text", "label": "Caption", "default": "" },
+        { "key": "ring", "type": "bool", "label": "All the way round", "default": false, "help": "Off = a fan under the centre bubble" },
+        { "key": "spread", "type": "number", "label": "Spread", "default": 1, "min": 0.5, "max": 1.6, "step": 0.05 },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(delegat\\w+|my team|hand(ed)? (it )?off|outsourc\\w+|hired?)\\b"]
+    },
+    {
+      "id": "timeline-arc",
+      "name": "Timeline arc",
+      "group": "Numbers & data",
+      "description": "An arc is drawn through its points (years with a short note), each popping as the line reaches it, with an optional photo card over the first three. For a journey over several years, then / now / next.",
+      "seconds": 3.5,
+      "defaults": { "x": 0.5, "y": 0.3 },
+      "fields": [
+        { "key": "points", "type": "list", "label": "Points", "default": ["2024 | Started", "2025 | First hire", "2026 | Stepped back"], "help": "One per line: Year | note" },
+        { "key": "active", "type": "number", "label": "Highlighted point", "default": 0, "min": 0, "max": 6, "step": 1, "help": "0 = the last one" },
+        { "key": "bend", "type": "number", "label": "Bend", "default": 1, "min": 0, "max": 2, "step": 0.05 },
+        { "key": "photo1", "type": "image", "label": "Photo 1", "default": "", "help": "A picture over the first point (a path on this computer)" },
+        { "key": "photo2", "type": "image", "label": "Photo 2", "default": "" },
+        { "key": "photo3", "type": "image", "label": "Photo 3", "default": "" },
+        { "key": "photoHolders", "type": "bool", "label": "Photo cards without photos", "default": false },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ],
+      "triggers": ["\\b(19|20)\\d\\d\\b.*\\b(19|20)\\d\\d\\b"]
+    },
+    {
+      "id": "paper-cut",
+      "name": "Paper cut",
+      "group": "Speaker & footage",
+      "description": "The speaker gets a white torn-paper edge and is laid on a sheet of grid paper taped to a dark backdrop, with a ransom-note label. The speaker keeps moving inside the cut-out. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 1.5,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "label", "type": "text", "label": "Label", "default": "PAPER CUT" },
+        { "key": "labelY", "type": "number", "label": "Label Y", "default": 0.86, "min": 0, "max": 1, "step": 0.01 },
+        { "key": "paper", "type": "color", "label": "Paper", "default": "#f2f0e6" },
+        { "key": "backdrop", "type": "color", "label": "Backdrop", "default": "#17181c" },
+        { "key": "border", "type": "number", "label": "Paper edge", "default": 14, "min": 2, "max": 40, "step": 1 },
+        { "key": "grid", "type": "bool", "label": "Grid lines", "default": true },
+        { "key": "tape", "type": "bool", "label": "Tape", "default": true },
+        { "key": "tilt", "type": "number", "label": "Sheet tilt", "default": -2, "min": -15, "max": 15, "step": 0.5 }
+      ]
+    },
+    {
+      "id": "depth-scatter",
+      "name": "Depth scatter",
+      "group": "Speaker & footage",
+      "description": "A giant word sits behind and in front of the speaker; its letters fly apart at different depths, the near ones blurred. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.4 },
+      "fields": [
+        { "key": "text", "type": "text", "label": "Word", "default": "STUDIO" },
+        { "key": "color", "type": "color", "label": "Colour", "default": "#ffffff" },
+        { "key": "spread", "type": "number", "label": "Scatter", "default": 1, "min": 0, "max": 3, "step": 0.05 },
+        { "key": "front", "type": "number", "label": "Share in front", "default": 0.4, "min": 0, "max": 1, "step": 0.05, "help": "How many of the letters pass in front of the speaker" },
+        { "key": "blur", "type": "number", "label": "Near blur", "default": 14, "min": 0, "max": 40, "step": 1 },
+        { "key": "hold", "type": "number", "label": "Holds together", "default": 0.3, "min": 0, "max": 0.9, "step": 0.05, "help": "Share of the clip before the letters fly" },
+        { "key": "seed", "type": "number", "label": "Shuffle", "default": 1, "min": 1, "max": 99, "step": 1 }
+      ]
+    },
+    {
+      "id": "orbit-carousel",
+      "name": "Orbit",
+      "group": "Speaker & footage",
+      "description": "Vertical video cards turn round the speaker like a carousel, passing behind and in front, blurred while they move. The cards show frames of the timeline's own clips. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "cards", "type": "number", "label": "Cards", "default": 7, "min": 3, "max": 14, "step": 1 },
+        { "key": "radius", "type": "number", "label": "Radius", "default": 0.36, "min": 0.1, "max": 0.8, "step": 0.01, "help": "Share of the frame width" },
+        { "key": "turns", "type": "number", "label": "Turns", "default": 0.6, "min": -3, "max": 3, "step": 0.05, "help": "How far round it goes over the clip; negative = the other way" },
+        { "key": "cardWidth", "type": "number", "label": "Card width", "default": 210, "min": 80, "max": 500, "step": 5 },
+        { "key": "tiltY", "type": "number", "label": "Tilt", "default": 30, "min": -200, "max": 200, "step": 5, "help": "Near cards sit lower (or higher) than far ones" },
+        { "key": "blur", "type": "number", "label": "Motion blur", "default": 6, "min": 0, "max": 30, "step": 1 }
+      ]
+    },
+    {
+      "id": "frame-break-card",
+      "name": "Frame break",
+      "group": "Speaker & footage",
+      "description": "The video shrinks into a social post card (username, Follow, heart / comment / share, caption) on a dark backdrop with flying debris, and the speaker's head breaks out over the card's top edge. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.46 },
+      "fields": [
+        { "key": "username", "type": "text", "label": "Username", "default": "yourname" },
+        { "key": "caption", "type": "text", "label": "Caption", "default": "the edit that changed everything" },
+        { "key": "likes", "type": "text", "label": "Likes", "default": "12.4K" },
+        { "key": "follow", "type": "bool", "label": "Follow button", "default": true },
+        { "key": "size", "type": "number", "label": "Card size", "default": 0.62, "min": 0.3, "max": 0.95, "step": 0.01 },
+        { "key": "poke", "type": "number", "label": "Head over the edge", "default": 0.1, "min": 0, "max": 0.3, "step": 0.01, "help": "How far under the top of the head the card's edge sits (share of the frame height)" },
+        { "key": "backdrop", "type": "color", "label": "Backdrop", "default": "#101114" },
+        { "key": "debris", "type": "number", "label": "Debris", "default": 14, "min": 0, "max": 40, "step": 1 },
+        { "key": "dark", "type": "bool", "label": "Dark card", "default": false }
+      ]
+    },
+    {
+      "id": "vertigo-dolly",
+      "name": "Vertigo",
+      "group": "Speaker & footage",
+      "description": "A dolly-zoom: the room stretches behind the speaker (or the speaker grows against it) while the room shifts to a cooler tint. The room is the footage with the speaker filled in from around them, so no halo shows behind the cut-out. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "move", "type": "select", "label": "What moves", "default": "Room grows", "options": ["Room grows", "Speaker grows"], "help": "Room grows: the real dolly zoom, the speaker stays put and the room stretches behind them. Speaker grows: the speaker swells against the room" },
+        { "key": "reverse", "type": "bool", "label": "Room shrinks", "default": false, "help": "Room grows only: the room starts stretched and falls back behind the speaker" },
+        { "key": "amount", "type": "number", "label": "Amount", "default": 0.18, "min": 0, "max": 0.6, "step": 0.01, "help": "How much the room (or the speaker) grows against the other" },
+        { "key": "room", "type": "number", "label": "Room push", "default": 0.04, "min": 0, "max": 0.3, "step": 0.01, "help": "Speaker grows only: the room moves in this much too" },
+        { "key": "tint", "type": "color", "label": "Room tint", "default": "#2f5fd0" },
+        { "key": "tintStrength", "type": "number", "label": "Tint strength", "default": 0.35, "min": 0, "max": 0.8, "step": 0.05 },
+        { "key": "blur", "type": "number", "label": "Room blur", "default": 2, "min": 0, "max": 20, "step": 0.5 },
+        { "key": "vignette", "type": "number", "label": "Vignette", "default": 0.35, "min": 0, "max": 1, "step": 0.05 }
+      ]
+    },
+    {
+      "id": "green-screen-stage",
+      "name": "Green screen",
+      "group": "Speaker & footage",
+      "description": "The speaker is cut out of the room and put in front of another picture or video (or a lit stage when none is chosen); the bottom of the frame fades into darkness. Reads every frame of the footage under the clip and cuts the speaker out with the Spotlight engine: up to 20 s, about 0.15 s a frame the first time (cached after).",
+      "seconds": 2,
+      "defaults": { "x": 0.5, "y": 0.5 },
+      "fields": [
+        { "key": "image", "type": "image", "video": true, "label": "Backdrop", "default": "", "help": "A picture or a video on this computer to stand behind the speaker (a video plays from its start and loops); empty = a lit stage in the colours below" },
+        { "key": "color", "type": "color", "label": "Stage light", "default": "#1b2a4a" },
+        { "key": "color2", "type": "color", "label": "Stage dark", "default": "#0b0d14" },
+        { "key": "fade", "type": "number", "label": "Bottom fade", "default": 0.3, "min": 0, "max": 0.9, "step": 0.05 },
+        { "key": "drift", "type": "number", "label": "Backdrop drift", "default": 0.04, "min": 0, "max": 0.3, "step": 0.01 },
+        { "key": "speakerSize", "type": "number", "label": "Speaker size", "default": 1, "min": 0.5, "max": 1.6, "step": 0.01 },
+        { "key": "rim", "type": "bool", "label": "Rim light", "default": true }
+      ]
     }
   ]
 }

@@ -3,7 +3,12 @@ written as RGBA cut-outs (the footage where the person is, transparent elsewhere
 place the big word behind the head.
 
 Runs in the app's tracker venv (onnxruntime + OpenCV + numpy). Reads one JSON line on stdin:
-  {dir, frames: [timeline frames], model, out, feather? (px), choke? (0..0.4), band? (px), islands? (0..1), downsample?}
+  {dir, frames: [timeline frames], model, out, feather? (px), choke? (0..0.4), band? (px), islands? (0..1), downsample?,
+   wait? (seconds), plate? (bool)}
+wait: the frames are still being exported while this runs (B-roll, src/main/broll-footage.js): a frame is read once the
+  next one exists or dir/exported does, so the matte overlaps the export instead of following it.
+plate: also writes out/p%05d.jpg, the frame with the person filled in from the room around them (the clean plate that
+  Vertigo scales behind the cut-out).
 (downsample above ~0.3 at HD makes RVM key the background - SIC logo - so keep the 512 px default)
 dir/f<frame>.jpg are the footage frames (timeline space, Edit sizing applied - bridge track_frames). Writes
 out/c%05d.png (index 0..n-1, an image sequence Resolve imports as one clip) and prints JSON lines:
@@ -74,18 +79,10 @@ def fill_holes(al):
     """Makes everything enclosed by the silhouette opaque: RVM leaves eyes, teeth and shiny skin half transparent, and
     the word then shows through the face. Background = what is reachable from any frame edge (the desk between the arms
     at the bottom is background too, not a hole)."""
-    h, w = al.shape
-    ff = (al > 0.9).astype(np.uint8)
-    m = np.zeros((h + 2, w + 2), np.uint8)
-    for x in range(0, w, 4):
-        for y in (0, h - 1):
-            if ff[y, x] == 0:
-                cv2.floodFill(ff, m, (x, y), 2)
-    for y in range(0, h, 4):
-        for x in (0, w - 1):
-            if ff[y, x] == 0:
-                cv2.floodFill(ff, m, (x, y), 2)
-    return np.maximum(al, (ff == 0).astype(np.float32))
+    # one flood from a 1 px empty border around the picture reaches every background pixel that touches an edge
+    ff = cv2.copyMakeBorder((al > 0.9).astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    cv2.floodFill(ff, None, (0, 0), 2)
+    return np.maximum(al, (ff[1:-1, 1:-1] == 0).astype(np.float32))
 
 
 def near_core(al, band):
@@ -116,9 +113,55 @@ def clean_matte(al, choke=0.12, feather=0.7, band=None, keep_frac=0.12):
 def decontaminate(img, fgr, al):
     """Edge colour: the footage pixels inside, RVM's predicted foreground where the matte is soft, so the wall / sign
     colour behind loose hair does not ring the head (a pink fringe over a red glow)."""
-    f8 = cv2.cvtColor((np.clip(fgr, 0, 1) * 255.0 + 0.5).astype(np.uint8), cv2.COLOR_RGB2BGR)
-    wgt = (np.clip((1.0 - al) * 2.0, 0, 1) * (al > 0.35) * 0.6)[..., None]
-    return (img * (1.0 - wgt) + f8 * wgt + 0.5).astype(np.uint8)
+    # only the soft edge changes (0.35 < alpha < 1), so only those pixels are computed: the rest is the footage as is
+    # (the whole-frame version of this was a third of the time per frame)
+    idx = (al > 0.35) & (al < 1.0)
+    out = img.copy()
+    if idx.any():
+        f8 = (np.clip(fgr[idx][:, ::-1], 0, 1) * 255.0 + 0.5).astype(np.uint8)
+        wgt = (np.clip((1.0 - al[idx]) * 2.0, 0, 1) * 0.6)[:, None]
+        out[idx] = (img[idx] * (1.0 - wgt) + f8 * wgt + 0.5).astype(np.uint8)
+    return out
+
+
+PLATE_LONG = 384        # the fill is worked out small (it is a soft guess at what is behind the person anyway)
+
+
+def clean_plate(img, al, prev):
+    """The frame with the person replaced by the room around them: the matte, grown a little, is inpainted on a small
+    copy and laid back soft-edged. `prev` is the last frame's small fill; blending with it keeps the fill from
+    flickering as the matte's edge moves. -> (plate, small fill)"""
+    H, W = img.shape[:2]
+    s = PLATE_LONG / float(max(H, W))
+    sw, sh = max(8, int(round(W * s))), max(8, int(round(H * s)))
+    small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+    m = (cv2.resize(al, (sw, sh), interpolation=cv2.INTER_AREA) > 0.02).astype(np.uint8)
+    k = max(3, int(max(sw, sh) * 0.03) | 1)
+    m = cv2.dilate(m, np.ones((k, k), np.uint8))
+    fill = cv2.inpaint(small, m, 3, cv2.INPAINT_TELEA).astype(np.float32)
+    if prev is not None and prev.shape == fill.shape:
+        fill = prev * 0.7 + fill * 0.3
+    up = cv2.resize(fill, (W, H), interpolation=cv2.INTER_CUBIC)
+    mf = cv2.GaussianBlur(cv2.resize(m * 255, (W, H), interpolation=cv2.INTER_LINEAR), (0, 0), max(2.0, 0.004 * max(W, H))).astype(np.float32) / 255.0
+    plate = cv2.blendLinear(img.astype(np.float32), up, 1.0 - mf, mf)
+    return np.clip(plate + 0.5, 0, 255).astype(np.uint8), fill
+
+
+def wait_for(src_dir, frames, i, seconds, cancel):
+    """Blocks until frame i is completely written: the next frame's file exists (Resolve writes them in order) or the
+    exporter left dir/exported. False when cancelled; raises after `seconds` without the frame."""
+    me = os.path.join(src_dir, "f%d.jpg" % frames[i])
+    nxt = os.path.join(src_dir, "f%d.jpg" % frames[i + 1]) if i + 1 < len(frames) else None
+    done = os.path.join(src_dir, "exported")
+    t0 = time.time()
+    while True:
+        if os.path.exists(cancel):
+            return False
+        if os.path.exists(me) and ((nxt and os.path.exists(nxt)) or os.path.exists(done)):
+            return True
+        if time.time() - t0 > seconds:
+            raise RuntimeError("footage frame %d did not arrive" % frames[i])
+        time.sleep(0.01)
 
 
 def main():
@@ -130,8 +173,13 @@ def main():
     keep_frac = float(a.get("islands", 0.12))
     os.makedirs(out, exist_ok=True)
     cancel = os.path.join(src_dir, "cancel")
+    wait = float(a.get("wait") or 0)
+    want_plate = bool(a.get("plate"))
     sess = session(a["model"])
     rec = [np.zeros((1, 1, 1, 1), np.float32)] * 4
+    if wait and not wait_for(src_dir, frames, 0, wait, cancel):
+        emit({"cancelled": True})
+        return
     first = cv2.imread(os.path.join(src_dir, "f%d.jpg" % frames[0]))
     if first is None:
         raise RuntimeError("missing footage frame %d" % frames[0])
@@ -151,8 +199,9 @@ def main():
     from concurrent.futures import ThreadPoolExecutor
     pool = ThreadPoolExecutor(4)        # PNG writes (~75 ms each at 1080x1920) overlap the next frame's matte
     pending = []
+    fill = None
     for i, f in enumerate(frames):
-        if os.path.exists(cancel):
+        if os.path.exists(cancel) or (wait and i and not wait_for(src_dir, frames, i, wait, cancel)):
             emit({"cancelled": True})
             return
         img = first if i == 0 else cv2.imread(os.path.join(src_dir, "f%d.jpg" % f))
@@ -167,13 +216,16 @@ def main():
         if top is not None:
             tops.append(top)
             cxs.append(cx)
-        ys, xs = np.nonzero(al > 0.5)
-        if len(xs):
-            b = (xs.min(), ys.min(), xs.max(), ys.max())
+        bx, by, bw, bh = cv2.boundingRect((al > 0.5).astype(np.uint8))
+        if bw and bh:
+            b = (bx, by, bx + bw - 1, by + bh - 1)
             union = b if union is None else (min(union[0], b[0]), min(union[1], b[1]), max(union[2], b[2]), max(union[3], b[3]))
         # straight alpha: the original footage pixels inside, RVM's foreground only on the soft edge
         rgba = np.dstack([decontaminate(img, fgr[0].transpose(1, 2, 0), al), (al * 255.0 + 0.5).astype(np.uint8)])
         pending.append(pool.submit(cv2.imwrite, os.path.join(out, "c%05d.png" % i), rgba, [cv2.IMWRITE_PNG_COMPRESSION, 1]))
+        if want_plate:
+            plate, fill = clean_plate(img, al, fill)
+            pending.append(pool.submit(cv2.imwrite, os.path.join(out, "p%05d.jpg" % i), plate, [cv2.IMWRITE_JPEG_QUALITY, 92]))
         while len(pending) > 8:
             pending.pop(0).result()
         if i % 3 == 0 or i == n - 1:

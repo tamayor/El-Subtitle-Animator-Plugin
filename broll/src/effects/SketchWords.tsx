@@ -3,10 +3,12 @@
 import React from 'react';
 import { interpolate } from 'remotion';
 import { Common, FONT, Place, typed, useInOut } from '../lib/common';
+import { useVibe } from '../lib/vibe';
 
 type P = Common & { word: string; note: string; ink: string; paper: boolean };
 
 export const SketchWords: React.FC<P> = (p) => {
+    const accent = useVibe(p).accent;   // the vibe's accent when the clip has none of its own
     const { frame, fps, durationInFrames: D, out } = useInOut(p, (D0, f) => Math.max(12, Math.min(D0 * 0.55, f * 1.2)) + 10);
     const word = String(p.word || '');
     const fs = 300;
@@ -40,7 +42,7 @@ export const SketchWords: React.FC<P> = (p) => {
                         strokeWidth={3.5} strokeDasharray={4000} strokeDashoffset={4000 * stroke} strokeLinejoin="round"
                         transform={`translate(${boil - 1} ${(boil % 2) - 0.5})`}>{word}</text>
                     <path d={`M ${W * 0.12} 372 C ${W * 0.35} 356, ${W * 0.6} 390, ${W * 0.88} 366`} pathLength={1}
-                        stroke={p.accent} strokeWidth={10} fill="none" strokeLinecap="round" strokeDasharray={1} strokeDashoffset={line} opacity={0.85} />
+                        stroke={accent} strokeWidth={10} fill="none" strokeLinecap="round" strokeDasharray={1} strokeDashoffset={line} opacity={0.85} />
                 </svg>
             </div>
         </Place>

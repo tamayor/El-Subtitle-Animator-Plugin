@@ -67,10 +67,33 @@
     "boilerplateList:function",
     "insertBoilerplate:function"
   ],
+  "broll-footage.js": [
+    "MAX_FULL_SECONDS:number",
+    "MAX_SEQ_SECONDS:number",
+    "NEEDS:object",
+    "backdropArgs:function",
+    "footageProps:function",
+    "frameLevels:function",
+    "keepNewest:function",
+    "needsFor:function",
+    "pickFootage:function",
+    "samplesFromDb:function",
+    "smoothTrack:function",
+    "thumbMoments:function",
+    "trackBox:function"
+  ],
   "broll-suggest.js": [
     "brollSuggestFromTexts:function",
     "parseNumber:function",
     "propsFor:function"
+  ],
+  "broll-vibe.js": [
+    "FACES:object",
+    "MOTIONS:object",
+    "applyVibe:function",
+    "cleanTokens:function",
+    "vibeArgs:function",
+    "vibeList:function"
   ],
   "broll-words.js": [
     "ANY_ORDER:object",
@@ -102,6 +125,7 @@
     "brollPlaceMany:function",
     "brollPreview:function",
     "brollRemove:function",
+    "brollRestyle:function",
     "brollShutdown:function",
     "brollStatus:function",
     "brollStrip:function",
@@ -109,6 +133,7 @@
     "brollSuggestFromTexts:function",
     "brollSync:function",
     "brollTrace:function",
+    "brollVibeProps:function",
     "brollWordLane:function",
     "draftScale:function",
     "findWordHit:function"
@@ -531,6 +556,7 @@
     "ANIMS:object",
     "DEFAULTS:object",
     "layout:function",
+    "matteFrames:function",
     "pickWord:function",
     "spotCancel:function",
     "spotEngine:function",
@@ -541,7 +567,8 @@
     "spotRemove:function",
     "spotRun:function",
     "spotSet:function",
-    "spotSource:function"
+    "spotSource:function",
+    "venvJson:function"
   ],
   "stack.js": [
     "measureText:function",

@@ -158,3 +158,9 @@ body.tab-broll { padding-bottom: 24px; }
 .br-live-note { font-size: var(--font-sm); color: var(--matcha); border: 1px solid var(--matcha-border); background: var(--matcha-tint);
     border-radius: var(--radius-md); padding: 6px 9px; margin: 6px 0; }
 .br-live-note.busy { color: #e8963c; border-color: rgba(232, 150, 60, .35); background: rgba(232, 150, 60, .08); }
+
+/* Effect category filter (effects.json `group`) and the picture-file field */
+.br-group { max-width: 170px; font-size: var(--font-sm); font-weight: 400; }
+.br-file-row { display: flex; gap: var(--space-2); min-width: 0; }
+.br-file-row input { flex: 1 1 auto; min-width: 0; }
+.br-file-row button { flex: 0 0 auto; }

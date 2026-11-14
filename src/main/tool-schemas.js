@@ -405,7 +405,7 @@ const TOOLS = [
     },
     {
         name: 'list_broll',
-        description: 'B-roll overlays (the panel\'s B-roll tab): motion graphics rendered with Remotion at the timeline\'s size and frame rate (ProRes 4444 with alpha) and placed on a free video track above the footage. Returns every effect with its fields (key, type, default, range) and the common fields x / y (0..1 centre of the graphic), scale, accent, enter / exit (frames). With placed: true, returns the B-roll clips placed on the open timeline (id, effect, props, start, frames, onTimeline) instead.',
+        description: 'B-roll overlays (the panel\'s B-roll tab): motion graphics rendered with Remotion at the timeline\'s size and frame rate (ProRes 4444 with alpha) and placed on a free video track above the footage. Returns every effect with its fields (key, type, default, range) and the common fields x / y (0..1 centre of the graphic), scale, accent, enter / exit (frames), plus `vibes`: the looks a call can give its B-roll (place_broll / adjust_broll / broll_preview `vibe`). With placed: true, returns the B-roll clips placed on the open timeline (id, effect, props, start, frames, onTimeline) instead.',
         inputSchema: S({ placed: { type: 'boolean', description: 'List the placed B-roll clips instead of the effects' }, all: { type: 'boolean', description: 'With placed: every timeline' } })
     },
     {
@@ -414,6 +414,7 @@ const TOOLS = [
         inputSchema: S({
             effect: { type: 'string', description: 'Effect id from list_broll (e.g. comment-drop)' },
             props: { type: 'object', description: 'Field values; omitted fields use the defaults' },
+            vibe: { type: ['string', 'object'], description: 'The look, for this call only (effects keep their own look without one). A starter id from list_broll `vibes` (clean-glass, bold-pop, editorial, dark-tech, sketch), or { base: "<starter>", ...changes } to fit the video: accent, card, ink, border, dark, corners (0..2), outline, font (sans | serif | serifItalic | mono | hand), displayFont / bodyFont / labelFont / numFont, weight, motion (soft | snappy | bouncy | calm | steps). Use the same vibe on every placement of a video' },
             seconds: { type: 'number', description: 'Clip length the still is taken from (default: the effect\'s)' },
             at: { type: 'number', description: 'Moment 0..1 (default 0.62)' }
         }, ['effect'])
@@ -424,6 +425,7 @@ const TOOLS = [
         inputSchema: S({
             effect: { type: 'string', description: 'Effect id from list_broll' },
             props: { type: 'object', description: 'Field values (see list_broll); omitted fields use the last values used, then the defaults' },
+            vibe: { type: ['string', 'object'], description: 'The look, kept with the placed clip (effects keep their own look without one). A starter id from list_broll `vibes` (clean-glass, bold-pop, editorial, dark-tech, sketch), or { base: "<starter>", ...changes } to fit the video: accent, card, ink, border, dark, corners (0..2), outline, font (sans | serif | serifItalic | mono | hand), displayFont / bodyFont / labelFont / numFont, weight, motion (soft | snappy | bouncy | calm | steps). Use the same vibe on every placement of a video' },
             subtitle: { type: 'integer', description: 'Subtitle number: the clip covers its range' },
             marks: { type: 'boolean', description: 'Cover the timeline\'s Mark In -> Mark Out range (I / O in Resolve), up to 60 s' },
             startFrame: { type: 'integer', description: 'Timeline frame to start at (default: the subtitle start or the playhead)' },
@@ -444,13 +446,15 @@ const TOOLS = [
         description: 'Change a placed B-roll clip: merges `props` into its saved values, re-renders and swaps the media under the clip (it keeps its place and track). A new length (seconds / frames) or another effect replaces it with a new clip at the same start. Use this for "make it bigger", "change the number", "move it left" (x/y), "slower" (longer), "different colour".',
         inputSchema: S({
             id: { type: 'string', description: 'Record id from place_broll / list_broll { placed: true }' },
+            all: { type: 'boolean', description: 'Instead of id: every B-roll on the open timeline (to restyle a whole video with `vibe`, or change one field everywhere)' },
             props: { type: 'object', description: 'Fields to change' },
+            vibe: { type: ['string', 'object'], description: 'The look, replacing the one the clip has; "classic" gives it back the effect\'s own look (effects keep their own look without one). A starter id from list_broll `vibes` (clean-glass, bold-pop, editorial, dark-tech, sketch), or { base: "<starter>", ...changes } to fit the video: accent, card, ink, border, dark, corners (0..2), outline, font (sans | serif | serifItalic | mono | hand), displayFont / bodyFont / labelFont / numFont, weight, motion (soft | snappy | bouncy | calm | steps). Use the same vibe on every placement of a video' },
             effect: { type: 'string', description: 'Switch to another effect' },
             seconds: { type: 'number', description: 'New length' },
             frames: { type: 'integer', description: 'New length in frames' },
             extend: { type: 'number', description: 'Add this many seconds to its current length' },
             draft: { type: 'boolean', description: 'true = re-render as a half-size draft, false = full size (finalize); left out, it stays as it is' }
-        }, ['id'])
+        })
     },
     {
         name: 'finalize_broll',
@@ -469,7 +473,7 @@ const TOOLS = [
     },
     {
         name: 'suggest_broll',
-        description: 'Read the subtitles and suggest which ones get which B-roll effect, with props filled from the words (numbers -> Money counter / Post wall, "comment X" -> Comment drop, days / hours -> Day dial, typing / searching -> Predict keys, "she told me" -> Voice note, "step two" -> Chapter list). Places nothing: refine the props (and drop weak picks), then call place_broll { items }. Skips subtitles that already have B-roll.',
+        description: 'Read the subtitles and suggest which ones get which B-roll effect, with props filled from the words (numbers -> Money counter / Post wall, "comment X" -> Comment drop, days / hours -> Day dial, typing / searching -> Predict keys, "she told me" -> Voice note, "step two" -> Step badge, "9 out of 10" / "half of" -> Ring gauge, "from 10k in Jan to 45k in Mar" -> Mini chart, "my name is ..." / "according to ..." -> Lower third, "breaking" -> News ticker, "note to self" -> Journal note, idea / home / goal -> Doodle icon, "look at this" -> Doodle callout). Effects without words to read (cutout-pop, paper-frame, ransom-text, sticky-text, audio-pulse, cutout-puppet, doodle-boil, zoom-through-cut) are never suggested: place them by hand with props. Effects of the group "Speaker & footage" (paper-cut, depth-scatter, orbit-carousel, frame-break-card, vertigo-dolly, green-screen-stage) and the options cutout-pop { source: "speaker" }, doodle-boil { follow }, viewfinder-zoom { pushIn }, editor-reveal { footage } read the footage under the clip and cut the speaker out with the Spotlight engine (up to 20 s, frames-only effects up to 30 s; about 0.15 s a frame the first time); audio-pulse and cutout-puppet move with the dialogue under the clip. place_broll / adjust_broll return `notes` when something could not be read (no sound, engine not installed) and what was used in its place. Places nothing: refine the props (and drop weak picks), then call place_broll { items }. Skips subtitles that already have B-roll.',
         inputSchema: S({
             max: { type: 'integer', description: 'At most this many (default 8)' },
             minGap: { type: 'number', description: 'Seconds between two B-roll clips (default 4)' },

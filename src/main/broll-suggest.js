@@ -3,7 +3,29 @@
 
 const SCORE = { 'stat-bar': 4, 'money-counter': 3, 'post-wall': 3, 'comment-drop': 3, 'stamp-verdict': 3, 'versus-split': 3,
     'year-timeline': 3, 'key-combo': 3, 'url-bar': 3, 'day-dial': 2, 'predict-keys': 2, 'voice-note': 2,
-    'receipt-printer': 2, 'marker-highlight': 2, 'quote-card': 2, 'chapter-list': 1, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 1 };
+    'receipt-printer': 2, 'marker-highlight': 2, 'quote-card': 2, 'chapter-list': 1, 'live-cursor': 1, 'tag-stack': 1, 'sketch-words': 1,
+    // 2026-11-13 set: kept under the older effect that reads the same words (stat-bar over ring-gauge, post-wall over
+    // video-wall, quote-card over pull-quote), so a run of numbers alternates instead of one effect taking them all
+    'mini-chart': 4.5, 'ring-gauge': 3.5, 'before-after-wipe': 3, 'news-ticker': 2.6, 'headline-wall': 2.6, 'lower-third': 2.5,
+    'video-wall': 2.5, 'journal-note': 2, 'step-badge': 1.5, 'pull-quote': 1.5, 'phone-mockup': 1.5, 'viewfinder-zoom': 1.5,
+    'editor-reveal': 1.5, 'doodle-callout': 1.2, 'ui-world': 1.2, 'doodle-icon': 1.1, 'sticker-pop': 1.1 };
+
+// Spoken concept -> drawn icon (doodle-icon) / sticker (sticker-pop).
+const DOODLE_FOR = [[/\b(idea|ideas|lightbulb)\b/i, 'lightbulb'], [/\b(house|home|mortgage|rent)\b/i, 'house'], [/\b(coin|cash|savings?)\b/i, 'coin'],
+    [/\b(heart|love[ds]?)\b/i, 'heart'], [/\b(clock|deadline|hours?)\b/i, 'clock'], [/\b(brain|mindset|psychology)\b/i, 'brain'], [/\b(goal|target)s?\b/i, 'target']];
+const STICKER_FOR = [[/\b(warning|be careful|watch out|red flag)\b/i, 'warning'], [/\b(on fire|viral|blew up)\b/i, 'fire'],
+    [/\b(launch(ed|ing)?|skyrocket(ed)?|take off|took off)\b/i, 'rocket'], [/\b(trophy|we won|number one|first place)\b/i, 'trophy'], [/\b(hundred percent|100 percent|no cap)\b/i, 'hundred']];
+const ORDINAL = { first: 1, firstly: 1, second: 2, secondly: 2, third: 3, thirdly: 3, fourth: 4, fifth: 5 };
+const FRACTION = { half: 50, 'a third': 33, 'a quarter': 25, 'two thirds': 67, 'three quarters': 75 };
+const wordNum = (s) => WORDNUM[String(s).toLowerCase()] || Number(s) || 0;
+// Breaks a sentence into lines of about `n` characters, at most `max` of them.
+function wrapLines(t, n, max) {
+    const out = [''];
+    for (const w of String(t).split(/\s+/).filter(Boolean)) {
+        if (out[out.length - 1] && (out[out.length - 1] + ' ' + w).length > n) out.push(w); else out[out.length - 1] += (out[out.length - 1] ? ' ' : '') + w;
+    }
+    return out.slice(0, max).filter(Boolean);
+}
 
 const WORDNUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
@@ -141,6 +163,89 @@ function propsFor(effect, text) {
     case 'url-bar': {
         const dom = /\b([a-z0-9-]+\.(?:com|io|ai|org|app|dev|co|net))\b/i.exec(t);
         return { url: dom ? dom[1].toLowerCase() : 'link in bio', cta: dom ? 'Visit' : 'Open' };
+    }
+    case 'ring-gauge': {
+        const ratio = /\b(\d+)\s+out of\s+(\d+)\b/i.exec(t);
+        const pct = /\b(\d{1,3}(?:\.\d+)?)\s*(?:%|\bpercent\b)/i.exec(t);
+        const frac = /\b(half|a third|a quarter|two thirds|three quarters) of\b/i.exec(t);
+        const hit = ratio || pct || frac;
+        if (!hit) return null;
+        const p = ratio ? Math.round(Number(ratio[1]) / Math.max(1, Number(ratio[2])) * 100) : pct ? Number(pct[1]) : FRACTION[frac[1].toLowerCase()];
+        const rest = t.replace(ratio || pct ? hit[0] : frac[1], ' ').replace(/\s+/g, ' ').replace(/^[,.\s]+|[,.\s]+$/g, '').replace(/[.!?]+$/, '');
+        return { percent: Math.min(100, Math.max(0, p)), valueText: ratio ? `${ratio[1]}/${ratio[2]}` : `${Math.round(p)}%`, label: short(rest, 26) };
+    }
+    case 'mini-chart': {
+        // every number in the line is a point; "from 10k in Jan to 45k in Mar" names them by the word after "in"
+        const re = /(\$)?(\d[\d,]*(?:\.\d+)?)\s?(k|m|b|%|x)?\b(?:\s+(?:in|by|on|during)\s+([A-Za-z]{3,9}))?/gi;
+        const pts = []; let m, suffix = '', prefix = '';
+        while ((m = re.exec(t)) && pts.length < 8) {
+            const v = Number(m[2].replace(/,/g, ''));
+            if (!Number.isFinite(v) || (v >= 1900 && v <= 2100 && !m[3] && !m[1])) continue;      // a year is a label, not a value
+            if (m[3] && !suffix) suffix = m[3].toLowerCase() === '%' || m[3].toLowerCase() === 'x' ? m[3].toLowerCase() : m[3].toUpperCase();
+            if (m[1]) prefix = '$';
+            pts.push({ label: m[4] ? m[4][0].toUpperCase() + m[4].slice(1, 3).toLowerCase() : '', v });
+        }
+        const grew = /\b(doubled|tripled|grew\s+(\d+)\s?x)\b/i.exec(t);
+        if (pts.length < 2 && grew) { const k = grew[2] ? Number(grew[2]) : /tripled/i.test(grew[1]) ? 3 : 2; return { mode: 'bar', title: short(t.replace(/[.!?]+$/, ''), 30), points: ['Before | 1', 'After | ' + k], prefix: '', suffix: 'x' }; }
+        if (pts.length < 2) return null;
+        return { mode: pts.length > 3 || /\b(over time|trend|line)\b/i.test(t) ? 'line' : 'bar', title: '', prefix, suffix,
+            points: pts.map((q, i) => (q.label || (pts.length === 2 ? ['Before', 'After'][i] : String(i + 1))) + ' | ' + q.v) };
+    }
+    case 'sticker-pop': { const h = STICKER_FOR.find(([re]) => re.test(t)); return h ? { icon: h[1], emoji: '', label: '' } : null; }
+    case 'doodle-icon': { const h = DOODLE_FOR.find(([re]) => re.test(t)); return h ? { icon: h[1], label: '' } : null; }
+    case 'step-badge': {
+        const lab = /\b(step|tip|part|rule|lesson|reason|mistake)\s+(?:number\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.exec(t);
+        const rest = (m) => short(t.slice(m.index + m[0].length).replace(/^[\s,:.\-]+/, '').replace(/[.!?]+$/, ''), 30);
+        if (lab) return { mode: 'step', number: wordNum(lab[2]) || 1, total: 0, word: lab[1][0].toUpperCase() + lab[1].slice(1).toLowerCase(), text: '' };
+        const num = /\bnumber\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.exec(t);
+        if (num) return { mode: 'countdown', number: wordNum(num[1]) || 1, text: rest(num) };
+        const ord = /\b(first(?:ly)?|second(?:ly)?|third(?:ly)?|fourth|fifth)\b[,:]/i.exec(t);
+        if (ord) return { mode: 'countdown', number: ORDINAL[ord[1].toLowerCase()], text: rest(ord) };
+        const many = /\b(two|three|four|five|six|seven|\d)\s+(things|ways|steps|tips|reasons|rules|mistakes|lessons)\b/i.exec(t);
+        if (many) return { mode: 'countdown', number: wordNum(many[1]) || 3, text: many[2].toLowerCase() + ' ' + rest(many) };
+        return null;
+    }
+    case 'lower-third': {
+        // names are read with their capitals (the trigger itself is case-blind)
+        const who = /\b(?:[Mm]y name is|[Jj]oining (?:us|me)(?: today)?(?: is)?|[Pp]lease welcome|I'?m|I am)\s+((?:Dr\.? )?[A-Z][a-z]+(?: [A-Z][a-z'-]+){0,2})\b/.exec(t);
+        if (who && !/^(So|Not|Just|Going|Really|Here|Still|Very|Also|The|A|An|In|On|At)$/.test(who[1].split(' ')[0])) {
+            const role = /,\s*(?:the |a |an )?([^,.]{3,40})/.exec(t.slice(who.index + who[0].length));
+            return { variant: 'speaker', name: who[1], role: role ? short(role[1].trim().replace(/^and\s+/i, ''), 34) : '' };
+        }
+        const kw = /\b(?:according to|(?:study|report|survey|research|data) (?:by|from|out of))\s+/i.exec(t);
+        const src = kw ? /^((?:the |a )?[A-Z][\w&.'-]*(?: (?:of |for |and )?[A-Z][\w&.'-]*){0,4})/.exec(t.slice(kw.index + kw[0].length)) : null;
+        const year = /\b(19\d{2}|20\d{2})\b/.exec(t);
+        if (src) return { variant: 'source', source: src[1].replace(/^(the|a) /i, '') + (year ? ', ' + year[1] : '') };
+        if (/\b(researchers|scientists|a study) (found|say|show(ed|s)?)\b/i.test(t)) return { variant: 'source', source: 'Research' + (year ? ', ' + year[1] : '') };
+        return null;
+    }
+    case 'news-ticker': {
+        const body = t.replace(/\b(breaking( news)?|(huge|big|massive|crazy) news)\b[:,\s-]*/ig, '').replace(/[.!?]+$/, '').trim();
+        return { badge: /\bjust (announced|dropped|released|launched)\b/i.test(t) && !/breaking/i.test(t) ? 'Just in' : 'Breaking', headline: short(body || t, 44), ticker: [short(body || t, 60)] };
+    }
+    case 'pull-quote': {
+        const q = /["“]([^"”]{6,})["”]/.exec(t);
+        const body = (q ? q[1] : t.replace(/^.*?\b(remember this|never forget|write this down|here(?:'?s| is) the thing|the truth is)\b[:,\s-]*/i, '')).replace(/[.!?]+$/, '').trim();
+        return body.length >= 6 ? { quote: short(body, 110), author: '' } : null;
+    }
+    case 'doodle-callout': return { shape: 'circle', label: '' };
+    case 'journal-note': {
+        const title = /\bnote to self\b/i.test(t) ? 'Note to self' : /\blessons?\b/i.test(t) ? 'Lesson learned' : 'Journal';
+        const body = t.replace(/^.*?\b(note to self|dear diary|lessons? i(?:'ve| have)? learned(?: is| was)?(?: that)?)\b[:,\s-]*/i, '').replace(/[.!?]+$/, '').trim() || t;
+        return { mode: 'page', title, lines: wrapLines(body, 24, 5) };
+    }
+    case 'headline-wall': {
+        const body = short(t.replace(/[.!?]+$/, ''), 40);
+        return { headlines: [body, 'Everyone is talking about it', 'What happens next?', 'Experts weigh in'], notes: [] };
+    }
+    case 'phone-mockup': { const dom = /\b([a-z0-9-]+\.(?:com|io|ai|org|app|dev|co|net))\b/i.exec(t); return { url: dom ? dom[1].toLowerCase() : 'article', title: short(t.replace(/[.!?]+$/, ''), 48), lines: [] }; }
+    case 'viewfinder-zoom': return {};
+    case 'ui-world': { const ask = /\b(?:ask(?:ed)?|told|tell|prompt(?:ed)?)\s+(?:it|ai|claude|chatgpt)\s+to\s+(.{3,40})/i.exec(t); return ask ? { prompt: short(ask[1].replace(/[.!?]+$/, ''), 36) } : {}; }
+    case 'before-after-wipe': return {};
+    case 'editor-reveal': return {};
+    case 'video-wall': {
+        const m = /(\d[\d,]*)\s+(videos|reels|shorts|clips|tiktoks)\b/i.exec(t);
+        return m ? { count: Number(m[1].replace(/,/g, '')), label: m[2].toLowerCase() } : null;
     }
     default: return {};
     }

@@ -16,9 +16,11 @@ test('every effect has a unique id and typed fields with defaults', () => {
     for (const e of REG.effects) {
         assert.ok(!ids.has(e.id), 'duplicate id ' + e.id); ids.add(e.id);
         for (const f of [...REG.common, ...e.fields]) {
-            assert.ok(['text', 'number', 'color', 'bool', 'list', 'select'].includes(f.type), e.id + '.' + f.key + ' type');
+            assert.ok(['text', 'number', 'color', 'bool', 'list', 'select', 'image'].includes(f.type), e.id + '.' + f.key + ' type');
             assert.ok('default' in f, e.id + '.' + f.key + ' default');
+            if (f.type === 'select') assert.ok(Array.isArray(f.options) && f.options.includes(f.default), e.id + '.' + f.key + ' options hold the default');
         }
+        assert.ok(e.group, e.id + ' group');
         for (const t of e.triggers || []) assert.doesNotThrow(() => new RegExp(t, 'i'), e.id + ' trigger ' + t);
     }
 });
@@ -103,4 +105,42 @@ test('findWordHit matches spoken number words like sixteen hundred -> 1600 befor
     assert.equal(hit.w, 'sixteen hundred');
     assert.equal(hit.start, 6);
     assert.equal(hit.end, 26);
+});
+
+test('the 2026-11-13 effects match and extract props from subtitles', () => {
+    const lines = [
+        'Half of creators quit in year one',
+        'We went from 10k in Jan to 45k in Mar',
+        'Tip number 3 is the big one',
+        'My name is Sarah Lim, founder of Studio North',
+        'According to Bloomberg, most startups fail',
+        'Breaking news: the algorithm changed',
+        'Here is the thing: consistency beats talent',
+        'Note to self, start before you feel ready',
+        'I had this idea at midnight',
+        'That reel went viral overnight',
+        'Before and after the colour grade',
+        'It was all over the news that week',
+        'Look at this part of the frame'
+    ];
+    const out = brollSuggestFromTexts(lines.map((t, i) => sub(i + 1, t, i * 6)), { max: 30, minGap: 1 }, REG, FPS);
+    const by = Object.fromEntries(out.map(s => [s.subtitle, s]));
+    assert.equal(by[1].effect, 'ring-gauge'); assert.equal(by[1].props.percent, 50);
+    assert.equal(by[2].effect, 'mini-chart'); assert.deepEqual(by[2].props.points, ['Jan | 10', 'Mar | 45']); assert.equal(by[2].props.suffix, 'K');
+    assert.equal(by[3].effect, 'step-badge'); assert.equal(by[3].props.number, 3); assert.equal(by[3].props.word, 'Tip');
+    assert.equal(by[4].effect, 'lower-third'); assert.equal(by[4].props.name, 'Sarah Lim'); assert.equal(by[4].props.role, 'founder of Studio North');
+    assert.equal(by[5].effect, 'lower-third'); assert.equal(by[5].props.source, 'Bloomberg');
+    assert.equal(by[6].effect, 'news-ticker'); assert.equal(by[6].props.headline, 'the algorithm changed');
+    assert.equal(by[7].effect, 'pull-quote'); assert.equal(by[7].props.quote, 'consistency beats talent');
+    assert.equal(by[8].effect, 'journal-note'); assert.deepEqual(by[8].props.lines, ['start before you feel', 'ready']);
+    assert.equal(by[9].effect, 'doodle-icon'); assert.equal(by[9].props.icon, 'lightbulb');
+    assert.equal(by[10].effect, 'sticker-pop'); assert.equal(by[10].props.icon, 'fire');
+    assert.equal(by[11].effect, 'before-after-wipe');
+    assert.equal(by[12].effect, 'headline-wall');
+    assert.equal(by[13].effect, 'doodle-callout');
+});
+
+test('"I\'m" only makes a lower third when a name follows', () => {
+    const out = brollSuggestFromTexts([sub(1, "I'm not sure that works", 0), sub(2, "and I'm going to show you", 6)], { max: 5, minGap: 1 }, REG, FPS);
+    assert.equal(out.filter(s => s.effect === 'lower-third').length, 0);
 });

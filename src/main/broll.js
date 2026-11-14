@@ -20,7 +20,8 @@ const { brollSuggestFromTexts, propsFor } = require('./broll-suggest');
 
 module.exports = {
     brollEffects, brollPreview, brollPlace, brollPlaceMany, brollAdjust, brollRemove, brollList, brollSuggest,
-    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit, brollWordLane
+    brollStatus, brollCancel, brollOpenFolder, brollFinalize, draftScale, brollShutdown, brollSuggestFromTexts, brollFrame, brollStrip, brollTrace, brollSync, brollLandingPlan, brollFromPlayhead, findWordHit, brollWordLane,
+    brollVibeProps, brollRestyle
 };
 
 const fs = require('fs');
@@ -36,6 +37,7 @@ const { findItemsByIds, getProject, getSubtitles, tcToFrame, timelineMeta } = re
 const { timelineSfxDir } = require('./sfx-import');
 const { pickTrack } = require('./placement');
 const { bridgeCall } = require('./fusion-bridge');
+const { vibeArgs, applyVibe, vibeList } = require('./broll-vibe');
 
 const RUNS_DIR = 'El Subtitle Animator B-roll';
 const PLACED_FILE = path.join(APP_DATA_DIR, 'broll-placed.json');
@@ -92,6 +94,25 @@ function registry() {
     return reg;
 }
 
+// The starting looks (broll/vibes.json, drawn by broll/src/lib/vibe.tsx). A vibe is passed per MCP call and kept with
+// the placed clip (broll-vibe.js): it is not a field of an effect and not a remembered panel value.
+function vibes() {
+    const v = readJson(path.join(brollDir(), 'vibes.json'), null);
+    return v && Array.isArray(v.vibes) && v.vibes.length ? v.vibes : [];
+}
+const accentDefault = (reg) => (reg.common.find(f => f.key === 'accent') || {}).default || '';
+
+// MCP `vibe` (a starter id, or { base, ...changes }) -> `props` with the look in it. An accent the caller did not ask
+// for goes back to the default, so the last one used in the panel (or the look before) does not override the vibe's.
+function brollVibeProps(vibe, props) {
+    const all = vibes();
+    const v = all.length ? vibeArgs(vibe, all) : null;
+    if (!v) return props;
+    const p = { ...(props || {}) };
+    if (!p.accent) p.accent = accentDefault(registry());
+    return { ...p, ...v };
+}
+
 function effectById(reg, id) {
     const e = reg.effects.find(x => x.id === id || x.name.toLowerCase() === String(id || '').toLowerCase());
     if (!e) throw new Error('No B-roll effect "' + id + '". Effects: ' + reg.effects.map(x => x.id).join(', '));
@@ -106,7 +127,8 @@ function mergedProps(reg, e, props, usePrefs) {
     for (const f of fields) out[f.key] = f.default;
     Object.assign(out, e.defaults || {});
     if (usePrefs) Object.assign(out, (readJson(PREFS_FILE, {}).last || {})[e.id] || {});
-    delete out._times; delete out._ends; delete out._manual;   // word times belong to one placed clip, never to the remembered panel values
+    delete out._times; delete out._ends; delete out._manual; delete out._samples;   // word times belong to one placed clip, never to the remembered panel values
+    delete out.vibe; delete out._vibe;   // ...and so does its look
     const p = props || {};
     for (const f of fields) {
         if (!(f.key in p) || p[f.key] === undefined || p[f.key] === null) continue;
@@ -115,6 +137,7 @@ function mergedProps(reg, e, props, usePrefs) {
         else if (f.type === 'bool') v = v === true || v === 'true' || v === 1;
         else if (f.type === 'list') v = Array.isArray(v) ? v.map(String).filter(Boolean) : String(v).split(/\n|,/).map(s => s.trim()).filter(Boolean);
         else if (f.type === 'color') { v = String(v); if (!/^#[0-9a-f]{6}$/i.test(v)) continue; }
+        else if (f.type === 'select') { v = String(v).trim().toLowerCase(); if (!(f.options || []).includes(v)) continue; }
         else v = String(v);
         out[f.key] = v;
     }
@@ -124,13 +147,21 @@ function mergedProps(reg, e, props, usePrefs) {
     // per-word end frames (the word fully in) and whether the user set the word timings by hand in the word lane
     if (Array.isArray(p._ends)) out._ends = p._ends.map(Number).filter(Number.isFinite).slice(0, 400);
     if (p._manual) out._manual = true;
+    // the clip's loudness per frame (0..1) for the audio-driven effects (audio-pulse, cutout-puppet); not a panel field
+    if (Array.isArray(p._samples)) out._samples = p._samples.map(Number).filter(Number.isFinite).slice(0, 3000).map(v => Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000);
+    // the look an MCP call gave it (vibe + _vibe); not a panel field
+    if (typeof p.vibe === 'string' && p.vibe) applyVibe(out, p, vibes(), accentDefault(reg));
     return out;
 }
 
 function saveLast(effect, props) {
     const prefs = readJson(PREFS_FILE, {});
     prefs.last = prefs.last || {};
-    prefs.last[effect] = props;
+    const keep = { ...props };
+    // a vibe belongs to the clip it was placed with: the panel's next placement keeps the effect's own look and accent
+    if (keep.vibe) { const before = (prefs.last[effect] || {}).accent; if (before) keep.accent = before; else delete keep.accent; }
+    delete keep.vibe; delete keep._vibe;
+    prefs.last[effect] = keep;
     writeJson(PREFS_FILE, prefs);
 }
 
@@ -147,9 +178,10 @@ function brollEffects() {
                 const p = path.join(dir, 'previews', e.id + '.png');
                 if (fs.existsSync(p)) thumb = 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
             } catch (err) { /* ignore */ }
-            return { id: e.id, name: e.name, description: e.description, seconds: e.seconds, fields: e.fields,
+            return { id: e.id, name: e.name, group: e.group || '', description: e.description, seconds: e.seconds, fields: e.fields,
                 defaults: mergedProps(reg, e, {}, false), last: last[e.id] || null, thumb };
         }),
+        vibes: vibeList(vibes()),
         ready: { node: findNode(), project: fs.existsSync(path.join(dir, 'node_modules', 'remotion')), dir },
         status: brollStatus()
     };
@@ -362,6 +394,16 @@ async function markDraft(item, draft) {
     try { if (draft) await item.SetClipColor(DRAFT_COLOR); else await item.ClearClipColor(); } catch (e) { /* only a marker */ }
 }
 
+// What the effect reads from the footage under it (broll-footage.js): the dialogue's loudness, the speaker cut out of
+// the frames, the frames themselves. Hidden props for this render only; the placed record keeps the panel's props.
+async function withFootage(e, props, start, frames, meta, o) {
+    const FOOT = require('./broll-footage');
+    if (!FOOT.needsFor(e.id, props)) return { props, notes: [] };
+    const say = (text) => { current = { ...current, text: e.name + ': ' + text + '…' }; send(current); };
+    const r = await FOOT.footageProps(e.id, props, start, frames, meta, { ...(o || {}), progress: say });
+    return { props: { ...props, ...r.extra }, notes: r.notes };
+}
+
 function fileFor(dir, effect, uid, v) { return path.join(dir, effect + '-' + uid + (v > 1 ? '-v' + v : '') + '.mov'); }
 
 // ------------------------------------------------------------------ preview (a still, no Resolve change)
@@ -395,12 +437,22 @@ async function brollPreview(event, o) {
     const at = Math.max(0, Math.min(1, Number.isFinite(Number(o.at)) ? Number(o.at) : 0.62));
     // the panel shows the preview small: render at its size (longest side `maxDim`), full size for Claude (no maxDim)
     const scale = o.maxDim ? Math.min(1, Number(o.maxDim) / Math.max(w, h)) : 1;
-    const key = crypto.createHash('sha1').update(JSON.stringify([e.id, props, w, h, fps, frames, at, scale])).digest('hex').slice(0, 14);
+    // effects that read the footage: the frame under the playhead stands in for the clip (a preview reads one frame)
+    let shown = props;
+    if (require('./broll-footage').needsFor(e.id, props) && !(o.width && o.height)) {
+        try {
+            const { tl, meta } = await currentTl();
+            const ph = tcToFrame(await tl.GetCurrentTimecode(), meta);
+            current = { phase: 'preview', effect: e.id, text: 'Reading the footage for ' + e.name + '…' };
+            shown = (await withFootage(e, props, ph, frames, meta, { still: ph })).props;
+        } catch (err) { dlog('BROLL-FOOTAGE-PREVIEW', e.id, String(err.message || err)); }
+    }
+    const key = crypto.createHash('sha1').update(JSON.stringify([e.id, shown, w, h, fps, frames, at, scale])).digest('hex').slice(0, 14);
     const out = path.join(PREVIEW_DIR, e.id + '-' + key + '.png');
     if (!fs.existsSync(out)) {
         current = { phase: 'preview', effect: e.id, text: 'Drawing a preview of ' + e.name + '…' };
         send(current);
-        await renderJob({ op: 'still', effect: e.id, props, width: w, height: h, fps, frames, frame: Math.round(frames * at), out, scale });
+        await renderJob({ op: 'still', effect: e.id, props: shown, width: w, height: h, fps, frames, frame: Math.round(frames * at), out, scale });
         // keep the preview folder small
         try {
             const files = fs.readdirSync(PREVIEW_DIR).map(f => ({ f, t: fs.statSync(path.join(PREVIEW_DIR, f)).mtimeMs })).sort((a, b) => b.t - a.t);
@@ -477,8 +529,12 @@ async function brollPlace(event, o) {
     current = { phase: 'render', effect: e.id, p: 0, text: 'Rendering ' + label + '…' };
     send(current);
     const t0 = Date.now();
+    let footNotes = [];
     try {
-        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames: r.frames, out, scale },
+        const foot = await withFootage(e, props, r.start, r.frames, meta);
+        footNotes = foot.notes;
+        current = { ...current, text: 'Rendering ' + label + '…' };
+        await renderJob({ op: 'video', effect: e.id, props: foot.props, width: meta.width, height: meta.height, fps: meta.fps, frames: r.frames, out, scale },
             (p) => { current = { ...current, p }; send(current); });
     } catch (err) {
         current = { phase: 'error', effect: e.id, text: cancelAsked ? 'Cancelled' : String(err.message || err) };
@@ -497,6 +553,7 @@ async function brollPlace(event, o) {
     const tlNow = await project.GetCurrentTimeline();
     if (!tlNow || (await tlNow.GetName()) !== tlName) throw new Error('The timeline changed while rendering; the file is in ' + dir);
     const placed = await placeFile(project, tlNow, out, r.start, r.frames, Number(o.track) || 0, draft);
+    placed.notes.push(...footNotes);
     const rec = {
         id: uid, effect: e.id, name: e.name, props, timeline: tlName, start: r.start, frames: r.frames, fps: meta.fps,
         width: meta.width, height: meta.height, file: out, version: 1, itemId: placed.itemId, track: placed.track,
@@ -594,8 +651,12 @@ async function brollAdjust(event, o) {
     current = { phase: 'render', effect: e.id, id: rec.id, p: 0, text: verb + e.name + '…' };
     send(current);
     const t0 = Date.now();
+    let footNotes = [];
     try {
-        await renderJob({ op: 'video', effect: e.id, props, width: meta.width, height: meta.height, fps: meta.fps, frames, out, scale },
+        const foot = await withFootage(e, props, newStart, frames, meta);
+        footNotes = foot.notes;
+        current = { ...current, text: verb + e.name + '…' };
+        await renderJob({ op: 'video', effect: e.id, props: foot.props, width: meta.width, height: meta.height, fps: meta.fps, frames, out, scale },
             (p) => { current = { ...current, p }; send(current); });
     } catch (err) {
         current = { phase: 'error', effect: e.id, text: cancelAsked ? 'Cancelled' : String(err.message || err) };
@@ -639,7 +700,7 @@ async function brollAdjust(event, o) {
     const what = rec.draft ? ' (draft)' : o.draft === false ? ' finalized at full size' : ' updated';
     current = { phase: 'done', effect: e.id, id: rec.id, text: e.name + what + ' (' + how + ', ' + sec + ' s)' };
     send({ ...current, placed: rec });
-    return { ...rec, how, seconds: Number(sec) };
+    return { ...rec, how, seconds: Number(sec), notes: footNotes.length ? footNotes : undefined };
 }
 
 // Finalize: re-render drafts at full size and swap them in place. One id, or all: true for this timeline's drafts.
@@ -662,6 +723,25 @@ async function brollFinalize(event, o) {
     }
     cancelAsked = false;
     return { finalized: results.filter(r => r.ok).length, results, note: ids.length ? undefined : 'No drafts on this timeline.' };
+}
+
+// adjust_broll { all: true, vibe }: gives every B-roll on the open timeline the same look (and any other `props`).
+// Each clip is re-rendered in place; a draft stays a draft.
+async function brollRestyle(event, o) {
+    o = o || {};
+    const { tl, name } = await currentTl();
+    const mine = readJson(PLACED_FILE, []).filter(r => r.timeline === name && r.itemId);
+    const on = mine.length ? new Set((await findItemsByIds(tl, mine.map(r => r.itemId), 'video')).keys()) : new Set();
+    const ids = mine.filter(r => on.has(r.itemId)).map(r => r.id);
+    cancelAsked = false;
+    const results = [];
+    for (const id of ids) {
+        if (cancelAsked) break;
+        try { const r = await brollAdjust(event, { id, props: o.props }); results.push({ id, ok: true, how: r.how }); }
+        catch (e) { results.push({ id, ok: false, error: String(e.message || e) }); }
+    }
+    cancelAsked = false;
+    return { restyled: results.filter(r => r.ok).length, results, note: ids.length ? undefined : 'No B-roll on this timeline.' };
 }
 
 async function brollRemove(event, o) {

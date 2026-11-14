@@ -6,6 +6,7 @@ import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
 import { loadFont as loadCaveat } from '@remotion/google-fonts/Caveat';
 import { loadFont as loadSerif } from '@remotion/google-fonts/InstrumentSerif';
 import { loadFont as loadMono } from '@remotion/google-fonts/JetBrainsMono';
+import { vibeSpring } from './vibe';
 
 export const FONT = {
     sans: loadInter('normal', { weights: ['400', '500', '600', '700', '800'], subsets: ['latin'] }).fontFamily,
@@ -17,6 +18,9 @@ export const FONT = {
 
 export type Common = {
     x: number; y: number; scale: number; accent: string; enter: number; exit: number;
+    vibe?: string;     // the look every effect draws with (lib/vibe.tsx); none = 'classic'
+    _vibe?: unknown;   // a custom vibe's tokens, laid over it (resolved by src/main/broll.js)
+    dark?: boolean;
     delay?: number;    // frame (from the clip start) where the animation In starts; nothing shows before it
     fitIn?: boolean;
     _times?: number[]; // Land on word: the frame (from the clip start) each shown word / item starts coming in (src/main/broll.js)
@@ -49,7 +53,7 @@ export function useInOut(p: Common, buildEnd?: (D: number, fps: number) => numbe
     const fit = p.fitIn && !(settle > 0) ? Math.max(1, Math.round(enter)) : 0;
     const target = settle > 0 ? settle : fit;
     const frame = target > 0 && b0 > 0 ? (raw <= target ? raw * b0 / target : b0 + (raw - target)) : raw;
-    const inn = real < delay ? 0 : enter <= 0 ? 1 : spring({ frame: fit ? raw : frame, fps, durationInFrames: Math.max(1, Math.round(enter)), config: { damping: 16, stiffness: 160 } });
+    const inn = real < delay ? 0 : enter <= 0 ? 1 : spring({ frame: fit ? raw : frame, fps, durationInFrames: Math.max(1, Math.round(enter)), config: vibeSpring(p) });
     const out = 1;   // no animation out: the finished graphic holds to the clip's last frame (props.exit is ignored)
     return { frame, raw, real, fps, durationInFrames, inn, out, enter, exit, delay };
 }
@@ -123,3 +127,23 @@ export const WordsIn: React.FC<{ text: string; times: number[]; frame: number; f
 };
 
 export const wordCount = (text: string) => String(text || '').split(/\s+/).filter(Boolean).length;
+
+// Full-frame effects (banners, HUDs, backdrops, callouts in frame coordinates): the whole frame, hidden before the In.
+export const Full: React.FC<{ p: Common; children: React.ReactNode; style?: React.CSSProperties }> = ({ p, children, style }) => {
+    const hidden = useCurrentFrame() < Math.max(0, Math.round(Number(p.delay) || 0));
+    return <AbsoluteFill style={{ pointerEvents: 'none', overflow: 'hidden', ...style, ...(hidden ? { opacity: 0 } : null) }}>{children}</AbsoluteFill>;
+};
+
+// A speech-like loudness envelope, 0..1 per frame: props._samples when the clip's audio was measured, else a seeded
+// stand-in (syllable bumps with short pauses) so audio-driven effects move without one.
+export function envelope(p: Common & { _samples?: number[] }, frame: number, fps: number, seed = 1) {
+    const s = Array.isArray(p._samples) ? p._samples : null;
+    if (s && s.length) return clamp(Number(s[Math.max(0, Math.min(s.length - 1, Math.round(frame)))]) || 0);
+    const t = frame / fps;
+    const syll = Math.abs(Math.sin(t * 9.4 + seed)) * 0.6 + Math.abs(Math.sin(t * 23.1 + seed * 2.7)) * 0.4;
+    const phrase = clamp(Math.sin(t * 1.9 + seed * 0.6) * 1.6 + 0.75);
+    return clamp(syll * phrase);
+}
+
+export const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+export const prog = (frame: number, a: number, b: number) => clamp((frame - a) / Math.max(1, b - a));

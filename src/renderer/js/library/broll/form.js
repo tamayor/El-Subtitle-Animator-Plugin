@@ -10,12 +10,33 @@ async function brLoadEffects() {
     if (!r.ready.node) miss.push('Node.js 18+ (nodejs.org, or brew install node)');
     if (!r.ready.project) miss.push('the renderer packages: in Terminal, cd "' + r.ready.dir + '" && npm install');
     brSetup(miss.length ? 'B-roll needs ' + miss.join(' and ') + '.' : '');
+    brRenderGroups();
     brRenderEffects();
     brRenderAllow();
     let last = null;
     last = store.get('brEffect');
     brPick(brUI.effects.find(e => e.id === last) ? last : (brUI.effects[0] && brUI.effects[0].id), null);
     return true;
+}
+
+// The category filter over the effect cards (effects.json `group`); '' = all.
+function brShownEffects() {
+    const g = brUI.group || '';
+    const list = g ? brUI.effects.filter(e => e.group === g) : brUI.effects;
+    return list.length ? list : brUI.effects;
+}
+function brRenderGroups() {
+    const sel = $('brGroup');
+    if (!sel) return;
+    const groups = [...new Set(brUI.effects.map(e => e.group).filter(Boolean))];
+    const saved = store.get('brGroup') || '';
+    brUI.group = groups.includes(saved) ? saved : '';
+    sel.textContent = '';
+    sel.append(createEl('option', { value: '', text: 'All effects (' + brUI.effects.length + ')' }));
+    for (const g of groups) sel.append(createEl('option', { value: g, text: g + ' (' + brUI.effects.filter(e => e.group === g).length + ')' }));
+    sel.value = brUI.group;
+    sel.classList.toggle('hidden', groups.length < 2);
+    sel.onchange = () => { brUI.group = sel.value; store.set('brGroup', brUI.group); brRenderEffects(); };
 }
 
 function brSetup(msg) {
@@ -67,7 +88,7 @@ function brSyncGallery() {
     const cards = [...box.querySelectorAll('.br-effect')];
     const dots = [...box.querySelectorAll('.gallery-dot')];
     const idx = cards.findIndex(c => c.dataset.id === brUI.sel);
-    const cur = brUI.effects[idx];
+    const cur = brShownEffects()[idx];
     const nameText = box.querySelector('.gallery-active-title');
     if (nameText && cur) {
         nameText.textContent = cur.name;
@@ -92,7 +113,8 @@ function brRenderEffects() {
     box.className = 'br-effects view-' + mode;
     box.textContent = '';
     const missing = [];
-    if (mode === 'gallery' && brUI.effects.length) {
+    const shown = brShownEffects();
+    if (mode === 'gallery' && shown.length) {
         const container = createEl('div', { class: 'gallery-container' });
         const stage = createEl('div', { class: 'gallery-viewport-row' });
         const prevBtn = createEl('button', { type: 'button', class: 'gallery-arrow gallery-prev', title: 'Previous effect', 'aria-label': 'Previous effect' });
@@ -110,7 +132,7 @@ function brRenderEffects() {
         container.append(stage, footer);
         box.append(container);
 
-        brUI.effects.forEach((e, idx) => {
+        shown.forEach((e, idx) => {
             track.append(brEffectCard(e, missing));
             const dot = createEl('button', { type: 'button', class: 'gallery-dot' + (brUI.sel === e.id ? ' active' : ''),
                 text: String(idx + 1), 'data-tip': (idx + 1) + '. ' + e.name, 'aria-label': (idx + 1) + '. ' + e.name,
@@ -118,9 +140,9 @@ function brRenderEffects() {
             dotsWrap.append(dot);
         });
         const step = (delta) => {
-            const idx = brUI.effects.findIndex(e => e.id === brUI.sel);
-            const next = Math.max(0, Math.min(brUI.effects.length - 1, (idx < 0 ? 0 : idx) + delta));
-            if (brUI.effects[next]) brPick(brUI.effects[next].id, null);
+            const idx = shown.findIndex(e => e.id === brUI.sel);
+            const next = Math.max(0, Math.min(shown.length - 1, (idx < 0 ? 0 : idx) + delta));
+            if (shown[next]) brPick(shown[next].id, null);
         };
         prevBtn.addEventListener('click', () => step(-1));
         nextBtn.addEventListener('click', () => step(1));
@@ -133,7 +155,7 @@ function brRenderEffects() {
         }, { passive: false });
         brSyncGallery();
     } else {
-        for (const e of brUI.effects) box.append(brEffectCard(e, missing));
+        for (const e of shown) box.append(brEffectCard(e, missing));
     }
     if (missing.length) {
         (async () => {
@@ -199,6 +221,19 @@ function brRenderFields(box, fields) {
             input.addEventListener('change', () => brTrace('change ' + f.key + ' ' + input.value));
             input.addEventListener('click', () => brTrace('click ' + f.key + ' from ' + input.value), true);
             box.append(createEl('label', { class: 'cut-f br-color', title: f.help }, [createEl('span', { text: f.label }), input]));
+            continue;
+        } else if (f.type === 'select') {
+            input = createEl('select', {}, (f.options || []).map(o => createEl('option', { value: o, text: o })));
+            input.value = v === undefined ? f.default : v;
+            input.addEventListener('change', () => set(input.value));
+        } else if (f.type === 'image') {
+            // a picture file (or a video, f.video): its path, typed / pasted or picked
+            input = createEl('input', { type: 'text', placeholder: f.video ? 'path to a picture or video' : 'path to a picture' });
+            input.value = v || '';
+            input.addEventListener('input', () => set(input.value.trim()));
+            const pick = createEl('button', { type: 'button', class: 'ghost', text: 'Choose…', title: f.video ? 'Pick a picture or video file' : 'Pick a picture file',
+                onclick: async () => { const p = await window.sa.pickFile(f.video ? 'media' : 'image'); if (p && !p.error) { input.value = p; set(p); } } });
+            box.append(createEl('label', { class: 'cut-f br-wide', title: f.help }, [createEl('span', { text: f.label }), createEl('div', { class: 'br-file-row' }, [input, pick])]));
             continue;
         } else if (f.type === 'list') {
             input = createEl('textarea', { rows: Math.min(6, Math.max(2, (v || []).length)), placeholder: 'one per line' });

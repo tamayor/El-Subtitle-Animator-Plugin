@@ -5,6 +5,7 @@
 import React from 'react';
 import { interpolate } from 'remotion';
 import { Common, FONT, Place, clamp, ease, useInOut } from '../lib/common';
+import { useVibe } from '../lib/vibe';
 
 type P = Common & {
     header: string; subheader: string; lines: string[]; byWord: boolean; footer: string; barcode: boolean;
@@ -71,6 +72,7 @@ function pace(units: Unit[], D: number, fps: number, enter: number, exit: number
 }
 
 export const ReceiptPrinter: React.FC<P> = (p) => {
+    const accent = useVibe(p).accent;   // the vibe's accent when the clip has none of its own
     const rows = buildRows(p);
     const units = buildUnits(rows, !!p.byWord);
     const times = Array.isArray(p._times) && p._times.length && p.byWord ? p._times.map(Number).filter(Number.isFinite) : null;
@@ -162,7 +164,7 @@ export const ReceiptPrinter: React.FC<P> = (p) => {
                                 <div key={ri} style={{ ...base, justifyContent: centred ? 'center' : 'space-between', whiteSpace: 'pre',
                                     fontSize: header ? 42 : r.kind === 'sub' ? 20 : FS, fontWeight: header || r.kind === 'footer' || marked ? 700 : 400,
                                     letterSpacing: header ? 1.5 : r.kind === 'sub' ? 2 : 0, opacity: r.kind === 'sub' ? 0.7 : 1,
-                                    background: marked ? p.accent : 'transparent', margin: marked ? '0 -8px' : 0, padding: marked ? '0 8px' : 0,
+                                    background: marked ? accent : 'transparent', margin: marked ? '0 -8px' : 0, padding: marked ? '0 8px' : 0,
                                     clipPath: wipe < 1 ? `inset(0 ${(1 - wipe) * 100}% 0 0)` : undefined }}>
                                     <span>{(r.left || []).map(word)}</span>
                                     {r.right ? (frame >= shownAt(ri, rightK) ? <span style={{ fontWeight: 700 }}>{r.right}</span> : null) : null}
@@ -181,8 +183,8 @@ export const ReceiptPrinter: React.FC<P> = (p) => {
                         boxShadow: 'inset 0 3px 4px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.08)' }} />
                     <div style={{ position: 'absolute', left: 40, bottom: 36, display: 'flex', alignItems: 'center', gap: 12,
                         fontFamily: FONT.mono, fontSize: 15, letterSpacing: 3, color: 'rgba(255,255,255,.45)' }}>
-                        <div style={{ width: 14, height: 14, borderRadius: 14, background: p.accent,
-                            opacity: printing ? (Math.floor(frame / 4) % 2 ? 1 : 0.45) : 0.9, boxShadow: `0 0 14px ${p.accent}` }} />
+                        <div style={{ width: 14, height: 14, borderRadius: 14, background: accent,
+                            opacity: printing ? (Math.floor(frame / 4) % 2 ? 1 : 0.45) : 0.9, boxShadow: `0 0 14px ${accent}` }} />
                         {printing ? 'PRINTING' : 'READY'}
                     </div>
                     <div style={{ position: 'absolute', right: 40, bottom: 30, width: 92, height: 30, borderRadius: 15, background: '#0f0f11',

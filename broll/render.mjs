@@ -74,18 +74,20 @@ function dataUrl(file) {
 // props._bg.dir: a video backdrop's frames (b%05d.jpg). The page can only load what the bundle's server serves, so each
 // folder is linked into the bundle for this job (hard links, a copy across volumes) and the effect gets its URL in
 // .url. Returns the function that takes them out again.
+// props._assets.dir: a collage project's assets/ folder (pictures by name), linked the same way.
 const FRAME_FILE = /^[cfpb]\d{5}\.(png|jpg)$/;
+const ASSET_FILE = /^[^/\\]+\.(png|jpe?g|webp|svg)$/i;
 function linkFootage(props, serveDir) {
     const made = [];
-    for (const key of ['_seq', '_bg']) {
+    for (const key of ['_seq', '_bg', '_assets']) {
         const seq = props[key];
         if (!seq || !seq.dir || !fs.existsSync(seq.dir)) { delete props[key]; continue; }
-        const name = 'footage-' + crypto.randomBytes(4).toString('hex');
+        const name = (key === '_assets' ? 'assets-' : 'footage-') + crypto.randomBytes(4).toString('hex');
         const to = path.join(serveDir, name);
         fs.mkdirSync(to, { recursive: true });
         made.push(to);
         for (const n of fs.readdirSync(seq.dir)) {
-            if (!FRAME_FILE.test(n)) continue;
+            if (!(key === '_assets' ? ASSET_FILE : FRAME_FILE).test(n)) continue;
             try { fs.linkSync(path.join(seq.dir, n), path.join(to, n)); } catch { fs.copyFileSync(path.join(seq.dir, n), path.join(to, n)); }
         }
         props[key] = { ...seq, url: name, dir: undefined };

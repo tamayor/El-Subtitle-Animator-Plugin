@@ -57,6 +57,8 @@ import { NotificationStack } from './effects/NotificationStack';
 import { ChecklistCard } from './effects/ChecklistCard';
 import { AvatarSplit } from './effects/AvatarSplit';
 import { TimelineArc } from './effects/TimelineArc';
+import { CollageTrack } from './collage/CollageTrack';
+import { CollageCaptions } from './collage/Captions';
 
 const COMPONENTS: Record<string, React.FC<any>> = {
     'live-cursor': LiveCursor, 'comment-drop': CommentDrop, 'predict-keys': PredictKeys, 'day-dial': DayDial,
@@ -93,5 +95,15 @@ export const Root: React.FC = () => (
                     durationInFrames: Math.max(1, Math.round(props._frames || (e.seconds || 3) * (props._fps || 30)))
                 })} />
         ))}
+        {/* collage b-roll pipeline (broll/collage/): not panel effects, so not in effects.json */}
+        <Composition id="collage-track" component={CollageTrack as React.FC<any>} defaultProps={{ beats: [], from: 0 }}
+            width={1080} height={1920} fps={30} durationInFrames={90} calculateMetadata={sizedByProps} />
+        <Composition id="collage-captions" component={CollageCaptions as React.FC<any>} defaultProps={{ words: [], from: 0 }}
+            width={1080} height={1920} fps={30} durationInFrames={90} calculateMetadata={sizedByProps} />
     </>
 );
+
+function sizedByProps({ props }: any) {
+    return { width: Math.round(props._w || 1080), height: Math.round(props._h || 1920), fps: props._fps || 30,
+        durationInFrames: Math.max(1, Math.round(props._frames || 90)) };
+}

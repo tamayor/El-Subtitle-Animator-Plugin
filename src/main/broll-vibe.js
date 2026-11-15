@@ -10,12 +10,12 @@
 //   dark             true = the dark surface on every card
 //   corners          0..2, multiplier on each effect's own corner radius (0 = square)
 //   outline          card border width in px (at the 1080 design size)
-//   font             one face for everything: sans | serif | serifItalic | mono | hand
+//   font             one face for everything: sans | serif | serifItalic | mono | hand | garamond | garamondItalic | arial
 //   displayFont, bodyFont, labelFont, numFont, quoteFont, connectorFont   one role's face
 //   weight           the headline weight, 100..900
 //   motion           "soft" | "snappy" | "bouncy" | "calm" | "steps", or { damping, stiffness, mass, rise, pop, tilt, stagger, steps }
 
-const FACES = ['sans', 'serif', 'serifItalic', 'mono', 'hand'];
+const FACES = ['sans', 'serif', 'serifItalic', 'mono', 'hand', 'garamond', 'garamondItalic', 'arial'];
 const ROLES = ['display', 'body', 'label', 'num', 'connector', 'quote'];
 const MOTIONS = {
     soft: { damping: 20, stiffness: 110, mass: 1, rise: 26, pop: 0.94, tilt: 0, stagger: 5, steps: 0 },

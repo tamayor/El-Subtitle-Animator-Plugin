@@ -23,7 +23,7 @@ export type Vibe = {
     hardShadow?: string;     // an offset solid shadow (Bold Pop); replaces the soft one when set
     bare: { color: string; shadow: string };   // text drawn straight on the footage, no card
     font: {
-        // faces are keys of lib/common's FONT: sans / serif / serifItalic / mono / hand
+        // faces are keys of lib/common's FONT: sans / serif / serifItalic / mono / hand / garamond / garamondItalic / arial
         display: string; displayWeight: number; displayStyle: 'normal' | 'italic'; displayTracking: number;   // em
         body: string; bodyWeight: number;
         label: string; labelWeight: number; labelCase: 'uppercase' | 'none'; labelTracking: number;           // em
@@ -50,7 +50,7 @@ const classic = VIBES[0];
 export const DEFAULT_VIBE = classic.id;
 
 // Handwriting and mono faces run small / wide next to Inter at the same font-size: the factor that evens them out.
-const OPTICAL: Record<string, number> = { hand: 1.22, mono: 0.86, serif: 1.08, serifItalic: 1.08 };
+const OPTICAL: Record<string, number> = { hand: 1.22, mono: 0.86, serif: 1.08, serifItalic: 1.08, garamond: 1.1, garamondItalic: 1.1 };
 
 function overlay<T>(base: T, over: any): T {
     if (!over || typeof over !== 'object') return base;

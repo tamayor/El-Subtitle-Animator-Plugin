@@ -6,6 +6,8 @@ import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
 import { loadFont as loadCaveat } from '@remotion/google-fonts/Caveat';
 import { loadFont as loadSerif } from '@remotion/google-fonts/InstrumentSerif';
 import { loadFont as loadMono } from '@remotion/google-fonts/JetBrainsMono';
+import { loadFont as loadGaramond } from '@remotion/google-fonts/EBGaramond';
+import { loadFont as loadArimo } from '@remotion/google-fonts/Arimo';
 import { vibeSpring } from './vibe';
 
 export const FONT = {
@@ -13,7 +15,12 @@ export const FONT = {
     hand: loadCaveat('normal', { weights: ['400', '700'], subsets: ['latin'] }).fontFamily,
     serif: loadSerif('normal', { subsets: ['latin'] }).fontFamily,
     serifItalic: loadSerif('italic', { subsets: ['latin'] }).fontFamily,
-    mono: loadMono('normal', { weights: ['400', '700'], subsets: ['latin'] }).fontFamily
+    mono: loadMono('normal', { weights: ['400', '700'], subsets: ['latin'] }).fontFamily,
+    // Before 2028 pairing (2026-11-15): EB Garamond for the serif lines, Arial for the sans. Arial is the system face
+    // (Chrome on macOS has it); Arimo, its metric twin, stands in where it is missing. Arial has no 800: bold = 700.
+    garamond: loadGaramond('normal', { weights: ['400', '500', '600', '700', '800'], subsets: ['latin'] }).fontFamily,
+    garamondItalic: loadGaramond('italic', { weights: ['400', '500', '600'], subsets: ['latin'] }).fontFamily,
+    arial: `Arial, ${loadArimo('normal', { weights: ['400', '700'], subsets: ['latin'] }).fontFamily}, sans-serif`
 };
 
 export type Common = {

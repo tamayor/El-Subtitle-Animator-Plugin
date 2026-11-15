@@ -243,10 +243,14 @@ function sfxCuesOf(beats, opts) {
             return;
         }
         const prev = list[i - 1];
-        // a card that follows straight on from another card still whooshes; a title card hits instead
-        if (b.visual === 'title') { const t = ov.find(x => x && x.type === 'title'); add(a + ((t && t.at) ?? 2), 'hit', b.id); } else add(a - (prev && prev.visual !== 'talking-head' ? 0 : lead), 'whoosh', b.id);
+        // a card that follows straight on from another card still whooshes; a title card hits instead. opts.hand (the
+        // 'hand' motion: hard cuts) drops the entrance whoosh: a cut makes no sound.
+        if (b.visual === 'title') { const t = ov.find(x => x && x.type === 'title'); add(a + ((t && t.at) ?? 2), 'hit', b.id); } else if (!o.hand) add(a - (prev && prev.visual !== 'talking-head' ? 0 : lead), 'whoosh', b.id);
         if (b.visual === 'stack') { const n = Math.min(4, assetsFor(b).length); for (let j = 1; j < n; j++) add(a + j * 9, 'pop', b.id); }
-        if (b.visual === 'document') add(a + (b.highlightAt ?? 16), 'marker', b.id);
+        if (b.visual === 'document') {
+            if (Array.isArray(b.highlightAts) && b.highlightAts.length) for (const h of b.highlightAts) add(a + h, 'marker', b.id);
+            else add(a + (b.highlightAt ?? 16), 'marker', b.id);
+        }
         for (const x of ov) {
             if (!x || x.type === 'title') continue;
             const at = x.at ?? (x.type === 'date' ? 8 : x.type === 'label' ? 12 : 16);

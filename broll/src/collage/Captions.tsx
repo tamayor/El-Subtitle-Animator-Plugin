@@ -3,8 +3,7 @@
 // Chunks break after punctuation, at a pause longer than 8 frames, at maxWords or at maxChars.
 import React from 'react';
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
-import { brandOf, type Brand } from './brand';
-import { FONT } from '../lib/common';
+import { brandOf, fontOf, type Brand } from './brand';
 import { k01 } from './cards';
 
 export type Word = { w: string; start: number; end: number };
@@ -41,7 +40,7 @@ export const CollageCaptions: React.FC<{ words: Word[]; from: number; brand?: Pa
         <AbsoluteFill>
             <div style={{ position: 'absolute', left: 0, top: 0, width: 1080, height: H, transform: `scale(${u})`, transformOrigin: 'left top' }}>
                 <div style={{ position: 'absolute', left: 60, right: 60, top: c.y * H, transform: `translateY(-50%) scale(${0.92 + 0.08 * pop})`,
-                    textAlign: 'center', fontFamily: FONT.sans, fontWeight: c.weight, fontSize: c.size, lineHeight: 1.15, textShadow: STROKE }}>
+                    textAlign: 'center', fontFamily: fontOf(b, 'sans'), fontWeight: c.weight, fontSize: c.size, lineHeight: 1.15, textShadow: STROKE }}>
                     {chunk.words.map((w, i) => {
                         const nextStart = chunk.words[i + 1]?.start ?? chunk.end;
                         const on = g >= w.start && g < nextStart;

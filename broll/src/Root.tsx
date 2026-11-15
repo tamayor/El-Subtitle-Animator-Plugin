@@ -58,7 +58,9 @@ import { NotificationStack } from './effects/NotificationStack';
 import { ChecklistCard } from './effects/ChecklistCard';
 import { AvatarSplit } from './effects/AvatarSplit';
 import { TimelineArc } from './effects/TimelineArc';
+import { ReasonScene } from './effects/ReasonScene';
 import { CollageTrack } from './collage/CollageTrack';
+import { withHand } from './lib/hand';
 import { CollageCaptions } from './collage/Captions';
 
 const COMPONENTS: Record<string, React.FC<any>> = {
@@ -76,8 +78,11 @@ const COMPONENTS: Record<string, React.FC<any>> = {
     'before-after-wipe': BeforeAfterWipe, 'editor-reveal': EditorReveal, 'video-wall': VideoWall,
     'paper-cut': PaperCut, 'depth-scatter': DepthScatter, 'orbit-carousel': OrbitCarousel,
     'frame-break-card': FrameBreakCard, 'vertigo-dolly': VertigoDolly, 'green-screen-stage': GreenScreenStage,
-    'notification-stack': NotificationStack, 'checklist-card': ChecklistCard, 'avatar-split': AvatarSplit, 'timeline-arc': TimelineArc
+    'notification-stack': NotificationStack, 'checklist-card': ChecklistCard, 'avatar-split': AvatarSplit, 'timeline-arc': TimelineArc, 'reason-scene': ReasonScene
 };
+
+// every effect can take the common `hand` prop (stop motion + line boil, lib/hand.tsx)
+const HANDED: Record<string, React.FC<any>> = Object.fromEntries(Object.entries(COMPONENTS).map(([k, c]) => [k, withHand(c)]));
 
 function defaultsFor(e: any) {
     const out: Record<string, unknown> = {};
@@ -89,7 +94,7 @@ function defaultsFor(e: any) {
 export const Root: React.FC = () => (
     <>
         {registry.effects.filter((e: any) => COMPONENTS[e.id]).map((e: any) => (
-            <Composition key={e.id} id={e.id} component={COMPONENTS[e.id]} defaultProps={defaultsFor(e)}
+            <Composition key={e.id} id={e.id} component={HANDED[e.id]} defaultProps={defaultsFor(e)}
                 width={1920} height={1080} fps={30} durationInFrames={Math.round((e.seconds || 3) * 30)}
                 calculateMetadata={({ props }: any) => ({
                     width: Math.round(props._w || 1920), height: Math.round(props._h || 1080), fps: props._fps || 30,

@@ -51,7 +51,7 @@ export const YearTimeline: React.FC<P> = (p) => {
                         return (
                             <div key={y} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                                 transform: `translateX(${(1 - k) * 90}px)`, opacity: active ? 1 : 0.6 }}>
-                                <span style={{ fontFamily: FONT.mono, fontSize: 15, fontWeight: active ? 700 : 400, color: active ? L.accent : dim }}>{y}</span>
+                                <span style={{ fontFamily: L.v.font.label === FONT.arial ? FONT.arial : FONT.mono, fontSize: 15, fontWeight: active ? 700 : 400, color: active ? L.accent : dim }}>{y}</span>
                                 <span style={{ width: 2, height: y % 5 === 0 ? 18 : 10, background: active ? L.accent : dim, borderRadius: 1 }} />
                             </div>
                         );

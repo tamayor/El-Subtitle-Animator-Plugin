@@ -510,7 +510,7 @@ async function placeEffectSounds(tl, project, meta, effectId, clipId, spec, warn
             const len = Math.max(1, b - a);
             const layer = Object.assign({}, base, { id: 'fx' + effectId + i, offset: a, lenMode: 'fixed', len,
                 trimIn: i === 0 && a === 0 ? 0 : (i * 37 + 13) % Math.max(1, room - len), fade: Math.min(2, Math.floor(len / 2)) });
-            const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, false, null, null);
+            const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, true, null, null);      // projectCopy: the sound is copied next to the footage
             for (const x of got) {
                 const v = vary.next();
                 if (i > 0 && v.cents) { try { await x.it.SetProperties({ AudioPitchEnabled: true, AudioPitchSemiTones: 0, AudioPitchCents: v.cents }); } catch (e) { /* pitch is a convenience */ } }
@@ -521,7 +521,7 @@ async function placeEffectSounds(tl, project, meta, effectId, clipId, spec, warn
     }
     const layer = Object.assign({}, base, { id: 'fx' + effectId, offset: 0, trimIn: Number(spec.trimIn) || 0,
         len: spec.len === 'clip' ? 0 : Math.max(1, Math.round(Number(spec.len) || 0)), lenMode: spec.len === 'clip' ? 'clip' : 'fixed', fade: spec.fade });
-    const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, false, null, null);
+    const got = await P.placeExtraSfx(tl, project, meta, [layer], start, end, [], item, clipId, warnings, null, true, null, null);      // projectCopy: the sound is copied next to the footage
     return got.map(x => x.id);
 }
 // The audio track of the clip's own sound: its linked audio clips (the lowest track among them), else 0 (auto).

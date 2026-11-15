@@ -56,6 +56,25 @@ function userDir() { return require('electron').app.getPath('userData'); }
 function venvPython() { return path.join(userDir(), 'tracker-venv', 'bin', 'python3'); }
 function modelPath() { return path.join(userDir(), 'models', MODEL_FILE); }
 function spotRoot() { return path.join(userDir(), 'spotlight'); }
+// The cut-outs go next to the footage, "<footage folder>/El Subtitle Animator Spotlight/<id>/" (beside
+// "El Subtitle Animator SFX", sfx-import.timelineSfxDir), so the project keeps them when moved or archived.
+// With no footage folder (empty timeline / not writable) they stay in the app's own spotlight folder as before.
+const PROJECT_SPOT_DIR = 'El Subtitle Animator Spotlight';
+async function spotBase() {
+    try {
+        const project = await require('./resolve').getProject();
+        const footage = project ? await require('./sfx-import').timelineSfxDir(project) : null;
+        if (footage) {
+            const d = path.join(footage, PROJECT_SPOT_DIR);
+            fs.mkdirSync(d, { recursive: true });
+            return d;
+        }
+    } catch (e) { /* app folder */ }
+    return spotRoot();
+}
+function isOwnSpotDir(dir) {
+    return dir.startsWith(path.resolve(spotRoot()) + path.sep) || path.basename(path.dirname(dir)) === PROJECT_SPOT_DIR;
+}
 
 function run(cmd, args, opts, onLine) {
     return new Promise((resolve) => {
@@ -239,7 +258,7 @@ async function spotRun(event, opts) {
     const [lo, hi] = src.range;
     const id = Date.now().toString(36);
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'elsa-spot-'));
-    const dir = path.join(spotRoot(), id);
+    const dir = path.join(await spotBase(), id);
     fs.mkdirSync(dir, { recursive: true });
     const cancelPath = path.join(tmp, 'cancel');
     job = { cancelPath, proc: null, cancelled: false };
@@ -327,7 +346,7 @@ async function spotRemove(event, itemId) {
     const r = await bridgeCall('spot_remove', { item: String(itemId) }, 20000, { lane: 0 });
     const dir = r && r.dir ? path.resolve(String(r.dir)) : null;
     // only ever our own folders
-    if (dir && dir.startsWith(path.resolve(spotRoot()) + path.sep)) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* in use */ } }
+    if (dir && isOwnSpotDir(dir)) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* in use */ } }
     return r;
 }
 

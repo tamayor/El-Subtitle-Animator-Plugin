@@ -54,8 +54,14 @@ function isUncompressedPng(file) {
         const w = head.readUInt32BE(16), h = head.readUInt32BE(20), depth = head[24], ch = CHANNELS[head[25]];
         if (!ch) return false;
         const raw = h * (1 + Math.ceil(w * ch * depth / 8));
-        return fs.statSync(file).size > raw * 0.6;
-    } catch (e) { return false; }
+        return fs.fstatSync(fd).size > raw * 0.6;
+    } catch (e) {
+        return false;
+    } finally {
+        // closed every time: this runs over every preview frame at start-up, and the leaked descriptors (~8000)
+        // ran the panel out of files (EMFILE on preset .comp reads, failed child processes, panel quitting)
+        if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) { /* ignore */ } }
+    }
 }
 
 function paeth(a, b, c) {

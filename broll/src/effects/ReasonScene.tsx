@@ -9,6 +9,8 @@ import { AbsoluteFill, Img, useCurrentFrame } from 'remotion';
 import { Common, FONT, clamp, ease } from '../lib/common';
 import { Background, FilmBorder } from '../collage/cards';
 import { brandOf } from '../collage/brand';
+import { Grain } from '../lib/paper';
+import { RisoIllo, IlloItem } from './RisoIllo';
 
 type P = Common & {
     scene: string; title: string; number: number; total: number; at: string | number[];
@@ -441,7 +443,8 @@ export const ReasonScene: React.FC<P> = (p) => {
     const at = nums(p.at), s = steps(f, at);
     const scene: SceneFn | null = String(p.scene || 'none') === 'none' ? null : (SCENES[String(p.scene)] || null);
     const pp = p as any;
-    const photos = [pp.photo1, pp.photo2, pp.photo3, pp.photo4].map((x: unknown) => String(x || '')).filter((x: string) => x);
+    // up to 14 pictures (Ep. 07 rapid cut of clogged drains)
+    const photos = Array.from({ length: 14 }, (_, i) => pp['photo' + (i + 1)]).map((x: unknown) => String(x || '')).filter((x: string) => x);
     const pAts = nums(pp.photoAts);
     const fits = String(pp.photoFits || '').split(',').map((x) => x.trim());
     const poss = String(pp.photoPos || '').split('|').map((x) => x.trim());
@@ -453,9 +456,28 @@ export const ReasonScene: React.FC<P> = (p) => {
     type Sticker = { e: string; at: number; x: number; y: number; size?: number; rot?: number };
     const stickers = ((Array.isArray(pp.stickers) ? pp.stickers : (() => { try { return JSON.parse(String(pp.stickers || '[]')); } catch { return []; } })()) as Sticker[])
         .map((s) => ({ ...s, at: Number(s.at) || 0 }));
+    const showFrame = pp.frame !== false && String(pp.frame) !== 'false';
+    // poster (Ep. 09, user: "Risograph Poster Collage Style ... consistent and cleaner"): a flat cream paper panel with a flat
+    // colour block printed out of register behind it instead of the film strip, a LIGHT paper tooth over the picture (user:
+    // evidence photos / documents stay clean and natural, never halftoned; the heavy riso look is for cards, labels and
+    // accent blocks only, which get the stronger soy-ink mottling), and every tag / label set straight with a flat offset block instead of a soft
+    // shadow, a random tilt and a string. One motion for everything: a hard cut that settles on twos.
+    const poster = pp.poster === true || String(pp.poster) === 'true';
+    const blockCol = ({ straw: STRAW, matcha: MATCHA, ink: INK } as Record<string, string>)[String(pp.block || 'straw')] || STRAW;
+    type Cutout = { img: string; src?: string; at: number; x: number; y: number; w?: number; rot?: number; label?: string; still?: boolean; pop?: boolean;
+        fx?: number; fy?: number; fly?: number; spin?: number; outAt?: number; ox?: number; oy?: number; outFrames?: number };
+    // energy bursts (rays + rings + a white core) at a point of the stage, e.g. out of a face on the parody tarp
+    type Burst = { at: number; x: number; y: number; dur?: number; r?: number };
+    const bursts = ((() => { try { return JSON.parse(String(pp.bursts || '[]')); } catch { return []; } })()) as Burst[];
+    // bottle fill comparison: same pesos, how much you get (mL); the loss shown on the first bottle
+    type BottleItem = { label: string; ml: number; at: number };
+    type Bottles = { x: number; y: number; w?: number; h?: number; gap?: number; max: number; items: BottleItem[]; lossAt?: number; lossText?: string; lossNote?: string; note?: string; color?: string };
+    const bottles = ((() => { try { const v = JSON.parse(String(pp.bottles || 'null')); return v && v.items ? v : null; } catch { return null; } })()) as Bottles | null;
+    const cutouts = ((Array.isArray(pp.cutouts) ? pp.cutouts : (() => { try { return JSON.parse(String(pp.cutouts || '[]')); } catch { return []; } })()) as Cutout[])
+        .map((c) => ({ ...c, at: Number(c.at) || 0, src: String(pp[c.img] || '') }));
     const tagTop = Number(pp.tagTop) || 420, tagGap = Number(pp.tagGap) || 96;
     const hasHead = !!String(p.title || '').trim();
-    const stageH = Math.round(Number(p.stageH) || 820), stageW = 820;
+    const stageH = Math.round(Number(p.stageH) || 820), stageW = Math.round(Number(pp.stageW) || 820);   // stageW: the panel takes its picture's shape (a tall picture = a tall panel, no side padding)
     const stageY = Math.round(Number(p.stageY) || (hasHead ? 470 : 300));
     const left = (1080 - stageW) / 2;
     const imgs = [p.image1, p.image2, p.image3].map((x) => String(x || '')).filter((x) => x);
@@ -466,7 +488,10 @@ export const ReasonScene: React.FC<P> = (p) => {
     let y = stageY + stageH + 96;
     return (
         <AbsoluteFill>
-            <Background b={b} H={H} />
+            {/* backdrop: a riso paper sheet (before-2028/tools/riso_backdrop.py) instead of the dark collage backdrop */}
+            {String(pp.backdrop || '') ? <Img src={String(pp.backdrop)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} /> : <Background b={b} H={H} />}
+            {/* illo: a riso illustration acting out the topic on the backdrop, so a thought with only a card / title is never an empty sheet */}
+            {(() => { let it: IlloItem[] = []; try { it = Array.isArray(pp.illo) ? pp.illo : JSON.parse(String(pp.illo || '[]')); } catch { it = []; } return it.length ? <RisoIllo items={it} f={f} /> : null; })()}
             {hasHead && (
                 <div style={{ position: 'absolute', left: 0, right: 0, top: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', transform: `scale(${1.1 - 0.1 * headK})` }}>
                     {Number(p.number) > 0 && (
@@ -474,31 +499,37 @@ export const ReasonScene: React.FC<P> = (p) => {
                             <svg width={132} height={120} style={{ position: 'absolute', inset: 0 }}>
                                 <path d="M66 10 C112 6 128 40 122 66 C116 100 80 114 52 110 C18 104 4 74 10 48 C16 22 44 8 78 14" stroke={STRAW} strokeWidth={7} fill="none" strokeLinecap="round" />
                             </svg>
-                            <div style={{ fontFamily: FONT.garamond, fontWeight: 700, fontSize: 88, color: PAPER, lineHeight: 1 }}>{p.number}</div>
+                            <div style={{ fontFamily: FONT.garamond, fontWeight: 700, fontSize: 88, color: String(pp.backdrop || '') ? INK : PAPER, lineHeight: 1 }}>{p.number}</div>
                         </div>
                     )}
-                    <div style={{ fontFamily: FONT.garamond, fontWeight: 700, fontSize: 82, color: PAPER, marginTop: 8, textAlign: 'center', lineHeight: 1.05, maxWidth: 960, textShadow: '0 4px 18px rgba(0,0,0,.5)' }}>{p.title}</div>
+                    <div style={{ fontFamily: FONT.garamond, fontWeight: 700, fontSize: 82, color: String(pp.backdrop || '') ? INK : PAPER, marginTop: 8, textAlign: 'center', lineHeight: 1.05, maxWidth: 960, textShadow: String(pp.backdrop || '') ? 'none' : '0 4px 18px rgba(0,0,0,.5)' }}>{p.title}</div>
                 </div>
             )}
             <div style={{ position: 'absolute', left, top: stageY, width: stageW, height: stageH }}>
-                <FilmBorder box={{ w: stageW, h: stageH }} seed={Number(p.number) || 3} shadow="0 24px 60px rgba(0,0,0,.55)" edgeColor={STRAW} />
-                <svg width={stageW} height={stageH} viewBox={`0 0 ${stageW} ${stageH}`} style={{ position: 'absolute', inset: 0, background: PAPER, overflow: 'hidden' }}>
-                    {scene ? scene(s, f, stageH) : null}
-                </svg>
+                {/* frame: false = no film strip and no paper, the stage only places cut-outs / tags over the backdrop */}
+                {showFrame && !poster && <FilmBorder box={{ w: stageW, h: stageH }} seed={Number(p.number) || 3} shadow="0 24px 60px rgba(0,0,0,.55)" edgeColor={STRAW} />}
+                {showFrame && poster && <div style={{ position: 'absolute', left: 16, top: 14, width: stageW, height: stageH, background: blockCol }} />}
+                {showFrame && poster && <div style={{ position: 'absolute', inset: 0, background: '#fbfaf6', outline: `4px solid ${INK}` }} />}
+                {showFrame && !poster && (
+                    <svg width={stageW} height={stageH} viewBox={`0 0 ${stageW} ${stageH}`} style={{ position: 'absolute', inset: 0, background: PAPER, overflow: 'hidden' }}>
+                        {scene ? scene(s, f, stageH) : null}
+                    </svg>
+                )}
                 {/* real pictures (memes, photos) in the frame: each hard-cuts in on its word over the one before */}
                 {photos.map((src, i) => {
                     const a = pAts[i] ?? 0;
                     if (f < a || photos.some((_, j) => j > i && f >= (pAts[j] ?? 0))) return null;
-                    const sc = 1.1 - 0.1 * ease(clamp((f - a) / 10));
+                    const sc = poster ? 1.06 - 0.06 * ease(clamp((Math.floor((f - a) / 2) * 2) / 8)) : 1.1 - 0.1 * ease(clamp((f - a) / 10));
                     return (
-                        <div key={i} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#111' }}>
+                        <div key={i} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: poster ? '#fbfaf6' : '#111' }}>
                             <Img src={src} style={{ width: '100%', height: '100%', objectFit: (fits[i] || 'cover') as any, objectPosition: poss[i] || 'center', transform: `scale(${sc})` }} />
                         </div>
                     );
                 })}
+                {poster && showFrame && <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}><Grain id={`rsg${Number(p.number) || 0}`} opacity={0.12} seed={5} /></div>}
                 {label && f >= labelAt && (
                     <div style={{ position: 'absolute', left: 0, right: 0, top: labelY, display: 'flex', justifyContent: 'center' }}>
-                        <div style={{ background: STRAW, color: '#fff', fontFamily: FONT.arial, fontWeight: 700, fontSize: 44, letterSpacing: 2, padding: '10px 26px', transform: `rotate(-3deg) scale(${1.15 - 0.15 * ease(clamp((f - labelAt) / 8))})`, boxShadow: '0 8px 20px rgba(0,0,0,.45)' }}>{label}</div>
+                        <div style={{ background: STRAW, color: '#fff', fontFamily: FONT.arial, fontWeight: 700, fontSize: 44, letterSpacing: 2, padding: '10px 26px', whiteSpace: 'nowrap', flex: 'none', transform: poster ? `rotate(-2deg) scale(${1.12 - 0.12 * ease(clamp((Math.floor((f - labelAt) / 2) * 2) / 8))})` : `rotate(-3deg) scale(${1.15 - 0.15 * ease(clamp((f - labelAt) / 8))})`, boxShadow: poster ? `8px 7px 0 ${INK}` : '0 8px 20px rgba(0,0,0,.45)', position: 'relative' }}>{label}{poster && <Grain id="rsgl" opacity={0.6} seed={9} />}</div>
                     </div>
                 )}
                 {/* stickers: emoji reactions (😡 🔥 😆 🤣) and the anime anger mark, popping in on the words */}
@@ -529,11 +560,119 @@ export const ReasonScene: React.FC<P> = (p) => {
                         </div>
                     );
                 })}
+                {/* cut-outs: die-cut PNGs of the things being named (a sachet, a packet), slapped onto the frame on their
+                    word: hard cut at 110 % settling on twos, a slight boil, an optional strawberry name tag */}
+                {cutouts.map((c, i) => {
+                    if (f < c.at || !c.src) return null;
+                    // still: a plain hard cut, no settle and no boil (user, Ep. 07: "no animation")
+                    const t = f - c.at, k = c.still ? 1 : ease(clamp((Math.floor(t / 2) * 2) / 10));
+                    const boil = c.still ? 0 : Math.sin(Math.floor(f / 4) * 1.9 + i * 2.1) * 0.8;
+                    // pop: the sticker bounce (0.3 -> 1.3 -> 1 over 8 frames) for a run of things popping in one by one
+                    const sc = c.pop ? (t < 4 ? 0.3 + (t / 4) * 1.0 : t < 8 ? 1.3 - ((t - 4) / 4) * 0.3 : 1) : 1.1 - 0.1 * k;
+                    const w = c.w || 300;
+                    // fly in from (fx, fy) over `fly` frames, and get thrown out to (ox, oy) from `outAt` (on twos, spinning)
+                    let x = c.x, y = c.y, spin = 0;
+                    if (c.fx !== undefined && c.fy !== undefined) {
+                        const fl = c.fly || 12, q = ease(clamp((Math.floor(t / 2) * 2) / fl));
+                        x = c.fx + (c.x - c.fx) * q; y = c.fy + (c.y - c.fy) * q; spin = (1 - q) * (c.spin ?? 200);
+                    }
+                    if (c.outAt !== undefined && f >= c.outAt) {
+                        const q = clamp((Math.floor((f - c.outAt) / 2) * 2) / (c.outFrames || 12)), e2 = q * q;
+                        x += ((c.ox ?? x) - x) * e2; y += ((c.oy ?? y) - y) * e2; spin += (c.spin ?? 200) * 2 * q;
+                    }
+                    const flyScale = c.fx !== undefined ? 1 : sc;
+                    return (
+                        <div key={'cut' + i} style={{ position: 'absolute', left: x, top: y, width: w, transform: `translate(-50%, -50%) rotate(${(c.rot || 0) + boil + spin}deg) scale(${flyScale})`,
+                            filter: poster ? 'none' : 'drop-shadow(0 14px 18px rgba(0,0,0,.55))' }}>
+                            <Img src={c.src} style={{ display: 'block', width: '100%' }} />
+                            {c.label && (
+                                <div style={{ position: 'absolute', left: '50%', bottom: -18, transform: 'translateX(-50%) rotate(-4deg)', background: STRAW, color: '#fff', fontFamily: FONT.arial, fontWeight: 700,
+                                    fontSize: 30, letterSpacing: 1.5, padding: '6px 16px', whiteSpace: 'nowrap', boxShadow: '0 6px 14px rgba(0,0,0,.45)' }}>{c.label}</div>
+                            )}
+                        </div>
+                    );
+                })}
+                {/* bottle fill comparison: two bottles, the liquid rising on twos to what the same pesos buy; the
+                    sachet bottle then shows the missing part as a strawberry dashed ghost with the loss */}
+                {bottles && (() => {
+                    const bw = bottles.w || 240, bh = bottles.h || 470, gap = bottles.gap || 340, n = bottles.items.length;
+                    const neckW = bw * 0.36, neckH = bh * 0.12, bodyH = bh - neckH, col = bottles.color || STRAW;
+                    const lossK = bottles.lossAt !== undefined && f >= bottles.lossAt ? ease(clamp((Math.floor((f - bottles.lossAt) / 2) * 2) / 10)) : 0;
+                    const level = (ml: number) => bodyH * Math.min(1, ml / bottles.max);
+                    return (
+                        <svg width={stageW} height={stageH} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}>
+                            {bottles.items.map((it, i) => {
+                                const cx = bottles.x + (i - (n - 1) / 2) * gap, top = bottles.y, bodyTop = top + neckH, bottom = top + bh;
+                                const k = f < it.at ? 0 : ease(clamp((Math.floor((f - it.at) / 2) * 2) / 18));
+                                const lv = level(it.ml) * k, body = `M${cx - bw / 2 + 30} ${bodyTop} Q${cx - bw / 2} ${bodyTop} ${cx - bw / 2} ${bodyTop + 40} L${cx - bw / 2} ${bottom - 24} Q${cx - bw / 2} ${bottom} ${cx - bw / 2 + 24} ${bottom} L${cx + bw / 2 - 24} ${bottom} Q${cx + bw / 2} ${bottom} ${cx + bw / 2} ${bottom - 24} L${cx + bw / 2} ${bodyTop + 40} Q${cx + bw / 2} ${bodyTop} ${cx + bw / 2 - 30} ${bodyTop} Z`;
+                                const other = bottles.items.reduce((m, o) => Math.max(m, o.ml), 0);
+                                const ghost = i === 0 && lossK > 0 ? (level(other) - level(it.ml)) : 0;
+                                return (
+                                    <g key={'b' + i}>
+                                        <clipPath id={`bclip${i}`}><path d={body} /></clipPath>
+                                        <rect x={cx - neckW / 2} y={top} width={neckW} height={neckH + 6} rx={8} fill={PAPER2} stroke={INK} strokeWidth={SW} />
+                                        <path d={body} fill={PAPER2} />
+                                        <g clipPath={`url(#bclip${i})`}>
+                                            <rect x={cx - bw / 2} y={bottom - lv} width={bw} height={lv} fill={col} />
+                                            <rect x={cx - bw / 2 + 22} y={bottom - lv} width={16} height={lv} fill="#fff" opacity={0.35} />
+                                            {ghost > 0 && (
+                                                <rect x={cx - bw / 2 + 8} y={bottom - level(it.ml) - ghost * lossK} width={bw - 16} height={ghost * lossK} fill="none" stroke={STRAW} strokeWidth={5} strokeDasharray="14 10" />
+                                            )}
+                                        </g>
+                                        <path d={body} fill="none" stroke={INK} strokeWidth={SW} strokeLinejoin="round" />
+                                        <text x={cx} y={top - 28} textAnchor="middle" fontFamily={FONT.arial} fontWeight={700} fontSize={30} fill={INK} letterSpacing={1}>{it.label}</text>
+                                        <text x={cx} y={bottom + 70} textAnchor="middle" fontFamily={FONT.garamond} fontWeight={700} fontSize={66} fill={INK}>{Math.round(it.ml * k)} mL</text>
+                                        {ghost > 0 && bottles.lossText && (
+                                            <g transform={`translate(${cx} ${bottom - level(it.ml) - ghost / 2}) rotate(-6) scale(${1.25 - 0.25 * lossK})`} opacity={lossK > 0 ? 1 : 0}>
+                                                <rect x={-120} y={-38} width={240} height={70} fill={STRAW} />
+                                                <text x={0} y={14} textAnchor="middle" fontFamily={FONT.arial} fontWeight={700} fontSize={44} fill="#fff">{bottles.lossText}</text>
+                                            </g>
+                                        )}
+                                    </g>
+                                );
+                            })}
+                            {lossK > 0 && bottles.lossNote && (
+                                <text x={bottles.x} y={bottles.y + bh + 140} textAnchor="middle" fontFamily={FONT.garamondItalic} fontSize={46} fill={STRAW} opacity={lossK}>{bottles.lossNote}</text>
+                            )}
+                            {bottles.note && <text x={bottles.x} y={bottles.y + bh + 190} textAnchor="middle" fontFamily={FONT.arial} fontSize={20} fill={INK} opacity={0.6}>{bottles.note}</text>}
+                        </svg>
+                    );
+                })()}
+                {/* energy bursts: a white core, strawberry + matcha rays and rings, flickering on twos */}
+                {bursts.map((b, i) => {
+                    if (f < b.at || f > b.at + (b.dur || 30)) return null;
+                    const t = Math.floor((f - b.at) / 2) * 2, d = b.dur || 30, R = b.r || 420;
+                    const grow = ease(clamp(t / 8)), fade = 1 - clamp((t - d + 8) / 8);
+                    return (
+                        <svg key={'burst' + i} width={R * 2} height={R * 2} style={{ position: 'absolute', left: b.x - R, top: b.y - R, overflow: 'visible', opacity: fade }}>
+                            <defs><radialGradient id={`core${i}`}><stop offset="0" stopColor="#fff" stopOpacity={1} /><stop offset="0.35" stopColor="#fff" stopOpacity={0.85} /><stop offset="1" stopColor={STRAW} stopOpacity={0} /></radialGradient></defs>
+                            {Array.from({ length: 18 }).map((_, j) => {
+                                const a = (j / 18) * Math.PI * 2 + (t % 4) * 0.08, len = R * grow * (0.55 + ((j * 37 + t) % 9) / 18);
+                                return <line key={j} x1={R + Math.cos(a) * 40} y1={R + Math.sin(a) * 40} x2={R + Math.cos(a) * len} y2={R + Math.sin(a) * len} stroke={j % 2 ? STRAW : MATCHA} strokeWidth={j % 3 ? 10 : 18} strokeLinecap="round" />;
+                            })}
+                            {[0.35, 0.6, 0.85].map((r, j) => <circle key={'r' + j} cx={R} cy={R} r={R * r * grow} fill="none" stroke="#fff" strokeWidth={6} opacity={0.6 - j * 0.15} />)}
+                            <circle cx={R} cy={R} r={R * 0.38 * grow} fill={`url(#core${i})`} />
+                        </svg>
+                    );
+                })}
                 {/* tags: funny comments / callouts hung one by one, stacking down the frame */}
                 {tags.map((t, i) => {
                     if (f < t.at) return null;
                     const k = ease(clamp((f - t.at) / 8)), hk = clamp((f - t.at - 6) / 8);
-                    const rot = [-3, 2.4, -1.6, 3, -2.2, 1.8][i % 6], dx = (t.dx ?? 0) + [-34, 30, -18, 36, -28, 20][i % 6];
+                    const rot = poster ? -1.5 : [-3, 2.4, -1.6, 3, -2.2, 1.8][i % 6], dx = (t.dx ?? 0) + (poster ? 0 : [-34, 30, -18, 36, -28, 20][i % 6]);
+                    if (poster && !t.comment && !t.img) {
+                        // poster tag: a straight cream strip, centred, with a flat block printed out of register behind it
+                        const kk = ease(clamp((Math.floor((f - t.at) / 2) * 2) / 8));
+                        return (
+                            <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: t.y ?? tagTop + i * tagGap, display: 'flex', justifyContent: 'center', transform: `translateX(${dx}px) rotate(${rot}deg) scale(${1.1 - 0.1 * kk})` }}>
+                                <div style={{ position: 'relative', background: t.sans ? (t.mark || STRAW) : PAPER, padding: t.sans ? '10px 26px 10px' : '10px 30px 14px', boxShadow: `8px 7px 0 ${t.sans ? INK : (t.mark || STRAW)}`, outline: t.sans ? 'none' : `3px solid ${INK}`,
+                                    fontFamily: t.sans ? FONT.arial : FONT.garamondItalic, fontWeight: t.sans ? 700 : 500, fontSize: t.size || 50, color: t.sans ? '#fff' : (t.color || INK), whiteSpace: 'nowrap', letterSpacing: t.sans ? 2 : 0, lineHeight: 1.1 }}>
+                                    {t.text}
+                                    <Grain id={`rsgt${i}`} opacity={0.6} seed={11 + i} />
+                                </div>
+                            </div>
+                        );
+                    }
                     const isImg = !!t.img && !t.comment, W = t.w || (isImg ? 640 : 0);
                     const top = t.y ?? tagTop + i * tagGap;
                     return (

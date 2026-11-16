@@ -215,7 +215,7 @@ function fxFillCard(c, e) {
             f.optsAt.appendChild(fxTrackOptions(e, st, clip));
         }
     }
-    if (e.glitch || e.transform) {
+    if (e.glitch || e.transform || e.riso) {
         const clip = e.transform ? (fxUI.clips.find(x => x.effects && x.effects[e.id] && Number(x.frames) > 0) || fxUI.clips.find(x => Number(x.frames) > 1)) : null;
         const sig = JSON.stringify([fxParamsShown(e), clip ? [clip.id, clip.frames, clip.start] : null]);
         const ae = document.activeElement;
@@ -223,7 +223,7 @@ function fxFillCard(c, e) {
         if (sig !== f.optsSig && !typing) {
             f.optsSig = sig;
             f.optsAt.textContent = '';
-            f.optsAt.appendChild(e.glitch ? fxGlitchOptions(e, st) : fxTransformOptions(e, st));
+            f.optsAt.appendChild(e.glitch ? fxGlitchOptions(e, st) : (e.riso ? fxRisoOptions(e, st) : fxTransformOptions(e, st)));
         }
     }
 }
@@ -260,7 +260,7 @@ async function fxToggle(e) {
     // the Stop Motion Frame Repeat the clip's glitch / wiggle hold for (the bridge uses it only while Stop Motion is on)
     const sm = fxUI.effects.find(x => x.repeat);
     const hold = sm ? fxStrengthShown(sm) : null;
-    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && (e.glitch || e.transform) ? fxNextParams(e) : null, hold); } catch (err) { r = { error: String(err && err.message || err) }; }
+    try { r = await window.sa.fxSet(e.id, want, want && !e.noStrength ? fxNextStrength(e) : null, want && (e.glitch || e.transform || e.riso) ? fxNextParams(e) : null, hold); } catch (err) { r = { error: String(err && err.message || err) }; }
     delete fxUI.pending[e.id];
     if (!r || r.busy || r.error) {
         fxUI.clips = before;

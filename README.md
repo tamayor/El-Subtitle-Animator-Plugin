@@ -18,7 +18,7 @@ time from the panel, or a whole timeline at once by Claude Code through the bund
   per-row timing and per-row sounds.
 - **Sound effects.** Trim and fade in the panel, layered sounds, levels pulled into a -20 to -15 dBFS peak window,
   small pitch variation between repeated copies, and a project copy of each sound kept beside the footage.
-- **Effect presets** for any clip: Glitch, Wiggle, Stop Motion, Transform, Track Subject.
+- **Effect presets** for any clip: Riso (risograph print), Glitch, Wiggle, Stop Motion, Transform, Track Subject.
 - **Safe-zone layouts** read from a reference image, so captions stay inside the safe area and off marked zones.
 - **Automation.** An MCP server lets Claude Code read the subtitles, follow your editing rules, and place, stack,
   inspect, adjust and remove captions.

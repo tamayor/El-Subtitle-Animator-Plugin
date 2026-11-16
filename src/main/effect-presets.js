@@ -16,6 +16,9 @@ const EFFECTS = [
     // Track Subject: the clip follows a subject in the footage under it. The panel tracks the subject (subject-track.js)
     // and keys XfTrack's Center / Pivot / Size from it (bridge fx_bake_track); the template itself does nothing.
     { id: 'Track', name: 'Track Subject', tags: ['track', 'follow', 'attach', 'subject', 'motion'], tip: 'Attaches the clip to a subject in the footage under it: draw a box around the subject and the clip moves (and optionally scales) with it', track: true },
+    // Riso: a 2-ink risograph print of the picture (the Before 2028 poster look, before-2028/tools/riso.py `photo`), live
+    // on any clip. Static (no clock), so it sits before Glitch / Wiggle: they move the printed picture.
+    { id: 'Riso', name: 'Riso', tags: ['riso', 'risograph', 'halftone', 'print', 'poster', 'paper', 'ink'], tip: 'Risograph print: the picture becomes a 2-ink print on paper, dark ink as halftone dots over a flat colour block printed slightly out of register', strength: 100 },
     { id: 'Glitch', name: 'Glitch', tags: ['glitch', 'rgb', 'jitter'], tip: 'The picture jumps sideways in bursts with a red / cyan split' },
     { id: 'Wiggle', name: 'Wiggle', tags: ['wiggle', 'boil', 'hand-drawn'], tip: 'Letters and edges boil and wobble (pairs well with Stop Motion)' },
     // A Fusion effect (ELSA Stop Motion, a TimeStretcher last before the output), so it holds the glitch / wiggle with the
@@ -36,7 +39,7 @@ const ORDER = EFFECTS.filter(e => !e.hidden && !e.spot && !e.matchCut).map(e => 
 const DEFAULT_STRENGTH = 25;
 const HOLD_DEFAULT = 2;      // Stop Motion Frame Repeat our glitch / wiggle hold for (FX_HOLD_DEFAULT in fusion_bridge.py)
 // the tool inside each effect that holds its Strength (keep in step with FX_STRENGTH_TOOL in src/python/fusion_bridge.py)
-const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace' };
+const STRENGTH_TOOL = { Glitch: 'GlitchOut', Wiggle: 'WiggleDisplace', Riso: 'RisoOut' };
 // the tool holding each effect's other settings (fx_param; FX_PARAM_TOOL in fusion_bridge.py)
 
 function effectsDir() {
@@ -69,6 +72,11 @@ const numCtl = (id, label, def, min, max, integer) =>
     id + ' = { LINKS_Name = "' + label + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", ' +
     (integer ? 'INP_Integer = true, ' : '') + 'INP_Default = ' + def + ', INP_MinAllowed = 0, INP_MaxAllowed = 100, ' +
     'INP_MinScale = ' + min + ', INP_MaxScale = ' + max + ', ICS_ControlPage = "Controls", }';
+
+// a colour as three user controls (Red / Green / Blue of one IC_ControlGroup, shown as one colour control)
+const colorCtl = (id, label, group, rgb) => ['Red', 'Green', 'Blue'].map((c, k) =>
+    id + c + ' = { ' + (k === 0 ? 'LINKS_Name = "' + label + '", ' : '') + 'LINKID_DataType = "Number", INPID_InputControl = "ColorControl", ' +
+    'IC_ControlGroup = ' + group + ', IC_ControlID = ' + k + ', INP_Default = ' + rgb[k] + ', INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Controls", }').join(', ');
 
 // a 0..1 hash of the current glitch block (GlitchOut.Blk frames: 2, or Stop Motion's hold), seeded by k (simple
 // expressions have no random)
@@ -144,9 +152,7 @@ function glitch() {
     const jitter = 'Point(0.5+GlitchOut.Burst*(' + hash(2) + '-0.5)*0.08*GlitchOut.Amt, 0.5+GlitchOut.Burst*iif(' + hash(1) + '>0.9,(' + hash(3) + '-0.5)*0.02,0)*GlitchOut.Amt)';
     const split = (sign) => 'Point(0.5' + sign + '(0.004+0.012*GlitchOut.Burst)*GlitchOut.Amt, 0.5)';
     const hidden = (id) => id + ' = { LINKS_Name = "' + id + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", IC_Visible = false, INP_Passive = true, INP_External = false, ICS_ControlPage = "Controls", }';
-    const color = (id, label, group, rgb) => ['Red', 'Green', 'Blue'].map((c, k) =>
-        id + c + ' = { ' + (k === 0 ? 'LINKS_Name = "' + label + '", ' : '') + 'LINKID_DataType = "Number", INPID_InputControl = "ColorControl", ' +
-        'IC_ControlGroup = ' + group + ', IC_ControlID = ' + k + ', INP_Default = ' + rgb[k] + ', INP_MinScale = 0, INP_MaxScale = 1, ICS_ControlPage = "Controls", }').join(', ');
+    const color = colorCtl;
     const D = GLITCH_DEFAULTS;
     const user = '\t\t\t\t\tUserControls = ordered() { ' + numCtl('Strength', 'Strength', DEFAULT_STRENGTH, 0, 100, true) + ', ' +
         'BlinkIn = { LINKS_Name = "Blink at Start", LINKID_DataType = "Number", INPID_InputControl = "CheckboxControl", INP_Integer = true, INP_Default = 1, ICS_ControlPage = "Controls", INPS_StatusText = "Entry: the first frames flicker on and off with a glitch burst", }, ' +
@@ -179,6 +185,75 @@ function glitch() {
             expr('Blk', 2, 'iif(GlitchOut.Hold>1,GlitchOut.Hold,2)'),
             expr('Blink', 0, blink), expr('Burst', 0, burst), expr('Amt', 0.5, amt), expr('Show', 1, show)
         ])
+    ]);
+}
+
+// Riso: the picture as a 2-ink risograph print, the same recipe as before-2028/tools/riso.py `photo`:
+//   ink 1 = a 45 degree halftone of the picture's tone (solid shadows, dots in the mid-tones, bare paper in the highlights)
+//   ink 2 = a FLAT block over everything darker than Colour Block, from a blurred copy (simple shapes), printed out of
+//           register (Offset), so a coloured edge shows beside the dark shapes
+//   paper = the rest.
+// One Custom tool does the print per pixel (its trig works in DEGREES; x / y are 0..1, w / h the picture's size in
+// pixels; n1..n8 and p1 / p2 carry the settings, as its expressions cannot read other inputs). Dot Size and Offset are
+// relative to the picture's width (Dot Size = pixels on a 1100 px wide picture, as riso.py), so the look is the same at
+// any timeline size. Transparent clips (titles) keep their alpha. Strength = the tool's Blend (100 = the full print).
+// Brightness (Light) = a gamma on the picture before it is printed (RisoTone): riso.py stretches a photo's contrast, but
+// footage straight from the camera printed nearly solid ink at 1; 1.6 keeps a face readable (compared 2026-11-16).
+const RISO_DEFAULTS = { Light: 1.6, Dot: 7, Shift: 0.8, Block: 62, InkRed: 0.11, InkGreen: 0.153, InkBlue: 0.22, Ink2Red: 0.78, Ink2Green: 0.22, Ink2Blue: 0.353, PaperRed: 0.937, PaperGreen: 0.894, PaperBlue: 0.8 };
+const RISO_STRENGTH = 100;
+function riso() {
+    const R = 'RisoOut', D = RISO_DEFAULTS;
+    const sl = (id, label, def, min, max, tip) => id + ' = { LINKS_Name = "' + label + '", LINKID_DataType = "Number", INPID_InputControl = "SliderControl", INP_Default = ' + def +
+        ', INP_MinScale = ' + min + ', INP_MaxScale = ' + max + ', INP_MinAllowed = ' + min + ', INP_MaxAllowed = ' + max + ', ICS_ControlPage = "Controls", INPS_StatusText = "' + tip + '", }';
+    const user = '\t\t\t\t\tUserControls = ordered() { ' + numCtl('Strength', 'Strength', RISO_STRENGTH, 0, 100, true) + ', ' +
+        sl('Light', 'Brightness', D.Light, 0.5, 3, 'Lightens (above 1) or darkens the picture before it is printed') + ', ' +
+        sl('Dot', 'Dot Size', D.Dot, 2, 30, 'Size of the halftone dots') + ', ' +
+        sl('Shift', 'Offset', D.Shift, 0, 3, 'How far the colour block is printed out of register (percent of the width)') + ', ' +
+        sl('Block', 'Colour Block', D.Block, 0, 100, 'How much of the picture the flat colour covers (0 = none, 100 = everything)') + ', ' +
+        colorCtl('Ink', 'Ink', 1, [D.InkRed, D.InkGreen, D.InkBlue]) + ', ' + colorCtl('Ink2', 'Colour', 2, [D.Ink2Red, D.Ink2Green, D.Ink2Blue]) + ', ' +
+        colorCtl('Paper', 'Paper', 3, [D.PaperRed, D.PaperGreen, D.PaperBlue]) + ', },\n';
+    const own = (id) => R + '.' + id;
+    const clip = (v) => 'min(1,max(0,' + v + '))';
+    // i1 = the toned picture's tone (image 3; 1 = light; un-premultiplied, transparent = paper white)
+    const tone = 'if(a1>0.001,(0.299*r3+0.587*g3+0.114*b3)/a1,1)';
+    // i2 = the 45 degree screen, a 0..1 threshold
+    const k = '280015/(n1*w)';
+    const screen = '0.5+0.25*(cos((x*w+y*h)*' + k + ')+cos((x*w-y*h)*' + k + '))';
+    // i3 = ink 2's flat plate: the blurred grey copy (image 2), read Offset away (right and down)
+    const plate = clip('(p2y-getr2d(x-n2/100,y+n2/100*0.78*w/h))*8+0.5');
+    // ink 1's cover: clean highlights, solid shadows, round dots between
+    const dots = clip('(' + clip('(0.88-i1)/0.76') + '-i2)*6+0.5');
+    const chan = (paper, ink2, ink) => 'a1*(' + paper + '*(1-0.85*i3*(1-' + ink2 + '))*(1-' + dots + ')+' + ink + '*' + dots + ')';
+    return group('ELSARiso', ['RisoIn', 'Input'], R, [
+        [R, 'Strength', 'Strength', RISO_STRENGTH], [R, 'Light', 'Brightness', D.Light], [R, 'Dot', 'Dot Size', D.Dot], [R, 'Shift', 'Offset', D.Shift], [R, 'Block', 'Colour Block', D.Block],
+        [R, 'InkRed', 'Ink', D.InkRed, 1], [R, 'InkGreen', 'Ink Green', D.InkGreen, 1], [R, 'InkBlue', 'Ink Blue', D.InkBlue, 1],
+        [R, 'Ink2Red', 'Colour', D.Ink2Red, 2], [R, 'Ink2Green', 'Colour Green', D.Ink2Green, 2], [R, 'Ink2Blue', 'Colour Blue', D.Ink2Blue, 2],
+        [R, 'PaperRed', 'Paper', D.PaperRed, 3], [R, 'PaperGreen', 'Paper Green', D.PaperGreen, 3], [R, 'PaperBlue', 'Paper Blue', D.PaperBlue, 3]
+    ], [
+        // the clip's picture, passed on unchanged (one tool has to take the effect's input: two read it)
+        tool('RisoIn', 'BrightnessContrast', [], 0, 0),
+        tool('RisoTone', 'BrightnessContrast', [inp('Input', 'RisoIn'), expr('Gamma', D.Light, 'max(0.1,' + R + '.Light)')], 0, 60),
+        tool('RisoGrey', 'BrightnessContrast', [inp('Input', 'RisoTone'), 'Saturation = Input { Value = 0, }'], 0, 120),
+        tool('RisoBlur', 'Blur', [inp('Input', 'RisoGrey'), 'XBlurSize = Input { Value = 6, }'], 110, 120),
+        tool(R, 'Custom', [
+            inp('Image1', 'RisoIn'), inp('Image2', 'RisoBlur'), inp('Image3', 'RisoTone'),
+            'Strength = Input { Value = ' + RISO_STRENGTH + ', }'
+        ].concat(Object.keys(D).map(id => id + ' = Input { Value = ' + D[id] + ', }')).concat([
+            expr('Blend', RISO_STRENGTH / 100, own('Strength') + '/100'),
+            expr('NumberIn1', D.Dot, 'max(1,' + own('Dot') + ')'), expr('NumberIn2', D.Shift, own('Shift')),
+            expr('NumberIn3', D.InkRed, own('InkRed')), expr('NumberIn4', D.InkGreen, own('InkGreen')), expr('NumberIn5', D.InkBlue, own('InkBlue')),
+            expr('NumberIn6', D.Ink2Red, own('Ink2Red')), expr('NumberIn7', D.Ink2Green, own('Ink2Green')), expr('NumberIn8', D.Ink2Blue, own('Ink2Blue')),
+            expr('PointIn1', '{ ' + D.PaperRed + ', ' + D.PaperGreen + ' }', 'Point(' + own('PaperRed') + ', ' + own('PaperGreen') + ')'),
+            expr('PointIn2', '{ ' + D.PaperBlue + ', ' + D.Block / 100 + ' }', 'Point(' + own('PaperBlue') + ', ' + own('Block') + '/100)'),
+            'ShowPoint1 = Input { Value = 0, }', 'ShowPoint2 = Input { Value = 0, }',
+            'Intermediate1 = Input { Value = "' + tone + '", }',
+            'Intermediate2 = Input { Value = "' + screen + '", }',
+            'Intermediate3 = Input { Value = "' + plate + '", }',
+            'RedExpression = Input { Value = "' + chan('p1x', 'n6', 'n3') + '", }',
+            'GreenExpression = Input { Value = "' + chan('p1y', 'n7', 'n4') + '", }',
+            'BlueExpression = Input { Value = "' + chan('p2x', 'n8', 'n5') + '", }',
+            'AlphaExpression = Input { Value = "a1", }'
+        ]), 220, 0, user)
     ]);
 }
 
@@ -348,7 +423,7 @@ function spotlight() {
     ]);
 }
 
-const MAKERS = { Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass, Spotlight: spotlight };
+const MAKERS = { Riso: riso, Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass, Spotlight: spotlight };
 
 // Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
 function installEffects() {
@@ -367,7 +442,7 @@ function installEffects() {
     return out;
 }
 
-function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : DEFAULT_STRENGTH), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track || !!e.spot || !!e.matchCut, spot: !!e.spot, matchCut: !!e.matchCut, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
+function effectsForUI() { return EFFECTS.filter(e => !e.hidden).map(e => ({ id: e.id, name: e.name, tags: e.tags, tip: e.tip, file: fileName(e.id), defaultStrength: e.repeat ? HOLD_DEFAULT : (e.ofx ? null : (e.strength || DEFAULT_STRENGTH)), noStrength: (!!e.ofx && !e.repeat) || !!e.transform || !!e.track || !!e.spot || !!e.matchCut, spot: !!e.spot, matchCut: !!e.matchCut, repeat: !!e.repeat, glitch: e.id === 'Glitch' ? GLITCH_DEFAULTS : undefined, riso: e.id === 'Riso' ? { defaults: RISO_DEFAULTS } : undefined, transform: e.transform ? { defaults: TRANSFORM_DEFAULTS, eases: EASES } : undefined, track: e.track ? { defaults: TRACK_DEFAULTS } : undefined })); }
 
 // ---------------------------------------------------------------- panel (IPC fx:*)
 let installed = false;

@@ -24,10 +24,23 @@ export const TornFilter: React.FC<{ id: string; width?: number; color?: string; 
         </filter>
     );
 
-// Fine paper grain over its parent (which must be position: relative and clip its corners itself).
-export const Grain: React.FC<{ id: string; opacity?: number; seed?: number }> = ({ id, opacity = 0.16, seed = 2 }) => (
+// Risograph paper tooth + soft soy-ink mottling over its parent (replaces harsh black static).
+export const Grain: React.FC<{ id: string; opacity?: number; seed?: number }> = ({ id, opacity = 0.12, seed = 2 }) => (
     <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, mixBlendMode: 'multiply', opacity, pointerEvents: 'none' }}>
-        <filter id={id}><feTurbulence type="fractalNoise" baseFrequency={0.9} numOctaves={2} seed={seed} /><feColorMatrix type="saturate" values="0" /></filter>
+        <filter id={id} colorInterpolationFilters="sRGB">
+            {/* Soft ink-roller mottling (uneven riso coverage) */}
+            <feTurbulence type="fractalNoise" baseFrequency={0.055} numOctaves={2} seed={seed} result="mottle" />
+            {/* Fine warm uncoated paper tooth */}
+            <feTurbulence type="fractalNoise" baseFrequency={0.42} numOctaves={2} seed={seed + 17} result="tooth" />
+            <feBlend in="mottle" in2="tooth" mode="multiply" result="combined" />
+            <feColorMatrix in="combined" type="saturate" values="0" result="gray" />
+            {/* Compress into warm cream-to-soft-sepia range so multiply adds riso ink tooth without black noise */}
+            <feComponentTransfer in="gray">
+                <feFuncR type="linear" slope={0.26} intercept={0.74} />
+                <feFuncG type="linear" slope={0.24} intercept={0.73} />
+                <feFuncB type="linear" slope={0.20} intercept={0.70} />
+            </feComponentTransfer>
+        </filter>
         <rect width="100%" height="100%" filter={`url(#${id})`} />
     </svg>
 );

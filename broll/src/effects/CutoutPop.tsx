@@ -6,7 +6,7 @@ import { Common, FONT, Place, clamp, useInOut } from '../lib/common';
 import { face, plainClassic, useVibe } from '../lib/vibe';
 import { PhotoHole, TornFilter } from '../lib/paper';
 
-type P = Common & { source?: string; removeBg?: boolean; _image?: string; image: string; tornBorder: boolean; border: number; rotation: number; width: number; label: string };
+type P = Common & { source?: string; removeBg?: boolean; _image?: string; image: string; tornBorder: boolean; border: number; rotation: number; width: number; label: string; bubble?: string; bubbleAt?: number };
 
 export const CutoutPop: React.FC<P> = (p) => {
     const { frame, fps } = useInOut(p, () => 10);
@@ -25,6 +25,24 @@ export const CutoutPop: React.FC<P> = (p) => {
                 </div>
                 {p.label && <div style={{ position: 'absolute', left: '50%', bottom: -34, transform: `translateX(-50%) rotate(${-rot - 3}deg) scale(${lab})`, background: p.accent, color: C ? '#10140f' : L.onAccent,
                     padding: '8px 26px', ...face(L, 'display', { fontFamily: FONT.sans, fontWeight: 800 }, C, 44), whiteSpace: 'nowrap', boxShadow: '0 8px 18px rgba(0,0,0,.35)' }}>{p.label}</div>}
+                {/* speech bubble (Before 2028 Ep. 10): cream paper, ink outline, a flat accent block out of register, the
+                    tail pointing back at the cut-out's face; pops in at bubbleAt (frames from the clip start) */}
+                {p.bubble && frame >= (Number(p.bubbleAt) || 0) && (() => {
+                    const b = spring({ frame: frame - (Number(p.bubbleAt) || 0), fps, config: { damping: 12, stiffness: 220, mass: 0.7 } });
+                    const wob = Math.sin(Math.floor(frame / 4) * 1.7) * 0.6;
+                    return (
+                        <div style={{ position: 'absolute', left: w * 0.74, top: w * 0.03, width: w * 0.78, transformOrigin: '0% 100%',
+                            transform: `rotate(${-rot + 2 + wob}deg) scale(${0.4 + 0.6 * b})`, opacity: clamp(b * 2) }}>
+                            <svg width={w * 0.78} height={w * 0.12} style={{ position: 'absolute', left: 0, bottom: -w * 0.1, overflow: 'visible' }}>
+                                <polygon points={`${w * 0.12},0 ${w * 0.26},0 ${-w * 0.04},${w * 0.12}`} fill={p.accent} transform="translate(9 8)" />
+                                <polygon points={`${w * 0.12},-4 ${w * 0.26},-4 ${-w * 0.04},${w * 0.12}`} fill="#fbfaf6" stroke="#1c2738" strokeWidth={4} strokeLinejoin="round" />
+                            </svg>
+                            <div style={{ position: 'relative', background: '#fbfaf6', border: '4px solid #1c2738', borderRadius: 26, padding: '18px 24px',
+                                boxShadow: `10px 9px 0 ${p.accent}`, color: '#1c2738', textAlign: 'center',
+                                ...face(L, 'quote', { fontFamily: FONT.garamondItalic, fontWeight: 600 }, C, 44), lineHeight: 1.12 }}>{p.bubble}</div>
+                        </div>
+                    );
+                })()}
             </div>
         </Place>
     );

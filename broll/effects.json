@@ -2059,6 +2059,21 @@
           "type": "text",
           "label": "Label",
           "default": ""
+        },
+        {
+          "key": "bubble",
+          "type": "text",
+          "label": "Speech bubble",
+          "default": ""
+        },
+        {
+          "key": "bubbleAt",
+          "type": "number",
+          "label": "Bubble at (frame)",
+          "default": 12,
+          "min": 0,
+          "max": 600,
+          "step": 1
         }
       ]
     },
@@ -3542,6 +3557,12 @@
           "step": 10
         },
         {
+          "key": "stageW",
+          "type": "number",
+          "label": "Stage width",
+          "default": 820
+        },
+        {
           "key": "image1",
           "type": "image",
           "label": "Screenshot 1",
@@ -3599,6 +3620,66 @@
           "key": "photo4",
           "type": "image",
           "label": "Picture 4",
+          "default": ""
+        },
+        {
+          "key": "photo5",
+          "type": "image",
+          "label": "Picture 5",
+          "default": ""
+        },
+        {
+          "key": "photo6",
+          "type": "image",
+          "label": "Picture 6",
+          "default": ""
+        },
+        {
+          "key": "photo7",
+          "type": "image",
+          "label": "Picture 7",
+          "default": ""
+        },
+        {
+          "key": "photo8",
+          "type": "image",
+          "label": "Picture 8",
+          "default": ""
+        },
+        {
+          "key": "photo9",
+          "type": "image",
+          "label": "Picture 9",
+          "default": ""
+        },
+        {
+          "key": "photo10",
+          "type": "image",
+          "label": "Picture 10",
+          "default": ""
+        },
+        {
+          "key": "photo11",
+          "type": "image",
+          "label": "Picture 11",
+          "default": ""
+        },
+        {
+          "key": "photo12",
+          "type": "image",
+          "label": "Picture 12",
+          "default": ""
+        },
+        {
+          "key": "photo13",
+          "type": "image",
+          "label": "Picture 13",
+          "default": ""
+        },
+        {
+          "key": "photo14",
+          "type": "image",
+          "label": "Picture 14",
           "default": ""
         },
         {
@@ -3698,6 +3779,138 @@
           "key": "stickers",
           "type": "text",
           "label": "Stickers (JSON: [{e:'😡'|'🔥'|'😆'|'anger', at, x, y, size, rot}])",
+          "default": "[]"
+        },
+        {
+          "key": "cutouts",
+          "type": "text",
+          "label": "Cut-outs (JSON: [{img:'cutImage1', at, x, y, w, rot, label}])",
+          "default": "[]"
+        },
+        {
+          "key": "bursts",
+          "type": "text",
+          "label": "Energy bursts (JSON: [{at, x, y, dur, r}])",
+          "default": "[]"
+        },
+        {
+          "key": "bottles",
+          "type": "text",
+          "label": "Bottle fill comparison (JSON: {x, y, max, items:[{label, ml, at}], lossAt, lossText, lossNote, note})",
+          "default": ""
+        },
+        {
+          "key": "cutImage1",
+          "type": "image",
+          "label": "Cut-out 1",
+          "default": ""
+        },
+        {
+          "key": "cutImage2",
+          "type": "image",
+          "label": "Cut-out 2",
+          "default": ""
+        },
+        {
+          "key": "cutImage3",
+          "type": "image",
+          "label": "Cut-out 3",
+          "default": ""
+        },
+        {
+          "key": "cutImage4",
+          "type": "image",
+          "label": "Cut-out 4",
+          "default": ""
+        },
+        {
+          "key": "cutImage5",
+          "type": "image",
+          "label": "Cut-out 5",
+          "default": ""
+        },
+        {
+          "key": "cutImage6",
+          "type": "image",
+          "label": "Cut-out 6",
+          "default": ""
+        },
+        {
+          "key": "cutImage7",
+          "type": "image",
+          "label": "Cut-out 7",
+          "default": ""
+        },
+        {
+          "key": "cutImage8",
+          "type": "image",
+          "label": "Cut-out 8",
+          "default": ""
+        },
+        {
+          "key": "cutImage9",
+          "type": "image",
+          "label": "Cut-out 9",
+          "default": ""
+        },
+        {
+          "key": "cutImage10",
+          "type": "image",
+          "label": "Cut-out 10",
+          "default": ""
+        },
+        {
+          "key": "cutImage11",
+          "type": "image",
+          "label": "Cut-out 11",
+          "default": ""
+        },
+        {
+          "key": "cutImage12",
+          "type": "image",
+          "label": "Cut-out 12",
+          "default": ""
+        },
+        {
+          "key": "cutImage13",
+          "type": "image",
+          "label": "Cut-out 13",
+          "default": ""
+        },
+        {
+          "key": "cutImage14",
+          "type": "image",
+          "label": "Cut-out 14",
+          "default": ""
+        },
+        {
+          "key": "frame",
+          "type": "bool",
+          "label": "Film frame",
+          "default": true
+        },
+        {
+          "key": "poster",
+          "type": "bool",
+          "label": "Risograph poster panel (flat paper + offset colour block, straight tags)",
+          "default": false
+        },
+        {
+          "key": "block",
+          "type": "text",
+          "label": "Poster block colour (straw / matcha / ink)",
+          "default": "straw"
+        },
+        {
+          "key": "backdrop",
+          "type": "image",
+          "label": "Backdrop picture (riso paper sheet) instead of the dark backdrop",
+          "default": ""
+        },
+        {
+          "key": "illo",
+          "type": "text",
+          "label": "Riso illustration on the backdrop (JSON: [{kind:'queue'|'folders'|'clock'|'stamp'|'ids'|'envelope', x, y, s, at, ...}])",
           "default": "[]"
         }
       ]

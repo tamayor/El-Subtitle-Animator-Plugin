@@ -3974,7 +3974,7 @@ def jp_word_times(comp, tpl):
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
 FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
-FX_NAMES = {"Transform": "ELSA Transform", "Track": "ELSA Track Subject", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
+FX_NAMES = {"Transform": "ELSA Transform", "Track": "ELSA Track Subject", "Riso": "ELSA Riso", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
 # Stop Motion is a Fusion effect (a TimeStretcher, the LAST effect before the clip's output), so the frames it holds
 # already carry the glitch / wiggle: the look holds as one. Resolve's own OFX Stop Motion sits outside Fusion and ran
 # before our effects (the glitch / wiggle kept moving over a held picture). The OFX is only the fallback for clips with
@@ -3982,9 +3982,9 @@ FX_NAMES = {"Transform": "ELSA Transform", "Track": "ELSA Track Subject", "Glitc
 # punched-in clip jumped. The OFX's settings cannot be scripted.
 FX_OFX = {"StopMotion": "Resolve FX/Resolve FX Temporal/Stop Motion"}
 FX_OFX_NAMES = {"StopMotion": "Stop Motion"}
-FX_ORDER = ["Transform", "Track", "Glitch", "Wiggle", "StopMotion"]
+FX_ORDER = ["Transform", "Track", "Riso", "Glitch", "Wiggle", "StopMotion"]
 # the tool inside each effect holding its Strength (0..100); keep in step with STRENGTH_TOOL in effect-presets.js
-FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace"}
+FX_STRENGTH_TOOL = {"Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "Riso": "RisoOut"}
 # the tool holding each effect's Hold (frames its clock steps by; Stop Motion's Frame Repeat)
 FX_HOLD_TOOL = {"Transform": "XfMove", "Glitch": "GlitchOut", "Wiggle": "WiggleDisplace", "StopMotion": "StopMotionTime"}
 
@@ -4038,10 +4038,11 @@ def fx_strength_tool(effect, key):
 
 # extra settings read back for the panel (on the Strength tool): Glitch's entry blink, fringe colours, opacity and duration
 FX_PARAMS = {"Glitch": ["BlinkIn", "ColorARed", "ColorAGreen", "ColorABlue", "ColorBRed", "ColorBGreen", "ColorBBlue", "Opacity", "Dur"],
+             "Riso": ["Light", "Dot", "Shift", "Block", "InkRed", "InkGreen", "InkBlue", "Ink2Red", "Ink2Green", "Ink2Blue", "PaperRed", "PaperGreen", "PaperBlue"],
              "Transform": ["ZoomPct", "MoveX", "MoveY", "Ease", "Reverse", "InF", "OutF"],
              "Track": ["FollowX", "FollowY", "FollowScale", "FollowRot", "Smooth"]}
 # the tool inside an effect holding its FX_PARAMS (Glitch: its Strength tool)
-FX_PARAM_TOOL = {"Glitch": "GlitchOut", "Transform": "XfMove", "Track": "XfTrack"}
+FX_PARAM_TOOL = {"Glitch": "GlitchOut", "Riso": "RisoOut", "Transform": "XfMove", "Track": "XfTrack"}
 
 
 def fx_param_tool(effect, key):
@@ -4598,7 +4599,7 @@ def fx_nudge_inspector():
 # so fx_set skips a clip whose own comp already holds that effect's node, and fx_state reports it (inNodes).
 # Matched by node name: the macro's group (ELSAWiggle, ELSAWiggle1 ...) or its main tool. Names only (GetToolList +
 # GetAttrs, as the other bridge reads do), never input values, and cached FX_NODES_TTL per clip.
-FX_NODE_NAMES = {"Transform": ("ELSATransform", "XfMove"), "Track": ("ELSATrack", "XfTrack"), "Glitch": ("ELSAGlitch", "GlitchOut"),
+FX_NODE_NAMES = {"Transform": ("ELSATransform", "XfMove"), "Track": ("ELSATrack", "XfTrack"), "Glitch": ("ELSAGlitch", "GlitchOut"), "Riso": ("ELSARiso", "RisoOut"),
                  "Wiggle": ("ELSAWiggle", "WiggleDisplace"), "StopMotion": ("ELSAStopMotion", "StopMotionTime")}
 FX_NODES_TTL = 10.0
 _fx_nodes = {}

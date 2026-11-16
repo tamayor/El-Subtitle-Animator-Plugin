@@ -43,3 +43,19 @@ test('Spotlight is a card but never stacked onto a clip by place / fx_set, and i
     for (const n of ['SpotWord', 'SpotWordBlur', 'SpotXf', 'SpotGlowBlur', 'SpotGlowTint', 'SpotGlowM', 'SpotWordM', 'SpotDim', 'SpotVigBg', 'SpotOut']) assert.match(t, new RegExp('\\b' + n + ' = '));
     assert.match(t, /MainInput1 = InstanceInput \{\s*SourceOp = "SpotOut",\s*Source = "Foreground"/);
 });
+
+test('Riso is a stacked effect before Glitch, and its template is one Custom tool fed by the picture and a blurred grey copy', () => {
+    const e = EFFECTS.find(x => x.id === 'Riso');
+    assert.ok(e && !e.hidden);
+    assert.ok(ORDER.indexOf('Riso') > ORDER.indexOf('Transform') && ORDER.indexOf('Riso') < ORDER.indexOf('Glitch'));
+    const t = _makers.Riso();
+    for (const n of ['RisoIn', 'RisoTone', 'RisoGrey', 'RisoBlur', 'RisoOut']) assert.match(t, new RegExp('\\b' + n + ' = '));
+    assert.match(t, /RisoOut = Custom \{/);
+    assert.match(t, /MainInput1 = InstanceInput \{\s*SourceOp = "RisoIn",\s*Source = "Input"/);
+    // every setting the bridge writes (FX_PARAMS Riso + Strength) is an input of RisoOut, and the brackets balance
+    for (const id of ['Strength', 'Light', 'Dot', 'Shift', 'Block', 'InkRed', 'Ink2Blue', 'PaperGreen']) assert.match(t, new RegExp('\\b' + id + ' = Input \\{ Value = '));
+    for (const [a, b] of [['{', '}'], ['(', ')']]) assert.equal(t.split(a).length, t.split(b).length, a + b + ' balanced');
+    const ui = env.main('effect-presets').effectsForUI().find(x => x.id === 'Riso');
+    assert.equal(ui.defaultStrength, 100);
+    assert.equal(ui.riso.defaults.Dot, 7);
+});

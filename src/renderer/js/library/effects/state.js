@@ -28,6 +28,7 @@ const FX_PARAM_IDS = ['BlinkIn', 'ColorARed', 'ColorAGreen', 'ColorABlue', 'Colo
 function fxDefaultParams(e) {
     if (e.transform) return Object.assign({}, e.transform.defaults);
     if (e.track) return Object.assign({}, e.track.defaults);
+    if (e.riso) return Object.assign({}, e.riso.defaults);
     const g = e.glitch || { colorA: [1, 0, 0], colorB: [0, 1, 1], opacity: 85, duration: 0 };
     return { BlinkIn: 1, ColorARed: g.colorA[0], ColorAGreen: g.colorA[1], ColorABlue: g.colorA[2], ColorBRed: g.colorB[0], ColorBGreen: g.colorB[1], ColorBBlue: g.colorB[2], Opacity: g.opacity, Dur: g.duration || 0, Sfx: 1 };
 }
@@ -44,7 +45,8 @@ function fxParamsShown(e) {
         const p = c.params && c.params[e.id];
         if (c.effects && c.effects[e.id] && p) {
             const out = fxNextParams(e);
-            for (const k of (e.transform ? Object.keys(e.transform.defaults) : (e.track ? Object.keys(e.track.defaults) : FX_PARAM_IDS))) if (Number.isFinite(Number(p[k])) && p[k] !== null) out[k] = Number(p[k]);
+            const own = e.transform || e.track || e.riso;
+            for (const k of (own ? Object.keys(own.defaults) : FX_PARAM_IDS)) if (Number.isFinite(Number(p[k])) && p[k] !== null) out[k] = Number(p[k]);
             return out;
         }
     }

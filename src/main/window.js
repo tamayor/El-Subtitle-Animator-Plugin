@@ -306,6 +306,7 @@ function createWindow() {
     });
     state.mainWindow.webContents.on('render-process-gone', (event, details) => {
         dlog('[render-process-gone]', details);
+        try { require('./perf').record('renderer.gone', 0, { reason: details && details.reason, exitCode: details && details.exitCode }); } catch (e) { /* ignore */ }
         const now = Date.now();
         rendererCrashes = rendererCrashes.filter(t => now - t < 60000);
         rendererCrashes.push(now);
@@ -324,7 +325,7 @@ function createWindow() {
     // Dropping a file must never navigate the window away from the panel.
     state.mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
     state.mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    state.mainWindow.on('close', () => { clearTimeout(winSaveTimer); saveWinState(); quitPlugin(); });
+    state.mainWindow.on('close', () => { clearTimeout(winSaveTimer); saveWinState(); try { require('./perf').record('quit.window-close', 0); } catch (e) { /* ignore */ } quitPlugin(); });
     state.mainWindow.on('resize', scheduleSaveWinState);
     state.mainWindow.on('move', scheduleSaveWinState);
     state.mainWindow.on('minimize', () => setAppIdle(true));

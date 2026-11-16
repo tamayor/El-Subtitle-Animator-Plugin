@@ -74,7 +74,7 @@ let lastPgrep = 0;
 function watchResolve() {
     try {
         if (typeof WorkflowIntegration.RegisterCallback === 'function') {
-            const ok = WorkflowIntegration.RegisterCallback('ResolveQuit', () => { dlog('ResolveQuit callback'); quitPlugin(); });
+            const ok = WorkflowIntegration.RegisterCallback('ResolveQuit', () => quitTrace('resolve-quit-callback'));
             dlog('ResolveQuit callback registered', ok);
         }
     } catch (e) { /* the polls below still catch it */ }
@@ -87,7 +87,7 @@ function checkResolveAlive(force) {
     // 1. If launched as a child of Resolve, auto-close immediately if the parent process exited
     if (INITIAL_PPID > 1 && (process.ppid !== INITIAL_PPID || !isPidAlive(INITIAL_PPID))) {
         if (state.hasSeenResolve) {
-            quitPlugin();
+            quitTrace('parent-gone', { ppid: process.ppid, initial: INITIAL_PPID });
             return;
         }
     }
@@ -95,13 +95,34 @@ function checkResolveAlive(force) {
     const now = Date.now();
     if (!force && now - lastPgrep < PGREP_MS) return;
     lastPgrep = now;
+    // Once Resolve's PID is known, a signal 0 to it is the answer (no process spawned, no race).
+    if (resolvePid) {
+        if (isPidAlive(resolvePid)) { pgrepMisses = 0; return; }
+        resolvePid = 0;                                 // gone (or restarted): confirm with pgrep below
+    }
     execFile('pgrep', ['-x', 'Resolve'], (err, stdout) => {
         if (state.isQuitting) return;
-        const running = !err && Boolean(String(stdout || '').trim());
-        if (running) {
+        const pid = parseInt(String(stdout || '').trim().split(/\s+/)[0], 10);
+        if (!err && pid > 1) {
+            resolvePid = pid; pgrepMisses = 0;
             state.hasSeenResolve = true;
-        } else if (state.hasSeenResolve) {
-            quitPlugin();
+            return;
         }
+        // macOS pgrep fails now and then (exit 3 "Cannot get process list" while processes start / end, e.g. the
+        // ffmpeg and Python helpers a timeline preview spawns): only "no match" (exit 1), twice in a row, means gone.
+        // A failed check used to quit the panel right after Start.
+        const noMatch = err && err.code === 1;
+        if (!noMatch) { quitTrace('pgrep-error', { code: err && err.code }, false); lastPgrep = 0; return; }
+        if (!state.hasSeenResolve) return;
+        if (++pgrepMisses < 2) { lastPgrep = 0; return; }   // re-checked on the next 1.5 s tick
+        quitTrace('resolve-gone', { via: 'pgrep' });
     });
+}
+let resolvePid = 0, pgrepMisses = 0;
+
+// Every auto-quit says why in the perf log (perf-log.jsonl, flushed on quit), so a panel that "just closes" can be traced.
+function quitTrace(reason, meta, quit = true) {
+    try { require('./perf').record('quit.' + reason, 0, meta); } catch (e) { /* ignore */ }
+    dlog('[quit]', reason, meta || '');
+    if (quit) quitPlugin();
 }

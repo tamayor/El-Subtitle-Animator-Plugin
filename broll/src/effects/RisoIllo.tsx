@@ -5,6 +5,7 @@
 // Flat unshaded shapes, halftone dots for the shadows, a second ink printed slightly out of register. Everything moves
 // on twos. Used by reason-scene through its `illo` prop: [{ kind, x, y, s, at, ...}] in frame pixels (1080 x 1920).
 import React from 'react';
+import { kitScene, KitDefs, KitItem } from './RisoKit';
 
 const INK = '#1c2738', PAPER = '#efe4cc', MATCHA = '#3f7f45', STRAW = '#c7385a';
 const cl = (x: number) => Math.max(0, Math.min(1, x));
@@ -12,7 +13,7 @@ const ez = (x: number) => 1 - Math.pow(1 - cl(x), 3);
 const two = (f: number) => Math.floor(f / 2) * 2;
 const rnd = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
-export type IlloItem = { kind: string; x: number; y: number; s?: number; at?: number; w?: number; h?: number; n?: number; color?: string; flip?: boolean; text?: string; out?: number };
+export type IlloItem = { kind: string; x: number; y: number; s?: number; at?: number; w?: number; h?: number; n?: number; color?: string; flip?: boolean; text?: string; out?: number; steps?: number[] };
 
 // one silhouette with a long flat shadow falling to the lower right
 const Person: React.FC<{ x: number; y: number; s: number; i: number; f: number; shadow?: string }> = ({ x, y, s, i, f, shadow = MATCHA }) => {
@@ -737,10 +738,13 @@ const FamPhoto: React.FC<{ it: IlloItem; f: number }> = ({ it, f }) => {
 export const RisoIllo: React.FC<{ items: IlloItem[]; f: number }> = ({ items, f }) => (
     <svg width={1080} height={1920} viewBox="0 0 1080 1920" style={{ position: 'absolute', inset: 0 }}>
         <defs>
+            <KitDefs />
             <pattern id="illoht" width={9} height={9} patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx={4.5} cy={4.5} r={2.3} fill={INK} /></pattern>
         </defs>
         {items.map((it, i) => {
             if (it.out != null && f >= it.out) return null;
+            const kit = kitScene(it as KitItem, f, i);   // Ep. 13+ scenes (RisoKit.tsx, the illustration standard)
+            if (kit !== undefined) return kit;
             switch (it.kind) {
                 case 'queue': return <Queue key={i} it={it} f={f} />;
                 case 'folders': return <Folders key={i} it={it} f={f} id="illo" />;

@@ -243,3 +243,11 @@ test('renderBeats: a document is blurred where found only while Blur is on; draw
     assert.equal(P.renderBeats([d(true)])[0].blurs.length, 2);
     assert.equal(P.renderBeats([{ id: 'b2', visual: 'photo' }])[0].blurs, undefined);
 });
+
+test('timelineFolder: a "(cut)" version sits inside its episode folder', () => {
+    const { timelineFolder } = require('../../src/main/collage-plan');
+    assert.equal(timelineFolder('Ep14 (cut)'), 'Ep14/Ep14 (cut)');
+    assert.equal(timelineFolder('Before 2028 (cut) 3'), 'Before 2028/Before 2028 (cut) 3');
+    assert.equal(timelineFolder('Ep14'), 'Ep14');
+    assert.equal(timelineFolder('(cut)'), '(cut)');
+});

@@ -276,6 +276,15 @@ function safeName(name) {
     return String(name || 'timeline').replace(/[/\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'timeline';
 }
 
+// Where a timeline's project folder sits under the project main folder. A version of an episode ("Ep14 (cut)",
+// "Ep01 (cut) 3") goes INSIDE the episode's own folder, beside its footage: "Ep14/Ep14 (cut)" (user rule,
+// 2026-11-17: "all (cut) goes to the parent folder"). A plain name ("Ep14") is its own folder.
+function timelineFolder(name) {
+    const tl = safeName(name);
+    const parent = tl.replace(/\s*\([^()]*\)[\s\d]*$/, '').trim();
+    return parent && parent !== tl ? parent + '/' + tl : tl;
+}
+
 // The asset name a picked candidate gets: <candidates folder>-<NN>.<ext> ("b03-01.jpg").
 function candidateAsset(dirName, file) {
     const m = /^(\d+)(\.\w+)$/.exec(String(file || ''));
@@ -539,7 +548,7 @@ function renderBeats(beats) {
 // The export list is at the end: VISUALS / PICTURE_VISUALS are consts.
 module.exports = {
     VISUALS, PICTURE_VISUALS, segmentsOf, captionChunks, srtOf, nextSuffix, clipFile, beatsFromSubtitles,
-    wordsFromSubtitles, pictureNeed, imageSize, parseCsv, csvLine, withCredit, withoutCredit, safeName, candidateAsset,
+    wordsFromSubtitles, pictureNeed, imageSize, parseCsv, csvLine, withCredit, withoutCredit, safeName, timelineFolder, candidateAsset,
     assetMetaOf, clampClipStart, assetsFor, isVideoName, sfxCuesOf, lineKeywords, untouchedBeat, beatIdea, autoPlanBeats, groupThoughts, autoPicks,
     evidencePlan, zoomFor, renderBeats
 };

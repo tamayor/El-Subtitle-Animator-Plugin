@@ -17,7 +17,7 @@ const state = require('./state');
 const { APP_DATA_DIR, BRIDGE_SCRIPT, DATA_DIR } = require('./config');
 const { dlog } = require('./log');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
-const { timelineSfxDir } = require('./sfx-import');
+const { projectOutDir } = require('./sfx-import');
 const { pickTrack } = require('./placement');
 
 const SCRIPT = path.join(path.dirname(BRIDGE_SCRIPT), 'news_match_cut.py');
@@ -94,8 +94,7 @@ async function matchCutStart(opts) {
     const meta = await timelineMeta(tl, project);
     const start = tcToFrame(await tl.GetCurrentTimecode(), meta);
     const tlName = await tl.GetName();
-    const footage = await timelineSfxDir(project);
-    const outRoot = path.join(footage || DATA_DIR, RUNS_DIR);
+    const outRoot = (await projectOutDir(project, RUNS_DIR)).dir;
 
     const py = await pillowPython();
     if (!py) throw new Error('Article Text Match Cut needs Python with Pillow. In Terminal run: pip3 install pillow');

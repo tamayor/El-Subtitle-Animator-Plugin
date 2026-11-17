@@ -60,17 +60,12 @@ function spotRoot() { return path.join(userDir(), 'spotlight'); }
 // "El Subtitle Animator SFX", sfx-import.timelineSfxDir), so the project keeps them when moved or archived.
 // With no footage folder (empty timeline / not writable) they stay in the app's own spotlight folder as before.
 const PROJECT_SPOT_DIR = 'El Subtitle Animator Spotlight';
+// sfx-import.projectOutDir: the project's main folder or footage folder; a main folder on an unmounted drive throws.
 async function spotBase() {
-    try {
-        const project = await require('./resolve').getProject();
-        const footage = project ? await require('./sfx-import').timelineSfxDir(project) : null;
-        if (footage) {
-            const d = path.join(footage, PROJECT_SPOT_DIR);
-            fs.mkdirSync(d, { recursive: true });
-            return d;
-        }
-    } catch (e) { /* app folder */ }
-    return spotRoot();
+    const project = await require('./resolve').getProject();
+    if (!project) return spotRoot();
+    const out = await require('./sfx-import').projectOutDir(project, PROJECT_SPOT_DIR);
+    return out.fallback ? spotRoot() : out.dir;
 }
 function isOwnSpotDir(dir) {
     return dir.startsWith(path.resolve(spotRoot()) + path.sep) || path.basename(path.dirname(dir)) === PROJECT_SPOT_DIR;

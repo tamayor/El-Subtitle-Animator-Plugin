@@ -436,6 +436,15 @@ const PenBox: React.FC<{ x: number; y: number; w: number; h: number; k: number }
     return <path d={d} stroke={STRAW} strokeWidth={7} strokeLinecap="round" fill="none" strokeDasharray={L} strokeDashoffset={L * (1 - k)} />;
 };
 
+const moveAt = (keys: number[][], f: number) => {
+    let cur = { s: 1, x: 50, y: 50 };
+    for (const k of keys) {
+        if (f < k[0]) break;
+        const t = ease(clamp((Math.floor((f - k[0]) / 2) * 2) / 12));
+        cur = { s: cur.s + (k[1] - cur.s) * t, x: cur.x + (k[2] - cur.x) * t, y: cur.y + (k[3] - cur.y) * t };
+    }
+    return cur;
+};
 export const ReasonScene: React.FC<P> = (p) => {
     const f = useCurrentFrame();
     const H = 1920;
@@ -483,6 +492,11 @@ export const ReasonScene: React.FC<P> = (p) => {
     const imgs = [p.image1, p.image2, p.image3].map((x) => String(x || '')).filter((x) => x);
     const iAts = nums(p.imageAts), iYs = nums(p.imageYs), iHs = nums(p.imageHs);
     const quotes = (Array.isArray(p.quotes) ? p.quotes : (() => { try { return JSON.parse(String(p.quotes || '[]')); } catch { return []; } })()) as string[];
+    // photoMoves (Ep12 user: "dont allow same animation for 2 seconds without movement"): stop-motion punch-ins on the photo,
+    // [[at, scale, originX %, originY %], ...]; each key eases in over 12 frames, stepped on twos
+    const moves = ((): number[][] => { try { const v = pp.photoMoves; return Array.isArray(v) ? v : JSON.parse(String(v || '[]')); } catch { return []; } })();
+    // photoMarks: strawberry pen boxes drawn on the photo, {at, x, y, w, h, out?} in panel pixels
+    const photoMarks = ((): { at: number; x: number; y: number; w: number; h: number; out?: number }[] => { try { const v = pp.photoMarks; return Array.isArray(v) ? v : JSON.parse(String(v || '[]')); } catch { return []; } })();
     const marks = (Array.isArray(p.marks) ? p.marks : (() => { try { return JSON.parse(String(p.marks || '[]')); } catch { return []; } })()) as number[][];
     const headK = ease(clamp(f / 10));
     let y = stageY + stageH + 96;
@@ -520,12 +534,19 @@ export const ReasonScene: React.FC<P> = (p) => {
                     const a = pAts[i] ?? 0;
                     if (f < a || photos.some((_, j) => j > i && f >= (pAts[j] ?? 0))) return null;
                     const sc = poster ? 1.06 - 0.06 * ease(clamp((Math.floor((f - a) / 2) * 2) / 8)) : 1.1 - 0.1 * ease(clamp((f - a) / 10));
+                    const mv = moveAt(moves, f);
                     return (
                         <div key={i} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: poster ? '#fbfaf6' : '#111' }}>
-                            <Img src={src} style={{ width: '100%', height: '100%', objectFit: (fits[i] || 'cover') as any, objectPosition: poss[i] || 'center', transform: `scale(${sc})` }} />
+                            <Img src={src} style={{ width: '100%', height: '100%', objectFit: (fits[i] || 'cover') as any, objectPosition: poss[i] || 'center', transform: `scale(${sc * mv.s})`, transformOrigin: `${mv.x}% ${mv.y}%` }} />
                         </div>
                     );
                 })}
+                {photoMarks.length > 0 && (() => { const mv = moveAt(moves, f); return (
+                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+                    <svg width={stageW} height={stageH} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', transform: `scale(${mv.s})`, transformOrigin: `${mv.x}% ${mv.y}%` }}>
+                        {photoMarks.filter((m) => f >= m.at && (m.out == null || f < m.out)).map((m, i) =>
+                            <PenBox key={i} x={m.x} y={m.y} w={m.w} h={m.h} k={clamp((Math.floor((f - m.at) / 2) * 2) / 8)} />)}
+                    </svg></div>); })()}
                 {poster && showFrame && <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}><Grain id={`rsg${Number(p.number) || 0}`} opacity={0.12} seed={5} /></div>}
                 {label && f >= labelAt && (
                     <div style={{ position: 'absolute', left: 0, right: 0, top: labelY, display: 'flex', justifyContent: 'center' }}>
@@ -657,7 +678,7 @@ export const ReasonScene: React.FC<P> = (p) => {
                 })}
                 {/* tags: funny comments / callouts hung one by one, stacking down the frame */}
                 {tags.map((t, i) => {
-                    if (f < t.at) return null;
+                    if (f < t.at || ((t as any).out != null && f >= Number((t as any).out))) return null;
                     const k = ease(clamp((f - t.at) / 8)), hk = clamp((f - t.at - 6) / 8);
                     const rot = poster ? -1.5 : [-3, 2.4, -1.6, 3, -2.2, 1.8][i % 6], dx = (t.dx ?? 0) + (poster ? 0 : [-34, 30, -18, 36, -28, 20][i % 6]);
                     if (poster && !t.comment && !t.img) {

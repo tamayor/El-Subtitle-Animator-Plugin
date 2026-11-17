@@ -59,6 +59,7 @@ import { ChecklistCard } from './effects/ChecklistCard';
 import { AvatarSplit } from './effects/AvatarSplit';
 import { TimelineArc } from './effects/TimelineArc';
 import { ReasonScene } from './effects/ReasonScene';
+import { TalkAccent } from './effects/TalkAccent';
 import { CollageTrack } from './collage/CollageTrack';
 import { withHand } from './lib/hand';
 import { CollageCaptions } from './collage/Captions';
@@ -78,7 +79,7 @@ const COMPONENTS: Record<string, React.FC<any>> = {
     'before-after-wipe': BeforeAfterWipe, 'editor-reveal': EditorReveal, 'video-wall': VideoWall,
     'paper-cut': PaperCut, 'depth-scatter': DepthScatter, 'orbit-carousel': OrbitCarousel,
     'frame-break-card': FrameBreakCard, 'vertigo-dolly': VertigoDolly, 'green-screen-stage': GreenScreenStage,
-    'notification-stack': NotificationStack, 'checklist-card': ChecklistCard, 'avatar-split': AvatarSplit, 'timeline-arc': TimelineArc, 'reason-scene': ReasonScene
+    'notification-stack': NotificationStack, 'checklist-card': ChecklistCard, 'avatar-split': AvatarSplit, 'timeline-arc': TimelineArc, 'reason-scene': ReasonScene, 'talk-accent': TalkAccent
 };
 
 // every effect can take the common `hand` prop (stop motion + line boil, lib/hand.tsx)

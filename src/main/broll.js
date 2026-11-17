@@ -36,7 +36,7 @@ const state = require('./state');
 const { APP_DATA_DIR, APP_ROOT, DATA_DIR } = require('./config');
 const { dlog } = require('./log');
 const { findItemsByIds, getProject, getSubtitles, tcToFrame, timelineMeta } = require('./resolve');
-const { timelineSfxDir } = require('./sfx-import');
+const { projectOutDir } = require('./sfx-import');
 const { pickTrack } = require('./placement');
 const { bridgeCall } = require('./fusion-bridge');
 const { vibeArgs, applyVibe, vibeList } = require('./broll-vibe');
@@ -300,8 +300,7 @@ async function currentTl() {
 }
 
 async function outDir(project) {
-    const footage = await timelineSfxDir(project);
-    return path.join(footage || DATA_DIR, RUNS_DIR);
+    return (await projectOutDir(project, RUNS_DIR)).dir;
 }
 
 async function binFor(mp) {

@@ -1,7 +1,7 @@
 // Sound files in the Media Pool: importing a sound once per project, and keeping the project's own copy of it next to
 // the footage.
 
-module.exports = { importSfx, relinkToProjectCopy, timelineSfxDir };
+module.exports = { importSfx, relinkToProjectCopy, timelineSfxDir, projectRootDir, projectOutDir, isOwnDir };
 
 const path = require('path');
 const fs = require('fs');
@@ -21,9 +21,14 @@ const PERF = require('./perf');
 const PROJECT_SFX_DIR = 'El Subtitle Animator SFX';
 const TL_SFX_DIRS_FILE = path.join(APP_DATA_DIR, 'timeline-sfx-dirs.json');
 function readTlSfxDirs() { try { return JSON.parse(fs.readFileSync(TL_SFX_DIRS_FILE, 'utf8')) || {}; } catch (e) { return {}; } }
-function isOwnSound(dir) {
-    return path.basename(dir) === PROJECT_SFX_DIR || dir.startsWith(DATA_DIR + path.sep) || dir === DATA_DIR;
+// The plugin's own output folders ("El Subtitle Animator SFX / B-roll / MatchCut / Spotlight / Collage" and anything
+// under them, or under the app's data folder) are never taken for the footage folder.
+const OWN_DIR_PREFIX = 'El Subtitle Animator ';
+function isOwnDir(dir) {
+    if (dir === DATA_DIR || dir.startsWith(DATA_DIR + path.sep)) return true;
+    return String(dir).split(path.sep).some((part) => part.startsWith(OWN_DIR_PREFIX));
 }
+const isOwnSound = isOwnDir;
 async function scanFootageDir(tl) {
     const counts = new Map(), seen = new Set();
     for (const kind of ['video', 'audio']) {
@@ -43,8 +48,28 @@ async function scanFootageDir(tl) {
     for (const [d, c] of counts) if (c > best) { dir = d; best = c; }
     return dir;
 }
-// The timeline's saved footage folder, or (first apply) the scanned one, saved for next time.
+// A Resolve project's main folder (_app/project-roots.json: { "<project name>": "<folder>" }, name matched without case).
+// When one is set, everything the plugin renders or copies for that project goes there instead of the footage folder:
+// sound copies, Collage projects (<root>/<timeline>/), MatchCut runs, Spotlight cut-outs. A set root whose drive is
+// not mounted gives { missing } so callers can stop instead of quietly writing somewhere else.
+const PROJECT_ROOTS_FILE = path.join(APP_DATA_DIR, 'project-roots.json');
+function projectRootOf(name) {
+    let roots = {};
+    try { roots = JSON.parse(fs.readFileSync(PROJECT_ROOTS_FILE, 'utf8')) || {}; } catch (e) { return null; }
+    const key = Object.keys(roots).find((k) => k.toLowerCase() === String(name).toLowerCase());
+    return key && roots[key] ? String(roots[key]) : null;
+}
+async function projectRootDir(project) {
+    if (!project) return null;
+    const root = projectRootOf(await project.GetName());
+    if (!root) return null;
+    return fs.existsSync(root) ? { dir: root } : { missing: root };
+}
+// The project's main folder when set; else the timeline's saved footage folder, or (first apply) the scanned one,
+// saved for next time.
 async function timelineSfxDir(project) {
+    const root = await projectRootDir(project);
+    if (root) return root.dir || null;
     const tl = await project.GetCurrentTimeline();
     if (!tl) return null;
     const key = String(await project.GetName()) + '::' + String(await tl.GetUniqueId());
@@ -56,6 +81,58 @@ async function timelineSfxDir(project) {
     try { fs.mkdirSync(APP_DATA_DIR, { recursive: true }); fs.writeFileSync(TL_SFX_DIRS_FILE, JSON.stringify(saved, null, 2)); } catch (e) { /* reused this session only */ }
     dlog('TIMELINE-SFX-DIR', key, dir);
     return dir;
+}
+// No footage on the timeline yet: the folder most of the Media Pool's clips come from (bins walked breadth first, at
+// most 400 clips read, the plugin's own folders skipped).
+async function mediaPoolFootageDir(project) {
+    try {
+        const mp = await project.GetMediaPool();
+        const queue = [await mp.GetRootFolder()];
+        const counts = new Map();
+        let read = 0;
+        while (queue.length && read < 400) {
+            const f = queue.shift();
+            if (!f) continue;
+            for (const c of ((await f.GetClipList()) || [])) {
+                if (++read > 400) break;
+                let p = '';
+                try { p = String(await c.GetClipProperty('File Path') || ''); } catch (e) { /* timeline / compound clip */ }
+                if (!p) continue;
+                const dir = path.dirname(p);
+                if (!isOwnDir(dir)) counts.set(dir, (counts.get(dir) || 0) + 1);
+            }
+            for (const sub of ((await f.GetSubFolderList()) || [])) queue.push(sub);
+        }
+        let dir = null, best = 0;
+        for (const [d, c] of counts) if (c > best && fs.existsSync(d)) { dir = d; best = c; }
+        return dir;
+    } catch (e) { return null; }
+}
+// Where the plugin's renders for this project go (B-roll, MatchCut, Spotlight, Collage; app and MCP alike), always
+// beside the project's own files:
+//   1. "<project main folder>/<sub>" (_app/project-roots.json). Its drive not mounted = an error, never a quiet
+//      fallback to somewhere else.
+//   2. "<footage folder>/<sub>": the timeline's footage folder (timelineSfxDir), or with no footage on the timeline
+//      yet, the Media Pool's.
+//   3. Only a project with no media files at all (or a footage folder that cannot be written) uses the app's data
+//      folder; { fallback: true } then says so, so the caller can warn.
+async function projectOutDir(project, sub) {
+    const root = await projectRootDir(project);
+    if (root && root.missing) throw new Error('The project folder ' + root.missing + ' is not there. Is its drive connected?');
+    if (root) {
+        const dir = path.join(root.dir, sub);
+        fs.mkdirSync(dir, { recursive: true });
+        return { dir, fallback: false };
+    }
+    const footage = (project && (await timelineSfxDir(project))) || (project && (await mediaPoolFootageDir(project)));
+    if (footage) {
+        const dir = path.join(footage, sub);
+        try { fs.mkdirSync(dir, { recursive: true }); return { dir, fallback: false }; } catch (e) { dlog('PROJECT-OUT-DIR-FAIL', dir, String(e && e.message || e)); }
+    }
+    const dir = path.join(DATA_DIR, sub);
+    fs.mkdirSync(dir, { recursive: true });
+    dlog('PROJECT-OUT-DIR-FALLBACK', sub, dir);
+    return { dir, fallback: true };
 }
 // Two files with the same size are compared by content once; the answer is kept by both files' size + mtime.
 const sameFileCache = new Map();

@@ -1,5 +1,6 @@
 // B-roll tab > Collage (js/library/broll/collage.js): the collage-style explainer B-roll of broll/collage/ in the panel.
-// One project folder per timeline, "<footage folder>/El Subtitle Animator Collage/<timeline>/" (collage-plan.js says
+// One project folder per timeline, "<footage folder>/El Subtitle Animator Collage/<timeline>/", or "<project main
+// folder>/<timeline>/" when _app/project-roots.json sets one for the Resolve project (collage-plan.js says
 // what is in it). The pane starts a project from the subtitles, edits its beats (what each shows, search words,
 // date / label / title overlays), finds pictures on Wikimedia Commons (broll/collage/source-images.mjs) and picks
 // them, previews the frame under the playhead and renders the clips with the B-roll tab's warm Remotion worker
@@ -20,10 +21,10 @@ const { spawn, execFile } = require('child_process');
 const { pathToFileURL } = require('url');
 
 const state = require('./state');
-const { APP_DATA_DIR, DATA_DIR, SFX_ORIG_DIR } = require('./config');
+const { APP_DATA_DIR, SFX_ORIG_DIR } = require('./config');
 const { dlog } = require('./log');
 const { findItemsByIds, getSubtitles, tcToFrame } = require('./resolve');
-const { timelineSfxDir } = require('./sfx-import');
+const { projectRootDir, projectOutDir } = require('./sfx-import');
 const { pickTrack } = require('./placement');
 const PLAN = require('./collage-plan');
 
@@ -140,8 +141,11 @@ function collageSources(event, o) {
 
 async function projectFor() {
     const t = await broll().currentTl();
-    const footage = await timelineSfxDir(t.project);
-    const dir = path.join(footage || DATA_DIR, ROOT_DIR, PLAN.safeName(t.name));
+    // With a project main folder set (sfx-import.projectRootDir) the project is <root>/<timeline>/, else
+    // <footage folder>/El Subtitle Animator Collage/<timeline>/.
+    const root = await projectRootDir(t.project);
+    if (root && root.missing) throw new Error('The project folder ' + root.missing + ' is not there. Is its drive connected?');
+    const dir = root ? path.join(root.dir, PLAN.safeName(t.name)) : path.join((await projectOutDir(t.project, ROOT_DIR)).dir, PLAN.safeName(t.name));
     const tlStart = Number(await t.tl.GetStartFrame()) || 0;
     return { ...t, dir, tlStart };
 }

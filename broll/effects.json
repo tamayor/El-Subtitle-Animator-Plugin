@@ -3914,6 +3914,110 @@
           "default": "[]"
         }
       ]
+    },
+    {
+      "id": "talk-accent",
+      "name": "Talk accent",
+      "group": "Hand-drawn",
+      "description": "Over a talking shot, in the space above the speaker's head: one key word of the line (serif italic, cream with an ink outline and an out-of-register strawberry plate) cutting in on its word, an optional pen underline or circle, and one small doodle that acts the line out (ghost, cycle arrows, speech bubble, hearts, a hanging tarp, waves, or the word fading away). Before 2028 talking-shot overlay; use with Hand-made.",
+      "seconds": 3,
+      "defaults": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "fields": [
+        {
+          "key": "word",
+          "type": "text",
+          "label": "Word",
+          "default": "disappears"
+        },
+        {
+          "key": "wordAt",
+          "type": "number",
+          "label": "Word at (frame)",
+          "default": 0,
+          "min": 0,
+          "max": 600,
+          "step": 1
+        },
+        {
+          "key": "size",
+          "type": "number",
+          "label": "Size",
+          "default": 112,
+          "min": 40,
+          "max": 220,
+          "step": 2
+        },
+        {
+          "key": "cx",
+          "type": "number",
+          "label": "Centre X (px of 1080)",
+          "default": 540,
+          "min": 0,
+          "max": 1080,
+          "step": 2
+        },
+        {
+          "key": "cy",
+          "type": "number",
+          "label": "Baseline Y (px of 1920)",
+          "default": 330,
+          "min": 0,
+          "max": 1920,
+          "step": 2
+        },
+        {
+          "key": "mark",
+          "type": "select",
+          "label": "Pen mark",
+          "default": "none",
+          "options": [
+            "none",
+            "underline",
+            "circle"
+          ]
+        },
+        {
+          "key": "doodle",
+          "type": "select",
+          "label": "Doodle",
+          "default": "none",
+          "options": [
+            "none",
+            "ghost",
+            "cycle",
+            "bubble",
+            "hearts",
+            "tarp",
+            "waves",
+            "fade"
+          ]
+        },
+        {
+          "key": "doodleAt",
+          "type": "number",
+          "label": "Doodle at (frame)",
+          "default": 0,
+          "min": 0,
+          "max": 600,
+          "step": 1
+        },
+        {
+          "key": "border",
+          "type": "select",
+          "label": "Risograph border",
+          "default": "none",
+          "options": [
+            "none",
+            "riso",
+            "straw",
+            "matcha"
+          ]
+        }
+      ],
+      "triggers": []
     }
   ]
 }

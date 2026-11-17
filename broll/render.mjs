@@ -165,11 +165,15 @@ async function render(job, url, inputProps, t0) {
         }
         return { out: job.out, frames, total: D, ms: Date.now() - t0 };
     }
-    const tmp = job.out + '.part.mov';
+    const opaque = job.opaque === true || job.effect === 'reason-scene' || job.effect === 'collage-track';
+    const tmp = job.out + (opaque ? '.part.mp4' : '.part.mov');
     try {
         await renderMedia({
             serveUrl: url, composition, inputProps, outputLocation: tmp, overwrite: true, puppeteerInstance: browser,
-            codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png', muted: true,
+            ...(opaque
+                ? { codec: 'h264', pixelFormat: 'yuv420p', crf: 16, imageFormat: 'jpeg' }
+                : { codec: 'prores', proResProfile: '4444', pixelFormat: 'yuva444p10le', imageFormat: 'png' }),
+            muted: true,
             // draft: a smaller file for scrubbing in Resolve (the clip is set to Fit there); finalize re-renders at 1
             scale,
             // Every overlay is written with the Rec.709 matrix and tags, which is how Resolve reads an HD ProRes file.

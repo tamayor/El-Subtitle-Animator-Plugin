@@ -581,6 +581,9 @@
   ],
   "sfx-import.js": [
     "importSfx:function",
+    "isOwnDir:function",
+    "projectOutDir:function",
+    "projectRootDir:function",
     "relinkToProjectCopy:function",
     "timelineSfxDir:function"
   ],

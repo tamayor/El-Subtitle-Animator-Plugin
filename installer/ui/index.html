@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Install El Subtitle Animator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>El Subtitle Animator</h1>
+        <p class="sub">Installer for DaVinci Resolve Studio</p>
+        <div class="folder">
+            <span class="label">Main folder</span>
+            <span id="folder" class="path" title=""></span>
+            <button id="choose" class="link" type="button">Change…</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="lost" class="notice warn" hidden>
+            <strong>The plugin folder was not found.</strong>
+            Keep this app in the main folder, beside “El Subtitle Animator Plugin”, or choose the main folder.
+            <div class="row"><button id="chooseLost" type="button">Choose the main folder…</button></div>
+        </section>
+
+        <section id="finished" class="notice good" hidden>
+            <strong id="finishedTitle">Installed.</strong>
+            <ol>
+                <li id="stepRestart">Quit DaVinci Resolve completely and open it again.</li>
+                <li>Choose <b>Workspace › Workflow Integrations › El Subtitle Animator</b>.</li>
+                <li id="stepClaude" hidden>Restart Claude Code so it picks up the MCP server and the commands.</li>
+            </ol>
+            <div class="row">
+                <button id="resolveBtn" type="button"></button>
+                <span id="resolveMsg" class="msg"></span>
+            </div>
+        </section>
+
+        <div id="list"></div>
+        <p class="hint">The panel also works without the optional items: each engine can be installed later, here or from the panel when a feature first needs it.</p>
+    </main>
+
+    <footer>
+        <div class="left">
+            <button id="all" class="link" type="button">Select all</button>
+            <button id="none" class="link" type="button">Select none</button>
+        </div>
+        <span id="summary" class="msg"></span>
+        <button id="stop" type="button" hidden>Stop</button>
+        <button id="install" class="primary" type="button" disabled>Install</button>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

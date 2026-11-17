@@ -44,19 +44,32 @@ El Subtitle Animator Plugin Main/
   El Subtitle Animator/          your presets, sounds, previews, fonts
 ```
 
-Copy and paste into Terminal (or double-click the installer in Finder):
+Double-click **Install El Subtitle Animator (Mac)** in the main folder, tick what you want and click **Install**:
 
-```bash
-bash "$HOME/Documents/El Subtitle Animator Plugin Main/El Subtitle Animator Plugin/Install El Subtitle Animator.command"
-```
+- **El Subtitle Animator panel** (always): copied into Resolve's plugin folder, with the location of this folder.
+- **Saved paths in your library**: after the main folder moves, the safe-zone image and rendered B-roll files are
+  pointed to the new place.
+- **Claude Code**: the MCP server and the `/elsa-prompt` and `/elsa-prompt-auto` commands.
+- **Tools and engines**: ffmpeg, tesseract, the Whisper speech engine, Track Subject, subject cut-out, Auto Cut,
+  Pillow and the B-roll renderer. Each shows whether it is already installed; the panel can also install its engines
+  later, when a feature first needs one.
 
-It asks for your Mac password, because Resolve reads plugins from a system folder. Then quit Resolve completely, reopen
-it, and choose **Workspace › Workflow Integrations › El Subtitle Animator**.
+macOS asks for your password the first time, because Resolve reads plugins from a system folder. Then quit Resolve
+completely, reopen it (the installer has a button for this), and choose
+**Workspace › Workflow Integrations › El Subtitle Animator**.
+
+Run the installer again after moving or renaming the main folder, and after every code change. The app is built from
+`installer/` (`cd installer && npm install && npm run build`). From Terminal, `npm run install-panel` in the code
+folder installs the panel only.
+
+`npm run build -- win32 x64` builds the Windows installer, one `Install El Subtitle Animator.exe` in the main folder
+(its unpacked app folder stays in `installer/dist/`). It installs the panel only: the plugin's other parts use macOS
+tools. The installer's code is split by platform: `installer/shared/`, `installer/mac/`, `installer/windows/`.
 
 The installer copies only the runtime files (`manifest.xml`, `package.json`, `main.js`, `src/`) plus Blackmagic's
 `WorkflowIntegration.node` into
 `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.el.subtitleanimator`.
-Resolve runs that copy, not this folder: **run the installer again after every code change.**
+Resolve runs that copy, not this folder.
 
 User data (presets, sounds, previews, fonts, window state) lives in `El Subtitle Animator/`, next to the code folder.
 The installer writes the main folder's location to `data-location.json` in the installed plugin, so if you move or
@@ -99,7 +112,7 @@ files without Resolve).
 ```
 main.js                    Entry point Resolve loads (manifest.xml); just requires src/main
 manifest.xml               Plugin id, name and entry file for Resolve
-Install El Subtitle Animator.command   The installer
+installer/                 The installer app: shared/, mac/, windows/ (npm run install-panel for the panel only)
 src/
   main/                    Electron main process (CommonJS modules), one concern per file
   preload.js               window.sa: the panel's API, one function per IPC channel

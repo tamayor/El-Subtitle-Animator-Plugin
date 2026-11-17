@@ -70,7 +70,7 @@ into Resolve's Titles folder).
 
 ## Testing in Resolve
 
-Resolve runs the installed copy. After a change, run `Install El Subtitle Animator.command`, quit Resolve completely
+Resolve runs the installed copy. After a change, run `npm run install-panel` (or the installer app in the main folder), quit Resolve completely
 and reopen it. Then, on a scratch timeline (never the user's working timeline):
 
 - [ ] The panel opens from Workspace › Workflow Integrations and shows the timeline's subtitles.

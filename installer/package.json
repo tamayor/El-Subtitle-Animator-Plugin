@@ -1,0 +1,19 @@
+{
+    "name": "el-subtitle-animator-installer",
+    "productName": "Install El Subtitle Animator",
+    "version": "1.0.0",
+    "description": "Installer for the El Subtitle Animator panel, its Claude Code connection and its optional engines.",
+    "author": "El Subtitle Animator",
+    "main": "main.js",
+    "private": true,
+    "scripts": {
+        "start": "electron .",
+        "icon": "electron icon/make-icon.js",
+        "build": "node build.js"
+    },
+    "devDependencies": {
+        "@electron/packager": "^20.3.0",
+        "electron": "^45.3.3",
+        "electron-builder": "^26.18.0"
+    }
+}

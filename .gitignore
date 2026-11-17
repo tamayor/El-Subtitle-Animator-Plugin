@@ -9,6 +9,9 @@ __pycache__/
 # Node
 node_modules/
 
+# The built installer app (npm run build in installer/)
+installer/dist/
+
 # Local backups & debug
 *.bak*
 _archive/

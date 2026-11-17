@@ -17,10 +17,16 @@ const rules = {
 };
 
 export default [
-    { ignores: ['_archive/**', '_debug/**', 'node_modules/**', 'broll/**'] },
+    { ignores: ['_archive/**', '_debug/**', 'node_modules/**', 'broll/**', 'installer/node_modules/**', 'installer/dist/**'] },
     {
-        files: ['main.js', 'src/main/**/*.js', 'src/preload.js', 'tools/**/*.js', 'mcp/**/*.js', 'test/**/*.js'],
+        files: ['main.js', 'src/main/**/*.js', 'src/preload.js', 'tools/**/*.js', 'mcp/**/*.js', 'test/**/*.js',
+            'installer/*.js', 'installer/shared/**/*.js', 'installer/mac/**/*.js', 'installer/windows/**/*.js', 'installer/icon/*.js'],
         languageOptions: { ecmaVersion: 'latest', sourceType: 'commonjs', globals: { ...globals.node } },
+        rules,
+    },
+    {
+        files: ['installer/ui/**/*.js'],
+        languageOptions: { ecmaVersion: 'latest', sourceType: 'script', globals: { ...globals.browser } },
         rules,
     },
     {

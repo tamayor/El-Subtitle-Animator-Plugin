@@ -55,7 +55,7 @@ async function resolveRange(tl, args) {
 
 // Sound effects the plugin placed and its generated cut-outs are not footage.
 function isOwnFile(file) {
-    return /\/El Subtitle Animator SFX\//.test(file) || /\/El Subtitle Animator\/sounds\//.test(file) || /\/spotlight\/[^/]+\/c\[/.test(file);
+    return /\/(?:Framelly|El Subtitle Animator) SFX\//.test(file) || /\/(?:Framelly|El Subtitle Animator)\/sounds\//.test(file) || /\/spotlight\/[^/]+\/c\[/.test(file);
 }
 
 // Every media clip of the range on the timeline, with what maps its timeline frames to file seconds.

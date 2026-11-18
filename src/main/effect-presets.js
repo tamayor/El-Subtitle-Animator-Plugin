@@ -1,4 +1,4 @@
-// Effect presets: Stop Motion, Wiggle and Glitch as Resolve Fusion *effects* (Edit/Effects/Subtitle Animator/*.setting),
+// Effect presets: Stop Motion, Wiggle and Glitch as Resolve Fusion *effects* (Edit/Effects/Framelly/*.setting),
 // so they go on any timeline clip - a video, a plain title or a placed text preset - with TimelineItem.AddEffect.
 // Each effect is its own comp on the clip (not the title's comp), so a title's Inspector is never touched.
 // Several on one clip stack as one look; they are kept in ORDER (glitch, then wiggle, then stop motion holds it all).
@@ -8,8 +8,8 @@ const fs = require('fs');
 const path = require('path');
 
 const { resolveUserDir } = require('./config');
+const { CATEGORY, OLD_CATEGORY, adoptOldDir } = require('./names');
 
-const CATEGORY = 'Subtitle Animator';
 // id -> what the panel shows; order = the stacking order on a clip (first is applied first)
 const EFFECTS = [
     { id: 'Transform', name: 'Transform', tags: ['transform', 'zoom', 'move', 'push in', 'pan'], tip: 'Zooms and moves the picture over the clip, with an easing curve (on top of the clip\'s own Edit transform). Inside Fusion, so Stop Motion holds it too', transform: true },
@@ -425,9 +425,10 @@ function spotlight() {
 
 const MAKERS = { Riso: riso, Transform: transform, Track: track, StopMotion: stopMotion, Wiggle: wiggle, Glitch: glitch, Glass: glass, Spotlight: spotlight };
 
-// Writes (or refreshes) the effect templates Resolve lists under Effects > Subtitle Animator.
+// Writes (or refreshes) the effect templates Resolve lists under Effects > Framelly.
+// The folder an earlier version made ("Subtitle Animator") is renamed first.
 function installEffects() {
-    const dir = effectsDir();
+    const dir = adoptOldDir(effectsDir(), resolveUserDir('Fusion', 'Templates', 'Edit', 'Effects', OLD_CATEGORY));
     fs.mkdirSync(dir, { recursive: true });
     const out = [];
     for (const e of EFFECTS) {

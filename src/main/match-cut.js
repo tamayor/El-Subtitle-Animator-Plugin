@@ -2,7 +2,7 @@
 // use the word are screenshotted, the word is found in each by OCR, and every picture is scaled and moved so the word
 // sits at the same size in the same spot; the MP4 is rendered by src/python/news_match_cut.py and placed at the
 // playhead (video on the top free layer, the clicks on a free audio track, linked).
-// Runs are saved in "<footage folder>/El Subtitle Animator MatchCut/<word>/", beside "El Subtitle Animator SFX" (same
+// Runs are saved in "<footage folder>/Framelly MatchCut/<word>/", beside "Framelly SFX" (same
 // footage folder: sfx-import.timelineSfxDir), and the MP4 goes into a Media Pool bin of the same name.
 
 module.exports = { matchCutDefaults, matchCutRun, matchCutStart, matchCutCancel, matchCutStatus, matchCutOpen };
@@ -18,10 +18,11 @@ const { APP_DATA_DIR, BRIDGE_SCRIPT, DATA_DIR } = require('./config');
 const { dlog } = require('./log');
 const { getProject, tcToFrame, timelineMeta } = require('./resolve');
 const { projectOutDir } = require('./sfx-import');
+const { sameName } = require('./names');
 const { pickTrack } = require('./placement');
 
 const SCRIPT = path.join(path.dirname(BRIDGE_SCRIPT), 'news_match_cut.py');
-const RUNS_DIR = 'El Subtitle Animator MatchCut';
+const RUNS_DIR = 'Framelly MatchCut';
 const PREFS_FILE = path.join(APP_DATA_DIR, 'match-cut.json');
 const DEFAULT_SFX = path.join(DATA_DIR, 'sounds', 'original', 'universfield-soft-ui-click-147352.wav');
 const EXTRA_PATH = ':/opt/homebrew/bin:/usr/local/bin';
@@ -162,14 +163,14 @@ async function matchCutStart(opts) {
     return j;
 }
 
-// The MP4 goes into the "El Subtitle Animator MatchCut" bin and onto the timeline at `start`.
+// The MP4 goes into the "Framelly MatchCut" bin and onto the timeline at `start`.
 async function placeOnTimeline(project, tlName, result, start, withAudio) {
     const tl = await project.GetCurrentTimeline();
     if (!tl || (await tl.GetName()) !== tlName) throw new Error('the timeline changed while rendering; the MP4 is in ' + result.dir);
     const mp = await project.GetMediaPool();
     const root = await mp.GetRootFolder();
     let bin = null;
-    for (const f of ((await root.GetSubFolderList()) || [])) { if ((await f.GetName()) === RUNS_DIR) { bin = f; break; } }
+    for (const f of ((await root.GetSubFolderList()) || [])) { if (sameName(await f.GetName(), RUNS_DIR)) { bin = f; break; } }
     if (!bin) { try { bin = await mp.AddSubFolder(root, RUNS_DIR); } catch (e) { bin = null; } }
     const keep = await mp.GetCurrentFolder();
     if (bin) { try { await mp.SetCurrentFolder(bin); } catch (e) { /* imports into the current bin instead */ } }

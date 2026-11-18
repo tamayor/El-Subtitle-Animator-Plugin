@@ -56,10 +56,10 @@ function userDir() { return require('electron').app.getPath('userData'); }
 function venvPython() { return path.join(userDir(), 'tracker-venv', 'bin', 'python3'); }
 function modelPath() { return path.join(userDir(), 'models', MODEL_FILE); }
 function spotRoot() { return path.join(userDir(), 'spotlight'); }
-// The cut-outs go next to the footage, "<footage folder>/El Subtitle Animator Spotlight/<id>/" (beside
-// "El Subtitle Animator SFX", sfx-import.timelineSfxDir), so the project keeps them when moved or archived.
+// The cut-outs go next to the footage, "<footage folder>/Framelly Spotlight/<id>/" (beside
+// "Framelly SFX", sfx-import.timelineSfxDir), so the project keeps them when moved or archived.
 // With no footage folder (empty timeline / not writable) they stay in the app's own spotlight folder as before.
-const PROJECT_SPOT_DIR = 'El Subtitle Animator Spotlight';
+const PROJECT_SPOT_DIR = 'Framelly Spotlight';
 // sfx-import.projectOutDir: the project's main folder or footage folder; a main folder on an unmounted drive throws.
 async function spotBase() {
     const project = await require('./resolve').getProject();
@@ -68,7 +68,7 @@ async function spotBase() {
     return out.fallback ? spotRoot() : out.dir;
 }
 function isOwnSpotDir(dir) {
-    return dir.startsWith(path.resolve(spotRoot()) + path.sep) || path.basename(path.dirname(dir)) === PROJECT_SPOT_DIR;
+    return dir.startsWith(path.resolve(spotRoot()) + path.sep) || require('./names').sameName(path.basename(path.dirname(dir)), PROJECT_SPOT_DIR);
 }
 
 function run(cmd, args, opts, onLine) {
@@ -102,7 +102,7 @@ async function spotEngine() { return { ready: await engineReady(), sizeMB: 60 };
 
 function download(url, file, onPct, hops) {
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'el-subtitle-animator' } }, (res) => {
+        https.get(url, { headers: { 'User-Agent': 'framelly' } }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && (hops || 0) < 6) {
                 res.resume();
                 download(res.headers.location, file, onPct, (hops || 0) + 1).then(resolve, reject);

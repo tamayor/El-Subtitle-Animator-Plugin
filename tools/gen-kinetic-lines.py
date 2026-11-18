@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the "Kinetic Lines (ML)" preset for El Subtitle Animator: the calm sibling of Kinetic Cloud.
+"""Generates the "Kinetic Lines (ML)" preset for Framelly: the calm sibling of Kinetic Cloud.
 
 Template (Text+)  the controller: holds the subtitle text, font, colour, Size and the sliders. It is not rendered.
 Row1..Row12       one Text+ per row. Text, Size, Center and colour are Lua expressions of Template.

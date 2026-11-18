@@ -1,15 +1,15 @@
-// Prompt tab: the job prompt for Claude (El Subtitle Animator MCP), editable in the panel with a Copy button.
+// Prompt tab: the job prompt for Claude (Framelly MCP), editable in the panel with a Copy button.
 // The SETTINGS block at the top of the prompt is what changes per video; the rules below it refer to those names.
 // Builder mode shows SETTINGS as sections of key rows (each with its own input, "+ if" conditions and a note),
 // preset keys pick from the library, and the bottom menu adds keys for the MCP call parameters. Text mode edits
 // the whole prompt as plain text; both write the same text.
-// Edits are kept in localStorage and mirrored to <library>/job-prompt.md (read by the /elsa-prompt command). "Save as default" stores the current text as the user's own
+// Edits are kept in localStorage and mirrored to <library>/job-prompt.md (read by the /framelly-prompt command). "Save as default" stores the current text as the user's own
 // default; Reset goes back to that (or to the built-in text when none is saved); "Restore built-in" drops it.
 
 const JOB_PROMPT_KEY = 'sa.jobPrompt';
 const JOB_PROMPT_DEFAULT_KEY = 'sa.jobPromptDefault';
 
-const DEFAULT_JOB_PROMPT = `# El Subtitle Animator — job prompt
+const DEFAULT_JOB_PROMPT = `# Framelly — job prompt
 
 ## SETTINGS  (edit here; the rules below refer to these names)
 
@@ -151,7 +151,7 @@ function saveJobPrompt(text) {
     if (text === effectiveJobPromptDefault()) store.remove(JOB_PROMPT_KEY); else store.set(JOB_PROMPT_KEY, text);
 }
 
-// Also written to job-prompt.md in the library folder so Claude Code's /elsa-prompt command can read it.
+// Also written to job-prompt.md in the library folder so Claude Code's /framelly-prompt command can read it.
 function mirrorJobPromptToFile(text) {
     try { if (window.sa && window.sa.saveJobPromptFile) window.sa.saveJobPromptFile(String(text || '')); } catch (e) { /* ignore */ }
 }

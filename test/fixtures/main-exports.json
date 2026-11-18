@@ -65,7 +65,8 @@
   ],
   "boilerplates.js": [
     "boilerplateList:function",
-    "insertBoilerplate:function"
+    "insertBoilerplate:function",
+    "installBoilerplateTemplates:function"
   ],
   "broll-footage.js": [
     "MAX_FULL_SECONDS:number",
@@ -188,6 +189,7 @@
     "segmentsOf:function",
     "sfxCuesOf:function",
     "srtOf:function",
+    "timelineFolder:function",
     "untouchedBeat:function",
     "withCredit:function",
     "withoutCredit:function",
@@ -456,6 +458,21 @@
     "sourceMapper:function",
     "stopAsr:function",
     "transcribeWords:function"
+  ],
+  "names.js": [
+    "APP_NAME:string",
+    "CATEGORY:string",
+    "CODE_FOLDER_NAME:string",
+    "HOME_DIR:string",
+    "OLD_APP_NAME:string",
+    "OLD_CATEGORY:string",
+    "OLD_CODE_FOLDER_NAME:string",
+    "adoptOldDir:function",
+    "existingOr:function",
+    "isOwnName:function",
+    "oldName:function",
+    "outDirIn:function",
+    "sameName:function"
   ],
   "perf.js": [
     "PERF_DEFAULTS:object",

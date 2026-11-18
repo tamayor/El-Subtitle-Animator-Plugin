@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the "Justified Pop (ML)" preset for El Subtitle Animator.
+"""Generates the "Justified Pop (ML)" preset for Framelly.
 
 Look (from the user's reference, 2026-11-10): three rows in one colour (yellow).
     but     the     thing     is        <- Upper: small, justified
@@ -47,7 +47,7 @@ def lua(s):
 
 def font_path(style):
     for d in (os.path.expanduser('~/Library/Fonts'), '/Library/Fonts',
-              os.path.join(os.path.dirname(__file__), '..', '..', 'El Subtitle Animator', 'fonts')):
+              os.path.join(os.path.dirname(__file__), '..', '..', 'Framelly', 'fonts')):
         p = os.path.join(d, 'Poppins-%s.ttf' % style)
         if os.path.exists(p):
             return p

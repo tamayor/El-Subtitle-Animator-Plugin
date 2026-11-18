@@ -1,6 +1,6 @@
 # Architecture
 
-How El Subtitle Animator is put together, and the constraints that shaped it. For installing and using the plugin see
+How Framelly is put together, and the constraints that shaped it. For installing and using the plugin see
 [README.md](README.md); for the day-to-day rules of changing it see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The pieces
@@ -13,12 +13,12 @@ src/main/            Electron main process: talks to Resolve, owns the library a
   │  ├─ WorkflowIntegration.node   Blackmagic's scripting API for JavaScript (timeline, clips, Media Pool)
   │  ├─ src/python/fusion_bridge.py   one long-running Python helper for what the JS API cannot reach
   │  │                                (the tools inside a Fusion composition), one JSON line per request
-  │  └─ HTTP on 127.0.0.1  ◄──  mcp/el-sa-mcp.js  ◄──  Claude Code (or any MCP client)
+  │  └─ HTTP on 127.0.0.1  ◄──  mcp/framelly-mcp.js  ◄──  Claude Code (or any MCP client)
   ▼  IPC (src/preload.js: window.sa)
 src/renderer/        the panel: plain HTML, CSS and classic scripts
 ```
 
-Two folders sit side by side: the code (this repo) and the user's data (`El Subtitle Animator/`: `library.json`,
+Two folders sit side by side: the code (this repo) and the user's data (`Framelly/`: `library.json`,
 `presets/`, `sounds/`, `previews/`, `fonts/`, `_app/`). Resolve runs the *installed copy* of the code, in its Workflow
 Integration Plugins folder; the installer writes `data-location.json` there so that copy finds the data folder.
 
@@ -31,7 +31,7 @@ decision below is about making those round trips few, and about never breaking R
 | Area | Modules |
 | --- | --- |
 | Start-up, window, lifecycle | `index.js` (entry, warm-ups), `window.js`, `lifecycle.js` (quits with Resolve), `app-version.js`, `log.js` |
-| Configuration and state | `config.js` (constants and file locations; requires no project module), `state.js` (mutable state shared between modules) |
+| Configuration and state | `config.js` (constants and file locations; requires no project module but `names.js`), `names.js` (the plugin's names on disk and in Resolve, and the ones it had as El Subtitle Animator), `state.js` (mutable state shared between modules) |
 | Panel API | `ipc.js` (every IPC channel → handler), mirrored by `src/preload.js` |
 | Resolve connection | `resolve.js` (connection, timeline metadata, timecode, subtitles, item lookups), `workflow-integration.js` (the native addon), `resolve-load.js` (is Resolve busy?), `poll.js` (playhead polling), `playback.js`, `selection.js`, `clip-colors-db.js` (subtitle clip colours from the project database) |
 | Placing a caption | `apply.js` (the main action), `placement.js` (track picking, title insert / move / trim, cut guard, main and layered sounds), `title-templates.js` (presets as Resolve title templates), `timeline-snapshot.js` (one read of the timeline per placement), `stack.js` (stacked captions), `settle.js` (second wake), `regroup.js` (subtitles regrouped by thought) |
@@ -57,6 +57,11 @@ Conventions:
   can go stale at any time. Lists are read as `(await tl.GetItemListInTrack(kind, t)) || []`, optional calls sit in
   their own `try / catch` with a comment saying why the failure does not matter, and anything the user asked for
   reports the failure back (`{ ok: false, error }` / a warning) rather than throwing into the panel.
+- **Names live in `names.js`**: the product name, the Resolve category and bin, the code folder, `~/.framelly`.
+  The plugin was called El Subtitle Animator before. New folders, bins and templates get the current name; what an
+  earlier version made is used as it is (`existingOr`, `outDirIn`, `sameName`, `isOwnName`), and the plugin's own
+  template folders in Resolve's support folder are renamed once (`adoptOldDir`). `installer/shared/env.js` mirrors
+  the names (checked by `test/main/names.test.js`).
 - **System locations live in `config.js`**: the data folders, Resolve's app, scripting and template folders
   (`resolveUserDir`), `osascript`, and `RESOLVE_BATCH` (how many timeline items are asked about at once).
 
@@ -106,13 +111,13 @@ installs on first use (`src/main/subject-track.js`).
 
 Resolve's Edit-page Inspector only shows a Fusion title's controls when Resolve built the title itself. If a script replaces a clip's comp (`ImportFusionComp`, `LoadFusionCompByName`, `AddFusionComp`, `comp:Paste`, `tool:LoadSettings`), the Inspector shows only a folded "Text+" header with no controls. This happens even when the imported comp is the clip's own export. Tagging the comp with `TEMPLATE_ID` or expanding its tools doesn't help.
 
-So `presetTitleFor` (in `title-templates.js`) writes each preset to `Fusion/Templates/Edit/Titles/Subtitle Animator/<Text+|MultiText> <preset name>.setting`, and the clip is inserted with `InsertFusionTitleIntoTimeline(<that name>)`. Resolve picks up new or rewritten template files immediately. The "Text+" / "MultiText" prefix keeps `isTitleClipName` and the cut guard working.
+So `presetTitleFor` (in `title-templates.js`) writes each preset to `Fusion/Templates/Edit/Titles/Framelly/<Text+|MultiText> <preset name>.setting`, and the clip is inserted with `InsertFusionTitleIntoTimeline(<that name>)`. Resolve picks up new or rewritten template files immediately. The "Text+" / "MultiText" prefix keeps `isTitleClipName` and the cut guard working.
 
 - On insert, Resolve connects the title's MediaOut to the tool named `Template`, whatever the template file says. For presets that run the text through effects (wiggle, glitch, stop motion), `apply.js` reconnects it to the real output tool (`presetOutputFor` + the bridge op `set_output`). Without that step these presets show plain text.
 - A preset without a MediaOut (nodes copied out of the Fusion page) gets one, wired to its final tool (`withOutput`). Otherwise Resolve inserts an unconnected MediaOut and the clip is black. Macro / group presets are left to Resolve, which wires them itself.
 - The template is rebuilt from the preset file on every apply, so presets saved from the timeline, dropped in, replaced or reverted are covered automatically. Every preset's template is also installed up front (`installAllTemplates`, run at startup and after each library change): Resolve 21.2 throws for a template it has not scanned yet, and a template written only on the preset's first use could still be unknown at that moment. `insertTitleAtEnd` (`placement.js`) retries a thrown insert for a few seconds before `apply.js` falls back to a plain title (that fallback clip works but has an empty Inspector, and is warned about).
 - Clips that did fall back (named just "Text+" / "MultiText" but holding a preset) can be rebuilt: the MCP tool `repair_inspector` (`src/main/repair.js`) inserts the same preset as a title-template clip of the same length, copies every plain input value and the clip transform over (bridge ops `tools` and `copy_inputs`; nothing is imported or pasted), puts it in the old clip's place and removes the old clip.
-- The template is named after the preset's name in the panel (`presetTitleNames`; same-named presets get " 2", " 3" in list order). `syncTemplates` renames the template when a preset is renamed, reverted or reordered, and deletes it when the preset is removed or its file replaced. At startup `startupTemplates` renames templates from older versions (named after the preset file) and prunes the rest. Only `*.setting` files in the plugin's own `Subtitle Animator` folder are touched. Clips already made from a deleted or renamed template keep working.
+- The template is named after the preset's name in the panel (`presetTitleNames`; same-named presets get " 2", " 3" in list order). `syncTemplates` renames the template when a preset is renamed, reverted or reordered, and deletes it when the preset is removed or its file replaced. At startup `startupTemplates` renames templates from older versions (named after the preset file) and prunes the rest. Only `*.setting` files in the plugin's own `Framelly` folder are touched. Clips already made from a deleted or renamed template keep working.
 - To change which preset a clip uses, insert a new clip. Don't swap the comp on the existing one.
 - `npm run check` fails on any comp-replacing call without an `// inspector-ok: <reason>` comment. Use that comment only for clips the user never inspects (temporary render clips) or for the logged fallback in `apply.js`, which warns the user.
 

@@ -1,11 +1,14 @@
 // Static configuration: plugin id, on-disk locations of the library and app files, debug switches.
-// Constants and path helpers only - this module must not require any other project module.
+// Constants and path helpers only - this module must not require any other project module (names.js aside, which
+// requires none itself).
 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const PLUGIN_ID = 'com.el.subtitleanimator';
+const { APP_NAME, OLD_APP_NAME, existingOr } = require('./names');
+
+const PLUGIN_ID = 'com.framelly.plugin';
 const INITIAL_PPID = process.ppid;
 
 // ------------------------------------------------------------------ app files (inside the plugin folder)
@@ -20,12 +23,13 @@ const WORKFLOW_INTEGRATION_NODE = path.join(APP_ROOT, 'WorkflowIntegration.node'
 
 // ------------------------------------------------------------------ library on disk
 // Both folders live side by side in one main folder, wherever the user keeps it:
-//   El Subtitle Animator Plugin Main/
-//     El Subtitle Animator Plugin/   the code (this repo, with the installer)
-//     El Subtitle Animator/          the user data (presets, sounds, previews, fonts)
+//   Framelly Plugin Main/
+//     Framelly Plugin/   the code (this repo, with the installer)
+//     Framelly/          the user data (presets, sounds, previews, fonts)
 // The installed copy runs from Resolve's plugin folder, so the installer records the main folder in
-// data-location.json. Running straight from the repo, the data folder is the code folder's sibling.
-const DATA_FOLDER_NAME = 'El Subtitle Animator';
+// data-location.json. Running straight from the repo, the data folder is the code folder's sibling (the one an
+// earlier version named "El Subtitle Animator" when that is the one there).
+const DATA_FOLDER_NAME = APP_NAME;
 const LOCATION_FILE = path.join(APP_ROOT, 'data-location.json');
 
 function readLocation() {
@@ -33,7 +37,7 @@ function readLocation() {
         const loc = JSON.parse(fs.readFileSync(LOCATION_FILE, 'utf8'));
         if (loc && typeof loc.dataDir === 'string' && loc.dataDir) return loc;
     } catch { /* not installed by the installer: running from the repo */ }
-    return { dataDir: path.join(APP_ROOT, '..', DATA_FOLDER_NAME), codeDir: APP_ROOT };
+    return { dataDir: existingOr(path.join(APP_ROOT, '..', DATA_FOLDER_NAME), path.join(APP_ROOT, '..', OLD_APP_NAME)), codeDir: APP_ROOT };
 }
 const LOCATION = readLocation();
 

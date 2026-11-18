@@ -11,7 +11,7 @@ controls, row and box controls) and the same fonts / palette. Run it again after
 
     python3 tools/gen-boilerplates.py [folder with presets/original]
 
-The default folder is the data folder next to the code (../El Subtitle Animator/presets/original).
+The default folder is the data folder next to the code (../Framelly/presets/original).
 """
 import os
 import re
@@ -19,7 +19,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'src', 'boilerplates')
-SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', '..', 'El Subtitle Animator', 'presets', 'original')
+SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', '..', 'Framelly', 'presets', 'original')
 
 
 def read(name):

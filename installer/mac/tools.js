@@ -1,14 +1,15 @@
 // Where macOS keeps the tools the installer starts, and the plugin's own engine folders.
 // These mirror the plugin's lookups. When one changes there, change it here too:
-//   src/main/media-analysis.js   HOME_DIR, ASR_VENV, BIN_DIRS
+//   src/main/names.js            HOME_DIR
+//   src/main/media-analysis.js   ASR_VENV, BIN_DIRS
 //   src/main/broll.js            findNode
 
 const fs = require('fs');
 const path = require('path');
-const { HOME, exists } = require('../shared/env');
+const { HOME, HOME_FOLDER_NAME, OLD_HOME_FOLDER_NAME, exists, existingOr } = require('../shared/env');
 
-// ~/.el-subtitle-animator: the speech engine and the MCP endpoint file.
-const HOME_DIR = path.join(HOME, '.el-subtitle-animator');
+// ~/.framelly: the speech engine and the MCP endpoint file (~/.el-subtitle-animator when an earlier version made it).
+const HOME_DIR = existingOr(path.join(HOME, HOME_FOLDER_NAME), path.join(HOME, OLD_HOME_FOLDER_NAME));
 const ASR_VENV = path.join(HOME_DIR, 'asr-venv');
 const BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
 

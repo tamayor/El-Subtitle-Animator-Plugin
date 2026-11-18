@@ -20,7 +20,7 @@ test('every tool has a name, a description and an object schema; names are uniqu
 
 test('every tool the MCP script lists is served by the plugin or by the MCP script itself', () => {
     const auto = fs.readFileSync(path.join(env.MAIN_DIR, 'automation.js'), 'utf8');
-    const mcp = fs.readFileSync(path.join(env.ROOT, 'mcp', 'el-sa-mcp.js'), 'utf8');
+    const mcp = fs.readFileSync(path.join(env.ROOT, 'mcp', 'framelly-mcp.js'), 'utf8');
     const lt = mcp.indexOf('const LOCAL_TOOLS = {');
     const local = mcp.slice(lt, mcp.indexOf('\n};', lt));
     for (const t of T.TOOLS) {

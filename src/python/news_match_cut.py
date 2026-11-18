@@ -9,17 +9,17 @@ Give it a word (or short phrase). It:
   4. renders an MP4 (accelerating cuts, final hold, optional marker + click SFX)
 
 In the app: header "Match Cut" button (src/main/match-cut.js), or the MCP tool match_cut. The app passes
---out-dir "<footage folder>/El Subtitle Animator MatchCut" (next to "El Subtitle Animator SFX") and the timeline's
+--out-dir "<footage folder>/Framelly MatchCut" (next to "Framelly SFX") and the timeline's
 size and frame rate, then places the MP4 at the playhead.
 
 From a terminal
   python3 news_match_cut.py "AI"
   python3 news_match_cut.py "inflation" --count 15 --size 1920x1080 --highlight
   python3 news_match_cut.py "Bitcoin" --images ~/Desktop/shots --no-search
-  python3 news_match_cut.py "interest rates" --sfx ~/click.wav --out-dir "/footage/El Subtitle Animator MatchCut"
+  python3 news_match_cut.py "interest rates" --sfx ~/click.wav --out-dir "/footage/Framelly MatchCut"
 
 Each run: <out-dir>/<word>/ (screenshots, frames, report.txt, <word>.mp4). Default out-dir:
-./El Subtitle Animator MatchCut. Progress lines start with "PROGRESS ", the last line is "RESULT {json}".
+./Framelly MatchCut. Progress lines start with "PROGRESS ", the last line is "RESULT {json}".
 """
 import argparse, html, json, os, re, shutil, subprocess, sys, tempfile
 import urllib.parse, urllib.request
@@ -27,7 +27,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFilter
 
-RUNS_DIR_NAME = 'El Subtitle Animator MatchCut'
+RUNS_DIR_NAME = 'Framelly MatchCut'
 # Resolve's panel starts us with a bare PATH: tesseract / ffmpeg usually live in Homebrew
 os.environ['PATH'] = os.environ.get('PATH', '') + ':/opt/homebrew/bin:/usr/local/bin'
 BROWSERS = [

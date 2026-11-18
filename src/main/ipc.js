@@ -211,7 +211,7 @@ const SAFE_HANDLERS = {
     'highlight:adjust': async (e, args) => {
         try { return { ok: true, result: await adjustHighlights(args || {}) }; } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
     },
-    // The Prompt tab text, mirrored to a file so Claude Code (/elsa-prompt) can read it.
+    // The Prompt tab text, mirrored to a file so Claude Code (/framelly-prompt) can read it.
     'prompt:saveFile': (e, text) => {
         if (typeof text !== 'string' || !text.trim()) return false;
         const file = path.join(DATA_DIR, 'job-prompt.md');

@@ -377,7 +377,7 @@ async function moveTitleSafe(tl, item, track, textStart, endFrame) {
 
 // ---- Direct placement of a Text+ from a template clip in the Media Pool
 // AppendToTimeline takes a track and a record frame, so a template clip can go exactly where the caption is: no playhead
-// move, no ripple. The template is a clip named "Subtitle Animator Template" in the Media Pool (a Fusion Composition or
+// move, no ripple. The template is a clip named "Framelly Template" (earlier: "Subtitle Animator Template") in the Media Pool (a Fusion Composition or
 // Text+ clip), or one Resolve handed out earlier in this session. The result is checked (track, start, length, no real
 // clip moved); on any doubt it is taken out again and the app falls back to the park-at-the-end insert for good.
 
@@ -387,7 +387,7 @@ function presetTplState(title) {
     return state.presetTpl.get(title);
 }
 async function findTextTemplate(project, kind) {
-    const nameRe = kind === 'multitext' ? /^subtitle animator template multitext$/i : /^subtitle animator template$/i;
+    const nameRe = kind === 'multitext' ? /^(?:framelly|subtitle animator) template multitext$/i : /^(?:framelly|subtitle animator) template$/i;
     try {
         const mp = await project.GetMediaPool();
         const root = await mp.GetRootFolder();

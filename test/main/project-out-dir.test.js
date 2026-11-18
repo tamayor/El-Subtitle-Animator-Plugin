@@ -37,43 +37,59 @@ test('the project main folder wins', async () => {
     const root = path.join(tmp, 'main');
     fs.mkdirSync(root);
     setRoots({ 'My Show': root });
-    const r = await projectOutDir(project('my show', [], []), 'El Subtitle Animator B-roll');
-    assert.deepEqual(r, { dir: path.join(root, 'El Subtitle Animator B-roll'), fallback: false });
+    const r = await projectOutDir(project('my show', [], []), 'Framelly B-roll');
+    assert.deepEqual(r, { dir: path.join(root, 'Framelly B-roll'), fallback: false });
     assert.ok(fs.existsSync(r.dir));
 });
 
 test('a main folder on an unmounted drive throws instead of writing elsewhere', async () => {
     setRoots({ 'Gone': path.join(tmp, 'not-mounted') });
-    await assert.rejects(projectOutDir(project('Gone', [], []), 'El Subtitle Animator B-roll'), /not there/);
+    await assert.rejects(projectOutDir(project('Gone', [], []), 'Framelly B-roll'), /not there/);
 });
 
 test('no main folder: the footage folder; own renders are not footage', async () => {
     setRoots({});
     const foot = path.join(tmp, 'footage');
     fs.mkdirSync(foot);
-    const own = path.join(foot, 'El Subtitle Animator B-roll');
-    const r = await projectOutDir(project('A', [path.join(foot, 'a.mov'), path.join(own, 'x.mov'), path.join(own, 'y.mov')], []), 'El Subtitle Animator MatchCut');
-    assert.deepEqual(r, { dir: path.join(foot, 'El Subtitle Animator MatchCut'), fallback: false });
+    const own = path.join(foot, 'Framelly B-roll');
+    const r = await projectOutDir(project('A', [path.join(foot, 'a.mov'), path.join(own, 'x.mov'), path.join(own, 'y.mov')], []), 'Framelly MatchCut');
+    assert.deepEqual(r, { dir: path.join(foot, 'Framelly MatchCut'), fallback: false });
 });
 
 test('empty timeline: the Media Pool footage folder', async () => {
     setRoots({});
     const foot = path.join(tmp, 'pool');
     fs.mkdirSync(foot);
-    const r = await projectOutDir(project('B', [], [path.join(foot, 'a.mov'), path.join(foot, 'b.mov')]), 'El Subtitle Animator Spotlight');
-    assert.equal(r.dir, path.join(foot, 'El Subtitle Animator Spotlight'));
+    const r = await projectOutDir(project('B', [], [path.join(foot, 'a.mov'), path.join(foot, 'b.mov')]), 'Framelly Spotlight');
+    assert.equal(r.dir, path.join(foot, 'Framelly Spotlight'));
     assert.equal(r.fallback, false);
 });
 
 test('no media at all: the app data folder, flagged', async () => {
     setRoots({});
-    const r = await projectOutDir(project('C', [], []), 'El Subtitle Animator B-roll');
-    assert.deepEqual(r, { dir: path.join(DATA_DIR, 'El Subtitle Animator B-roll'), fallback: true });
+    const r = await projectOutDir(project('C', [], []), 'Framelly B-roll');
+    assert.deepEqual(r, { dir: path.join(DATA_DIR, 'Framelly B-roll'), fallback: true });
 });
 
 test('isOwnDir', () => {
-    assert.ok(isOwnDir('/x/El Subtitle Animator SFX'));
-    assert.ok(isOwnDir('/x/El Subtitle Animator Spotlight/abc'));
+    assert.ok(isOwnDir('/x/Framelly SFX'));
+    assert.ok(isOwnDir('/x/Framelly Spotlight/abc'));
     assert.ok(isOwnDir(path.join(DATA_DIR, 'sounds')));
     assert.ok(!isOwnDir('/x/footage/Cam A'));
+});
+
+// The plugin was called "El Subtitle Animator" before: a project that already has a folder from then keeps using it.
+test('a folder made under the earlier name is reused, a new project gets the current name', async () => {
+    const root = path.join(tmp, 'renamed');
+    const old = path.join(root, 'El Subtitle Animator B-roll');
+    fs.mkdirSync(old, { recursive: true });
+    setRoots({ Renamed: root });
+    assert.deepEqual(await projectOutDir(project('Renamed', [], []), 'Framelly B-roll'), { dir: old, fallback: false });
+    assert.deepEqual(await projectOutDir(project('Renamed', [], []), 'Framelly MatchCut'), { dir: path.join(root, 'Framelly MatchCut'), fallback: false });
+    setRoots({});
+});
+
+test('isOwnDir knows the earlier names too', () => {
+    assert.ok(isOwnDir('/x/El Subtitle Animator SFX'));
+    assert.ok(isOwnDir('/x/El Subtitle Animator Spotlight/abc'));
 });

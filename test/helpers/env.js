@@ -5,7 +5,7 @@
 //   - `src/main/workflow-integration.js` (Blackmagic's native addon) is replaced by a fake whose Resolve object is set
 //     per test with useResolve() (see fake-resolve.js);
 //   - `data-location.json` is answered with a temporary folder, so config.js points every data path there and nothing
-//     is read from or written to the real "El Subtitle Animator" folder.
+//     is read from or written to the real "Framelly" folder.
 //
 // Require this file first in every test: `const env = require('../helpers/env');`
 

@@ -291,7 +291,7 @@ function createWindow() {
         height: 860 }, saved || {}, {
         minWidth: MIN_W,
         minHeight: MIN_H,
-        title: 'El Subtitle Animator',
+        title: 'Framelly',
         backgroundColor: '#131614',
         webPreferences: { preload: PRELOAD_FILE }
     }));

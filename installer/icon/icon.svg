@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- The El Subtitle Animator mark (same as the website's logo), on macOS's icon grid: an 824 px tile in a 1024 px canvas. -->
+  <!-- The Framelly mark (same as the website's logo), on macOS's icon grid: an 824 px tile in a 1024 px canvas. -->
   <g transform="translate(100 100) scale(25.75)">
     <rect x="0.25" y="0.25" width="31.5" height="31.5" rx="7.2" fill="#131614" stroke="#28312b" stroke-width="0.5"/>
     <path d="M8 11h16M8 16h10M8 21h13" stroke="#8ccf8e" stroke-width="2.6" stroke-linecap="round" fill="none"/>

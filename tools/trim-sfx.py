@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ORIG = os.path.normpath(os.path.join(HERE, "..", "..", "El Subtitle Animator", "sounds", "original"))
+ORIG = os.path.normpath(os.path.join(HERE, "..", "..", "Framelly", "sounds", "original"))
 
 # pixabay id: (start ms, end ms, fade-out ms, what / why)
 CUTS = {

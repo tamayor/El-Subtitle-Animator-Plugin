@@ -76,9 +76,10 @@ Rules for panel code:
 
 | Need | Use | Instead of |
 | --- | --- | --- |
+| A folder, bin or template named after the plugin | `APP_NAME`, `CATEGORY`, `HOME_DIR`, `outDirIn(base, name)`, `sameName(name, want)`, `isOwnName(part)` (`src/main/names.js`): new ones get the current name, ones made as El Subtitle Animator still work | a name literal, or a check for the current name only |
 | Read a file many times (preset `.setting`, templates, JSON) | `fileCache(name, { max })` (`src/main/cache.js`): `.text(file)`, `.value(file, 'name', make)`, `.prime(file, text, values)` after writing it, `.invalidate(file)` | a private `Map` keyed by mtime, or `readFileSync` on every call |
 | Remember what Resolve / the Python helper said (not a file) | `memoCache(name, { max })` (`src/main/cache.js`): `.fresh(key, maxAgeMs)`, `.entry(key)` (any age), `.set`, `.delete`; see `anim-timing.js` | a private `Map` with `{ at, value }` |
-| An MCP tool's arguments | its schema in `src/main/tool-schemas.js` (the MCP script lists it, `automation.js` checks calls with `checkToolArgs`) | a schema only in `mcp/el-sa-mcp.js`, or ad-hoc checks |
+| An MCP tool's arguments | its schema in `src/main/tool-schemas.js` (the MCP script lists it, `automation.js` checks calls with `checkToolArgs`) | a schema only in `mcp/framelly-mcp.js`, or ad-hoc checks |
 | Planning a placement without Resolve (tags, MultiText split, boxes, sizes, layout) | `src/main/auto-plan.js` | logic inside a tool handler |
 | The automation session (placed clips, current timeline, wait until the panel is free) | `src/main/auto-session.js` | module state in `automation.js` |
 | A preset's text and values worked out from it | `presetText(file)` / `derived(file, name, make)` (`fusion-setting.js`, on the shared `presets` cache) | re-reading or re-regexing the preset |

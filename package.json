@@ -1,7 +1,7 @@
 {
-    "name": "el-subtitle-animator",
+    "name": "framelly",
     "version": "1.0.0",
-    "description": "El Subtitle Animator - Workflow Integration plugin for DaVinci Resolve Studio",
+    "description": "Framelly - Workflow Integration plugin for DaVinci Resolve Studio",
     "main": "main.js",
     "private": true,
     "engines": {

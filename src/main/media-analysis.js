@@ -2,7 +2,7 @@
 // their brightness, black / frozen frames in a rendered span, the music's beat grid, and word timings from a local
 // speech engine. Every function measures; none of them changes a file the user keeps.
 //
-// Plain Node (no Electron, no project module), so the MCP script (mcp/el-sa-mcp.js) runs it in its own process for
+// Plain Node (no Electron, no project module), so the MCP script (mcp/framelly-mcp.js) runs it in its own process for
 // long jobs and the panel runs it for short ones. ffmpeg runs as a child process (execFile / spawn, never a shell).
 // Times are seconds in the media file unless a name says frames.
 
@@ -20,7 +20,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 
-const HOME_DIR = path.join(os.homedir(), '.el-subtitle-animator');
+const { HOME_DIR } = require('./names');      // ~/.framelly
 const WORDS_CACHE_DIR = path.join(HOME_DIR, 'words');
 const ASR_VENV = path.join(HOME_DIR, 'asr-venv');
 const HOP = 0.01;                   // envelope step, seconds
@@ -674,7 +674,7 @@ function runCmd(cmd, args, o) {
 }
 
 // Word timings of a window of a media file: [{ w, start, end }] in file seconds. Cached per file version, window,
-// engine and model in ~/.el-subtitle-animator/words.
+// engine and model in ~/.framelly/words.
 async function transcribeWords(file, opts) {
     const o = opts || {};
     const f = needFile(file);

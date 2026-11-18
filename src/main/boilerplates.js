@@ -4,7 +4,7 @@
 // clip (so the Inspector shows its controls), the user animates it in Resolve, and "From timeline" in the Create tab
 // saves the result to the library like any other clip.
 
-module.exports = { boilerplateList, insertBoilerplate };
+module.exports = { boilerplateList, insertBoilerplate, installBoilerplateTemplates };
 
 const path = require('path');
 const fs = require('fs');
@@ -26,6 +26,18 @@ const BOILERPLATES = {
 // [{ id, kind, title, path }] for the panel (path = the file, to add it to the library as it is).
 function boilerplateList() {
     return Object.entries(BOILERPLATES).map(([id, b]) => ({ id, kind: b.kind, title: b.title, path: path.join(DIR, b.file) }));
+}
+
+// Writes both boilerplates' title templates at start-up, so Resolve has scanned them before the first click. Written
+// only on first use (a fresh install), the insert threw until Resolve's scan caught up: the retries parked the playhead
+// at the end of the timeline again and again, so the timeline jumped out and back, and the insert could fail.
+function installBoilerplateTemplates() {
+    const done = [];
+    for (const b of Object.values(BOILERPLATES)) {
+        const file = path.join(DIR, b.file);
+        try { if (fs.existsSync(file) && presetTitleFor(file, b.title)) done.push(b.title); } catch (e) { /* written on first use instead */ }
+    }
+    return done;
 }
 
 // Puts a boilerplate on the timeline at the playhead (3 seconds, the first free layer above V1): inserted at the end of the

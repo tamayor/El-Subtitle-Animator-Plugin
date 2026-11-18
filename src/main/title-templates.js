@@ -19,6 +19,7 @@ const os = require('os');
 
 const state = require('./state');
 const { ANIM_DIR, resolveUserDir } = require('./config');
+const { CATEGORY, OLD_CATEGORY, adoptOldDir } = require('./names');
 const { blockEnd, derived, detectNodes, expandAllTools, presetText } = require('./fusion-setting');
 const { dlog } = require('./log');
 const { upgradeRetiming } = require('./retime');
@@ -115,15 +116,17 @@ function titleKindFor(compPath) {
 // ------------------------------------------------------------------ presets as Resolve title templates
 // Resolve's Edit-page Inspector only shows a Fusion title's controls for a title Resolve built itself. Once the clip's
 // comp is replaced (ImportFusionComp, even with the clip's own exported comp), the Inspector shows only a folded
-// "Text+" header. So each preset is installed as a Fusion title template (Edit/Titles/Subtitle Animator/<name>.setting)
+// "Text+" header. So each preset is installed as a Fusion title template (Edit/Titles/Framelly/<name>.setting)
 // and inserted by name with InsertFusionTitleIntoTimeline: the clip is then a real Resolve title with working controls.
 // Resolve picks up a new or rewritten template file straight away. The name starts with "Text+" / "MultiText", so
 // isTitleClipName and cutSnapshot still recognise the clip.
 // The folder under Resolve's Titles that holds this plugin's templates (the category shown in the Effects library).
-const TITLES_FOLDER = 'Subtitle Animator';
+const TITLES_FOLDER = CATEGORY;
 function titlesDir() {
     return resolveUserDir('Fusion', 'Templates', 'Edit', 'Titles', TITLES_FOLDER);
 }
+// The folder an earlier version made ("Subtitle Animator") becomes this one, so Resolve does not list every title twice.
+function adoptOldTitles() { adoptOldDir(titlesDir(), resolveUserDir('Fusion', 'Templates', 'Edit', 'Titles', OLD_CATEGORY)); }
 // A title template is a .setting ({ Tools = ordered() { ... } }); a .comp preset is cut down to its tool list.
 function asSetting(s) {
     if (!/^\s*Composition\s*\{/.test(s)) return s;
@@ -277,6 +280,7 @@ function installAllTemplates(animations) {
 // At start-up: templates made by older versions are named after the preset's file; they are renamed to the preset's
 // name (instead of deleted and rebuilt on the next apply), and templates of presets that are gone are deleted.
 function startupTemplates(animations) {
+    adoptOldTitles();
     const before = new Map();
     for (const a of animations || []) {
         try { const f = path.join(ANIM_DIR, a.file); if (a.file && fs.existsSync(f)) before.set(a.id, presetTitleName(f)); } catch (e) { /* skip */ }

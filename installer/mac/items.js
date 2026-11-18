@@ -7,7 +7,16 @@ const path = require('path');
 const E = { ...require('../shared/env'), ...require('./tools') };
 const { run, quiet, tail } = require('../shared/run');
 
-const SKILLS = ['elsa-prompt', 'elsa-prompt-auto'];
+const SKILLS = ['framelly-prompt', 'framelly-prompt-auto'];
+// What the commands were called before the plugin was renamed (El Subtitle Animator, then for a short while El Resolve):
+// replaced on install, keeping the user's edits.
+const OLD_SKILLS = {
+    'framelly-prompt': ['elresolve-prompt', 'elsa-prompt'],
+    'framelly-prompt-auto': ['elresolve-prompt-auto', 'elsa-prompt-auto'],
+};
+// Earlier names in a skill's text, longest first: the plugin, its MCP server, the commands.
+const OLD_WORDS = [['El Subtitle Animator', 'Framelly'], ['El Resolve', 'Framelly'], ['elresolve-prompt', 'framelly-prompt'],
+    ['elsa-prompt', 'framelly-prompt'], [E.OLD_MCP_NAME, E.MCP_NAME], ['el-resolve', E.MCP_NAME]];
 const SKILL_TEMPLATES = path.join(__dirname, '..', 'shared', 'skills');
 // src/main/spotlight.js
 const MATTE_MODEL = {
@@ -47,8 +56,8 @@ function needsPython() { return E.systemPython() ? null : { state: 'blocked', no
 
 // ------------------------------------------------------------------ saved paths after the main folder moved
 // The library keeps a few full paths (the safe-zone reference image, rendered B-roll files). After the main folder
-// moves they point to the old place. An old place is a path that ends in /El Subtitle Animator/..., is not this
-// main folder, and is no longer on disk.
+// moves, or its folders are renamed, they point to the old place. An old place is a main folder (the part before
+// the data or code folder's name, current or earlier) whose folder is not this one and is no longer on disk.
 function pathFiles(ctx) {
     const out = [];
     for (const dir of [ctx.dataDir, path.join(ctx.dataDir, '_app')]) {
@@ -64,10 +73,18 @@ function pathFiles(ctx) {
 }
 function stalePrefixes(text, ctx) {
     const found = new Set();
-    const re = new RegExp('"(/[^"\\\\\\n]+?)/' + E.DATA_FOLDER_NAME + '(?=[/"])', 'g');
+    const names = [E.DATA_FOLDER_NAME, E.OLD_DATA_FOLDER_NAME, E.CODE_FOLDER_NAME, E.OLD_CODE_FOLDER_NAME];
+    const re = new RegExp('"(/[^"\\\\\\n]+?)/(' + names.join('|') + ')(?=[/"])', 'g');
     let m;
-    while ((m = re.exec(text))) if (m[1] !== ctx.mainDir && !E.exists(m[1])) found.add(m[1]);
+    while ((m = re.exec(text))) { const dir = m[1] + '/' + m[2]; if (dir !== ctx.dataDir && dir !== ctx.codeDir && !E.exists(dir)) found.add(m[1]); }
     return [...found];
+}
+// Every path under the old main folder `p`, pointed to this one: its data folder, its code folder, then the rest.
+function movedPaths(text, p, ctx) {
+    const swap = (names, to) => { for (const n of names) for (const end of ['/', '"']) text = text.split('"' + p + '/' + n + end).join('"' + to + end); };
+    swap([E.DATA_FOLDER_NAME, E.OLD_DATA_FOLDER_NAME], ctx.dataDir);
+    swap([E.CODE_FOLDER_NAME, E.OLD_CODE_FOLDER_NAME], ctx.codeDir);
+    return text.split('"' + p + '/').join('"' + ctx.mainDir + '/');
 }
 function scanPaths(ctx) {
     const hits = [];
@@ -87,7 +104,7 @@ function detectPaths(ctx) {
 function installPaths(ctx, log) {
     for (const h of scanPaths(ctx)) {
         let text = h.text;
-        for (const p of h.prefixes) text = text.split('"' + p + '/').join('"' + ctx.mainDir + '/');
+        for (const p of h.prefixes) text = movedPaths(text, p, ctx);
         if (path.dirname(h.file) === ctx.dataDir) fs.copyFileSync(h.file, h.file + '.before-move');     // the user's own files keep a copy
         const tmp = h.file + '.tmp';
         fs.writeFileSync(tmp, text, 'utf8');
@@ -97,14 +114,17 @@ function installPaths(ctx, log) {
 }
 
 // ------------------------------------------------------------------ Claude Code
-function mcpScript(ctx) { return path.join(ctx.codeDir, 'mcp', 'el-sa-mcp.js'); }
-// Every registration of the server in ~/.claude.json: the user-wide one and one per project folder.
+function mcpScript(ctx) { return path.join(ctx.codeDir, 'mcp', 'framelly-mcp.js'); }
+// Every registration of the server in ~/.claude.json: the user-wide one and one per project folder. Entries under the
+// server's earlier name (el-subtitle-animator, el-sa-mcp.js) are listed too, so they are replaced.
 function mcpEntries() {
     const cfg = E.readJson(path.join(E.HOME, '.claude.json'), {}) || {};
     const list = [];
     const add = (scope, project, servers) => {
-        const s = servers && servers[E.MCP_NAME];
-        if (s) list.push({ scope, project, script: (Array.isArray(s.args) ? s.args : []).find(a => /el-sa-mcp\.js$/.test(a)) || '' });
+        for (const name of [E.MCP_NAME, E.OLD_MCP_NAME]) {
+            const s = servers && servers[name];
+            if (s) list.push({ name, scope, project, script: (Array.isArray(s.args) ? s.args : []).find(a => /(?:framelly|el-resolve|el-sa)-mcp\.js$/.test(a)) || '' });
+        }
     };
     add('user', null, cfg.mcpServers);
     for (const [dir, p] of Object.entries(cfg.projects || {})) add('local', dir, p && p.mcpServers);
@@ -115,7 +135,7 @@ function detectMcp(ctx) {
     if (!E.pluginNode() && !E.findTool('node')) return { state: 'blocked', note: 'Needs Node.js 18 or newer (nodejs.org)' };
     const entries = mcpEntries();
     if (!entries.length) return { state: 'missing', note: 'Not connected' };
-    const stale = entries.filter(e => e.script !== mcpScript(ctx));
+    const stale = entries.filter(e => e.name !== E.MCP_NAME || e.script !== mcpScript(ctx));
     if (stale.length) return { state: 'update', note: 'Points to ' + (path.dirname(path.dirname(stale[0].script)) || 'another folder') };
     return { state: 'ok', note: 'Connected' };
 }
@@ -123,12 +143,12 @@ async function installMcp(ctx, log) {
     const claude = E.findTool('claude');
     const env = E.toolEnv();
     const want = mcpScript(ctx);
-    for (const e of mcpEntries().filter(x => x.script !== want)) {
+    for (const e of mcpEntries().filter(x => x.name !== E.MCP_NAME || x.script !== want)) {
         if (e.scope === 'local' && !E.exists(e.project)) { log('Skipped an old entry of a folder that is gone: ' + e.project); continue; }
         log('Removing the old entry (' + (e.project || 'all projects') + ')');
-        await run(claude, ['mcp', 'remove', E.MCP_NAME, '-s', e.scope], { env, cwd: e.project || E.HOME });
+        await run(claude, ['mcp', 'remove', e.name, '-s', e.scope], { env, cwd: e.project || E.HOME });
     }
-    if (!mcpEntries().some(e => e.scope === 'user' && e.script === want)) {
+    if (!mcpEntries().some(e => e.name === E.MCP_NAME && e.scope === 'user' && e.script === want)) {
         await must(run(claude, ['mcp', 'add', '-s', 'user', E.MCP_NAME, '--', 'node', want], { env, cwd: E.HOME }, log), 'Could not register the MCP server');
     }
     log('Claude Code starts the server from ' + want);
@@ -138,25 +158,42 @@ function skillFile(name) { return path.join(E.HOME, '.claude', 'skills', name, '
 function jobPrompt(ctx) { return path.join(ctx.dataDir, 'job-prompt.md'); }
 function detectSkills(ctx) {
     if (!E.findTool('claude') && !E.exists(path.join(E.HOME, '.claude'))) return { state: 'blocked', note: 'Claude Code is not installed (optional)' };
-    let missing = 0, stale = 0;
+    let missing = 0, stale = 0, old = 0;
     for (const name of SKILLS) {
+        if (OLD_SKILLS[name].some(n => E.exists(skillFile(n)))) old++;
         let text;
         try { text = fs.readFileSync(skillFile(name), 'utf8'); } catch (e) { missing++; continue; }
-        if (!text.includes('`' + jobPrompt(ctx) + '`')) stale++;
+        if (!text.includes('`' + jobPrompt(ctx) + '`') || text !== renamed(text)) stale++;
     }
+    if (old) return { state: 'update', note: 'Installed under their earlier names' };
     if (missing === SKILLS.length) return { state: 'missing', note: 'Not installed' };
-    if (missing || stale) return { state: 'update', note: stale ? 'They read the prompt from another folder' : 'One command is missing' };
+    if (missing || stale) return { state: 'update', note: stale ? 'They point to another folder or the earlier name' : 'One command is missing' };
     return { state: 'ok', note: 'Installed' };
+}
+// A skill installed by an earlier version names the plugin, its MCP server and the commands as they were called then.
+// The path to job-prompt.md is left as it is: its folders may still have the earlier name.
+const PROMPT_PATH = /`[^`\n]*[/\\]job-prompt\.md`/g;
+function renamed(text) {
+    const paths = [];
+    const rest = text.replace(PROMPT_PATH, (m) => { paths.push(m); return '`\u0000`'; });
+    return OLD_WORDS.reduce((s, [from, to]) => s.split(from).join(to), rest).replace(/`\u0000`/g, () => paths.shift());
 }
 function installSkills(ctx, log) {
     for (const name of SKILLS) {
-        const file = skillFile(name);
+        const file = skillFile(name), oldFiles = OLD_SKILLS[name].map(skillFile);
         let text;
-        // A skill that is already there keeps the user's edits: only the path to job-prompt.md changes.
-        try { text = fs.readFileSync(file, 'utf8').replace(/`[^`\n]*[/\\]job-prompt\.md`/g, () => '`' + jobPrompt(ctx) + '`'); }
-        catch (e) { text = fs.readFileSync(path.join(SKILL_TEMPLATES, name, 'SKILL.md'), 'utf8').split('{{JOB_PROMPT}}').join(jobPrompt(ctx)); }
+        // A skill that is already there (under this name, or an earlier one) keeps the user's edits: only the path to
+        // job-prompt.md and the names change.
+        const keep = [file, ...oldFiles].find(E.exists);
+        if (keep) text = renamed(fs.readFileSync(keep, 'utf8')).replace(PROMPT_PATH, () => '`' + jobPrompt(ctx) + '`');
+        else text = fs.readFileSync(path.join(SKILL_TEMPLATES, name, 'SKILL.md'), 'utf8').split('{{JOB_PROMPT}}').join(jobPrompt(ctx));
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, text, 'utf8');
+        for (const old of oldFiles) {
+            if (!E.exists(old)) continue;
+            fs.rmSync(path.dirname(old), { recursive: true, force: true });
+            log('/' + path.basename(path.dirname(old)) + ' is now /' + name);
+        }
         log('/' + name + ' reads ' + jobPrompt(ctx));
     }
 }
@@ -290,7 +327,7 @@ const ITEMS = [
     { id: 'mcp', group: 'claude', title: 'MCP server',
         detail: 'Lets Claude Code place captions on a timeline through the open panel.',
         detect: detectMcp, install: installMcp },
-    { id: 'skills', group: 'claude', title: '/elsa-prompt and /elsa-prompt-auto commands',
+    { id: 'skills', group: 'claude', title: '/framelly-prompt and /framelly-prompt-auto commands',
         detail: 'Run the Prompt tab\'s job prompt from Claude Code.',
         detect: detectSkills, install: installSkills },
 

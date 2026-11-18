@@ -111,7 +111,7 @@ test('pickFootage: the topmost footage under the frame, never the plugin\'s own 
     const segs = [
         { kind: 'video', track: 1, file: '/footage/C0061.mp4', tlStart: 0, tlEnd: 500, itemId: 'a' },
         { kind: 'video', track: 2, file: '/footage/cutaway.mov', tlStart: 100, tlEnd: 200, itemId: 'b' },
-        { kind: 'video', track: 3, file: '/footage/El Subtitle Animator B-roll/stat-bar-ab12cd.mov', tlStart: 120, tlEnd: 180, itemId: 'c' },
+        { kind: 'video', track: 3, file: '/footage/Framelly B-roll/stat-bar-ab12cd.mov', tlStart: 120, tlEnd: 180, itemId: 'c' },
         { kind: 'audio', track: 1, file: '/footage/C0061.mp4', tlStart: 0, tlEnd: 500, itemId: 'd' }
     ];
     assert.equal(pickFootage(segs, 150).itemId, 'b');

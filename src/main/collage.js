@@ -1,5 +1,5 @@
 // B-roll tab > Collage (js/library/broll/collage.js): the collage-style explainer B-roll of broll/collage/ in the panel.
-// One project folder per timeline, "<footage folder>/El Subtitle Animator Collage/<timeline>/", or "<project main
+// One project folder per timeline, "<footage folder>/Framelly Collage/<timeline>/", or "<project main
 // folder>/<timeline>/" ("<episode>/<episode> (cut)/" for a cut) when _app/project-roots.json sets one for the Resolve project (collage-plan.js says
 // what is in it). The pane starts a project from the subtitles, edits its beats (what each shows, search words,
 // date / label / title overlays), finds pictures on Wikimedia Commons (broll/collage/source-images.mjs) and picks
@@ -28,7 +28,7 @@ const { projectRootDir, projectOutDir } = require('./sfx-import');
 const { pickTrack } = require('./placement');
 const PLAN = require('./collage-plan');
 
-const ROOT_DIR = 'El Subtitle Animator Collage';
+const ROOT_DIR = 'Framelly Collage';
 const PREVIEW_DIR = path.join(APP_DATA_DIR, 'collage-previews');
 // Stock-site API keys (Sources & API keys): on this computer only, never in the project folder (it may be shared).
 const SOURCES_FILE = path.join(APP_DATA_DIR, 'collage-sources.json');
@@ -143,7 +143,7 @@ async function projectFor() {
     const t = await broll().currentTl();
     // With a project main folder set (sfx-import.projectRootDir) the project is <root>/<timeline>/, or
     // <root>/<episode>/<timeline>/ for a "(cut)" version (collage-plan.timelineFolder), else
-    // <footage folder>/El Subtitle Animator Collage/<timeline>/.
+    // <footage folder>/Framelly Collage/<timeline>/.
     const root = await projectRootDir(t.project);
     if (root && root.missing) throw new Error('The project folder ' + root.missing + ' is not there. Is its drive connected?');
     const dir = root ? path.join(root.dir, PLAN.timelineFolder(t.name)) : path.join((await projectOutDir(t.project, ROOT_DIR)).dir, PLAN.safeName(t.name));

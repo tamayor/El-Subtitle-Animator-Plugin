@@ -29,7 +29,7 @@ test('getProject connects once and reuses the project manager', async () => {
     assert.equal(await R.getProject(), resolve.project);
     assert.equal(env.calls.Initialize - before, 1);
     assert.equal(resolve.calls.GetProjectManager, 1);
-    assert.equal(env.workflowIntegration.pluginId, 'com.el.subtitleanimator');
+    assert.equal(env.workflowIntegration.pluginId, 'com.framelly.plugin');
     assert.equal(env.state.hasSeenResolve, true);
 });
 

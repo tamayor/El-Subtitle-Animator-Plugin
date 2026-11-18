@@ -1,8 +1,8 @@
-// Automation for Claude (or any MCP client): a small HTTP server on 127.0.0.1 that the MCP script in mcp/el-sa-mcp.js
+// Automation for Claude (or any MCP client): a small HTTP server on 127.0.0.1 that the MCP script in mcp/framelly-mcp.js
 // talks to. Every placement goes through apply() (title templates, never a comp swap), with the editing rules from
 // edit-rules.json (edit-rules.js) enforced here: allowed tags, a forced font, the video layer policy, the safe area
 // and MultiText splits.
-// The address and a random token are written to ~/.el-subtitle-animator/mcp-endpoint.json (readable by this user only).
+// The address and a random token are written to ~/.framelly/mcp-endpoint.json (readable by this user only).
 
 module.exports = {
     startAutomation, stopAutomation,
@@ -38,7 +38,7 @@ const { place: placeTool } = require('./auto-place');
 const { checkToolArgs } = require('./tool-schemas');
 const { currentTimeline, placed, subtitleAt, swapAudioIds, waitFree } = require('./auto-session');
 
-const ENDPOINT_DIR = path.join(os.homedir(), '.el-subtitle-animator');
+const ENDPOINT_DIR = require('./names').HOME_DIR;      // ~/.framelly
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'mcp-endpoint.json');
 const LAYOUT_DIR = path.join(DATA_DIR, 'layouts');
 

@@ -1,6 +1,6 @@
 // Builds the installer app and puts it in the main folder, beside the code and data folders.
 //   npm run build                 for this computer
-//   npm run build -- win32 x64    for Windows: one "Install El Subtitle Animator.exe"
+//   npm run build -- win32 x64    for Windows: one "Install Framelly (Windows).exe"
 
 const fs = require('fs');
 const path = require('path');
@@ -8,8 +8,8 @@ const { execFileSync } = require('child_process');
 
 const HERE = __dirname;
 const MAIN = path.resolve(HERE, '..', '..');
-const NAME = 'Install El Subtitle Animator';
-const APP_ID = 'com.el.subtitleanimator.installer';
+const NAME = 'Install Framelly';
+const APP_ID = 'com.framelly.installer';
 
 (async () => {
     const { packager } = require('@electron/packager');
@@ -18,7 +18,7 @@ const APP_ID = 'com.el.subtitleanimator.installer';
     const [dir] = await packager({
         dir: HERE, out: path.join(HERE, 'dist'), overwrite: true, platform, arch,
         name: NAME, executableName: NAME, appBundleId: APP_ID, asar: true, prune: true,
-        win32metadata: { CompanyName: 'El Subtitle Animator', FileDescription: NAME, ProductName: NAME },
+        win32metadata: { CompanyName: 'Framelly', FileDescription: NAME, ProductName: NAME },
         icon: platform === 'win32' ? path.join(HERE, 'windows', 'icon.ico') : path.join(HERE, 'mac', 'icon.icns'),
         ignore: [/^\/dist($|\/)/, /^\/icon($|\/)/, /^\/build\.js$/, /^\/package-lock\.json$/],
     });
@@ -37,7 +37,7 @@ const APP_ID = 'com.el.subtitleanimator.installer';
                 portable: { artifactName: NAME + '.exe' },
             },
         });
-        const dest = path.join(MAIN, NAME + '.exe');
+        const dest = path.join(MAIN, NAME + ' (Windows).exe');
         fs.copyFileSync(exe, dest);
         console.log('Built ' + dest);
         return;

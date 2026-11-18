@@ -12,14 +12,14 @@ function resolvePaths() {
     const root = '/Library/Application Support/Blackmagic Design/DaVinci Resolve';
     return {
         dest: path.join(root, 'Workflow Integration Plugins', E.PLUGIN_ID),
-        oldDest: path.join(root, 'Workflow Integration Plugins', E.OLD_PLUGIN_ID),
+        oldDests: E.OLD_PLUGIN_IDS.map(id => path.join(root, 'Workflow Integration Plugins', id)),
         sampleNode: path.join(root, 'Developer', 'Workflow Integrations', 'Examples', 'SamplePlugin', 'WorkflowIntegration.node'),
         app: '/Applications/DaVinci Resolve/DaVinci Resolve.app',
         userData: path.join(E.HOME, 'Library', 'Application Support', 'Electron'),
     };
 }
 
-// <main>/Install El Subtitle Animator.app/Contents/Resources/app.asar
+// <main>/Install Framelly.app/Contents/Resources/app.asar
 function appFolder(app) { return path.dirname(path.resolve(app.getAppPath(), '..', '..', '..')); }
 
 async function resolveRunning() { return (await quiet('/usr/bin/pgrep', ['-x', 'Resolve'])).code === 0; }
@@ -35,8 +35,8 @@ async function quitResolve() {
 function shQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 
 async function placePlugin(stage, paths, log) {
-    const { dest, oldDest } = paths;
-    let direct = E.exists(dest) && !E.exists(oldDest);
+    const { dest, oldDests } = paths;
+    let direct = E.exists(dest) && !oldDests.some(E.exists);
     if (direct) { try { fs.accessSync(dest, fs.constants.W_OK); } catch (e) { direct = false; } }
     if (direct) return require('../shared/plugin').replaceContents(stage, dest);
 
@@ -46,7 +46,7 @@ async function placePlugin(stage, paths, log) {
     const script = stage + '.sh';
     fs.writeFileSync(script, [
         'set -e',
-        '/bin/rm -rf ' + shQuote(oldDest),
+        ...oldDests.map(d => '/bin/rm -rf ' + shQuote(d)),
         '/bin/mkdir -p ' + shQuote(dest),
         '/usr/bin/rsync -a --delete ' + shQuote(stage + '/') + ' ' + shQuote(dest + '/'),
         '/usr/sbin/chown -R ' + shQuote(os.userInfo().username) + ' ' + shQuote(dest),
@@ -54,7 +54,7 @@ async function placePlugin(stage, paths, log) {
     try {
         const r = await run('/usr/bin/osascript', [
             '-e', 'on run argv',
-            '-e', 'do shell script "/bin/bash " & quoted form of (item 1 of argv) with prompt "El Subtitle Animator installs its panel into DaVinci Resolve\'s plugin folder." with administrator privileges',
+            '-e', 'do shell script "/bin/bash " & quoted form of (item 1 of argv) with prompt "Framelly installs its panel into DaVinci Resolve\'s plugin folder." with administrator privileges',
             '-e', 'end run', script]);
         if (r.code !== 0) throw new Error(/-128|User cancel/i.test(r.err) ? 'The password window was cancelled' : 'Could not copy the plugin: ' + tail(r));
     } finally { fs.rmSync(script, { force: true }); }

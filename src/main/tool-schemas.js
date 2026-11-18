@@ -1,5 +1,5 @@
 // The automation tools: names, descriptions and argument schemas (JSON Schema), shared by the MCP script
-// (mcp/el-sa-mcp.js lists them to the client) and the plugin's HTTP server (automation.js checks each call with
+// (mcp/framelly-mcp.js lists them to the client) and the plugin's HTTP server (automation.js checks each call with
 // checkToolArgs before running it). Add or change a tool's arguments here, once.
 
 module.exports = { TOOLS: null, checkToolArgs, toolSchema };
@@ -319,7 +319,7 @@ const TOOLS = [
     },
     {
         name: 'transcribe_words',
-        description: 'Word timings from a local speech engine (mlx-whisper, faster-whisper or openai-whisper; the audio never leaves the machine). On the timeline: the dialogue under the range, in timeline frames. Results are cached, and regroup / chop_srt use cached timings by themselves to cut between words. Without an engine it says how to install one; install: true sets up mlx-whisper in ~/.el-subtitle-animator/asr-venv (ask the user first: it downloads about 1.6 GB of model weights on first use). A long range takes minutes.',
+        description: 'Word timings from a local speech engine (mlx-whisper, faster-whisper or openai-whisper; the audio never leaves the machine). On the timeline: the dialogue under the range, in timeline frames. Results are cached, and regroup / chop_srt use cached timings by themselves to cut between words. Without an engine it says how to install one; install: true sets up mlx-whisper in ~/.framelly/asr-venv (ask the user first: it downloads about 1.6 GB of model weights on first use). A long range takes minutes.',
         inputSchema: S({ subtitles: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Analyse these subtitles\' span (first start to last end)' },
             startFrame: { type: 'integer', description: 'First timeline frame (default: the timeline start)' },
             endFrame: { type: 'integer', description: 'Last timeline frame (default: the timeline end)' },
@@ -421,7 +421,7 @@ const TOOLS = [
     },
     {
         name: 'place_broll',
-        description: 'Render a B-roll effect and place it on the open timeline: over a subtitle\'s range (subtitle), the timeline\'s Mark In -> Mark Out (marks: true), between startFrame / endFrame, or at the playhead for `seconds`. Clips shorter than 1.2 s are held to 1.2 s. The file goes to "<footage folder>/El Subtitle Animator B-roll/" and a Media Pool bin of that name. Returns the record id used by adjust_broll / remove_broll. Pass `items` (a list of these objects, e.g. from suggest_broll) to place several one after another. Keep B-roll off the faces and away from the captions (check get_frame).',
+        description: 'Render a B-roll effect and place it on the open timeline: over a subtitle\'s range (subtitle), the timeline\'s Mark In -> Mark Out (marks: true), between startFrame / endFrame, or at the playhead for `seconds`. Clips shorter than 1.2 s are held to 1.2 s. The file goes to "<footage folder>/Framelly B-roll/" and a Media Pool bin of that name. Returns the record id used by adjust_broll / remove_broll. Pass `items` (a list of these objects, e.g. from suggest_broll) to place several one after another. Keep B-roll off the faces and away from the captions (check get_frame).',
         inputSchema: S({
             effect: { type: 'string', description: 'Effect id from list_broll' },
             props: { type: 'object', description: 'Field values (see list_broll); omitted fields use the last values used, then the defaults' },
@@ -514,7 +514,7 @@ const TOOLS = [
     },
     {
         name: 'match_cut',
-        description: 'News-article match cut: news articles that use `word` are screenshotted, lined up so the word stays at the same size in the same spot, rendered at the timeline\'s size and frame rate, and placed at the playhead (top free video layer, clicks on a free audio track). Saved in "<footage folder>/El Subtitle Animator MatchCut/<word>/" next to "El Subtitle Animator SFX". Same as the panel\'s "Article Text Match Cut" effect card; omitted options use the panel\'s last values. Takes 1-4 minutes: returns { running } after `wait` seconds, then call again with status: true. Big paywalled sites (Reuters, WSJ, NYT, Bloomberg) are skipped because they block automated browsers.',
+        description: 'News-article match cut: news articles that use `word` are screenshotted, lined up so the word stays at the same size in the same spot, rendered at the timeline\'s size and frame rate, and placed at the playhead (top free video layer, clicks on a free audio track). Saved in "<footage folder>/Framelly MatchCut/<word>/" next to "Framelly SFX". Same as the panel\'s "Article Text Match Cut" effect card; omitted options use the panel\'s last values. Takes 1-4 minutes: returns { running } after `wait` seconds, then call again with status: true. Big paywalled sites (Reuters, WSJ, NYT, Bloomberg) are skipped because they block automated browsers.',
         inputSchema: S({
             word: { type: 'string', description: 'Word or short phrase to lock in place' },
             count: { type: 'integer', minimum: 2, maximum: 40, description: 'Articles to cut between (default 12)' },

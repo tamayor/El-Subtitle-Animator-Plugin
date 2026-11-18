@@ -37,7 +37,7 @@ const TRACK_DIM = 640;           // the tracker reads small frames
 const TRACK_BOX = 0.14;          // the tracked patch under a label: this share of the frame's short side
 const VIDEO_FILE = /\.(mp4|mov|m4v|webm|mkv|avi|mxf)$/i;
 const OUTLINE_POINTS = 72;
-const OWN_FILE = /\/El Subtitle Animator B-roll\/|\/spotlight\/[^/]+\/c\[|\/broll-footage\//;
+const OWN_FILE = /\/(?:Framelly|El Subtitle Animator) B-roll\/|\/spotlight\/[^/]+\/c\[|\/broll-footage\//;
 
 // What an effect needs with these props; null = nothing from the footage.
 //   samples, seq (cut-outs of every frame), full (full frames of every frame), still (one cropped cut-out),

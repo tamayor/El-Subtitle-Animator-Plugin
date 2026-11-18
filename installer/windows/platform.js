@@ -10,14 +10,14 @@ function resolvePaths() {
     const root = path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'Blackmagic Design', 'DaVinci Resolve', 'Support');
     return {
         dest: path.join(root, 'Workflow Integration Plugins', E.PLUGIN_ID),
-        oldDest: path.join(root, 'Workflow Integration Plugins', E.OLD_PLUGIN_ID),
+        oldDests: E.OLD_PLUGIN_IDS.map(id => path.join(root, 'Workflow Integration Plugins', id)),
         sampleNode: path.join(root, 'Developer', 'Workflow Integrations', 'Examples', 'SamplePlugin', 'WorkflowIntegration.node'),
         app: path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Blackmagic Design', 'DaVinci Resolve', 'Resolve.exe'),
         userData: path.join(process.env.APPDATA || path.join(E.HOME, 'AppData', 'Roaming'), 'Electron'),
     };
 }
 
-// <main>\Install El Subtitle Animator.exe unpacks itself to a temporary folder and runs from there; it passes the
+// <main>\Install Framelly (Windows).exe unpacks itself to a temporary folder and runs from there; it passes the
 // folder it was started from in PORTABLE_EXECUTABLE_DIR. The unpacked app folder (dist/) is looked up from itself.
 function appFolder() { return process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath); }
 
@@ -28,10 +28,10 @@ async function resolveRunning() {
 async function quitResolve() { return { ok: false, error: 'Quit DaVinci Resolve yourself, then open it again.' }; }
 
 async function placePlugin(stage, paths) {
-    const { dest, oldDest } = paths;
+    const { dest, oldDests } = paths;
     try {
         fs.mkdirSync(dest, { recursive: true });
-        fs.rmSync(oldDest, { recursive: true, force: true });
+        for (const d of oldDests) fs.rmSync(d, { recursive: true, force: true });
         require('../shared/plugin').replaceContents(stage, dest);
     } catch (e) {
         if (!/EPERM|EACCES/.test(String(e && e.code))) throw e;

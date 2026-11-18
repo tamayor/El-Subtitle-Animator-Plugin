@@ -54,7 +54,7 @@
         return parts.join(' · ') + (s.uptimeS ? ' · ' + Math.round(s.uptimeS / 60) + ' min' : '');
     }
     function perfText(s) {
-        const lines = ['El Subtitle Animator perf summary ' + new Date().toISOString(), 'since ' + s.since + ' (' + s.uptimeS + ' s), Resolve calls/s ' + s.resolveCallsPerSec + ' (' + s.resolveCallsLastMinute + ' in the last minute)', 'log: ' + s.log, ''];
+        const lines = ['Framelly perf summary ' + new Date().toISOString(), 'since ' + s.since + ' (' + s.uptimeS + ' s), Resolve calls/s ' + s.resolveCallsPerSec + ' (' + s.resolveCallsLastMinute + ' in the last minute)', 'log: ' + s.log, ''];
         lines.push(['name', 'n', 'total ms', 'avg ms', 'max ms', 'last ms'].join('\t'));
         for (const x of s.entries || []) lines.push([x.name, x.n, x.totalMs, x.avgMs, x.maxMs, x.lastMs].join('\t'));
         return lines.join('\n');

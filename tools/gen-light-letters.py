@@ -11,7 +11,7 @@ Tested by the user as "Glass Pill (Live)" on 2026-11-09: no lag, follows trims w
 
 The followers' Delay expressions (letter spread, evaluated once per frame) are left as they are.
 
-usage: python3 tools/gen-light-letters.py "<El Subtitle Animator folder>" [preset name ...]
+usage: python3 tools/gen-light-letters.py "<Framelly folder>" [preset name ...]
        (default: every segment preset; patches presets/current and presets/original; already light = left alone)
 """
 import os, re, sys

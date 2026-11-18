@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Fusion helper for the Subtitle Animator panel.
+# Fusion helper for the Framelly panel.
 #
 # Resolve's JavaScript plugin interface cannot reach the nodes inside a Fusion composition
 # (tool.GetAttrs is not a function there), but Resolve's Python scripting can. The panel starts
@@ -3970,10 +3970,10 @@ def jp_word_times(comp, tpl):
 
 
 # ---------------------------------------------------------------- effect presets (src/main/effect-presets.js)
-# Stop Motion / Wiggle / Glitch are Resolve Fusion effects (Edit/Effects/Subtitle Animator/ELSA <name>.setting) put
+# Stop Motion / Wiggle / Glitch are Resolve Fusion effects (Edit/Effects/Framelly/ELSA <name>.setting) put
 # on any clip with TimelineItem.AddEffect: a video, a title or a placed text preset. Each is its own comp on the clip,
 # so a title's own comp (and its Inspector) is never touched. Several on one clip stack in FX_ORDER.
-FX_PREFIX = "Fusion/Effects/Subtitle Animator/"
+FX_PREFIX = "Fusion/Effects/Framelly/"
 FX_NAMES = {"Transform": "ELSA Transform", "Track": "ELSA Track Subject", "Riso": "ELSA Riso", "Glitch": "ELSA Glitch", "Wiggle": "ELSA Wiggle", "StopMotion": "ELSA Stop Motion"}
 # Stop Motion is a Fusion effect (a TimeStretcher, the LAST effect before the clip's output), so the frames it holds
 # already carry the glitch / wiggle: the look holds as one. Resolve's own OFX Stop Motion sits outside Fusion and ran
@@ -4595,7 +4595,7 @@ def fx_nudge_inspector():
 
 
 # An effect can also be dragged by hand into a clip's own node graph (Fusion page > Effects > Templates > Edit > Effects >
-# Subtitle Animator), where the panel does not manage it. Adding the same effect from the panel on top would run it twice,
+# Framelly), where the panel does not manage it. Adding the same effect from the panel on top would run it twice,
 # so fx_set skips a clip whose own comp already holds that effect's node, and fx_state reports it (inNodes).
 # Matched by node name: the macro's group (ELSAWiggle, ELSAWiggle1 ...) or its main tool. Names only (GetToolList +
 # GetAttrs, as the other bridge reads do), never input values, and cached FX_NODES_TTL per clip.
@@ -4940,10 +4940,11 @@ _glass_seen = {}      # caption id -> time of the last check from seg_watch
 
 
 def glass_reg_path():
-    if sys.platform == "darwin":
-        d = os.path.expanduser("~/Library/Application Support/el-subtitle-animator")
-    else:
-        d = os.path.expanduser("~/.el-subtitle-animator")
+    base = "~/Library/Application Support/" if sys.platform == "darwin" else "~/."
+    d = os.path.expanduser(base + "framelly")
+    old = os.path.expanduser(base + "el-subtitle-animator")      # made by an earlier version: kept
+    if not os.path.isdir(d) and os.path.isdir(old):
+        d = old
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "glass.json")
 

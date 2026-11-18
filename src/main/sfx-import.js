@@ -7,26 +7,27 @@ const path = require('path');
 const fs = require('fs');
 
 const { APP_DATA_DIR, DATA_DIR, RESOLVE_BATCH } = require('./config');
+const { CATEGORY, OLD_CATEGORY, isOwnName, outDirIn, sameName } = require('./names');
 const { dlog } = require('./log');
 const PERF = require('./perf');
 
 // ------------------------------------------------------------------ sounds copied next to the footage
 // When a subtitle is APPLIED (not while previewing), its sounds are copied into
-// "<footage folder>/El Subtitle Animator SFX/" and imported from there, so the project keeps its own copy beside its
+// "<footage folder>/Framelly SFX/" and imported from there, so the project keeps its own copy beside its
 // media (it stays online when moved or archived with the footage, and does not depend on the plugin's library).
 // The footage folder is chosen once per timeline - the folder most of the timeline's own clips come from (titles,
 // generators and the plugin's sounds skipped) - and saved in _app/timeline-sfx-dirs.json, so every later apply on that
 // timeline reuses the same location. With no footage on the timeline yet, or when the folder cannot be written, the
 // sound is imported from the library as before (and nothing is saved, so the next apply tries again).
-const PROJECT_SFX_DIR = 'El Subtitle Animator SFX';
+const PROJECT_SFX_DIR = 'Framelly SFX';
 const TL_SFX_DIRS_FILE = path.join(APP_DATA_DIR, 'timeline-sfx-dirs.json');
 function readTlSfxDirs() { try { return JSON.parse(fs.readFileSync(TL_SFX_DIRS_FILE, 'utf8')) || {}; } catch (e) { return {}; } }
-// The plugin's own output folders ("El Subtitle Animator SFX / B-roll / MatchCut / Spotlight / Collage" and anything
-// under them, or under the app's data folder) are never taken for the footage folder.
-const OWN_DIR_PREFIX = 'El Subtitle Animator ';
+// The plugin's own output folders ("Framelly SFX / B-roll / MatchCut / Spotlight / Collage" and anything
+// under them, or under the app's data folder) are never taken for the footage folder. That includes the ones an
+// earlier version named "El Subtitle Animator ..." (names.js).
 function isOwnDir(dir) {
     if (dir === DATA_DIR || dir.startsWith(DATA_DIR + path.sep)) return true;
-    return String(dir).split(path.sep).some((part) => part.startsWith(OWN_DIR_PREFIX));
+    return String(dir).split(path.sep).some(isOwnName);
 }
 const isOwnSound = isOwnDir;
 async function scanFootageDir(tl) {
@@ -116,20 +117,21 @@ async function mediaPoolFootageDir(project) {
 //      yet, the Media Pool's.
 //   3. Only a project with no media files at all (or a footage folder that cannot be written) uses the app's data
 //      folder; { fallback: true } then says so, so the caller can warn.
+// A project that already has the folder under the plugin's earlier name keeps using that one (names.outDirIn).
 async function projectOutDir(project, sub) {
     const root = await projectRootDir(project);
     if (root && root.missing) throw new Error('The project folder ' + root.missing + ' is not there. Is its drive connected?');
     if (root) {
-        const dir = path.join(root.dir, sub);
+        const dir = outDirIn(root.dir, sub);
         fs.mkdirSync(dir, { recursive: true });
         return { dir, fallback: false };
     }
     const footage = (project && (await timelineSfxDir(project))) || (project && (await mediaPoolFootageDir(project)));
     if (footage) {
-        const dir = path.join(footage, sub);
+        const dir = outDirIn(footage, sub);
         try { fs.mkdirSync(dir, { recursive: true }); return { dir, fallback: false }; } catch (e) { dlog('PROJECT-OUT-DIR-FAIL', dir, String(e && e.message || e)); }
     }
-    const dir = path.join(DATA_DIR, sub);
+    const dir = outDirIn(DATA_DIR, sub);
     fs.mkdirSync(dir, { recursive: true });
     dlog('PROJECT-OUT-DIR-FALLBACK', sub, dir);
     return { dir, fallback: true };
@@ -153,14 +155,14 @@ function sameFile(a, b) {
 const sfxCopyCache = new Map();
 async function projectSfxCopy(project, sfxPath) {
     try {
-        if (path.basename(path.dirname(sfxPath)) === PROJECT_SFX_DIR) return sfxPath;      // already a timeline copy
+        if (sameName(path.basename(path.dirname(sfxPath)), PROJECT_SFX_DIR)) return sfxPath;      // already a timeline copy
         const dir = await timelineSfxDir(project);
         if (!dir) return sfxPath;
         let st = null;
         try { st = fs.statSync(sfxPath); } catch (e) { st = null; }
         const ck = st ? dir + '|' + sfxPath + '|' + st.size + '|' + st.mtimeMs : null;
         if (ck && sfxCopyCache.has(ck) && fs.existsSync(sfxCopyCache.get(ck))) return sfxCopyCache.get(ck);
-        const outDir = path.join(dir, PROJECT_SFX_DIR);
+        const outDir = outDirIn(dir, PROJECT_SFX_DIR);
         fs.mkdirSync(outDir, { recursive: true });
         let dst = path.join(outDir, path.basename(sfxPath));
         if (fs.existsSync(dst) && !sameFile(sfxPath, dst)) {
@@ -182,14 +184,14 @@ async function relinkToProjectCopy(project, sfxItem) {
     try {
         const mpi = await sfxItem.GetMediaPoolItem();
         const cur = mpi ? String(await mpi.GetClipProperty('File Path') || '') : '';
-        if (!cur || !fs.existsSync(cur) || path.basename(path.dirname(cur)) === PROJECT_SFX_DIR) return;
+        if (!cur || !fs.existsSync(cur) || sameName(path.basename(path.dirname(cur)), PROJECT_SFX_DIR)) return;
         const copy = await projectSfxCopy(project, cur);
         if (copy !== cur) await mpi.ReplaceClip(copy);
     } catch (e) { dlog('PROJECT-SFX-RELINK-FAIL', String(e && e.message || e)); }
 }
 
 // projectCopy: true when the subtitle is being applied (see projectSfxCopy); previews import from the library.
-// The "Subtitle Animator" bin's clips by file path, read once per project and kept while the bin's clip count is
+// The "Framelly" bin's clips by file path (the bin an earlier version named "Subtitle Animator" is reused), read once per project and kept while the bin's clip count is
 // unchanged (one GetClipList per import instead of a name + path read of every clip, in a bin that only grows).
 // Within one placement the bin is listed once (SFX_BIN_FRESH_MS): a Kinetic preset imports three or four sounds in a row.
 const SFX_BIN_FRESH_MS = 5000;
@@ -214,8 +216,8 @@ async function importSfxInner(project, sfxPath, projectCopy) {
             const root = await mp.GetRootFolder();
             const subs = (await root.GetSubFolderList()) || [];
             const names = await Promise.all(subs.map(f => Promise.resolve(f.GetName()).catch(() => '')));
-            target = subs[names.indexOf('Subtitle Animator')] || null;
-            if (!target) target = await mp.AddSubFolder(root, 'Subtitle Animator');
+            target = subs[names.indexOf(CATEGORY)] || subs[names.indexOf(OLD_CATEGORY)] || null;
+            if (!target) target = await mp.AddSubFolder(root, CATEGORY);
             sfxBin.key = pkey; sfxBin.folder = target; sfxBin.count = -1; sfxBin.byPath = new Map(); sfxBin.listedAt = 0; sfxBin.verified = new Map();
         }
     } catch (e) { /* ignore */ }

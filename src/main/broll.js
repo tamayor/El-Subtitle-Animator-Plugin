@@ -6,7 +6,7 @@
 // - Renders run in one long-lived worker, `node broll/render.mjs --serve`, started with the system's Node (Electron's
 //   own runtime cannot load Remotion's renderer). The worker keeps the bundle and the headless browser warm, so a
 //   render after the first costs only its frames.
-// - Files go to "<footage folder>/El Subtitle Animator B-roll/" (beside "El Subtitle Animator SFX") and into a Media
+// - Files go to "<footage folder>/Framelly B-roll/" (beside "Framelly SFX") and into a Media
 //   Pool bin of the same name. Each placed clip is recorded (effect + props) in <data>/_app/broll-placed.json, so it
 //   can be adjusted later: the new render replaces the clip's media (MediaPoolItem.ReplaceClip), and the clip keeps its
 //   place, track and any edits to its position; only a new length re-places it.
@@ -37,11 +37,12 @@ const { APP_DATA_DIR, APP_ROOT, DATA_DIR } = require('./config');
 const { dlog } = require('./log');
 const { findItemsByIds, getProject, getSubtitles, tcToFrame, timelineMeta } = require('./resolve');
 const { projectOutDir } = require('./sfx-import');
+const { CODE_FOLDER_NAME, OLD_CODE_FOLDER_NAME, sameName } = require('./names');
 const { pickTrack } = require('./placement');
 const { bridgeCall } = require('./fusion-bridge');
 const { vibeArgs, applyVibe, vibeList } = require('./broll-vibe');
 
-const RUNS_DIR = 'El Subtitle Animator B-roll';
+const RUNS_DIR = 'Framelly B-roll';
 const PLACED_FILE = path.join(APP_DATA_DIR, 'broll-placed.json');
 const PREFS_FILE = path.join(APP_DATA_DIR, 'broll.json');
 const PREVIEW_DIR = path.join(APP_DATA_DIR, 'broll-previews');
@@ -53,7 +54,7 @@ function brollDir() {
     const tries = [];
     try { const loc = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'data-location.json'), 'utf8')); if (loc.codeDir) tries.push(path.join(loc.codeDir, 'broll')); } catch (e) { /* running from the repo */ }
     tries.push(path.join(APP_ROOT, 'broll'));
-    if (DATA_DIR) tries.push(path.join(path.dirname(DATA_DIR), 'El Subtitle Animator Plugin', 'broll'));
+    if (DATA_DIR) for (const n of [CODE_FOLDER_NAME, OLD_CODE_FOLDER_NAME]) tries.push(path.join(path.dirname(DATA_DIR), n, 'broll'));
     return tries.find(d => fs.existsSync(path.join(d, 'render.mjs'))) || tries[0];
 }
 
@@ -305,7 +306,7 @@ async function outDir(project) {
 
 async function binFor(mp) {
     const root = await mp.GetRootFolder();
-    for (const f of ((await root.GetSubFolderList()) || [])) { if ((await f.GetName()) === RUNS_DIR) return f; }
+    for (const f of ((await root.GetSubFolderList()) || [])) { if (sameName(await f.GetName(), RUNS_DIR)) return f; }
     try { return await mp.AddSubFolder(root, RUNS_DIR); } catch (e) { return null; }
 }
 

@@ -102,7 +102,7 @@
   (function(){
     var $=function(i){return document.getElementById(i)};
     var stage=$('vzStage');if(!stage)return;
-    var TXT='This is El Subtitle Animator Adjustable Animation Timing',TOTAL=90,NAT=36,N=TXT.replace(/ /g,'').length;
+    var TXT='This is Framelly Adjustable Animation Timing',TOTAL=90,NAT=36,N=TXT.replace(/ /g,'').length;
     var hs=$('vzHs'),he=$('vzHe'),track=$('vzTrack'),span=$('vzSpan'),hold=$('vzHold'),play=$('vzPlay'),ticks=$('vzTicks');
     var letters=[],k=0;
     TXT.split(' ').forEach(function(word,wi){

@@ -1,7 +1,8 @@
-# El Subtitle Animator Plugin
+# Framelly Plugin
 
+- The product is **Framelly** (plugin id `com.framelly.plugin`, MCP server `framelly`). It was El Subtitle Animator before: never write the old name into new text, but keep the code that recognises it (`src/main/names.js`, the `OLD_*` names in `installer/shared/env.js`), so existing projects, data folders and installs keep working. The Claude Code commands are `/framelly-prompt` and `/framelly-prompt-auto` (earlier `/elsa-prompt...`; the installer replaces those). `ELSA` in effect files, node names and markers is a prefix existing timelines rely on: leave it.
 - Run `npm run check` and `npm test` after changes. `check` includes `tools/check-inspector-safe.js`; the tests run without Resolve (see CONTRIBUTING.md).
 - Never replace the Fusion comp of a timeline clip the user keeps (`ImportFusionComp`, `LoadFusionCompByName`, `AddFusionComp`, `comp:Paste`, `tool:LoadSettings`). It empties Resolve's Edit-page Inspector for that clip. Presets go in as title templates via `presetTitleFor` (src/main/title-templates.js) and `InsertFusionTitleIntoTimeline`. See "Presets are inserted as Resolve title templates" in README.md.
-- The plugin runs from the installed copy in `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.el.subtitleanimator`, not from this repo. Sync `src/` there (or run `npm run install-panel`) before asking the user to test.
+- The plugin runs from the installed copy in `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.framelly.plugin`, not from this repo. Sync `src/` there (or run `npm run install-panel`) before asking the user to test.
 - `src/renderer/js/components/preset-preview.js` has a PROTECTED block. Don't change it without the owner's approval.
 - Before adding or editing code, read AGENTS.md: the layers, and the shared modules to use instead of writing new copies (colour, storage, DOM, status, tabs, throttled sends, design tokens, file caches).

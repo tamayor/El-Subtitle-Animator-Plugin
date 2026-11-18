@@ -1,9 +1,9 @@
 {
-    "name": "el-subtitle-animator-installer",
-    "productName": "Install El Subtitle Animator",
+    "name": "framelly-installer",
+    "productName": "Install Framelly",
     "version": "1.0.0",
-    "description": "Installer for the El Subtitle Animator panel, its Claude Code connection and its optional engines.",
-    "author": "El Subtitle Animator",
+    "description": "Installer for the Framelly panel, its Claude Code connection and its optional engines.",
+    "author": "Framelly",
     "main": "main.js",
     "private": true,
     "scripts": {

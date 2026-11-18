@@ -14,6 +14,7 @@ const { dlog } = require('./log');
 const { createWindow } = require('./window');
 const { loadLib } = require('./library');
 const { startupTemplates } = require('./title-templates');
+const { installBoilerplateTemplates } = require('./boilerplates');
 const { pruneSfxCache } = require('./sfx');
 const { prunePreviews } = require('./previews');
 const { startSegWatch } = require('./seg-watch');
@@ -53,6 +54,8 @@ app.whenReady().then(() => {
     warm('presetFonts', 2000, () => syncAllPresetFonts());
     // Title templates are renamed to their preset's name, and those of presets removed while the plugin was closed go.
     warm('templates', 2500, () => startupTemplates(loadLib().animations));
+    // The Create tab's boilerplates too: on a fresh install their templates did not exist until the first click.
+    warm('boilerplateTemplates', 2600, () => installBoilerplateTemplates());
     // Expired trimmed sound clips and previews are cleared at start-up and every 6 hours while the panel stays open
     // (deferred to their own turn of the event loop, after the window's first requests; the walks are timed as startup.prune).
     const pruneCaches = () => Promise.resolve().then(() => pruneSfxCache()).catch(() => { /* ignore */ }).then(() => prunePreviews()).catch(() => { /* ignore */ });

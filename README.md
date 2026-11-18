@@ -1,4 +1,4 @@
-# El Subtitle Animator
+# Framelly
 
 A Workflow Integration plugin for DaVinci Resolve Studio. It turns the subtitles on a timeline into animated Text+ and
 MultiText captions with sound effects, using presets from a library you build yourself. Captions can be placed one at a
@@ -39,39 +39,44 @@ time from the panel, or a whole timeline at once by Claude Code through the bund
 Keep both folders together in one main folder (it can live anywhere):
 
 ```
-El Subtitle Animator Plugin Main/
-  El Subtitle Animator Plugin/   the code (this repo, with the installer)
-  El Subtitle Animator/          your presets, sounds, previews, fonts
+Framelly Plugin Main/
+  Framelly Plugin/   the code (this repo, with the installer)
+  Framelly/          your presets, sounds, previews, fonts
 ```
 
-Double-click **Install El Subtitle Animator (Mac)** in the main folder, tick what you want and click **Install**:
+Framelly was called El Subtitle Animator before. Folders that still have that name (the main, code and data
+folders, a project's `El Subtitle Animator SFX` / `B-roll` / ... folders, `~/.el-subtitle-animator`) keep working;
+anything new gets the current name. After renaming the folders, run the installer once: it replaces the old panel
+and the old Claude Code entry and points saved paths to the new place.
 
-- **El Subtitle Animator panel** (always): copied into Resolve's plugin folder, with the location of this folder.
+Double-click **Install Framelly (Mac)** in the main folder, tick what you want and click **Install**:
+
+- **Framelly panel** (always): copied into Resolve's plugin folder, with the location of this folder.
 - **Saved paths in your library**: after the main folder moves, the safe-zone image and rendered B-roll files are
   pointed to the new place.
-- **Claude Code**: the MCP server and the `/elsa-prompt` and `/elsa-prompt-auto` commands.
+- **Claude Code**: the MCP server and the `/framelly-prompt` and `/framelly-prompt-auto` commands.
 - **Tools and engines**: ffmpeg, tesseract, the Whisper speech engine, Track Subject, subject cut-out, Auto Cut,
   Pillow and the B-roll renderer. Each shows whether it is already installed; the panel can also install its engines
   later, when a feature first needs one.
 
 macOS asks for your password the first time, because Resolve reads plugins from a system folder. Then quit Resolve
 completely, reopen it (the installer has a button for this), and choose
-**Workspace › Workflow Integrations › El Subtitle Animator**.
+**Workspace › Workflow Integrations › Framelly**.
 
 Run the installer again after moving or renaming the main folder, and after every code change. The app is built from
 `installer/` (`cd installer && npm install && npm run build`). From Terminal, `npm run install-panel` in the code
 folder installs the panel only.
 
-`npm run build -- win32 x64` builds the Windows installer, one `Install El Subtitle Animator.exe` in the main folder
+`npm run build -- win32 x64` builds the Windows installer, one `Install Framelly (Windows).exe` in the main folder
 (its unpacked app folder stays in `installer/dist/`). It installs the panel only: the plugin's other parts use macOS
 tools. The installer's code is split by platform: `installer/shared/`, `installer/mac/`, `installer/windows/`.
 
 The installer copies only the runtime files (`manifest.xml`, `package.json`, `main.js`, `src/`) plus Blackmagic's
 `WorkflowIntegration.node` into
-`/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.el.subtitleanimator`.
+`/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.framelly.plugin`.
 Resolve runs that copy, not this folder.
 
-User data (presets, sounds, previews, fonts, window state) lives in `El Subtitle Animator/`, next to the code folder.
+User data (presets, sounds, previews, fonts, window state) lives in `Framelly/`, next to the code folder.
 The installer writes the main folder's location to `data-location.json` in the installed plugin, so if you move or
 rename the main folder, run the installer again.
 
@@ -80,11 +85,11 @@ rename the main folder, run the installer again.
 Register the MCP server once:
 
 ```bash
-claude mcp add el-subtitle-animator -- node "$HOME/Documents/El Subtitle Animator Plugin Main/El Subtitle Animator Plugin/mcp/el-sa-mcp.js"
+claude mcp add framelly -- node "$HOME/Documents/Framelly Plugin Main/Framelly Plugin/mcp/framelly-mcp.js"
 ```
 
 The panel must be open in Resolve: when it starts it writes its local address and a token to
-`~/.el-subtitle-animator/mcp-endpoint.json`, which the MCP script reads.
+`~/.framelly/mcp-endpoint.json`, which the MCP script reads.
 
 ## Usage
 
@@ -123,7 +128,7 @@ src/
     index.html             The panel; loads the CSS and JS below, in order
     css/                   Stylesheets, split by section (order = cascade order)
     js/                    Panel scripts (classic scripts sharing one global scope)
-mcp/el-sa-mcp.js           MCP server for Claude Code (stdio, no dependencies)
+mcp/framelly-mcp.js           MCP server for Claude Code (stdio, no dependencies)
 tools/                     Dev checks and preset generators (not installed)
 test/                      Tests (not installed)
   helpers/                 Electron stub, temporary data folder, fake Resolve API

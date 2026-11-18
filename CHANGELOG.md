@@ -1,6 +1,23 @@
 # Changelog
 
-Notable changes to El Subtitle Animator. The plugin's version is in `package.json` and `manifest.xml`.
+Notable changes to Framelly. The plugin's version is in `package.json` and `manifest.xml`.
+
+## Unreleased: renamed to Framelly
+
+### Changed
+
+- **El Subtitle Animator is now Framelly**: the panel, Resolve's Workflow Integrations entry, the installer
+  (`Install Framelly (Mac)` / `(Windows).exe`), the plugin id (`com.framelly.plugin`), the MCP server (`framelly`,
+  `mcp/framelly-mcp.js`), the folders (`Framelly Plugin Main/Framelly Plugin` + `Framelly`), the Resolve
+  category of the title and effect templates, the Media Pool bin and the per-project output folders
+  (`Framelly SFX`, `B-roll`, `MatchCut`, `Spotlight`, `Collage`), and `~/.framelly`.
+- Nothing made under the earlier name is lost (`src/main/names.js`): a project's existing `El Subtitle Animator ...`
+  folders and bins and `~/.el-subtitle-animator` are used as they are, the template folders in Resolve's support
+  folder are renamed once, and the installer removes the old panel (`com.el.subtitleanimator`) and the old Claude
+  Code entry, finds code and data folders that still have the old names, and repairs saved paths after a rename.
+  `mcp/el-sa-mcp.js` stays as a shim for entries made by hand. The `ELSA` prefix of effects and markers is unchanged.
+- The Claude Code commands are now `/framelly-prompt` and `/framelly-prompt-auto`. The installer turns an installed
+  `/elsa-prompt` or `/elsa-prompt-auto` into the new command, keeping any edits made to it.
 
 ## Unreleased: Cut tab, media analysis, Match Cut
 

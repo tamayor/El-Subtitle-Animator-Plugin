@@ -1,7 +1,7 @@
 // Effect Preset > Match Cut (src/main/match-cut.js): a news-article match cut of one word, made at the playhead. Like
 // Spotlight it makes its own clip, so the card's switch (or Make) starts a run instead of adding an effect to the
 // selected clip; the switch shows on while it renders. Runs are saved in
-// "<footage folder>/El Subtitle Animator MatchCut/<word>/". Used by js/library/effects/ (fxStateOf, fxFillCard, fxToggle).
+// "<footage folder>/Framelly MatchCut/<word>/". Used by js/library/effects/ (fxStateOf, fxFillCard, fxToggle).
 
 const mcUI = { prefs: null, running: false, progress: null, last: null, loading: null };
 
@@ -72,7 +72,7 @@ function fxMatchCutOptions() {
         l.append(cb, document.createTextNode(label)); return l;
     };
 
-    note('Finds news articles that use the word, lines them up on it and places the clip at the playhead. Saved next to the El Subtitle Animator SFX folder.');
+    note('Finds news articles that use the word, lines them up on it and places the clip at the playhead. Saved next to the Framelly SFX folder.');
 
     // word + Make
     const wr = document.createElement('div'); wr.className = 'fx-opt-row';

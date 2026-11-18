@@ -121,7 +121,7 @@ const BOILER_MANUAL = [
                     'The Inspector shows only a folded "Text+" header: the clip is not a template clip. Delete it and use Put on timeline again, or run Repair from Claude Code.',
                     'The clip is blank: scrub to its first frame and check Animation Frames is 0 or the length you want, and that the first keyframe is on frame 0.',
                     'SelfServe > From timeline says to select a clip: click the clip on the timeline first (it must be selected, not just under the playhead).',
-                    'The two Boilerplate titles also show in Resolve\'s Effects > Titles > Subtitle Animator, so you can drag them in yourself.'
+                    'The two Boilerplate titles also show in Resolve\'s Effects > Titles > Framelly, so you can drag them in yourself.'
                 ]
             }
         ]

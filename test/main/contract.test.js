@@ -116,8 +116,8 @@ test('title and effect templates go into the user\'s own Resolve support folder'
         win32: path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Blackmagic Design', 'DaVinci Resolve', 'Support')
     }[process.platform] || path.join(os.homedir(), '.local', 'share', 'DaVinciResolve');
     assert.equal(config.resolveUserDir(), base);
-    assert.equal(env.main('title-templates').titlesDir(), path.join(base, 'Fusion', 'Templates', 'Edit', 'Titles', 'Subtitle Animator'));
-    assert.equal(env.main('effect-presets').effectsDir(), path.join(base, 'Fusion', 'Templates', 'Edit', 'Effects', 'Subtitle Animator'));
+    assert.equal(env.main('title-templates').titlesDir(), path.join(base, 'Fusion', 'Templates', 'Edit', 'Titles', 'Framelly'));
+    assert.equal(env.main('effect-presets').effectsDir(), path.join(base, 'Fusion', 'Templates', 'Edit', 'Effects', 'Framelly'));
     assert.equal(config.OSASCRIPT, '/usr/bin/osascript');
     assert.equal(config.RESOLVE_SCRIPT_API, '/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting');
 });

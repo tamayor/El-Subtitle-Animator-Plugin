@@ -73,7 +73,7 @@ function replaceContents(stage, dest) {
 module.exports = {
     replaceContents,
     ITEM: {
-        id: 'plugin', group: 'resolve', required: true, title: 'El Subtitle Animator panel',
+        id: 'plugin', group: 'resolve', required: true, title: 'Framelly panel',
         detail: 'Copies the panel into Resolve\'s plugin folder and records where this folder is.',
         detect, install,
     },

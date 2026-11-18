@@ -71,7 +71,7 @@ function tickerWord(text) {
 }
 function tickerNext() {
     let w;
-    if (ticker.n++ === 0) w = 'El Subtitle Animator';
+    if (ticker.n++ === 0) w = 'Framelly';
     else do { w = TICKER_WORDS[Math.floor(Math.random() * TICKER_WORDS.length)]; } while (w === ticker.last);
     ticker.last = w;
     tickerWord(w);

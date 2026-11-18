@@ -1,10 +1,10 @@
 ---
-name: elsa-prompt-auto
-description: Auto mode for El Subtitle Animator. Reads the Prompt tab's job prompt for its settings, style and allowed presets, but instead of following clip colours it picks which subtitles to animate (default 60%) and which treatment each gets. Use when the user types /elsa-prompt-auto.
+name: framelly-prompt-auto
+description: Auto mode for Framelly. Reads the Prompt tab's job prompt for its settings, style and allowed presets, but instead of following clip colours it picks which subtitles to animate (default 60%) and which treatment each gets. Use when the user types /framelly-prompt-auto.
 argument-hint: "[percent, default 60] [extra instructions, e.g. tracks 3-5, skip first 10 subtitles]"
 ---
 
-Automated version of /elsa-prompt. The user does NOT colour-code the subtitles first; you decide.
+Automated version of /framelly-prompt. The user does NOT colour-code the subtitles first; you decide.
 
 ## 1. Load the prompt
 
@@ -12,7 +12,7 @@ Read the job prompt saved by the panel's Prompt tab:
 
 `{{JOB_PROMPT}}`
 
-If it is missing, tell the user to open the El Subtitle Animator panel and click the Prompt tab once (which writes the file), then stop.
+If it is missing, tell the user to open the Framelly panel and click the Prompt tab once (which writes the file), then stop.
 
 Take from it, and obey exactly as written:
 - **SETTINGS**: JOB (timeline, scope, PLAN_THRESHOLD), SIZE, POSITION, PRESETS, TEXT STYLE, SUBTITLE TRIMMING.
@@ -27,7 +27,7 @@ Arguments: `$ARGUMENTS`
 
 ## 2. Set up
 
-Follow the el-subtitle-animator MCP workflow: `get_rules` first, `status` / `get_layout` (layout must apply to this timeline), `set_rules` from SETTINGS (HIGHLIGHT_BOX → `highlight` {auto, width, height, x, y}: `auto` = balanced padding around the highlight box / pill, the rest are the panel's slider values) then `get_rules` to confirm, `list_presets` (only these presets may ever be used, and only the ones the prompt's PRESETS section names), `list_subtitles` with color "any".
+Follow the framelly MCP workflow: `get_rules` first, `status` / `get_layout` (layout must apply to this timeline), `set_rules` from SETTINGS (HIGHLIGHT_BOX → `highlight` {auto, width, height, x, y}: `auto` = balanced padding around the highlight box / pill, the rest are the panel's slider values) then `get_rules` to confirm, `list_presets` (only these presets may ever be used, and only the ones the prompt's PRESETS section names), `list_subtitles` with color "any".
 
 ## 2b. Trim the active subtitles (SUBTITLE TRIMMING)
 

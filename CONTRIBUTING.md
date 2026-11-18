@@ -1,6 +1,6 @@
 # Contributing
 
-Notes for anyone changing El Subtitle Animator, people and AI assistants alike. [ARCHITECTURE.md](ARCHITECTURE.md)
+Notes for anyone changing Framelly, people and AI assistants alike. [ARCHITECTURE.md](ARCHITECTURE.md)
 explains how the code is laid out and why.
 
 ## Before you start

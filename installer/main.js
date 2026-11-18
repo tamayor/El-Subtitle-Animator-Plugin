@@ -1,5 +1,5 @@
-// Install El Subtitle Animator: a small window with a checklist and an Install button.
-// The app sits in the main folder, beside "El Subtitle Animator Plugin" (the code) and "El Subtitle Animator" (the
+// Install Framelly: a small window with a checklist and an Install button.
+// The app sits in the main folder, beside "Framelly Plugin" (the code) and "Framelly" (the
 // data). While developing it runs from installer/ with `npm start`.
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
@@ -81,7 +81,7 @@ const LINKS = new Set(['https://brew.sh', 'https://nodejs.org', 'https://www.pyt
 function createWindow() {
     win = new BrowserWindow({
         width: 620, height: 820, minWidth: 520, minHeight: 560,
-        title: 'Install El Subtitle Animator',
+        title: 'Install Framelly',
         backgroundColor: '#17181b',
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
@@ -99,12 +99,12 @@ app.whenReady().then(() => {
     ipcMain.handle('stop', () => { R.stop(); return true; });
     ipcMain.handle('chooseFolder', async () => {
         const r = await dialog.showOpenDialog(win, {
-            title: 'Choose the El Subtitle Animator main folder', properties: ['openDirectory'],
-            message: 'Choose the folder that holds "El Subtitle Animator Plugin".',
+            title: 'Choose the Framelly main folder', properties: ['openDirectory'],
+            message: 'Choose the folder that holds "Framelly Plugin".',
         });
         if (r.canceled || !r.filePaths[0]) return { ok: false };
         const found = E.findCodeDir([r.filePaths[0]]);
-        if (!found) return { ok: false, error: 'That folder does not hold "El Subtitle Animator Plugin".' };
+        if (!found) return { ok: false, error: 'That folder does not hold "Framelly Plugin".' };
         codeDir = found;
         try { fs.mkdirSync(path.dirname(PREFS()), { recursive: true }); fs.writeFileSync(PREFS(), JSON.stringify({ codeDir })); } catch (err) { /* asked again next time */ }
         return { ok: true };

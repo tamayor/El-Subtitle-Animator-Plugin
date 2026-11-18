@@ -18,7 +18,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.normpath(os.path.join(HERE, "..", "..", "El Subtitle Animator"))
+DATA = os.path.normpath(os.path.join(HERE, "..", "..", "Framelly"))
 LIB = os.path.join(DATA, "library.json")
 ORIG = os.path.join(DATA, "sounds", "original")
 SEARCH = [ORIG, "/Volumes/work1", os.path.expanduser("~/Downloads")]      # sounds/original first: its trimmed .wav copies win

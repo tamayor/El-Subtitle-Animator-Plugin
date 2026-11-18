@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>El Subtitle Animator</title>
+<title>Framelly</title>
 <meta name="description" content="The subtitle animation tool for DaVinci Resolve Studio. Make, store and customise your own presets, and let Claude drive it over MCP.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131614'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%238ccf8e' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='21' r='2.6' fill='%23f07b8e'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
@@ -15,7 +15,7 @@
   <div class="wrap">
     <a class="logo" href="#top">
       <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#131614" stroke="#28312b"/><path d="M8 11h16M8 16h10M8 21h13" stroke="#8ccf8e" stroke-width="2.6" stroke-linecap="round"/><circle cx="24" cy="21" r="2.6" fill="#f07b8e"/></svg>
-      El Subtitle Animator
+      Framelly
     </a>
     <div class="links">
       <a href="#tool">The tool</a><a href="#features">Features</a><a href="#demo">Demo</a><a href="#presets">Presets</a><a href="#timing">Timing</a><a href="#rules">Configure</a><a href="#mcp">MCP</a><a href="#faq">FAQ</a><a href="#pricing">Pricing</a>
@@ -31,7 +31,7 @@
     <h1>The subtitle animation <span class="grad">tool.</span><br>Not a preset pack.</h1>
     <p class="lead">Make your own animations, store them in a library, customise every detail, and connect it all to Claude over MCP. Presets are just what you build with it.</p>
     <div class="cta">
-      <a class="btn primary" href="#pricing">Get El Subtitle Animator</a>
+      <a class="btn primary" href="#pricing">Get Framelly</a>
       <a class="btn" href="#tool">See how it works</a>
     </div>
     <small>macOS · DaVinci Resolve Studio · Workflow Integration plugin</small>
@@ -49,7 +49,7 @@
     <div class="head reveal">
       <div class="eyebrow">What it is</div>
       <h2>A workshop, not a shelf of templates.</h2>
-      <p class="lead">Most subtitle packs hand you finished looks you can't change. El Subtitle Animator gives you the machinery to build, keep and reshape your own, inside DaVinci Resolve Studio.</p>
+      <p class="lead">Most subtitle packs hand you finished looks you can't change. Framelly gives you the machinery to build, keep and reshape your own, inside DaVinci Resolve Studio.</p>
     </div>
     <div class="verbs reveal">
       <div><b>Make</b><p>Turn any Text+ or MultiText clip, or a .comp / .setting file, into a preset.</p></div>
@@ -59,7 +59,7 @@
     </div>
     <div class="versus reveal">
       <div class="no"><h3>A preset pack</h3><ul><li>Fixed looks you can't extend</li><li>Breaks when your font or brand changes</li><li>One download, no workflow</li></ul></div>
-      <div class="yes"><h3>El Subtitle Animator</h3><ul><li>Build and save unlimited presets of your own</li><li>Rules override font and colour across every preset</li><li>Live preview, sounds, layouts and AI placement in one panel</li></ul></div>
+      <div class="yes"><h3>Framelly</h3><ul><li>Build and save unlimited presets of your own</li><li>Rules override font and colour across every preset</li><li>Live preview, sounds, layouts and AI placement in one panel</li></ul></div>
     </div>
   </div>
 </section>
@@ -132,8 +132,8 @@
     </div>
     <div class="demo-stage reveal" id="demostage">
       <div class="shadow">
-        <div class="appwin" id="appwin" tabindex="0" aria-label="El Subtitle Animator window. Hover to open it and play the demo.">
-          <div class="tbar"><i></i><i></i><i></i>El Subtitle Animator</div>
+        <div class="appwin" id="appwin" tabindex="0" aria-label="Framelly window. Hover to open it and play the demo.">
+          <div class="tbar"><i></i><i></i><i></i>Framelly</div>
           <div class="strip"><b>✱</b><span>Subtitling<em></em></span></div>
           <video id="appvid" src="assets/app-demo.mp4" poster="assets/app-demo-poster.jpg" muted loop playsinline preload="auto"></video>
           <div class="edge"></div>
@@ -274,14 +274,14 @@
     </div>
     <div class="flow reveal">
       <div class="node r">Claude<small>Claude Code · MCP client</small></div><span class="arrow">⇄</span>
-      <div class="node m">el-subtitle-animator<small>stdio MCP server</small></div><span class="arrow">⇄</span>
+      <div class="node m">framelly<small>stdio MCP server</small></div><span class="arrow">⇄</span>
       <div class="node">Panel<small>local, token-secured</small></div><span class="arrow">⇄</span>
       <div class="node">DaVinci Resolve Studio<small>timeline</small></div>
     </div>
     <div class="mcp">
       <div class="term reveal">
         <div class="bar">claude</div>
-<pre><span class="u">› /elsa-prompt-auto</span>
+<pre><span class="u">› /framelly-prompt-auto</span>
 <span class="d">Reading rules… 8 allowed presets, font locked, layer V3–V4.</span>
 <span class="a">● list_subtitles</span> <span class="d">214 subtitles</span>
 <span class="a">● regroup</span> <span class="d">fixed 9 mid-thought cuts</span>
@@ -290,7 +290,7 @@
 <span class="a">● get_frame</span> <span class="d">checked, inside safe zone</span>
 <span class="a">● place</span> <span class="d">"This is the $5,000 mistake" → Highlight Select</span>
 <span class="a">● verify_placed</span> <span class="d">96 clips, all rendering</span></pre>
-        <div class="bar" style="border-top:1px solid var(--line2);border-bottom:0">$ claude mcp add el-subtitle-animator -- node ".../mcp/el-sa-mcp.js"</div>
+        <div class="bar" style="border-top:1px solid var(--line2);border-bottom:0">$ claude mcp add framelly -- node ".../mcp/framelly-mcp.js"</div>
       </div>
       <div class="toolgroups reveal">
         <div class="tg"><b>Rules and layout</b><div><span>get_rules</span><span>set_rules</span><span>reset_rules</span><span>get_layout</span><span>set_layout</span><span>status</span></div></div>
@@ -300,7 +300,7 @@
         <div class="tg"><b>SRT files · no Resolve needed</b><div><span>read_srt</span><span>chop_srt</span></div></div>
       </div>
     </div>
-    <p class="lead reveal" style="margin-top:28px;font-size:15px">Two ready-made skills: <b class="mono">/elsa-prompt</b> follows your subtitle clip colours; <b class="mono">/elsa-prompt-auto</b> chooses what to animate itself. The panel must be open in Resolve for MCP to connect.</p>
+    <p class="lead reveal" style="margin-top:28px;font-size:15px">Two ready-made skills: <b class="mono">/framelly-prompt</b> follows your subtitle clip colours; <b class="mono">/framelly-prompt-auto</b> chooses what to animate itself. The panel must be open in Resolve for MCP to connect.</p>
   </div>
 </section>
 
@@ -329,7 +329,7 @@
       <details open><summary>What do I need?</summary><p>DaVinci Resolve Studio on macOS (tested on 21.2), because Workflow Integration plugins are not in the free version. Python 3 (the copy bundled with Resolve works) and External scripting set to Local in Resolve's preferences.</p></details>
       <details><summary>Is this a preset pack?</summary><p>No. It is a tool for creating, storing and customising presets. A starter set is included so you can see how it works, and you can edit, duplicate or replace every one.</p></details>
       <details><summary>Do I need Claude to use it?</summary><p>No. The panel works on its own. MCP adds hands-off placement for people who want an AI to do the first pass.</p></details>
-      <details><summary>How do I install it?</summary><p>Run the included installer, restart Resolve, then open Workspace › Workflow Integrations › El Subtitle Animator.</p></details>
+      <details><summary>How do I install it?</summary><p>Run the included installer, restart Resolve, then open Workspace › Workflow Integrations › Framelly.</p></details>
       <details><summary>Does it edit my footage?</summary><p>No. It adds animated title clips and sounds on free tracks and switches off the plain subtitle underneath. Remove a placed clip and the subtitle comes back.</p></details>
       <details><summary>Does it detect my animation's length when I save?</summary><p>Any animation made of keyframes can be read when you save it, but it works best on the built-in presets and the Boilerplate, which have a known structure. A comp built from scratch is read on a best-effort basis, and what I can't read is saved with its own timing.</p></details>
       <details><summary>Windows or Linux?</summary><p>Currently macOS only.</p></details>
@@ -396,7 +396,7 @@
 
 <footer>
   <div class="wrap">
-    <a class="logo" href="#top">El Subtitle Animator</a>
+    <a class="logo" href="#top">Framelly</a>
     <span>Made for DaVinci Resolve Studio on macOS · Not affiliated with Blackmagic Design</span>
   </div>
 </footer>

@@ -1,7 +1,7 @@
 {
   "name": "el-sa-broll",
   "private": true,
-  "description": "El Subtitle Animator B-roll effects (Remotion). Rendered by src/main/broll.js through render.mjs.",
+  "description": "Framelly B-roll effects (Remotion). Rendered by src/main/broll.js through render.mjs.",
   "type": "module",
   "scripts": {
     "studio": "remotion studio src/index.ts",

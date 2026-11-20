@@ -10,7 +10,7 @@ const QUIET_SPEECH_DB = -50;        // a span whose loud parts stay under this i
 
 module.exports = {
     ffmpegBin, ffprobeBin, probeMedia, audioEnvelope, pausesFromEnvelope, findPauses, sceneCuts, shotsFromCuts,
-    frameContent, beatGrid, findBeats, snapCuts, sourceMapper, pickSegments, analyseTimeline, renderFlags, asrStatus, transcribeWords, cachedWords, installAsr, stopAsr, ensureAsrModel,
+    frameContent, beatGrid, findBeats, snapCuts, sourceMapper, pickSegments, analyseTimeline, transcribeTimeline, cachedTimelineWords, guessLanguage, renderFlags, asrStatus, transcribeWords, cachedWords, installAsr, stopAsr, ensureAsrModel,
     QUIET_SPEECH_DB
 };
 
@@ -467,8 +467,21 @@ function wordsCacheKey(file, start, dur, engine, model, lang) {
     return crypto.createHash('sha1').update([file, st.size, Math.round(st.mtimeMs), r3(start || 0), r3(dur || 0), engine, model, lang || ''].join('|')).digest('hex');
 }
 
-// Cached word timings that cover file seconds [from, to], from any earlier transcribe_words run of this file.
-function cachedWords(file, from, to) {
+// Seconds of sound a transcription window has around [from, to] on its tighter side (Infinity: the window runs to the
+// start / end of the file). Whisper on a window with no sound around the words pulls the first word back to the
+// window's start, stretches the last one, and misreads short ones ("Bye.", another language).
+function windowMargin(start, duration, from, to) {
+    const before = start <= 0.01 ? Infinity : from - start;
+    const after = duration > 0 ? start + duration - to : Infinity;
+    return Math.min(before, after);
+}
+
+// Cached word timings that cover file seconds [from, to], from any earlier transcribe_words run of this file. Of the
+// runs that cover it, the one with the most sound around the span (the whole file first). opts.minMargin: only a run
+// with at least that many seconds around the span (else null, so the caller transcribes a wider window).
+function cachedWords(file, from, to, opts) {
+    const minMargin = Math.max(0, Number(opts && opts.minMargin) || 0);
+    let best = null;
     try {
         const f = needFile(file);
         const st = fs.statSync(f);
@@ -478,10 +491,13 @@ function cachedWords(file, from, to) {
             try { j = JSON.parse(fs.readFileSync(path.join(WORDS_CACHE_DIR, name), 'utf8')); } catch (e) { continue; }
             if (j.file !== f || j.size !== st.size || j.mtime !== Math.round(st.mtimeMs)) continue;
             const end = j.duration > 0 ? j.start + j.duration : Infinity;
-            if (j.start <= from + 0.01 && end >= to - 0.01) return j.words.filter(w => w.end >= from && w.start <= to);
+            if (!(j.start <= from + 0.01 && end >= to - 0.01)) continue;
+            const margin = windowMargin(j.start, j.duration, from, to);
+            if (margin + 0.01 < minMargin) continue;
+            if (!best || margin > best.margin || (margin === best.margin && (j.duration || Infinity) > (best.j.duration || Infinity))) best = { j, margin };
         }
     } catch (e) { /* no cache yet */ }
-    return null;
+    return best ? best.j.words.filter(w => w.end >= from && w.start <= to) : null;
 }
 
 // ------------------------------------------------------------------ speech engine runs: one at a time, stoppable
@@ -717,6 +733,165 @@ async function transcribeWords(file, opts) {
     }
 }
 
+// ------------------------------------------------------------------ word timings of the TIMELINE
+// The speech engine listens to the timeline's dialogue as it is cut (the pieces of the dialogue track joined in
+// timeline order, gaps silent), not to each source file: a cut piece is often under a second, and Whisper on a
+// window that short pulls the first word back to its start, stretches the last one and misreads short ones. Heard
+// as the timeline plays, every piece has the speech around it and the words come out in timeline frames.
+
+const TL_RATE = 16000;
+const TL_WORDS_DIR = path.join(WORDS_CACHE_DIR, 'timeline');
+const TL_CONTEXT_S = 4;         // seconds of timeline sound heard around a span
+
+// The dialogue pieces under a timeline range, as they play: [{ file, size, mtime, tlStart, tlEnd, srcStartFrame,
+// srcEndFrame, srcFps }] (segs: pickSegments('words', ...)). Pure apart from the file stats.
+function timelinePieces(segs) {
+    return (segs || []).map(s => {
+        let size = 0, mtime = 0;
+        try { const st = fs.statSync(s.file); size = st.size; mtime = Math.round(st.mtimeMs); } catch (e) { /* offline media */ }
+        return { file: s.file, size, mtime, tlStart: s.tlStart, tlEnd: s.tlEnd, srcStartFrame: s.srcStartFrame, srcEndFrame: s.srcEndFrame, srcFps: s.srcFps };
+    }).sort((a, b) => a.tlStart - b.tlStart);
+}
+const pieceId = (p) => [p.file, p.size, p.mtime, p.tlStart, p.tlEnd, p.srcStartFrame, p.srcEndFrame].join('|');
+
+// The timeline's dialogue over frames from..to as 16 kHz mono PCM (Int16 samples, sample-exact on the timeline).
+async function timelinePcm(pieces, from, to, fps) {
+    const total = Math.max(1, Math.round((to - from) / fps * TL_RATE));
+    const pcm = Buffer.alloc(total * 2);
+    for (const p of pieces) {
+        const a = Math.max(from, p.tlStart), b = Math.min(to, p.tlEnd);
+        if (!(b > a)) continue;
+        const tlDur = (b - a) / fps;
+        let fileDur = tlDur;
+        const af = [];
+        // a sped-up / slowed clip plays its file at this rate. Resolve's source in / out frames are rounded (a 12-frame
+        // piece can read 11 source frames), so only a long piece clearly off 1x counts as retimed.
+        const speed = (p.srcEndFrame - p.srcStartFrame) / Math.max(1, p.tlEnd - p.tlStart) / ((p.srcFps || fps) / fps);
+        if (p.tlEnd - p.tlStart >= fps && Math.abs(speed - 1) > 0.05) {
+            let s = speed;
+            while (s > 2) { af.push('atempo=2'); s /= 2; }
+            while (s < 0.5) { af.push('atempo=0.5'); s /= 0.5; }
+            af.push('atempo=' + s.toFixed(4));
+            fileDur = tlDur * speed;
+        }
+        const srcFps = p.srcFps || fps;
+        const t0 = (p.srcStartFrame + (a - p.tlStart) * (fileDur / tlDur) * (srcFps / fps)) / srcFps;
+        const r = await runFfmpeg(windowArgs(p.file, Math.max(0, t0), fileDur).concat(['-vn', '-map', '0:a:0', '-ac', '1', '-ar', String(TL_RATE)],
+            af.length ? ['-af', af.join(',')] : [], ['-f', 's16le', '-c:a', 'pcm_s16le', '-']), { raw: true });
+        const buf = Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.alloc(0);
+        const at = Math.round((a - from) / fps * TL_RATE) * 2;
+        const want = Math.min(Math.round(tlDur * TL_RATE) * 2, pcm.length - at);
+        buf.copy(pcm, at, 0, Math.max(0, Math.min(want, buf.length - (buf.length % 2))));
+    }
+    return pcm;
+}
+
+function wavFile(pcm, file) {
+    const h = Buffer.alloc(44);
+    h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8); h.write('fmt ', 12);
+    h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(TL_RATE, 24);
+    h.writeUInt32LE(TL_RATE * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36);
+    h.writeUInt32LE(pcm.length, 40);
+    fs.writeFileSync(file, Buffer.concat([h, pcm]));
+}
+
+// Cached timeline words covering frames from..to with the same cut there: [{ w, start, end }] in timeline frames, or
+// null. A run made with other pieces under the span (the cut changed) does not count. Of the runs that do, the one
+// with the most sound heard around the span; opts.minMargin (frames) asks for at least that much (the timeline's
+// own start / end count as enough). opts.dir: another cache folder (tests).
+function cachedTimelineWords(segs, from, to, opts) {
+    const minMargin = Math.max(0, Number(opts && opts.minMargin) || 0);
+    const here = timelinePieces(segs).filter(p => p.tlEnd > from && p.tlStart < to).map(pieceId).sort().join('\n');
+    let best = null;
+    let names = [];
+    const dir = (opts && opts.dir) || TL_WORDS_DIR;
+    try { names = fs.readdirSync(dir); } catch (e) { return null; }
+    for (const name of names) {
+        if (!name.endsWith('.json')) continue;
+        let j;
+        try { j = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch (e) { continue; }
+        if (!(j.from <= from + 0.01 && j.to >= to - 0.01)) continue;
+        const theirs = (j.pieces || []).filter(p => p.tlEnd > from && p.tlStart < to).map(pieceId).sort().join('\n');
+        if (theirs !== here) continue;
+        const margin = Math.min(j.from <= 0 ? Infinity : from - j.from, j.toEnd ? Infinity : j.to - to);
+        if (margin + 0.01 < minMargin) continue;
+        if (!best || margin > best.margin) best = { j, margin };
+    }
+    return best ? best.j.words.filter(w => w.end > from && w.start < to) : null;
+}
+
+// The language of the timeline's subtitles when it is clearly English: [text, ...] -> 'en' or null (null = the engine
+// detects it). Whisper's own detection on an accented English voice can pick another language and then TRANSLATES
+// the speech ("Give me 60 seconds" -> "Beri saya 60 sekund"), so a timeline subtitled in English is heard as English.
+const EN_WORDS = new Set('the a an and or but to of in on at for with is are was were be it this that you your i we they he she my our not do does have has will can if so what how why when just'.split(' '));
+function guessLanguage(texts) {
+    const words = (Array.isArray(texts) ? texts : [texts]).join(' ').toLowerCase().match(/[\p{L}']+/gu) || [];
+    if (words.length < 8) return null;
+    const en = words.filter(w => EN_WORDS.has(w)).length;
+    return en / words.length >= 0.18 ? 'en' : null;
+}
+function timelineLanguage() {
+    try {
+        const list = (require('./state').subCache || {}).list || [];
+        return guessLanguage(list.slice(0, 80).map(x => x && x.text).filter(Boolean));
+    } catch (e) { return null; }
+}
+
+// Transcribes the timeline's dialogue over frames from..to (plus TL_CONTEXT_S around it, within the pieces given):
+// { words: [{ w, start, end }] in timeline frames, engine, cached }. opts: engine, model, language, progress, refresh,
+// timelineEnd (frames; that far counts as the end of the timeline).
+async function transcribeTimeline(segs, from, to, fps, opts) {
+    const o = opts || {};
+    const pieces = timelinePieces(segs);
+    if (!pieces.length) throw new Error('No dialogue clips under frames ' + Math.round(from) + '..' + Math.round(to));
+    const ctx = Math.round(TL_CONTEXT_S * fps);
+    const lo = Math.max(0, Math.floor(from - ctx), Math.min(...pieces.map(p => p.tlStart)));
+    const hi = Math.min(Math.ceil(to + ctx), Math.max(...pieces.map(p => p.tlEnd)));
+    if (!o.refresh) {
+        const c = cachedTimelineWords(segs, from, to, { minMargin: Math.min(ctx, from - lo, hi - to) });
+        if (c) return { words: c, cached: true };
+    }
+    const status = await asrStatus();
+    const pick = o.engine ? status.engines.find(e => e.engine === o.engine) : status.engines[0];
+    if (!pick) throw new Error((o.engine ? o.engine + ' is not installed. ' : 'No speech engine is installed. ') + status.install.join('; '));
+    const eng = ASR_ENGINES[pick.engine];
+    const model = o.model || eng.model;
+    const lang = o.language || timelineLanguage() || '';
+    const used = pieces.filter(p => p.tlEnd > lo && p.tlStart < hi);
+    const key = crypto.createHash('sha1').update([lo, hi, fps, pick.engine, model, lang].concat(used.map(pieceId)).join('\n')).digest('hex');
+    const cacheFile = path.join(TL_WORDS_DIR, key + '.json');
+    if (!o.refresh) {
+        try { const j = JSON.parse(fs.readFileSync(cacheFile, 'utf8')); return { words: j.words.filter(w => w.end > from && w.start < to), engine: j.engine, cached: true }; } catch (e) { /* not cached */ }
+    }
+    stopAsr();
+    await ensureModel(pick, model, o.progress);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'elsa-asr-'));
+    const wav = path.join(tmp, 'timeline.wav');
+    try {
+        if (o.progress) o.progress('Joining the timeline\'s dialogue');
+        wavFile(await timelinePcm(used, lo, hi, fps), wav);
+        const secs = (hi - lo) / fps;
+        let out;
+        try {
+            out = await runAsr(pick.python, eng.script, [wav, model, lang], {
+                tick: (s) => { if (o.progress) o.progress('Listening for words in ' + Math.round(secs) + ' s of the timeline: ' + Math.round(s) + ' s'); },
+                timeout: o.timeout || 3600000
+            });
+        } catch (e) { throw new Error(/Cancelled/.test(e.message) ? 'Cancelled' : pick.engine + ' failed: ' + e.message); }
+        const line = String(out).trim().split('\n').filter(l => l.startsWith('[')).pop() || '[]';
+        const fr = (x) => Math.round(x * 100) / 100;
+        const words = JSON.parse(line).filter(w => w.w && Number.isFinite(w.start) && Number.isFinite(w.end))
+            .map(w => ({ w: w.w, start: fr(lo + w.start * fps), end: fr(lo + w.end * fps) }));
+        const rec = { timeline: true, from: lo, to: hi, toEnd: Number.isFinite(o.timelineEnd) && hi >= o.timelineEnd, fps,
+            engine: pick.engine, model, language: lang || null, pieces: used, words };
+        fs.mkdirSync(TL_WORDS_DIR, { recursive: true });
+        fs.writeFileSync(cacheFile, JSON.stringify(rec));
+        return { words: words.filter(w => w.end > from && w.start < to), engine: pick.engine, cached: false };
+    } finally {
+        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* temp folder */ }
+    }
+}
+
 // ------------------------------------------------------------------ timeline ranges (shared by the panel and MCP)
 
 // media: what cut-tools.js timelineMedia() read from Resolve: { fps, from, to, segments: [{ kind: 'video' | 'audio',
@@ -755,6 +930,15 @@ async function analyseTimeline(kind, media, opts) {
     if (kind === 'cuts') { res.cuts = []; res.luma = []; }
     if (kind === 'beats') res.beats = [];
     if (kind === 'words') res.words = [];
+    if (kind === 'words') {
+        // the timeline's dialogue as it plays, in one run (see transcribeTimeline), not each source file on its own
+        const w = await transcribeTimeline(segs, media.from, media.to, media.fps, { engine: o.engine, model: o.model, language: o.language,
+            refresh: o.refresh, timelineEnd: o.timelineEnd, progress: o.progress ? (label) => o.progress(0, 1, label) : null });
+        res.words = w.words.filter(x => x.start >= media.from - 0.5 && x.start <= media.to + 0.5);
+        res.clips = segs.map(s => ({ track: 'A' + s.track, name: s.name, file: s.file, from: Math.max(media.from, s.tlStart), to: Math.min(media.to, s.tlEnd), engine: w.engine, cached: w.cached }));
+        if (o.progress) o.progress(1, 1, '');
+        return res;
+    }
     let done = 0;
     for (const s of segs) {
         if (o.progress) o.progress(done, segs.length, s.name);
@@ -783,11 +967,6 @@ async function analyseTimeline(kind, media, opts) {
                 clip.tempoBpm = g.tempoBpm; clip.confidence = g.confidence;
                 if (!g.tempoBpm) res.warnings.push(clip.name + ': ' + (g.why || 'no beat'));
                 for (const x of g.beats) { const f = map.toFrame(x.t); if (inside(f)) res.beats.push({ frame: fr(f), supported: x.supported }); }
-            } else if (kind === 'words') {
-                const w = await transcribeWords(s.file, Object.assign({}, win, { engine: o.engine, model: o.model, language: o.language,
-                    progress: o.progress ? (label) => o.progress(done, segs.length, s.name + ': ' + label) : null }));
-                clip.engine = w.engine; clip.cached = w.cached;
-                for (const x of w.words) { const f0 = map.toFrame(x.start), f1 = map.toFrame(x.end); if (inside(f0)) res.words.push({ w: x.w, start: fr(f0), end: fr(f1) }); }
             }
         } catch (e) {
             if (e.message === 'Cancelled') throw e;

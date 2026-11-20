@@ -114,7 +114,7 @@
     function layerHandle(ctx, m, l) {
         const geo = () => layerGeo(m, geometry(m), l, segsOf(ctx));
         const save = () => { persist(ctx); renderTimeline(ctx); };
-        const setFile = (file) => { l.file = file; l.orig = file; l.trimIn = 0; l.len = 0; l.lenMode = 'clip'; l.enabled = true; };
+        const setFile = (file) => { l.file = file; l.orig = file; l.trimIn = 0; l.len = 0; l.lenMode = 'clip'; l.enabled = true; delete l.trimStarts; };
         return {
             kind: 'layer', ctx, id: l.id, canEdit: true,
             get(f) {
@@ -135,7 +135,7 @@
                     case 'on': l.enabled = !!v; break;
                     case 'volume': l.volume = v; break;
                     case 'start': l.offset = Math.round(v); break;
-                    case 'mode': { const q = geo(); if (v === 'clip') { l.lenMode = 'clip'; l.len = 0; } else { l.lenMode = 'fixed'; l.len = q.len; } break; }
+                    case 'mode': { const q = geo(); if (v === 'clip' || v === 'reveal') { l.lenMode = v; l.len = 0; } else { l.lenMode = 'fixed'; l.len = q.len; } break; }
                     case 'length': { const q = geo(); l.len = clamp(Math.round(v), 1, Math.max(1, q.full - q.tin)); l.lenMode = 'fixed'; break; }
                     case 'fade': l.fade = Math.max(0, Math.round(v)); break;
                     case 'track': l.track = Number(v) || 0; break;
@@ -159,6 +159,7 @@
                 if (res.lib) state.lib = res.lib;
                 const cur = layersOf(ctx).find(x => x.id === l.id) || l;
                 Object.assign(cur, { file: res.file, orig: res.file, trimIn: 0, len: 0, lenMode: 'clip', enabled: true });
+                delete cur.trimStarts;      // the start points belonged to the old sound
                 persist(ctx); renderTimeline(ctx); renderCard(ctx, true);
             },
             async useDefault() {
@@ -282,8 +283,8 @@
     // How long the sound is when placed: follow the text clip's duration (default) or keep the fixed length set here.
     function lenModeField(refs, get, set) {
         const s = document.createElement('select'); s.className = 'snd-lenmode';
-        s.title = 'Follow the clip: the sound is cut (or extended up to its full length) to the text clip\'s duration when placed. Fixed length: always the length set here.';
-        [['clip', 'Follow the clip'], ['fixed', 'Fixed length']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; s.appendChild(o); });
+        s.title = 'Follow the clip: the sound is cut (or extended up to its full length) to the text clip\'s duration when placed. Follow the reveal: it stops when the text is fully in (e.g. a typing recording that stops with the typing). Fixed length: always the length set here.';
+        [['clip', 'Follow the clip'], ['reveal', 'Follow the reveal'], ['fixed', 'Fixed length']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; s.appendChild(o); });
         s.addEventListener('change', () => set(s.value));
         refs.push(() => { if (document.activeElement !== s) s.value = get(); });
         const l = createEl('label', 'snd-num');

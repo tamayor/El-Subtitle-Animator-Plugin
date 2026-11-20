@@ -196,9 +196,9 @@ function renderTiming() {
     if (tmState.wordLaneCtl) tmState.wordLaneCtl.paint();
 }
 
-// MultiText: each row's words drawn inside that row's range (shares a / b of it, from tmState.wordLane.rows), so they
-// move and stretch with the row's heads: dragging a word drags the row, the first word's in is the row's start and
-// the last word's out its end. Strawberry = where the row starts, matcha = where it ends, as on the heads.
+// MultiText: each row's words. With word timings they sit where they are said (the audio under the clip), so a row
+// whose range is off its words shows it; without, they are spread inside the row's range (shares a / b of it) and
+// move with its heads. Dragging a word drags the row. Strawberry = where the row starts, matcha = where it ends, as on the heads.
 function tmPaintRowWords() {
     const i = tmState.info, w = tmState.wordLane, bar = $('timingBar');
     const rows = i && w && w.itemId === i.itemId && Array.isArray(w.rows) ? w.rows : null;
@@ -217,7 +217,9 @@ function tmPaintRowWords() {
         if (!words.length) return;
         const span = r.end - r.start;
         words.forEach((x, k) => {
-            const s = r.start + x.a * span, e = r.start + x.b * span;
+            // heard words sit where they are said (the audio under the clip); without timings they spread over the row
+            const said = row.spoken && Number.isFinite(x.s) && Number.isFinite(x.e);
+            const s = said ? x.s : r.start + x.a * span, e = said ? x.e : r.start + x.b * span;
             const el = tmEl('div', 'tm-rw' + (k === 0 ? ' first' : '') + (k === words.length - 1 ? ' last' : '') +
                 (row.spoken && x.matched === false ? ' guessed' : ''), box);
             el.dataset.s = String(s); el.dataset.e = String(e);
@@ -553,11 +555,11 @@ async function tmActivateWords() {
     if (!i || !i.itemId || tmState.activating) return;
     tmState.activating = true;
     tmRenderWords();
-    setStatus('Working out word timings for the recording under ' + (i.name || 'this clip') + '… (a long recording takes a few minutes, once)');
+    setStatus('Working out word timings for the timeline\'s dialogue… (a long timeline takes a few minutes, once)');
     try {
         const r = await window.sa.activateWordTimings(i.itemId);
         if (!r || r.error) setStatus((r && r.error) || 'Could not work out the word timings', 'bad');
-        else setStatus('Word timings ready: ' + r.words + ' words in ' + (r.names || []).join(', ') + '. Fit to words is on for every clip from ' + (r.files === 1 ? 'this recording' : 'these recordings') + '.', 'ok');
+        else setStatus('Word timings ready: ' + r.words + ' words on the timeline. Fit to words is on for every clip.', 'ok');
     } catch (e) { setStatus('Could not work out the word timings: ' + e.message, 'bad'); }
     tmState.activating = false;
     await tmCheckWords(true);

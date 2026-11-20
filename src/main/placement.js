@@ -8,7 +8,7 @@ const FADE_WARNING = 'Resolve did not take the sound\'s fade-out. Drag the fade 
 
 module.exports = {
     FADE_WARNING, appendSfxCut, cutCheck, cutSnapshot, deleteClipsById, deleteExtraSfx, directPlaceTitle, findAudioItemById, findItemById, fitDuration,
-    insertTitleAtEnd, layerList, linkToText, moveTitleSafe, pickTrack, placeExtraSfx, presetTplState, sfxCutFor, sfxCutFrames, trackUsable
+    insertTitleAtEnd, layerList, linkToText, moveTitleSafe, pickTrack, pickTrimIn, placeExtraSfx, presetTplState, revealLen, sfxCutFor, sfxCutFrames, trackUsable
 };
 
 const path = require('path');
@@ -512,6 +512,32 @@ async function linkToText(tl, videoItem, items) {
     if (!Array.isArray(have)) have = Object.values(have);
     return !!(await tl.SetClipsLinked([videoItem, ...have, ...items], true));
 }
+// lenMode 'reveal': frames from the sound's start to the text being fully in (the last row / word frame, else the
+// typing length of a clip that long) plus l.tail (default 5). Pure apart from typingFramesFor.
+function revealLen(l, rowFrames, clipLen, off, meta) {
+    const rows = Array.isArray(rowFrames) ? rowFrames.filter(Number.isFinite) : [];
+    const lastIn = rows.length ? Math.max(...rows) : require('./title-templates').typingFramesFor(clipLen, meta && meta.fps);
+    const tail = Number.isFinite(Number(l.tail)) ? Math.max(0, Math.round(Number(l.tail))) : 5;
+    return Math.max(4, Math.round(lastIn + tail - off));
+}
+// The source frame a layer's sound starts at. l.trimStarts [[frame, room], ...] (e.g. the keystrokes of a typing
+// recording, room = frames of steady typing after it): each placement takes the next one with room for `want`
+// frames, so captions in a row do not repeat the same stretch. Else l.trimIn.
+const trimTurn = new Map();
+function pickTrimIn(l, want) {
+    const list = Array.isArray(l.trimStarts) ? l.trimStarts.filter(x => Array.isArray(x) && Number.isFinite(Number(x[0]))) : [];
+    if (!list.length) return Number(l.trimIn) || 0;
+    const k = String(l.file);
+    const at = trimTurn.get(k) || 0;
+    const need = Number(want) || 0;
+    for (let i = 0; i < list.length; i++) {
+        const j = (at + i) % list.length;
+        if (!need || Number(list[j][1]) >= need) { trimTurn.set(k, j + 1); return Number(list[j][0]); }
+    }
+    const best = list.reduce((a, b) => (Number(b[1]) > Number(a[1]) ? b : a));
+    trimTurn.set(k, at + 1);
+    return Number(best[0]);
+}
 async function placeExtraSfx(tl, project, meta, layers, textStart, textEnd, notes, videoItem, videoId, warnings, place, projectCopy, rowFrames, snap) {
     const out = [];
     if (!layers || !layers.length) return out;
@@ -562,13 +588,17 @@ async function placeExtraSfxInner(tl, project, meta, layers, textStart, textEnd,
             const { mp, item: mpi } = await importSfx(project, p, projectCopy);
             if (!mpi) { warnings.push('Resolve could not import "' + path.basename(l.file) + '".'); continue; }
             const total = Math.max(1, tcToFrame(await mpi.GetClipProperty('Duration'), meta));
-            const trimIn = Math.max(0, Math.min(total - 1, Math.round(Number(l.trimIn) || 0)));
-            let len = total - trimIn;
             const cap = Math.round(Number(l.len) || 0);
             const off = Math.round(Number(l.offset) || 0);
-            // 'clip' (default): follows the text clip's duration; 'fixed': the set length (0 = the rest of the sound)
-            const mode = (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (cap > 0 ? 'fixed' : 'clip');
+            // 'clip' (default): follows the text clip's duration; 'fixed': the set length (0 = the rest of the sound);
+            // 'reveal': as long as the text takes to come in (its last row / word, + l.tail frames), e.g. a typing
+            // recording that stops when the typing does
+            const mode = (l.lenMode === 'fixed' || l.lenMode === 'clip' || l.lenMode === 'reveal') ? l.lenMode : (cap > 0 ? 'fixed' : 'clip');
+            const want = mode === 'reveal' ? revealLen(l, rowFrames, textEnd - textStart, off, meta) : null;
+            const trimIn = Math.max(0, Math.min(total - 1, Math.round(pickTrimIn(l, want))));
+            let len = total - trimIn;
             if (mode === 'clip') len = Math.min(len, (l.align === 'end' || l.align === 'after') ? textEnd - textStart : textEnd - (textStart + off));
+            else if (mode === 'reveal') len = Math.min(len, want, Math.max(1, textEnd - (textStart + off)));
             else if (cap > 0) len = Math.min(len, cap);
             len = Math.max(1, len);
             let start = l.align === 'end' ? textEnd - len + off : (l.align === 'after' ? textEnd + off : textStart + off);

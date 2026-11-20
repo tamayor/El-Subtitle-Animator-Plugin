@@ -24,6 +24,20 @@ const TOOLS = [
         description: 'Blank-render check: renders each clip placed this session (or the given ids) at two frames and reports how many came out blank. Use after placing to judge the Fusion wake settings.',
         inputSchema: S({ itemIds: { type: 'array', items: { type: 'string' } }, content: { type: 'boolean', description: 'Also run check_render on the same clips (black / frozen frames in the real composite)' }, step: { type: 'integer', minimum: 1 } })
     },
+    {
+        name: 'set_timing',
+        description: 'Animation timing of a placed clip (the panel\'s Animation timing bar), in frames from the clip\'s start. get: true reads its ranges. holdEnd = frames the finished text stays on before the clip ends (25 at 25 fps = the reveal is done one second before the cut); or end = the frame the reveal finishes; start moves where it begins. MultiText rows are scaled together, keeping their order. fitWords: true = Fit to words (the reveal follows the spoken words); with it, lead = frames each word shows before it is said, and holdEnd squeezes the word times (rhythm kept) so the last word is in that many frames before the cut. minReveal keeps a short clip\'s reveal at least that many frames.',
+        inputSchema: S({
+            itemId: { type: 'string' },
+            get: { type: 'boolean' },
+            fitWords: { type: 'boolean' },
+            holdEnd: { type: 'integer', minimum: 0 },
+            end: { type: 'integer', minimum: 1 },
+            start: { type: 'integer', minimum: 0 },
+            minReveal: { type: 'integer', minimum: 1 },
+            lead: { type: 'integer', minimum: 0 }
+        }, ['itemId'])
+    },
     { name: 'get_rules', description: 'The editing rules every placement follows (allowed emoji tags, forced font and text colour, MultiText emphasis font/colour, video layer policy, safe area, MultiText emphasis, sound, free-text notes).', inputSchema: S() },
     {
         name: 'set_rules',

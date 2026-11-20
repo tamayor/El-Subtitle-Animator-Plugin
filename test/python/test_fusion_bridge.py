@@ -266,3 +266,61 @@ class SpotlightCurves(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Inp(object):
+    def __init__(self, expr=None, src=None):
+        self.expr, self.src = expr, src
+
+    def GetExpression(self):
+        return self.expr
+
+    def GetConnectedOutput(self):
+        if self.src is None:
+            return None
+        src = self.src
+
+        class _Out(object):
+            def GetTool(self):
+                return src
+        return _Out()
+
+
+class _FakeTool(object):
+    """Just enough of a Fusion tool for seg_layer_map: inputs by id (with expressions / a source tool), GetInput."""
+    def __init__(self, reg, inputs=None, values=None):
+        self._reg, self._inputs, self._values = reg, inputs or {}, values or {}
+
+    def GetAttrs(self):
+        return {"TOOLS_RegID": self._reg}
+
+    def GetInput(self, name):
+        return self._values.get(name)
+
+    def GetData(self, key):
+        return None
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._inputs.get(name, _Inp())
+
+
+class SegmentLayerTest(unittest.TestCase):
+    def test_group_slide_emphasize_rows_are_not_seg_n(self):
+        """Seg1 = Upper (Text3), Seg2 = Emphasize (Text1), Seg3 = Lower (Text2), as in "Group Slide Emphasize"."""
+        def fol(seg):
+            return _FakeTool("StyledTextFollower", {"Delay": _Inp(": local S = tonumber(Template.Seg%dStart) or 0" % seg)},
+                             {"Text": "x"})
+        op = lambda seg: _Inp(": local S = tonumber(Template.Seg%dStart) or 0\nlocal E = tonumber(Template.Seg%dEnd)" % (seg, seg))
+        mt = _FakeTool("MultiText", {
+            "Text1.StyledText": _Inp(src=fol(2)), "Text1.Opacity1": op(2),
+            "Text2.StyledText": _Inp(src=fol(3)), "Text2.Opacity1": op(3),
+            "Text3.StyledText": _Inp(src=fol(1)), "Text3.Opacity1": op(1),
+        }, {"TextName1": "Emphasize", "TextName2": "Lower", "TextName3": "Upper"})
+        fb._req_attrs.clear()
+        lm = fb.seg_layer_map(mt)
+        self.assertEqual(lm, {2: 1, 3: 2, 1: 3})
+        self.assertEqual(fb.segment_name(mt, 1, "Text 1", lm), "Upper")
+        self.assertEqual(fb.segment_name(mt, 2, "Text 2", lm), "Emphasize")
+        self.assertEqual(fb.seg_layer(None, 2), 2)

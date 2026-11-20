@@ -98,7 +98,8 @@ function loneRow(rowFrames) { return !!(rowFrames && !Array.isArray(rowFrames) &
 // rows whose text is empty: their sounds are not placed): segs = { <n>: Seg<n>Start }, read
 // from the placed clip (after any fit to a short clip), so the sound lands where that row's in-animation starts.
 async function rowFramesFor(itemId, compName, layers, warnings) {
-    const wantRows = !!(layers && layers.some(l => l.align === 'rows'));
+    // 'reveal' layers need the rows / words too: their sound lasts until the last one is in
+    const wantRows = !!(layers && layers.some(l => l.align === 'rows' || l.lenMode === 'reveal'));
     const wantSegs = !!(layers && layers.some(l => l.align === 'seg'));
     if (!wantRows && !wantSegs) return null;
     const { bridgeCall } = require('./fusion-bridge');              // required here: fusion-bridge loads before this module

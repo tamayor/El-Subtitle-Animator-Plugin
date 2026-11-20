@@ -2,7 +2,8 @@
 // frames relative to the subtitle start, and writing a dragged position back as an offset. No DOM, no panel state:
 // the waveform (for the sound's full length) is passed in. Tested in test/renderer/sound-layers.test.js.
 //
-// A layer l: { align: 'start' | 'end' | 'after' | 'seg', seg, offset, trimIn, len, lenMode: 'clip' | 'fixed', fade }
+// A layer l: { align: 'start' | 'end' | 'after' | 'seg', seg, offset, trimIn, len, lenMode: 'clip' | 'fixed' | 'reveal', fade,
+// tail (reveal: frames after the text is in), trimStarts [[source frame, room], ...] (each placement takes the next) }
 // g: { fps, textS, textE } (the text clip, frames); segs: the preset's rows [{ n, start }].
 
 function slNum(v, d) { const n = Number(v); return isNaN(n) ? d : n; }
@@ -18,7 +19,7 @@ function slBaseOf(l, textS, segs) {
 // 'clip' = follows the text clip's duration when placed (default), 'fixed' = the set length (len 0 = the rest of the
 // sound). Older sounds with a set length are fixed.
 function slLenModeOf(l) {
-    return (l.lenMode === 'fixed' || l.lenMode === 'clip') ? l.lenMode : (slNum(l.len, 0) > 0 ? 'fixed' : 'clip');
+    return (l.lenMode === 'fixed' || l.lenMode === 'clip' || l.lenMode === 'reveal') ? l.lenMode : (slNum(l.len, 0) > 0 ? 'fixed' : 'clip');
 }
 
 // Length of a 'clip' sound: from its start to the text end ('start' anchor), else the text's own duration.

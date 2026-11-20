@@ -5,7 +5,7 @@
 //   segments  one range per text, Seg<n>Start .. Seg<n>End (e.g. the MultiText "Highlight Select")
 // Only inputs on the clip's comp are changed, so its Inspector keeps working.
 
-module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, spokenWordsFor, clipWordLane, setClipWordTimings };
+module.exports = { clipTiming, currentFusionClip, setClipTiming, fitClipToWords, wordTimingStatus, activateWordTimings, spokenWordsFor, clipWordLane, setClipWordTimings, timingTool, retimeRanges, earlyWords };
 
 const state = require('./state');
 const { RESOLVE_BATCH } = require('./config');
@@ -343,47 +343,56 @@ async function moveSegSounds(itemId, list) {
 }
 
 // ------------------------------------------------------------------ Fit to words (src/main/word-fit.js)
+// A MultiText row's lane key: the Seg<n> range that animates it (the bridge's mt_rows_get "seg"). Not always the
+// layer number: "Group Slide Emphasize" animates its Upper layer (Text3) with Seg1 and its Emphasize (Text1) with Seg2.
+const rowSegKey = (r) => String(r.seg || r.n);
 // The spoken words under a placed clip, in frames from the clip's start: the cached transcription of the dialogue
 // track when one covers the clip (Cut tab Analyse, transcribe_words), else that span is transcribed now.
 // The dialogue clips under a timeline span (the lowest audio track with sound, as the Cut tab's word analysis).
 async function wordSegs(start, end) {
     const MEDIA = require('./media-analysis');
     const CUTTOOLS = require('./cut-tools');
-    const pad = 12;
+    const pad = 125;                // ~5 s of the timeline around the clip: the speech engine hears it as context
     const media = await CUTTOOLS.timelineMedia({ startFrame: Math.max(0, start - pad), endFrame: end + pad });
-    const segs = MEDIA.pickSegments('words', media, {}).filter(s => s.tlEnd > start && s.tlStart < end);
-    return { media, segs };
+    const segs = MEDIA.pickSegments('words', media, {});
+    return { media, segs, inSpan: segs.filter(s => s.tlEnd > start && s.tlStart < end) };
 }
-// Cached words of those clips over the span ([{ w, start, end }] in timeline frames), or null when one has none.
-function cachedSpanWords(media, segs) {
+// Cached words over the span ([{ w, start, end }] in timeline frames), or null. The timeline's own transcription
+// (the dialogue as cut) first; opts.fileFallback also takes an older per-file one (the timing card's word lane only).
+function cachedSpanWords(media, segs, start, end, opts) {
     const MEDIA = require('./media-analysis');
+    const tl = MEDIA.cachedTimelineWords(segs, start, end);
+    if (tl) return tl;
+    if (!(opts && opts.fileFallback)) return null;
     const words = [];
-    for (const seg of segs) {
+    for (const seg of segs.filter(s => s.tlEnd > start && s.tlStart < end)) {
         const m = MEDIA.sourceMapper(seg);
-        const a = Math.max(media.from, seg.tlStart), b = Math.min(media.to, seg.tlEnd);
+        const a = Math.max(start, seg.tlStart), b = Math.min(end, seg.tlEnd);
         const w = MEDIA.cachedWords(seg.file, m.toFile(a), m.toFile(b));
         if (!w) return null;
         for (const x of w) words.push({ w: x.w, start: m.toFrame(x.start), end: m.toFrame(x.end) });
     }
-    return words;
+    return words.length ? words : null;
 }
 
-// The spoken words under a placed clip, in frames from the clip's start: the cached transcription of the dialogue
-// track when one covers the clip (Activate word timings, Cut tab Analyse, transcribe_words), else that span is
-// transcribed now.
+// The spoken words under a placed clip, in frames from the clip's start. The speech engine listens to the TIMELINE
+// (the dialogue track as it is cut, with the sound around the clip), not to the source file: a timeline run that
+// covers the clip with the same cut is reused (Activate word timings, Cut tab Analyse, transcribe_words), else the
+// span is transcribed now.
 // opts.cachedOnly: only an existing transcription (no new speech run); none = { words: [], cached: false }.
 async function spokenWordsFor(start, end, opts) {
     const MEDIA = require('./media-analysis');
-    const { media, segs } = await wordSegs(start, end);
+    const { media, segs, inSpan } = await wordSegs(start, end);
     const inClip = (w) => w.end > start && w.start < end && (w.start + w.end) / 2 >= start - 1 && (w.start + w.end) / 2 < end;
     const rel = (w) => ({ w: w.w, start: w.start - start, end: w.end - start });
-    let words = segs.length ? cachedSpanWords(media, segs) : null, cached = true;
-    if (!words && opts && opts.cachedOnly) return { words: [], cached: false };
-    if (!words) {
-        cached = false;
-        const r = await MEDIA.analyseTimeline('words', media, {});
-        if (!r.words.length && r.warnings.length) throw new Error(r.warnings[0]);
-        words = r.words;
+    if (!inSpan.length) return { words: [], cached: false };
+    let words, cached = true;
+    if (opts && opts.cachedOnly) {
+        words = cachedSpanWords(media, segs, start, end, { fileFallback: true });
+        if (!words) return { words: [], cached: false };
+    } else {
+        const r = await MEDIA.transcribeTimeline(segs, start, end, media.fps, {});
+        words = r.words; cached = r.cached;
     }
     return { words: words.filter(inClip).map(rel).sort((x, y) => x.start - y.start), cached };
 }
@@ -395,6 +404,53 @@ async function clipSpan(itemId) {
     const item = await findItemById(tl, String(itemId));
     if (!item) throw new Error('That clip is no longer on the timeline');
     return { start: Number(await item.GetStart()), end: Number(await item.GetEnd()) };
+}
+
+// New ranges for a clip so its reveal ends at `end` (frames from the clip's start). One range (anim / typing): its end
+// moves there, its start stays unless `start` is given. Segments (MultiText rows): the rows keep their order and
+// proportions and are scaled into start..end. minReveal keeps the reveal at least that long; nothing runs past length.
+// Pure (tested in test/anim-timing-retime.test.js).
+function retimeRanges(ranges, length, opts) {
+    const o = opts || {};
+    const minReveal = Math.max(1, Math.round(Number(o.minReveal) || 1));
+    const list = (ranges || []).filter(r => r && Number.isFinite(Number(r.end)));
+    if (!list.length) return [];
+    const first = Math.min(...list.map(r => Number(r.start) || 0));
+    const last = Math.max(...list.map(r => Number(r.end)));
+    const from = Math.max(0, Math.min(length - 1, Number.isFinite(Number(o.start)) ? Math.round(Number(o.start)) : first));
+    const want = Number.isFinite(Number(o.end)) ? Math.round(Number(o.end)) : last;
+    const to = Math.min(length, Math.max(from + minReveal, want));
+    const f = (to - from) / Math.max(1, last - first);
+    return list.map(r => {
+        const s = Math.round(from + ((Number(r.start) || 0) - first) * f);
+        return { key: String(r.key), start: s, end: Math.max(s + 1, Math.round(from + (Number(r.end) - first) * f)) };
+    });
+}
+
+// MCP set_timing: read (get), Fit to words (fitWords), or set a placed clip's reveal: end, or holdEnd = frames the
+// finished text stays on before the clip ends (25 at 25 fps = the reveal is done one second before the cut).
+async function timingTool(args) {
+    const a = args || {};
+    const id = String(a.itemId || '');
+    if (!id) return { error: 'itemId is required' };
+    if (a.fitWords) return fitClipToWords(null, id, (a.lead || Number.isFinite(Number(a.holdEnd))) ? { lead: a.lead, holdEnd: a.holdEnd } : null);
+    let span;
+    try { span = await clipSpan(id); } catch (e) { return { error: e.message }; }
+    const length = Math.max(1, span.end - span.start);
+    const info = await readInfo(id, true);
+    if (!info) return { error: 'This clip\'s preset has no timing slider' };
+    let fps = 25;
+    try {
+        const { project, tl } = await currentTimeline(700);
+        if (tl) fps = Number((await timelineMeta(tl, project)).fps) || fps;
+    } catch (e) { /* the timeline's own rate only matters for typing presets */ }
+    const now = rangesFor(info, length, fps);
+    if (a.get) return { ok: true, itemId: id, kind: info.kind, length, ranges: now };
+    const end = Number.isFinite(Number(a.end)) ? Number(a.end) : Number.isFinite(Number(a.holdEnd)) ? length - Number(a.holdEnd) : null;
+    if (end === null && !Number.isFinite(Number(a.start))) return { error: 'Give end, holdEnd, start, fitWords or get' };
+    const list = retimeRanges(now, length, { start: a.start, end: end === null ? undefined : end, minReveal: a.minReveal });
+    const r = await setClipTiming(null, id, list, true);
+    return Object.assign({ itemId: id, kind: info.kind, length, before: now, ranges: list }, r);
 }
 
 // Is there a word transcription for the dialogue under this clip? (the timing card's Word timings row)
@@ -412,8 +468,8 @@ async function wordTimingStatus(event, itemId, force) {
             asrSeen = { at: Date.now(), engine: st.engines.length > 0 };
         }
         const { start, end } = await clipSpan(k);
-        const { media, segs } = await wordSegs(start, end);
-        const r = { ok: true, itemId: k, sound: segs.length > 0, available: segs.length > 0 && !!cachedSpanWords(media, segs), engine: asrSeen.engine };
+        const { media, segs, inSpan } = await wordSegs(start, end);
+        const r = { ok: true, itemId: k, sound: inSpan.length > 0, available: inSpan.length > 0 && !!cachedSpanWords(media, segs, start, end), engine: asrSeen.engine };
         wordsSeen.set(k, { at: Date.now(), r });
         if (wordsSeen.size > 300) wordsSeen.delete(wordsSeen.keys().next().value);
         return r;
@@ -422,33 +478,49 @@ async function wordTimingStatus(event, itemId, force) {
     }
 }
 
-// "Activate word timings": transcribes the whole recording(s) under the clip once, so this clip and every other one
-// cut from the same recording can be fitted without waiting again.
+// "Activate word timings": transcribes the timeline's whole dialogue track once (as it is cut), so this clip and every
+// other one can be fitted without waiting again. A clip whose cut changes later is transcribed again on its own.
 let activating = null;
 async function activateWordTimings(event, itemId) {
     if (activating) return { error: 'Word timings are already being worked out' };
     const MEDIA = require('./media-analysis');
+    const CUTTOOLS = require('./cut-tools');
     activating = String(itemId);
     try {
         const { start, end } = await clipSpan(itemId);
-        const { segs } = await wordSegs(start, end);
-        if (!segs.length) return { error: 'No dialogue under this clip (the lowest audio track with sound is used)' };
+        const { inSpan } = await wordSegs(start, end);
+        if (!inSpan.length) return { error: 'No dialogue under this clip (the lowest audio track with sound is used)' };
         const st = await MEDIA.asrStatus();
         if (!st.engines.length) return { error: 'No speech engine is installed: ' + st.install.join('; ') };
-        const files = [...new Set(segs.map(x => x.file))];
-        let words = 0;
-        for (const f of files) {
-            const r = await MEDIA.transcribeWords(f, {});
-            words += (r.words || []).length;
-        }
+        const media = await CUTTOOLS.timelineMedia({});
+        const r = await MEDIA.analyseTimeline('words', media, { timelineEnd: media.to });
         wordsSeen.clear();
-        return { ok: true, files: files.length, words, names: segs.map(x => x.name).filter((v, i, a) => a.indexOf(v) === i) };
+        return { ok: true, files: 1, words: r.words.length, names: ['the timeline\'s dialogue'] };
     } catch (e) {
         return { error: e.message };
     } finally { activating = null; }
 }
 
-async function fitClipToWords(event, itemId) {
+// Spoken words (frames from the clip's start) moved so a word-fitted reveal runs ahead of the voice: every word `lead`
+// frames early, and, with holdEnd, the word times squeezed (rhythm kept) so the last word is in holdEnd frames before
+// the clip ends. No options = the words as spoken. Pure (tested in test/main/anim-timing-retime.test.js).
+function earlyWords(words, length, opts) {
+    const o = opts || {};
+    const lead = Math.max(0, Number(o.lead) || 0);
+    const hasHold = Number.isFinite(Number(o.holdEnd)) && o.holdEnd !== null && o.holdEnd !== undefined;
+    const list = Array.isArray(words) ? words : [];
+    if (!list.length || (!lead && !hasHold)) return list;
+    const finishBy = hasHold ? Math.max(1, length - Number(o.holdEnd)) : length;
+    const lastEnd = Math.max(...list.map(w => Number(w.end) || 0));
+    const k = lastEnd > finishBy ? finishBy / lastEnd : 1;
+    return list.map(w => {
+        const s = Math.max(0, (Number(w.start) || 0) * k - lead);
+        return Object.assign({}, w, { start: s, end: Math.max(s + 0.5, (Number(w.end) || 0) * k - lead) });
+    });
+}
+
+// opts (MCP set_timing): { lead, holdEnd } -> earlyWords. The panel's Fit to words button passes none.
+async function fitClipToWords(event, itemId, opts) {
     if (!itemId) return { error: 'No clip' };
     if (state.applying) return { error: 'Busy placing: try again in a moment' };
     const WF = require('./word-fit');
@@ -458,6 +530,7 @@ async function fitClipToWords(event, itemId) {
     let spoken;
     try { spoken = await spokenWordsFor(start, end); } catch (e) { return { error: 'No word timings: ' + e.message }; }
     if (!spoken.words.length) return { error: 'No spoken words under this clip (the dialogue is on the lowest audio track with sound)' };
+    if (opts) spoken = Object.assign({}, spoken, { words: earlyWords(spoken.words, length, opts) });
     const info = await bridgeCall('word_fit_info', { item: String(itemId) }, 8000);
     const kind = info && info.kind;
     if (!kind) return { error: 'This clip\'s preset has no timing slider' };
@@ -465,7 +538,7 @@ async function fitClipToWords(event, itemId) {
 
     if (kind === 'segments') {
         const rows = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
-        const plan = WF.planRows(WF.readingOrder(rows.filter(r => String(r.text || '').trim())).map(r => ({ key: String(r.n), text: r.text })), spoken.words, length);
+        const plan = WF.planRows(WF.readingOrder(rows.filter(r => String(r.text || '').trim())).map(r => ({ key: rowSegKey(r), text: r.text })), spoken.words, length);
         if (!plan || !plan.ranges.length) return { error: 'Could not match the rows\' text to the spoken words' };
         const r = await setClipTiming(event, itemId, plan.ranges, true);
         if (r.error) return r;
@@ -518,7 +591,7 @@ async function clipWordLane(event, itemId) {
     if (info.kind === 'segments') {
         // MultiText: each row's words go inside that row's own range on the bar (rows: [{ key, spoken, words }])
         const got = ((await bridgeCall('mt_rows_get', { item: String(itemId) }, 6000)) || {}).rows || [];
-        const rows = WF.readingOrder(got.filter(r => String(r.text || '').trim())).map(r => ({ key: String(r.n), text: r.text }));
+        const rows = WF.readingOrder(got.filter(r => String(r.text || '').trim())).map(r => ({ key: rowSegKey(r), text: r.text }));
         return { ok: true, itemId: String(itemId), target: 'rows', editable: false, segs: [], rows: WF.rowWordFractions(rows, spoken.words) };
     }
     const out = WF.wordSegsFromInfo(info, spoken.words, length);

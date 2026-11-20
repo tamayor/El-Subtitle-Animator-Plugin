@@ -363,6 +363,7 @@ const TOOLS = {
     },
 
     place: (args) => placeTool(args),        // auto-place.js
+    set_timing: (args) => require('./anim-timing').timingTool(args),
 
     // Consecutive subtitles re-split into phrases by thought, each timed from its own words (see regroup.js).
     async regroup(args) {
@@ -379,8 +380,10 @@ const TOOLS = {
                 const media = await CUTTOOLS.timelineMedia({ startFrame: picked[0].start, endFrame: picked[picked.length - 1].end });
                 const r = await MEDIA.analyseTimeline('pauses', media, { audioTrack: args.audioTrack });
                 const seg = MEDIA.pickSegments('pauses', media, { audioTrack: args.audioTrack })[0];
-                let words = null;
-                if (seg) {
+                // the timeline's own transcription first (frames already), else an older per-file one
+                const tlw = MEDIA.cachedTimelineWords(MEDIA.pickSegments('words', media, { audioTrack: args.audioTrack }), media.from, media.to);
+                let words = tlw ? tlw.map(x => ({ start: x.start, end: x.end })) : null;
+                if (!words && seg) {
                     const m = MEDIA.sourceMapper(seg);
                     const w = MEDIA.cachedWords(seg.file, m.toFile(media.from), m.toFile(media.to));
                     if (w) words = w.map(x => ({ start: m.toFrame(x.start), end: m.toFrame(x.end) }));

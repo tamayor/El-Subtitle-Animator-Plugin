@@ -97,3 +97,33 @@ test('platform layouts keep captions centred', () => {
     }
     assert.equal(LAYOUT.platformLayout('vimeo'), null);
 });
+
+test('cachedTimelineWords: same cut only, most sound around the span', () => {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const MA = env.main('media-analysis');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elsa-tlwords-'));
+    const media = path.join(dir, 'a.mp4');
+    fs.writeFileSync(media, 'x');
+    const seg = (tlStart, tlEnd, src) => ({ file: media, tlStart, tlEnd, srcStartFrame: src, srcEndFrame: src + tlEnd - tlStart, srcFps: 25 });
+    const segs = [seg(0, 40, 100), seg(40, 70, 500), seg(70, 120, 900)];
+    const st = fs.statSync(media);
+    const asPiece = (s) => Object.assign({ size: st.size, mtime: Math.round(st.mtimeMs) }, s);
+    const write = (name, from, to, words, ps) => fs.writeFileSync(path.join(dir, name + '.json'),
+        JSON.stringify({ timeline: true, from, to, toEnd: false, fps: 25, pieces: (ps || segs).map(asPiece), words }));
+    write('tight', 40, 70, [{ w: 'tight', start: 41, end: 50 }]);
+    write('wide', 10, 110, [{ w: 'wide', start: 45, end: 52 }, { w: 'outside', start: 20, end: 30 }]);
+    assert.deepEqual(MA.cachedTimelineWords(segs, 40, 70, { dir }).map(w => w.w), ['wide']);
+    // asking for more context than any run has: none
+    assert.equal(MA.cachedTimelineWords(segs, 40, 70, { dir, minMargin: 50 }), null);
+    // the cut under the span changed (the middle piece now starts elsewhere in the file): the runs no longer count
+    const recut = [segs[0], seg(40, 70, 520), segs[2]];
+    assert.equal(MA.cachedTimelineWords(recut, 40, 70, { dir }), null);
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('guessLanguage: English subtitles are heard as English, other text is left to the engine', () => {
+    const MA = env.main('media-analysis');
+    assert.equal(MA.guessLanguage(['Give me 60 seconds and I will show you how to make so much money', 'that you and your family are set for life.']), 'en');
+    assert.equal(MA.guessLanguage(['Beri saya 60 saat dan saya akan tunjukkan cara membuat wang yang banyak']), null);
+    assert.equal(MA.guessLanguage(['Hi']), null);
+});

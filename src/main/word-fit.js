@@ -216,8 +216,8 @@ function planRows(rows, spoken, length) {
 }
 
 // MultiText rows on the timing card: each row's words as shares of that row's own range, so they ride along when its
-// heads move. rows [{ key, text }] in reading order -> [{ key, spoken, words: [{ label, a, b }] }] (a / b: 0..1 of the
-// row's range). With spoken words, each word sits where it is said within its row's spoken span (the span Fit to
+// heads move. rows [{ key, text }] in reading order -> [{ key, spoken, words: [{ label, a, b, s?, e? }] }] (a / b: 0..1
+// of the row's range; s / e with spoken words: frames from the clip's start where the word is said). With spoken words, each word sits where it is said within its row's spoken span (the span Fit to
 // words gives the row); without them the row's letters are spread evenly (the row's reveal at one even speed).
 function rowWordFractions(rows, spoken) {
     const list = (Array.isArray(rows) ? rows : []).map(r => ({ key: String(r.key), ...textWords(r.text) }));
@@ -235,7 +235,10 @@ function rowWordFractions(rows, spoken) {
                     const a = clamp01((t[n].start - s0) / span);
                     // a word lasts to the next one's start (the row has no gaps of its own), the last one to the end
                     const b = n + 1 < t.length ? clamp01((t[n + 1].start - s0) / span) : 1;
-                    return { label: w.w, a, b: Math.max(a, b), matched: !!t[n].matched };
+                    // s / e: where the word is said, in frames from the clip's start (the lane draws it there, on
+                    // the audio under the clip, wherever the row's own range is)
+                    const s = t[n].start, e = n + 1 < t.length ? t[n + 1].start : Math.max(t[n].end, s + 0.5);
+                    return { label: w.w, a, b: Math.max(a, b), s: r2(s), e: r2(Math.max(s + 0.5, e)), matched: !!t[n].matched };
                 })
             };
         }

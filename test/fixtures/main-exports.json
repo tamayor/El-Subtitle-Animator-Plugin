@@ -8,10 +8,13 @@
     "clipTiming:function",
     "clipWordLane:function",
     "currentFusionClip:function",
+    "earlyWords:function",
     "fitClipToWords:function",
+    "retimeRanges:function",
     "setClipTiming:function",
     "setClipWordTimings:function",
     "spokenWordsFor:function",
+    "timingTool:function",
     "wordTimingStatus:function"
   ],
   "app-version.js": [
@@ -440,6 +443,7 @@
     "asrStatus:function",
     "audioEnvelope:function",
     "beatGrid:function",
+    "cachedTimelineWords:function",
     "cachedWords:function",
     "ensureAsrModel:function",
     "ffmpegBin:function",
@@ -447,6 +451,7 @@
     "findBeats:function",
     "findPauses:function",
     "frameContent:function",
+    "guessLanguage:function",
     "installAsr:function",
     "pausesFromEnvelope:function",
     "pickSegments:function",
@@ -457,6 +462,7 @@
     "snapCuts:function",
     "sourceMapper:function",
     "stopAsr:function",
+    "transcribeTimeline:function",
     "transcribeWords:function"
   ],
   "names.js": [
@@ -505,8 +511,10 @@
     "linkToText:function",
     "moveTitleSafe:function",
     "pickTrack:function",
+    "pickTrimIn:function",
     "placeExtraSfx:function",
     "presetTplState:function",
+    "revealLen:function",
     "sfxCutFor:function",
     "sfxCutFrames:function",
     "trackUsable:function"

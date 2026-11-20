@@ -2104,7 +2104,8 @@ def fit_segments(comp, clip_frames):
                 continue
             # rows without text do not count: an emphasis-only clip keeps its timing when that row alone fits
             mt = multitext_tool(comp)
-            used = [n for n, _, _, _ in segs if not segment_text_empty(mt, n)] or [n for n, _, _, _ in segs]
+            lm = seg_layer_map(mt)
+            used = [n for n, _, _, _ in segs if not segment_text_empty(mt, n, lm)] or [n for n, _, _, _ in segs]
             last = max(num(get_in(tool, "Seg%dEnd" % n), 0) for n in used)
             if last <= top:
                 continue
@@ -2143,7 +2144,8 @@ def lead_single_segment(comp):
         rec = None
     if not (isinstance(rec, dict) and rec.get("n") in rows):
         rec = None
-    filled = [n for n in rows if not segment_text_empty(mt, n)]
+    lm = seg_layer_map(mt)
+    filled = [n for n in rows if not segment_text_empty(mt, n, lm)]
     only = filled[0] if len(filled) == 1 else None
     changed = False
 
@@ -3288,12 +3290,62 @@ def bake_rows(comp, tpl, kind, st):
     return done
 
 
-def segment_text_empty(mt, n):
-    """True when MultiText layer n (segment n's text) holds no text, read through its follower when it has one.
-    Unknown (no MultiText / no such layer) counts as not empty, so its lane still shows."""
+SEG_REF = re.compile(r"Seg(\d+)(?:Start|End)\b")
+
+
+def seg_layer_map(mt):
+    """{segment n: the MultiText layer its Seg<n>Start / Seg<n>End animate}. Not always layer n: "Group Slide Emphasize"
+    reads Seg1 = Upper (Text3), Seg2 = Emphasize (Text1), Seg3 = Lower (Text2). Found from what drives each layer: its
+    Opacity expression, its letter follower's Delay expression, or the follower's keyed specs (ANIM_DATA). Segments
+    with no layer found are left out (callers fall back to layer n)."""
+    out = {}
+    if mt is None:
+        return out
+    for L in range(1, 21):
+        drv = is_driven(mt, "Text%d.StyledText" % L)
+        if drv is None and get_in(mt, "Text%d.StyledText" % L) is None:
+            break
+        found = None
+        exprs = []
+        try:
+            exprs.append(getattr(mt, "Text%d.Opacity1" % L).GetExpression() or "")
+        except Exception:
+            pass
+        if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
+            try:
+                exprs.append(drv.Delay.GetExpression() or "")
+            except Exception:
+                pass
+        for e in exprs:
+            m = SEG_REF.search(e or "")
+            if m:
+                found = int(m.group(1))
+                break
+        if found is None and drv is not None:
+            try:
+                specs = dict(drv.GetData(ANIM_DATA) or {})
+                segs = [int(v.get("seg")) for v in specs.values() if isinstance(v, dict) and v.get("seg")]
+                found = segs[0] if segs else None
+            except Exception:
+                found = None
+        if found is not None and found not in out:
+            out[found] = L
+    return out
+
+
+def seg_layer(mt, n, lm=None):
+    """The MultiText layer segment n animates (seg_layer_map; layer n when unknown)."""
+    lm = seg_layer_map(mt) if lm is None else lm
+    return lm.get(int(n), int(n))
+
+
+def segment_text_empty(mt, n, lm=None):
+    """True when the MultiText layer segment n animates holds no text, read through its follower when it has one.
+    Unknown (no MultiText / no such layer) counts as not empty, so its lane still shows. lm: seg_layer_map(mt)."""
     if mt is None:
         return False
     try:
+        n = seg_layer(mt, n, lm)
         txt = None
         drv = is_driven(mt, "Text%d.StyledText" % n)
         if drv is not None and attrs(drv).get("TOOLS_RegID") in FOLLOWERS:
@@ -3305,11 +3357,12 @@ def segment_text_empty(mt, n):
         return False
 
 
-def segment_name(mt, n, label):
-    """Segment n's lane name: the MultiText layer's own name (Upper / Emphasis / Lower, as in its Text List) when the
-    preset only gave the generic "Text n"."""
+def segment_name(mt, n, label, lm=None):
+    """Segment n's lane name: the name of the MultiText layer it animates (Upper / Emphasis / Lower, as in its Text
+    List) when the preset only gave the generic "Text n"."""
     if mt is None or label != "Text %d" % n:
         return label
+    n = seg_layer(mt, n, lm)
     nm = get_in(mt, "TextName%d" % n)
     return nm.strip() if isinstance(nm, str) and nm.strip() else label
 
@@ -3332,12 +3385,14 @@ def op_mt_rows_get(a):
     if mt is None:
         return {"rows": []}
     rows = []
+    # seg: the Seg<n> range that animates this layer (the timing card's lane key), when the clip has row ranges
+    seg_of = {L: n for n, L in seg_layer_map(mt).items()}
     for n in range(1, 21):
         txt = row_text(mt, n)
         if txt is None:
             break
         nm = get_in(mt, "TextName%d" % n)
-        rows.append({"n": n, "name": nm.strip() if isinstance(nm, str) else "", "text": txt})
+        rows.append({"n": n, "seg": seg_of.get(n), "name": nm.strip() if isinstance(nm, str) else "", "text": txt})
     return {"rows": rows}
 
 
@@ -3388,9 +3443,10 @@ def op_timing_get(a):
         except Exception:
             pass
         mt = multitext_tool(comp)
-        ranges = [{"key": str(n), "label": segment_name(mt, n, label), "start": num(get_in(tool, "Seg%dStart" % n), 0),
+        lm = seg_layer_map(mt)
+        ranges = [{"key": str(n), "label": segment_name(mt, n, label, lm), "start": num(get_in(tool, "Seg%dStart" % n), 0),
                    "end": num(get_in(tool, "Seg%dEnd" % n), 0), "defStart": ds, "defEnd": de, "hasStart": True,
-                   "empty": segment_text_empty(mt, n)}
+                   "empty": segment_text_empty(mt, n, lm), "layer": seg_layer(mt, n, lm)}
                   for n, label, ds, de in segment_list(tool)]
         # only: the one row with text when every other row is empty (then only that row's sound is placed)
         filled = [r["key"] for r in ranges if not r["empty"]]

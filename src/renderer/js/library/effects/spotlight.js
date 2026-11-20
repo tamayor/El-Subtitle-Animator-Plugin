@@ -178,7 +178,15 @@ function fxSpotOptions(e, st, clip) {
     wr.append(check('wordOn', 'Word', 'Off = spotlight only (dimmed room, no word)'), text('word', placed ? '' : 'auto (from the subtitle)'), check('caps', 'CAPS'));
     d.appendChild(wr);
     const fr = document.createElement('div'); fr.className = 'fx-opt-row';
-    fr.append(text('font', 'Font', '58%'), text('style', 'Style', '38%'));
+    const fp = fontStylePicker({
+        font: p.font,
+        style: p.style,
+        defaultFont: (spotUI.info && spotUI.info.defaults && spotUI.info.defaults.font) || 'DM Serif Display',
+        onChange: ({ font, style }) => { p.font = font; p.style = style; send({ font, style }, true); }
+    });
+    fp.font.style.flex = '1'; fp.font.style.minWidth = '0'; fp.font.style.maxWidth = '58%';
+    fp.style.style.flex = '1'; fp.style.style.minWidth = '0'; fp.style.style.maxWidth = '38%';
+    fr.append(fp.font, fp.style);
     d.appendChild(fr);
     const cr = document.createElement('div'); cr.className = 'fx-opt-row';
     cr.append(colour('color', 'Text'), colour('glowColor', 'Glow'));

@@ -50,8 +50,9 @@ function pickStyle(styles, want) {
     return styles[0];
 }
 // The Style box lists what the chosen font really has (the general list when the font is not known).
+// S may be a panel suffix ('U' / 'C') or a <select> element directly.
 function fillStyleSelect(S, font, value) {
-    const sel = $('tdStyle' + S);
+    const sel = (S && typeof S === 'object') ? S : $('tdStyle' + S);
     if (!sel) return value;
     const styles = fontStylesOf(font);
     if (styles && !styles.length) {
@@ -81,7 +82,8 @@ function bindFontPicker(inp) {
     if (!inp || inp._fontPicker) return;
     inp._fontPicker = true;
     let pop = null, items = [], sel = -1, typed = false;
-    const close = () => { if (pop) { pop.remove(); pop = null; } sel = -1; };
+    const onScroll = (e) => { if (pop && e.target !== pop) close(); };
+    const close = () => { if (pop) { pop.remove(); pop = null; window.removeEventListener('scroll', onScroll, true); } sel = -1; };
     const choose = (f) => {
         inp.value = f;
         inp.dispatchEvent(new Event('input', { bubbles: true }));
@@ -130,6 +132,7 @@ function bindFontPicker(inp) {
         if (below < 220 && r.top > below) { pop.style.bottom = (window.innerHeight - r.top + 4) + 'px'; pop.style.maxHeight = Math.min(260, r.top - 12) + 'px'; }
         else { pop.style.top = (r.bottom + 4) + 'px'; pop.style.maxHeight = Math.min(260, below - 12) + 'px'; }
         document.body.appendChild(pop);
+        window.addEventListener('scroll', onScroll, true);
         refresh();
     };
     inp.setAttribute('autocomplete', 'off');
@@ -144,7 +147,48 @@ function bindFontPicker(inp) {
         else if (e.key === 'Enter') { e.preventDefault(); if (sel >= 0 && items[sel]) choose(items[sel]); else { close(); inp.blur(); } }
         else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
     });
-    window.addEventListener('scroll', () => { if (pop) close(); }, true);
+}
+
+// Reusable Font + Style pair (searchable Resolve font picker + style dropdown populated from the font's real styles).
+function fontStylePicker(opts) {
+    const o = opts || {};
+    const dflt = o.defaultFont || 'Poppins';
+    let curFont = o.font || dflt;
+    let curStyle = o.style || 'Regular';
+    const fontInp = document.createElement('input');
+    fontInp.type = 'text';
+    fontInp.value = curFont;
+    fontInp.placeholder = 'Search fonts…';
+    fontInp.autocomplete = 'off';
+    fontInp.spellcheck = false;
+    fontInp.title = 'Click to pick an installed font, or type to filter';
+    const styleSel = document.createElement('select');
+    styleSel.title = 'Style';
+    const syncStyle = () => {
+        const ns = fillStyleSelect(styleSel, curFont, curStyle);
+        if (typeof ns === 'string') curStyle = ns;
+    };
+    syncStyle();
+    bindFontPicker(fontInp);
+    const applyFont = (typedOnly) => {
+        let v = fontInp.value.trim();
+        const known = (state.fonts || []).find(f => f.toLowerCase() === v.toLowerCase());
+        if (typedOnly && !known) return;
+        if (known) v = known;
+        const prevFont = curFont, prevStyle = curStyle;
+        curFont = v || dflt;
+        if (!typedOnly && fontInp.value !== curFont) fontInp.value = curFont;
+        syncStyle();
+        if ((curFont !== prevFont || curStyle !== prevStyle) && o.onChange) o.onChange({ font: curFont, style: curStyle });
+    };
+    fontInp.addEventListener('input', (e) => applyFont(!!(e && e.inputType)));
+    fontInp.addEventListener('change', () => applyFont(false));
+    styleSel.addEventListener('focus', syncStyle);
+    styleSel.addEventListener('change', () => {
+        curStyle = styleSel.value;
+        if (o.onChange) o.onChange({ font: curFont, style: curStyle });
+    });
+    return { font: fontInp, style: styleSel };
 }
 
 function saStyleToCss(style) {
